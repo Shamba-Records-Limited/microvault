@@ -5,11 +5,11 @@ members = [
 ]
 
 [workspace.dependencies]
-soroban-sdk = "23.4.0"
-stellar-tokens = "=0.5.0"
-stellar-access = "=0.5.0"
-stellar-contract-utils = "=0.5.0"
-stellar-macros = "=0.5.0"
+soroban-sdk = "23.4.1"
+stellar-tokens = "=0.6.0"
+stellar-access = "=0.6.0"
+stellar-contract-utils = "=0.6.0"
+stellar-macros = "=0.6.0"
 
 [profile.release]
 opt-level = "z"
