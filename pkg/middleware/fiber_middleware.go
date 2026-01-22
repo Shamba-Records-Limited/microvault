@@ -3,7 +3,7 @@ package middleware
 import (
 	"time"
 
-	"github.com/Shamba-Records-Limited/Microvault/pkg/health"
+	"github.com/Shamba-Records-Limited/microvault/pkg/health"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/favicon"

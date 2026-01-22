@@ -14,8 +14,8 @@ import (
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/stellar/rpc"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/stellar/types"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar/rpc"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar/types"
 )
 
 // RPCClient defines the interface for Stellar RPC operations

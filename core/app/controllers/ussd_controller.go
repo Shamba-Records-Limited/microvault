@@ -3,7 +3,7 @@ package controllers
 import (
 	"log"
 
-	"github.com/Shamba-Records-Limited/Microvault/pkg/mobile/ussd"
+	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	"github.com/gofiber/fiber/v2"
 )
 

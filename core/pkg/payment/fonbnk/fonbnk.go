@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/pkg/payment"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment"
 )
 
 // fonbnkTransport is a custom http.RoundTripper that injects

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/Shamba-Records-Limited/Microvault/platform/cache"
-	"github.com/Shamba-Records-Limited/Microvault/platform/database"
+	"github.com/Shamba-Records-Limited/microvault/platform/cache"
+	"github.com/Shamba-Records-Limited/microvault/platform/database"
 	"github.com/gofiber/fiber/v2"
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 )

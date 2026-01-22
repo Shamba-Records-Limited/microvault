@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Shamba-Records-Limited/Microvault/pkg/mobile/ussd"
+	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 )
 
 // AfricasTalkingUSSDAdapter implements the USSDProvider interface for Africa's Talking.

@@ -3,8 +3,8 @@ package middleware
 import (
 	"time"
 
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/auth"
-	"github.com/Shamba-Records-Limited/Microvault/pkg/config"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/auth"
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/gofiber/fiber/v2"
 )
 

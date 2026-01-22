@@ -7,36 +7,36 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/Shamba-Records-Limited/Microvault/cmd/Microvault/docs"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/pkg/payment"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/pkg/payment/fonbnk"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/pkg/payment/yellowcard"
+	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment/fonbnk"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment/yellowcard"
 
-	// "github.com/Shamba-Records-Limited/Microvault/internal/credit/pkg/notifications"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/app/controllers"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/app/repository"
-	routes "github.com/Shamba-Records-Limited/Microvault/internal/core/pkg/routes"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/account"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/auth"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/stellar"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/user"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/validation"
-	"github.com/Shamba-Records-Limited/Microvault/pkg/config"
-	"github.com/Shamba-Records-Limited/Microvault/pkg/health"
-	"github.com/Shamba-Records-Limited/Microvault/pkg/middleware"
-	"github.com/Shamba-Records-Limited/Microvault/pkg/mobile/sms"
-	smsAfrica "github.com/Shamba-Records-Limited/Microvault/pkg/mobile/sms/providers/africastalking"
-	"github.com/Shamba-Records-Limited/Microvault/pkg/mobile/ussd"
-	ussdadapters "github.com/Shamba-Records-Limited/Microvault/pkg/mobile/ussd/adapters"
-	ussdAfrica "github.com/Shamba-Records-Limited/Microvault/pkg/mobile/ussd/providers/africastalking"
-	"github.com/Shamba-Records-Limited/Microvault/platform/cache"
-	"github.com/Shamba-Records-Limited/Microvault/platform/database"
+	// "github.com/Shamba-Records-Limited/microvault/internal/credit/pkg/notifications"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/app/controllers"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/app/repository"
+	routes "github.com/Shamba-Records-Limited/microvault/internal/core/pkg/routes"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/account"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/auth"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/user"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/validation"
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
+	"github.com/Shamba-Records-Limited/microvault/pkg/health"
+	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
+	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
+	smsAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms/providers/africastalking"
+	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
+	ussdadapters "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
+	ussdAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/providers/africastalking"
+	"github.com/Shamba-Records-Limited/microvault/platform/cache"
+	"github.com/Shamba-Records-Limited/microvault/platform/database"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/swagger"
 	_ "github.com/joho/godotenv/autoload"
 )
 
-// @title MicroVault API
+// @title microvault API
 // @version 1.0
 // @description A headless ERC-4626 tokenized vault engine for microlending built on the stellar network.
 // @termsOfService http://swagger.io/terms/
@@ -252,7 +252,7 @@ func main() {
 
 	// Serve redoc.html at the root route
 	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendFile("./cmd/Microvault/docs/redoc-static.html")
+		return c.SendFile("./cmd/microvault/docs/redoc-static.html")
 	})
 
 	routes.PublicRoutes(app, authController, ussdController) // Register public routes

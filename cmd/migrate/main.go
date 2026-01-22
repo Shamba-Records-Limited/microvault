@@ -6,8 +6,8 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/Shamba-Records-Limited/Microvault/pkg/config"
-	"github.com/Shamba-Records-Limited/Microvault/platform/database"
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
+	"github.com/Shamba-Records-Limited/microvault/platform/database"
 	_ "github.com/joho/godotenv/autoload"
 )
 

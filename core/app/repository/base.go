@@ -1,7 +1,7 @@
 package repository
 
 import (
-	pkgErrors "github.com/Shamba-Records-Limited/Microvault/pkg/errors"
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"gorm.io/gorm"
 )
 

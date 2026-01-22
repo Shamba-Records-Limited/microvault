@@ -7,7 +7,7 @@ import (
 
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/stellar/types"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar/types"
 )
 
 // TransactionGetter is the interface for fetching transaction status

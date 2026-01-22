@@ -11,13 +11,13 @@ import (
 
 var (
 	// Transaction building/signing errors
-	ErrFailedToBuildTransaction      = errors.New("failed to build transaction")
-	ErrFailedToSignTransaction       = errors.New("failed to sign transaction")
-	ErrFailedToSubmitTransaction     = errors.New("failed to submit transaction")
-	ErrFailedToSignWithSponsorKey    = errors.New("failed to sign transaction with sponsor key")
-	ErrFailedToConvertTransaction    = errors.New("failed to convert transaction to XDR format")
-	ErrFailedToLoadAccount           = errors.New("failed to load source account")
-	ErrFailedToConvertCreditAsset    = errors.New("failed to convert credit asset to change trust asset")
+	ErrFailedToBuildTransaction   = errors.New("failed to build transaction")
+	ErrFailedToSignTransaction    = errors.New("failed to sign transaction")
+	ErrFailedToSubmitTransaction  = errors.New("failed to submit transaction")
+	ErrFailedToSignWithSponsorKey = errors.New("failed to sign transaction with sponsor key")
+	ErrFailedToConvertTransaction = errors.New("failed to convert transaction to XDR format")
+	ErrFailedToLoadAccount        = errors.New("failed to load source account")
+	ErrFailedToConvertCreditAsset = errors.New("failed to convert credit asset to change trust asset")
 
 	// Validation errors
 	ErrInvalidStellarAddress     = errors.New("invalid stellar address")
@@ -54,7 +54,7 @@ type ContractError struct {
 	Code    uint32
 	Name    string
 	Message string
-	Source  string // "MicroVault", "FungibleToken", "Vault", "Pausable", "Ownable"
+	Source  string // "microvault", "FungibleToken", "Vault", "Pausable", "Ownable"
 }
 
 func (e *ContractError) Error() string {
@@ -94,31 +94,31 @@ func (e *ContractError) IsPauseError() bool {
 // MapContractError maps a contract error code to a structured ContractError
 func MapContractError(code uint32) *ContractError {
 	switch code {
-	// MicroVaultError (1-12)
+	// microvaultError (1-12)
 	case 1:
-		return &ContractError{code, "Unauthorized", "Caller is not authorized for this operation", "MicroVault"}
+		return &ContractError{code, "Unauthorized", "Caller is not authorized for this operation", "microvault"}
 	case 2:
-		return &ContractError{code, "CannotSweepUnderlyingAsset", "Cannot sweep the underlying asset", "MicroVault"}
+		return &ContractError{code, "CannotSweepUnderlyingAsset", "Cannot sweep the underlying asset", "microvault"}
 	case 3:
-		return &ContractError{code, "InvalidAmount", "Amount must be positive", "MicroVault"}
+		return &ContractError{code, "InvalidAmount", "Amount must be positive", "microvault"}
 	case 4:
-		return &ContractError{code, "ExceedsMaxDeposit", "Deposit exceeds maximum limit", "MicroVault"}
+		return &ContractError{code, "ExceedsMaxDeposit", "Deposit exceeds maximum limit", "microvault"}
 	case 5:
-		return &ContractError{code, "ExceedsMaxWithdraw", "Withdrawal exceeds maximum limit", "MicroVault"}
+		return &ContractError{code, "ExceedsMaxWithdraw", "Withdrawal exceeds maximum limit", "microvault"}
 	case 6:
-		return &ContractError{code, "TreasuryNotSet", "Treasury not set", "MicroVault"}
+		return &ContractError{code, "TreasuryNotSet", "Treasury not set", "microvault"}
 	case 7:
-		return &ContractError{code, "TimelockNotExpired", "Timelock not expired", "MicroVault"}
+		return &ContractError{code, "TimelockNotExpired", "Timelock not expired", "microvault"}
 	case 8:
-		return &ContractError{code, "NoPendingUpdate", "No pending update", "MicroVault"}
+		return &ContractError{code, "NoPendingUpdate", "No pending update", "microvault"}
 	case 9:
-		return &ContractError{code, "ExceedsUtilizationCap", "Borrow would exceed utilization cap", "MicroVault"}
+		return &ContractError{code, "ExceedsUtilizationCap", "Borrow would exceed utilization cap", "microvault"}
 	case 10:
-		return &ContractError{code, "InsufficientLiquidity", "Insufficient liquidity for withdrawal", "MicroVault"}
+		return &ContractError{code, "InsufficientLiquidity", "Insufficient liquidity for withdrawal", "microvault"}
 	case 11:
-		return &ContractError{code, "RepayExceedsDebt", "Repay amount exceeds debt", "MicroVault"}
+		return &ContractError{code, "RepayExceedsDebt", "Repay amount exceeds debt", "microvault"}
 	case 12:
-		return &ContractError{code, "SharesLocked", "Shares are locked and cannot be withdrawn", "MicroVault"}
+		return &ContractError{code, "SharesLocked", "Shares are locked and cannot be withdrawn", "microvault"}
 
 	// FungibleTokenError (100-114)
 	case 100:

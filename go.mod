@@ -1,4 +1,4 @@
-module github.com/Shamba-Records-Limited/Microvault
+module github.com/Shamba-Records-Limited/microvault
 
 go 1.25.5
 

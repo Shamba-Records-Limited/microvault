@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Shamba-Records-Limited/Microvault/pkg/mobile/sms"
+	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
 )
 
 // AfricaTalkingSMSAdapter is an implementation of the SMSProvider interface for Africa's Talking SMS service.

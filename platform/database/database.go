@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Shamba-Records-Limited/Microvault/pkg/config"
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )

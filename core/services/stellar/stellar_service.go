@@ -5,9 +5,9 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/stellar/classic"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/stellar/soroban"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/stellar/types"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar/classic"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar/soroban"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar/types"
 )
 
 // Re-export types from the types package for external consumers

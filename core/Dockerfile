@@ -19,7 +19,7 @@ COPY ./platform ./platform
 COPY ./static ./static
 
 # Copy source code (CORE)
-COPY ./cmd/Microvault ./cmd/Microvault
+COPY ./cmd/microvault ./cmd/microvault
 COPY ./internal/core ./internal/core
 
 # Generate documentation
@@ -30,7 +30,7 @@ RUN swag init && \
 # Build the application
 WORKDIR /build
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
-RUN go build -ldflags="-s -w" -o core ./cmd/Microvault/main.go
+RUN go build -ldflags="-s -w" -o core ./cmd/microvault/main.go
 
 # --- Release stage ---
 FROM alpine:latest AS release

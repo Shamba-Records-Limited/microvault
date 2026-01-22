@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Shamba-Records-Limited/Microvault/pkg/config"
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 )
 

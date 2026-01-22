@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/pkg/payment"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment"
 )
 
 // yellowcardTransport is a custom http.RoundTripper that injects

@@ -6,9 +6,9 @@ import (
 	"log"
 	"slices"
 
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/app/repository"
-	"github.com/Shamba-Records-Limited/Microvault/internal/core/services"
-	"github.com/Shamba-Records-Limited/Microvault/pkg/models"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/app/repository"
+	"github.com/Shamba-Records-Limited/microvault/internal/core/services"
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"gorm.io/gorm"
 )
 
