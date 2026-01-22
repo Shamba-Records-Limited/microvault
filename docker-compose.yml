@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: microvault-postgres
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${DB_USER:?You must provide the 'DB_USER' variable in the .env file}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?You must provide the 'DB_PASSWORD' variable in the .env file}
+      POSTGRES_DB: ${DB_NAME:?You must provide the 'DB_NAME' variable in the .env file}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: microvault-redis
+    env_file: .env
+    command: redis-server --requirepass ${REDIS_PASSWORD:?You must provide the 'REDIS_PASSWORD' variable in the .env file} --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: microvault-migrate
+    working_dir: /app
+    command: go run cmd/migrate/main.go up
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+      - go-mod-cache:/go/pkg/mod
+    restart: "no"
+
+  docs:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: microvault-docs
+    working_dir: /app
+    command: sh -c "sh scripts/generate-core-docs.sh"
+    volumes:
+      - ./:/app
+      - go-mod-cache:/go/pkg/mod
+    restart: "no"
+
+  core-with-air:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command: sh -c "mkdir -p tmp/core && air -c .air-core.toml"
+    ports:
+      - "8080:8080"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      docs:
+        condition: service_completed_successfully
+    volumes:
+      - ./:/app
+      - go-mod-cache:/go/pkg/mod
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:
+  redis_data:
+  go-mod-cache:

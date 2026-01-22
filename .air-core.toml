@@ -1,0 +1,10 @@
+root = "."
+tmp_dir = "tmp/core"
+
+[build]
+  bin = "./tmp/core/main"
+  cmd = "go build -o ./tmp/core/main ./cmd/Microvault/main.go"
+  exclude_dir = ["tmp", "vendor", "credit", "cmd/Microvault/docs"]
+  include_dir = ["core", "cmd/Microvault"]
+  include_ext = ["go"]
+  delay = 1000

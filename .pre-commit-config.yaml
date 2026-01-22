@@ -1,0 +1,44 @@
+repos:
+  # Golang project hooks
+  - repo: https://github.com/TekWizely/pre-commit-golang
+    rev: v1.0.0-rc.4
+    hooks:
+      - id: golangci-lint
+        pass_filenames: false
+        args:
+          - "--fix=false"
+          - "--allow-parallel-runners=true"
+      - id: go-mod-tidy
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+        exclude: '(cmd/.*/docs/.*\.html|cmd/.*/docs/.*\.json|cmd/.*/docs/.*\.yaml|cmd/.*/docs/.*\.go)$'
+      - id: trailing-whitespace
+        exclude: '(cmd/.*/docs/.*\.html|cmd/.*/docs/.*\.json|cmd/.*/docs/.*\.yaml|cmd/.*/docs/.*\.go)$'
+      - id: check-added-large-files
+        exclude: '(cmd/.*/docs/.*\.html|cmd/.*/docs/.*\.json|cmd/.*/docs/.*\.yaml|cmd/.*/docs/.*\.go)$'
+      - id: check-merge-conflict
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+        args: ["--config=.gitleaks.toml"]
+
+  # Web project hooks
+  # - repo: local
+  #   hooks:
+  #     - id: biome-check
+  #       name: Biome check (lint + format)
+  #       entry: bash -c 'cd web && npx @biomejs/biome check --error-on-warnings'
+  #       language: system
+  #       pass_filenames: false
+
+  #     - id: typescript-check
+  #       name: TypeScript type check
+  #       entry: bash -c 'cd web && npx tsc --noEmit'
+  #       language: system
+  #       pass_filenames: false

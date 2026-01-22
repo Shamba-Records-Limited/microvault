@@ -1,0 +1,297 @@
+package main
+
+import (
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	_ "github.com/Shamba-Records-Limited/Microvault/cmd/Microvault/docs"
+	"github.com/Shamba-Records-Limited/Microvault/internal/core/pkg/payment"
+	"github.com/Shamba-Records-Limited/Microvault/internal/core/pkg/payment/fonbnk"
+	"github.com/Shamba-Records-Limited/Microvault/internal/core/pkg/payment/yellowcard"
+
+	// "github.com/Shamba-Records-Limited/Microvault/internal/credit/pkg/notifications"
+	"github.com/Shamba-Records-Limited/Microvault/internal/core/app/controllers"
+	"github.com/Shamba-Records-Limited/Microvault/internal/core/app/repository"
+	routes "github.com/Shamba-Records-Limited/Microvault/internal/core/pkg/routes"
+	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/account"
+	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/auth"
+	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/stellar"
+	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/user"
+	"github.com/Shamba-Records-Limited/Microvault/internal/core/services/validation"
+	"github.com/Shamba-Records-Limited/Microvault/pkg/config"
+	"github.com/Shamba-Records-Limited/Microvault/pkg/health"
+	"github.com/Shamba-Records-Limited/Microvault/pkg/middleware"
+	"github.com/Shamba-Records-Limited/Microvault/pkg/mobile/sms"
+	smsAfrica "github.com/Shamba-Records-Limited/Microvault/pkg/mobile/sms/providers/africastalking"
+	"github.com/Shamba-Records-Limited/Microvault/pkg/mobile/ussd"
+	ussdadapters "github.com/Shamba-Records-Limited/Microvault/pkg/mobile/ussd/adapters"
+	ussdAfrica "github.com/Shamba-Records-Limited/Microvault/pkg/mobile/ussd/providers/africastalking"
+	"github.com/Shamba-Records-Limited/Microvault/platform/cache"
+	"github.com/Shamba-Records-Limited/Microvault/platform/database"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/swagger"
+	_ "github.com/joho/godotenv/autoload"
+)
+
+// @title MicroVault API
+// @version 1.0
+// @description A headless ERC-4626 tokenized vault engine for microlending built on the stellar network.
+// @termsOfService http://swagger.io/terms/
+// @contact.name API Support
+// @contact.email smugane@shambarecords.com
+// @license.name AGPL-3.0
+// @license.url https://www.gnu.org/licenses/agpl-3.0.en.html
+// @host localhost:8080
+// @BasePath /
+func main() {
+	// Load configuration on startup
+	cfg, err := config.New()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// ---- Initialize Validation Service ----
+	// Initialize validation service used universally across controllers
+	validationService := validation.NewValidatorService()
+	log.Println("Validation service initialized")
+
+	// ---- Initialize Platform Services ----
+	// Load database
+	_, err = database.GetConnection("core", &cfg.Postgres)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+
+	log.Println("Database connection successful")
+
+	// Load cache
+	redisClient, err := cache.GetConnection("core", &cfg.Redis)
+	if err != nil {
+		log.Fatalf("Failed to connect to redis: %v", err)
+	}
+
+	log.Println("Redis connection successful")
+
+	// ---- Initialize Authentication Services ----
+	// Initialize challenge store with Redis
+	challengeStore, err := auth.NewRedisStore(redisClient, "microvault:auth")
+	if err != nil {
+		log.Fatalf("Failed to initialize challenge store: %v", err)
+	}
+
+	// Initialize challenge service
+	challengeService, err := auth.NewChallengeService(&cfg.Auth, &cfg.Stellar, challengeStore)
+	if err != nil {
+		log.Fatalf("Failed to initialize challenge service: %v", err)
+	}
+
+	// Initialize JWT service
+	jwtService := auth.NewJWTService(&cfg.Auth)
+
+	// Initialize auth controller
+	authController := controllers.NewAuthController(challengeService, jwtService, cfg.Stellar.AdminPublicKey, validationService)
+
+	// ---- Initialize Stellar Related Services ----
+	// Initialize stellar client
+	stellarClient := cfg.Stellar.NewRpcClient()
+	log.Println("Stellar RPC Client initialized.")
+
+	// Close stellar client
+	defer func() {
+		log.Println("Closing Stellar client...")
+		if err := stellarClient.Close(); err != nil {
+			log.Printf("Error closing Stellar client: %v", err)
+		}
+	}()
+
+	// Initialize Stellar service with both classic and Soroban support
+	stellarService := stellar.NewService(
+		stellarClient,
+		cfg.Stellar.NetworkPassphrase,
+		cfg.Stellar.TreasurySecretKey,
+		cfg.Stellar.AdminSecretKey,
+		cfg.Stellar.ContractID,
+		cfg.Stellar.USDCIssuer,
+	)
+	log.Println("Stellar service initialized")
+
+	// ---- Initialize payments service ----
+	// Initialize providers
+	fonbnkProvider := fonbnk.NewFonbnkAdapter(
+		cfg.Payments.Fonbnk.ClientID,
+		cfg.Payments.Fonbnk.ClientSecret,
+		cfg.Payments.Fonbnk.BaseURL,
+	)
+
+	yellowCardProvider := yellowcard.NewYellowcardAdapter(
+		cfg.Payments.YellowCard.APIKey,
+		cfg.Payments.YellowCard.APISecret,
+		cfg.Payments.YellowCard.BaseURL,
+	)
+
+	// Register providers
+	paymentService := payment.NewService()
+
+	paymentService.RegisterProvider("yellowcard", yellowCardProvider)
+	paymentService.RegisterProvider("fonbnk", fonbnkProvider)
+
+	// ---- Initialize Repositories ----
+	db, err := database.GetConnection("core", &cfg.Postgres)
+	if err != nil {
+		log.Fatalf("Failed to get database connection for repositories: %v", err)
+	}
+
+	repos, err := repository.NewRepositories(db)
+	if err != nil {
+		log.Fatalf("Failed to initialize repositories: %v", err)
+	}
+	log.Println("Repositories initialized successfully")
+
+	// ---- Initialize Core Services ----
+	// User and Account services
+	userService := user.NewService(repos.User)
+	accountService := account.NewService(repos.Account, repos.User)
+	log.Println("User and Account services initialized")
+
+	// ---- Initialize Mobile Providers ----
+	// Initialize USSD providers
+	timeout := time.Duration(3 * time.Minute)
+	sessionMgr := ussd.NewSessionManager(redisClient, timeout)
+	menuRegistry := ussd.NewMenuRegistry()
+	preset := ussd.NewStandardLoanMenuPreset()
+	preset.Initialize(menuRegistry)
+
+	// Get database connection for USSD adapter
+	db, err = database.GetConnection("core", &cfg.Postgres)
+	if err != nil {
+		log.Fatalf("Failed to get database connection for USSD adapter: %v", err)
+	}
+
+	// Create USSD User Service Adapter with Stellar service integration
+	userServiceAdapter, err := ussdadapters.NewUserServiceAdapter(
+		userService,
+		accountService,
+		stellarService,
+		db,
+		cfg.Stellar.TreasurySecretKey,
+		cfg.Stellar.USDCIssuer,
+		cfg.Stellar.EnableMultiSig,
+		uint32(cfg.Stellar.MultiSigLowThreshold),
+		uint32(cfg.Stellar.MultiSigMediumThreshold),
+		uint32(cfg.Stellar.MultiSigHighThreshold),
+	)
+	if err != nil {
+		log.Fatalf("Failed to initialize USSD user service adapter: %v", err)
+	}
+	log.Println("USSD user service adapter initialized")
+
+	// Initialize USSD handler with real services
+	// Note: loanService is nil for now - will be implemented later
+	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil)
+	ussdService := ussd.NewUSSDService(handler)
+
+	// Register USSD providers
+	AfricasTalkingUSSDProvider := ussdAfrica.NewAfricasTalkingUSSDAdapter(
+		cfg.Mobile.AfricasTalking.Username,
+		cfg.Mobile.AfricasTalking.APIKey,
+	)
+	ussdService.RegisterProvider("africastalking", AfricasTalkingUSSDProvider)
+
+	// Initialize USSD controller
+	ussdController := controllers.NewUSSDController(ussdService)
+
+	// Initialize SMS providers
+	AfricasTalkingSMSProvider := smsAfrica.NewAfricasTalkingSMSAdapter(
+		cfg.Mobile.AfricasTalking.Username,
+		cfg.Mobile.AfricasTalking.APIKey,
+		cfg.Mobile.AfricasTalking.BaseURL,
+	)
+
+	// Register SMS providers
+	smsService := sms.NewSMSService()
+	smsService.RegisterProvider("africastalking", AfricasTalkingSMSProvider)
+
+	// ---- Initialize Notification Service ----
+	// Initialize notification service with SMS service
+	// notificationService := notifications.NewSMSNotificationService(
+	// 	smsService,
+	// 	"africastalking", // default provider
+	// 	cfg.Mobile.AfricasTalking.Shortcode,
+	// )
+	// log.Println("Notification service initialized")
+
+	// Inject dependencies to consumer(s)
+	// disbursementService := disbursement.NewService(paymentService, smsService, ussdService, notificationService)
+
+	// Inject service to handler
+	// disbursementHandler := handlers.NewDisbursementHandler(disbursementService)
+
+	// ---- Initialize Application ----
+	// Create a new fiber app
+	app := fiber.New()
+
+	// Initialize health checker middleware
+	healthCheck := health.NewChecker(stellarClient, "core", "core")
+
+	// Initialize middleware & pass health checker middleware
+	middleware.FiberMiddleware(app, healthCheck)
+
+	// Define swagger routes
+	app.Get("/swagger/*", swagger.New(swagger.Config{
+		DeepLinking:  false,
+		DocExpansion: "list",
+		OAuth: &swagger.OAuthConfig{
+			AppName:  "OAuth Provider",
+			ClientId: "21bb4edc-05a7-4afc-86f1-2e151e4ba6e2",
+		},
+		OAuth2RedirectUrl: "http://localhost:8080/swagger/oauth2-redirect.html",
+	}))
+
+	// Serve redoc.html at the root route
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.SendFile("./cmd/Microvault/docs/redoc-static.html")
+	})
+
+	routes.PublicRoutes(app, authController, ussdController) // Register public routes
+
+	// Create a channel to listen for OS signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Run the server in a separate goroutine
+	go func() {
+		log.Printf("Starting core server on %s", cfg.Server.CoreAddr())
+		if err := app.Listen(cfg.Server.CoreAddr()); err != nil {
+			log.Printf("Server Listen error: %v", err)
+		}
+	}()
+
+	// Block main goroutine until a signal is received
+	sig := <-sigChan
+	log.Printf("Received signal %s. Shutting down gracefully...", sig)
+
+	// Tell Fiber to shut down
+	if err := app.Shutdown(); err != nil {
+		log.Printf("Fiber shutdown error: %v", err)
+	}
+	log.Println("Fiber server shut down.")
+
+	// Close database connections
+	if err := database.CloseAll(); err != nil {
+		log.Printf("Database shutdown error: %v", err)
+	} else {
+		log.Println("Database connections closed successfully.")
+	}
+
+	// Close cache connections
+	if err := cache.CloseAll(); err != nil {
+		log.Printf("Cache shutdown error: %v", err)
+	} else {
+		log.Println("Cache connections closed successfully.")
+	}
+
+	log.Println("Core application shutdown complete.")
+}

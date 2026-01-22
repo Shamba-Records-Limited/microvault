@@ -1,0 +1,229 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "A headless ERC-4626 tokenized vault engine for microlending built on the stellar network.",
+        "title": "MicroVault API",
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "API Support",
+            "email": "smugane@shambarecords.com"
+        },
+        "license": {
+            "name": "AGPL-3.0",
+            "url": "https://www.gnu.org/licenses/agpl-3.0.en.html"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/api/v1/auth/challenge": {
+            "get": {
+                "description": "Generate a Stellar transaction challenge for authentication",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Get Authentication Challenge",
+                "responses": {
+                    "200": {
+                        "description": "Challenge generated successfully",
+                        "schema": {
+                            "$ref": "#/definitions/internal_core_app_controllers.ChallengeResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to generate challenge",
+                        "schema": {
+                            "$ref": "#/definitions/middleware.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/verify": {
+            "post": {
+                "description": "Verify a signed Stellar transaction challenge and receive a JWT token",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Verify Challenge",
+                "parameters": [
+                    {
+                        "description": "Signed challenge verification",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_core_app_controllers.VerifyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Challenge verified successfully",
+                        "schema": {
+                            "$ref": "#/definitions/internal_core_app_controllers.VerifyResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body or transaction",
+                        "schema": {
+                            "$ref": "#/definitions/middleware.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "Challenge verification failed",
+                        "schema": {
+                            "$ref": "#/definitions/middleware.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Challenge not found",
+                        "schema": {
+                            "$ref": "#/definitions/middleware.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to generate token",
+                        "schema": {
+                            "$ref": "#/definitions/middleware.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/mobile/ussd-callback": {
+            "post": {
+                "description": "Handle USSD callback requests from the USSD gateway",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "USSD"
+                ],
+                "summary": "USSD Callback Handler",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionId",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "User's phone number",
+                        "name": "phoneNumber",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "User input text",
+                        "name": "text",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "USSD service code",
+                        "name": "serviceCode",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Network code",
+                        "name": "networkCode",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "USSD response (CON/END)",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to process USSD request",
+                        "schema": {
+                            "$ref": "#/definitions/middleware.Response"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "internal_core_app_controllers.ChallengeResponse": {
+            "type": "object",
+            "properties": {
+                "challenge_id": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "integer"
+                },
+                "transaction": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_core_app_controllers.VerifyRequest": {
+            "type": "object",
+            "required": [
+                "challenge_id",
+                "signed_transaction"
+            ],
+            "properties": {
+                "challenge_id": {
+                    "type": "string"
+                },
+                "signed_transaction": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_core_app_controllers.VerifyResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "integer"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "middleware.Response": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {},
+                "message": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

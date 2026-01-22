@@ -1,0 +1,154 @@
+basePath: /
+definitions:
+  internal_core_app_controllers.ChallengeResponse:
+    properties:
+      challenge_id:
+        type: string
+      expires_at:
+        type: integer
+      transaction:
+        type: string
+    type: object
+  internal_core_app_controllers.VerifyRequest:
+    properties:
+      challenge_id:
+        type: string
+      signed_transaction:
+        type: string
+    required:
+    - challenge_id
+    - signed_transaction
+    type: object
+  internal_core_app_controllers.VerifyResponse:
+    properties:
+      expires_at:
+        type: integer
+      token:
+        type: string
+    type: object
+  middleware.Response:
+    properties:
+      code:
+        type: integer
+      data: {}
+      message:
+        type: string
+      status:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: smugane@shambarecords.com
+    name: API Support
+  description: A headless ERC-4626 tokenized vault engine for microlending built on
+    the stellar network.
+  license:
+    name: AGPL-3.0
+    url: https://www.gnu.org/licenses/agpl-3.0.en.html
+  termsOfService: http://swagger.io/terms/
+  title: MicroVault API
+  version: "1.0"
+paths:
+  /api/v1/auth/challenge:
+    get:
+      consumes:
+      - application/json
+      description: Generate a Stellar transaction challenge for authentication
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Challenge generated successfully
+          schema:
+            $ref: '#/definitions/internal_core_app_controllers.ChallengeResponse'
+        "500":
+          description: Failed to generate challenge
+          schema:
+            $ref: '#/definitions/middleware.Response'
+      summary: Get Authentication Challenge
+      tags:
+      - Authentication
+  /api/v1/auth/verify:
+    post:
+      consumes:
+      - application/json
+      description: Verify a signed Stellar transaction challenge and receive a JWT
+        token
+      parameters:
+      - description: Signed challenge verification
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_core_app_controllers.VerifyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Challenge verified successfully
+          schema:
+            $ref: '#/definitions/internal_core_app_controllers.VerifyResponse'
+        "400":
+          description: Invalid request body or transaction
+          schema:
+            $ref: '#/definitions/middleware.Response'
+        "401":
+          description: Challenge verification failed
+          schema:
+            $ref: '#/definitions/middleware.Response'
+        "404":
+          description: Challenge not found
+          schema:
+            $ref: '#/definitions/middleware.Response'
+        "500":
+          description: Failed to generate token
+          schema:
+            $ref: '#/definitions/middleware.Response'
+      summary: Verify Challenge
+      tags:
+      - Authentication
+  /api/v1/mobile/ussd-callback:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Handle USSD callback requests from the USSD gateway
+      parameters:
+      - description: Session ID
+        in: formData
+        name: sessionId
+        required: true
+        type: string
+      - description: User's phone number
+        in: formData
+        name: phoneNumber
+        required: true
+        type: string
+      - description: User input text
+        in: formData
+        name: text
+        type: string
+      - description: USSD service code
+        in: formData
+        name: serviceCode
+        required: true
+        type: string
+      - description: Network code
+        in: formData
+        name: networkCode
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: USSD response (CON/END)
+          schema:
+            type: string
+        "500":
+          description: Failed to process USSD request
+          schema:
+            $ref: '#/definitions/middleware.Response'
+      summary: USSD Callback Handler
+      tags:
+      - USSD
+swagger: "2.0"

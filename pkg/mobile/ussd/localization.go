@@ -1,0 +1,149 @@
+package ussd
+
+import "fmt"
+
+// NewInMemoryLocalizer creates a new in-memory localizer
+func NewInMemoryLocalizer(defaultLang string) *InMemoryLocalizer {
+	return &InMemoryLocalizer{
+		translations: make(map[string]map[string]string),
+		defaultLang:  defaultLang,
+	}
+}
+
+// Get retrieves a localized message
+func (l *InMemoryLocalizer) Get(language, key string) string {
+	if translations, ok := l.translations[key]; ok {
+		if msg, ok := translations[language]; ok {
+			return msg
+		}
+		// Fallback to default language
+		if msg, ok := translations[l.defaultLang]; ok {
+			return msg
+		}
+	}
+	// Return key if not found
+	return key
+}
+
+// GetWithDefault retrieves a localized message with a default fallback
+func (l *InMemoryLocalizer) GetWithDefault(language, key, defaultMsg string) string {
+	if msg := l.Get(language, key); msg != key {
+		return msg
+	}
+	return defaultMsg
+}
+
+// HasKey checks if a key exists
+func (l *InMemoryLocalizer) HasKey(key string) bool {
+	_, ok := l.translations[key]
+	return ok
+}
+
+// AddTranslation adds a translation
+func (l *InMemoryLocalizer) AddTranslation(key, language, message string) {
+	if l.translations[key] == nil {
+		l.translations[key] = make(map[string]string)
+	}
+	l.translations[key][language] = message
+}
+
+// LoadStandardTranslations loads standard translations
+func (l *InMemoryLocalizer) LoadStandardTranslations() {
+	translations := map[string]map[string]string{
+		"welcome": {
+			"en": "Welcome to MicroVaulr!",
+			"sw": "Karibu MicroVaulr!",
+			"fr": "Bienvenue à MicroVaulr!",
+		},
+		"goodbye": {
+			"en": "Thank you for using MicroVaulr",
+			"sw": "Asante kwa kutumia MicroVaulr",
+			"fr": "Merci d'utiliser MicroVaulr",
+		},
+		"error": {
+			"en": "An error occurred. Please try again.",
+			"sw": "Kosa limetokea. Tafadhali jaribu tena.",
+			"fr": "Une erreur s'est produite. Veuillez réessayer.",
+		},
+		"invalid_input": {
+			"en": "Invalid input. Please try again.",
+			"sw": "Ingizo batili. Tafadhali jaribu tena.",
+			"fr": "Entrée invalide. Veuillez réessayer.",
+		},
+		"session_expired": {
+			"en": "Your session has expired. Please dial again.",
+			"sw": "Kipindi chako kimeisha. Tafadhali piga tena.",
+			"fr": "Votre session a expiré. Veuillez composer à nouveau.",
+		},
+		"registration_success": {
+			"en": "Registration successful! You can now request loans.",
+			"sw": "Usajili umefanikiwa! Sasa unaweza kuomba mikopo.",
+			"fr": "Inscription réussie! Vous pouvez maintenant demander des prêts.",
+		},
+		"loan_request_submitted": {
+			"en": "Loan request submitted successfully. You will receive an SMS confirmation.",
+			"sw": "Ombi la mkopo limewasilishwa. Utapokea ujumbe wa SMS.",
+			"fr": "Demande de prêt soumise avec succès. Vous recevrez un SMS de confirmation.",
+		},
+		"insufficient_credit": {
+			"en": "Your credit score is too low for this loan amount.",
+			"sw": "Alama yako ya mkopo ni chini sana kwa kiasi hiki.",
+			"fr": "Votre score de crédit est trop bas pour ce montant.",
+		},
+		"balance": {
+			"en": "Your balance:",
+			"sw": "Salio lako:",
+			"fr": "Votre solde:",
+		},
+		"no_active_loans": {
+			"en": "You have no active loans to repay",
+			"sw": "Huna mikopo ya kulipa",
+			"fr": "Vous n'avez pas de prêts actifs à rembourser",
+		},
+		"no_loans": {
+			"en": "You have no loans",
+			"sw": "Huna mikopo",
+			"fr": "Vous n'avez pas de prêts",
+		},
+	}
+
+	for key, langs := range translations {
+		for lang, msg := range langs {
+			l.AddTranslation(key, lang, msg)
+		}
+	}
+}
+
+// NewTranslationBuilder creates a new translation builder
+func NewTranslationBuilder(localizer *InMemoryLocalizer) *TranslationBuilder {
+	return &TranslationBuilder{
+		localizer: localizer,
+	}
+}
+
+// Add adds a translation with multiple languages
+func (tb *TranslationBuilder) Add(key string, translations map[string]string) *TranslationBuilder {
+	for lang, msg := range translations {
+		tb.localizer.AddTranslation(key, lang, msg)
+	}
+	return tb
+}
+
+// Build returns the localizer
+func (tb *TranslationBuilder) Build() *InMemoryLocalizer {
+	return tb.localizer
+}
+
+// GetLocalizedMessage is a helper function for backward compatibility
+func GetLocalizedMessage(language, key string) string {
+	// Create a default localizer
+	localizer := NewInMemoryLocalizer("en")
+	localizer.LoadStandardTranslations()
+	return localizer.Get(language, key)
+}
+
+// Format provides string formatting with localization
+func Format(language, key string, args ...interface{}) string {
+	message := GetLocalizedMessage(language, key)
+	return fmt.Sprintf(message, args...)
+}

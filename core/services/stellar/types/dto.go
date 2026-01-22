@@ -1,0 +1,84 @@
+package types
+
+import (
+	"github.com/stellar/go-stellar-sdk/keypair"
+)
+
+// ============================================================================
+// Classic DTOs
+// ============================================================================
+
+// CreateAccountRequest represents a request to create an child account from a master/root account (treasury account)
+type CreateAccountRequest struct {
+	ChildKeypair    *keypair.Full
+	StartingBalance string // 0
+	EnableMultiSig  bool
+	MultiSigConfig  *MultiSigConfig
+}
+
+// MultiSigConfig represents the multisignature configuration for the child account created from the master/root account
+type MultiSigConfig struct {
+	TreasurySigner string // Set to 1
+	TreasuryWeight uint32 // Set to 1
+	ChildWeight    uint32 // Set to 0 (Only master/treasury can sign)
+	LowThreshold   uint32 // Set to 1
+	MedThreshold   uint32 // Set to 1
+	HighThreshold  uint32 // Set to 1
+}
+
+// SponsoredPaymentTransactionRequest represents a request to perform a classic sponsored payment transaction
+// used for use cases such as off-ramping USDC from child account to off-ramp account
+type SponsoredPaymentTransactionRequest struct {
+	Destination string
+	Amount      int64
+	Source      string
+	AssetCode   string
+	AssetIssuer string
+}
+
+// SponsoredPaymentTransactionResponse represents a response from a SponsoredPaymentTransactionRequest
+type SponsoredPaymentTransactionResponse struct {
+	TxHash string
+	Ledger int64
+	Status string
+}
+
+// ============================================================================
+// Soroban Vault DTOs
+// ============================================================================
+
+// BorrowRequest represents a request to borrow funds from the vault
+type BorrowRequest struct {
+	RecipientAddress string // Child account to receive funds
+	Amount           int64  // Amount in smallest unit (stroops)
+}
+
+// BorrowResponse represents the result of a borrow operation
+type BorrowResponse struct {
+	TxHash           string
+	AmountBorrowed   int64
+	RecipientAddress string
+}
+
+// RepayRequest represents a request to repay borrowed funds
+type RepayRequest struct {
+	Amount int64 // Amount to repay in smallest unit (stroops)
+}
+
+// RepayResponse represents the result of a repay operation
+type RepayResponse struct {
+	TxHash       string
+	AmountRepaid int64
+}
+
+// VaultStatus represents the current state of the vault
+type VaultStatus struct {
+	TreasuryAddress    string
+	TotalBorrowed      int64
+	AvailableLiquidity int64
+	TotalManagedAssets int64 // Available + Borrowed (used for share calculations)
+	UtilizationRate    int64 // Basis points (e.g., 8000 = 80%)
+	BorrowAPR          int64 // Basis points
+	LockPeriodSeconds  uint64
+	IsPaused           bool
+}
