@@ -1,4 +1,4 @@
-// Package adapters provides service adapters for USSD integrations.
+// Package adapters provides service adapters for USSD integrations for different use services i.e user functionality, loan disbursement.
 package adapters
 
 import (
