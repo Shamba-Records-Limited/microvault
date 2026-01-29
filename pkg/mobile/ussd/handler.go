@@ -24,15 +24,15 @@ func NewUSSDHandler(
 }
 
 // HandleRequest handles a USSD request
-func (h *USSDHandler) HandleRequest(ctx context.Context, sessionID, phoneNumber, input string) (string, error) {
+func (h *USSDHandler) HandleRequest(ctx context.Context, sessionID, phoneNumber, serviceCode, networkCode, input string) (string, error) {
 	// Get or create session
-	session, err := h.sessionManager.GetOrCreateSession(ctx, sessionID, phoneNumber)
+	session, err := h.sessionManager.GetOrCreateSession(ctx, sessionID, phoneNumber, serviceCode, networkCode)
 	if err != nil {
 		return h.formatError("en", "session_expired"), nil
 	}
 
-	log.Printf("USSD Session - ID: %s, Phone: %s, CurrentMenu: %s, Input: %q",
-		sessionID, phoneNumber, session.CurrentMenu, input)
+	log.Printf("USSD Session - ID: %s, ServiceCode%s, NetworkCode: %s, Phone: %s, CurrentMenu: %s, Input: %q",
+		sessionID, serviceCode, networkCode, phoneNumber, session.CurrentMenu, input)
 
 	// Handle empty input (first request)
 	if input == "" {
@@ -222,6 +222,7 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 	// Register user
 	user, _, err := h.userService.RegisterUser(ctx, &RegisterUserRequest{
 		MobileNumber:      session.PhoneNumber,
+		NetworkCode:       session.NetworkCode,
 		FullName:          fullName,
 		NationalID:        input,
 		PreferredLanguage: session.Language,

@@ -118,6 +118,8 @@ type YellowCardConfig struct {
 	APISecret     string
 	BaseURL       string
 	WebhookSecret string
+	BusinessID    string // Registered business ID with YellowCard
+	BusinessName  string // Registered business name with YellowCard
 }
 
 // FonbnkConfig holds all Fonbnk-related configuration
@@ -240,6 +242,16 @@ func New() (*Config, error) {
 	ycWebhookSecret := os.Getenv("YELLOWCARD_WEBHOOK_SECRET")
 	if ycWebhookSecret == "" {
 		ycWebhookSecret = ycAPISecret
+	}
+
+	ycBusinessID := os.Getenv("YELLOWCARD_BUSINESS_ID")
+	if ycBusinessID == "" {
+		ycBusinessID = "microvault"
+	}
+
+	ycBusinessName := os.Getenv("YELLOWCARD_BUSINESS_NAME")
+	if ycBusinessName == "" {
+		ycBusinessName = "MicroVault Finance"
 	}
 
 	fonbnkBaseURL := os.Getenv("FONBNK_BASE_URL")
@@ -366,6 +378,8 @@ func New() (*Config, error) {
 				APISecret:     ycAPISecret,
 				BaseURL:       ycBaseURL,
 				WebhookSecret: ycWebhookSecret,
+				BusinessID:    ycBusinessID,
+				BusinessName:  ycBusinessName,
 			},
 			Fonbnk: FonbnkConfig{
 				ClientID:     fonbnkClientID,

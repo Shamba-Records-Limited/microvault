@@ -11,7 +11,11 @@ import (
 type User struct {
 	ID                string     `json:"id" gorm:"type:uuid;primaryKey"`
 	MobileNumber      string     `json:"mobile_number" gorm:"type:varchar(20);uniqueIndex;not null"`
-	MobileCountryCode string     `json:"mobile_country_code" gorm:"type:varchar(5);not null;default:'254'"`
+	CountryCode       string     `json:"country_code" gorm:"type:varchar(5);not null;default:'KE'"`
+	MobileNetworkCode string     `json:"mobile_network_code" gorm:"type:varchar(6);not null;default:'99999'"`
+	MomoNetworkCode   string     `json:"momo_network_code" gorm:"type:varchar(20);not null;default:'SANDBOX'"`
+	MomoNetworkName   string     `json:"momo_network_name" gorm:"type:varchar(20);not null;default:'Sandbox Network'"`
+	TelcoName         string     `json:"telco_name" gorm:"type:varchar(20);not null;default:'Athena'"`
 	FullName          *string    `json:"full_name,omitempty" gorm:"type:varchar(255)"`
 	NationalID        *string    `json:"national_id,omitempty" gorm:"type:varchar(50);uniqueIndex"`
 	KYCStatus         string     `json:"kyc_status" gorm:"type:varchar(20);not null;default:'pending'"`

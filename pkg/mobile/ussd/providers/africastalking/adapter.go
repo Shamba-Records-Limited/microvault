@@ -27,6 +27,8 @@ var _ ussd.USSDProvider = (*AfricasTalkingUSSDAdapter)(nil)
 
 // ParseRequest parses Africa's Talking USSD request parameters.
 // Africa's Talking sends: sessionId, serviceCode, phoneNumber, text, networkCode
+// Note: The "text" field accumulates all user inputs separated by "*"
+// e.g., "input1*input2*input3" - we extract only the last segment as current input
 func (a *AfricasTalkingUSSDAdapter) ParseRequest(ctx context.Context, data map[string]string) (*ussd.USSDRequest, error) {
 	sessionID := data["sessionId"]
 	if sessionID == "" {
@@ -41,10 +43,19 @@ func (a *AfricasTalkingUSSDAdapter) ParseRequest(ctx context.Context, data map[s
 	// Normalize phone number - remove leading +
 	phoneNumber = strings.TrimPrefix(phoneNumber, "+")
 
+	// Extract only the last input from accumulated text
+	// Africa's Talking accumulates inputs as "input1*input2*input3"
+	text := data["text"]
+	currentInput := ""
+	if text != "" {
+		parts := strings.Split(text, "*")
+		currentInput = parts[len(parts)-1] // Get only the last segment
+	}
+
 	return &ussd.USSDRequest{
 		SessionID:    sessionID,
 		PhoneNumber:  phoneNumber,
-		Input:        data["text"],
+		Input:        currentInput,
 		ServiceCode:  data["serviceCode"],
 		NetworkCode:  data["networkCode"],
 		ProviderData: data,

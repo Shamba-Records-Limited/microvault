@@ -78,6 +78,8 @@ func (s *USSDService) HandleRequest(ctx context.Context, providerName string, da
 		ctx,
 		ussdReq.SessionID,
 		ussdReq.PhoneNumber,
+		ussdReq.ServiceCode,
+		ussdReq.NetworkCode,
 		ussdReq.Input,
 	)
 	if err != nil {

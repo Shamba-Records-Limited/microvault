@@ -3,8 +3,8 @@ tmp_dir = "tmp/core"
 
 [build]
   bin = "./tmp/core/main"
-  cmd = "go build -o ./tmp/core/main ./cmd/Microvault/main.go"
-  exclude_dir = ["tmp", "vendor", "credit", "cmd/Microvault/docs"]
-  include_dir = ["core", "cmd/Microvault"]
+  cmd = "go build -o ./tmp/core/main ./cmd/microvault/main.go"
+  exclude_dir = ["tmp", "vendor", "credit", "cmd/microvault/docs", ".git"]
+  include_dir = ["cmd/microvault", "internal", "pkg", "platform"]
   include_ext = ["go"]
   delay = 1000

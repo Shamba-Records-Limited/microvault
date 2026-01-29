@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/account"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar"
@@ -22,20 +23,27 @@ const (
 	coinIndex    = 148 + 0x80000000 // 148' (hardened) - Stellar
 )
 
+// WalletConfig contains configuration for HD wallet derivation and Stellar account creation
+type WalletConfig struct {
+	MasterKey          *bip32.Key
+	TreasuryPrivateKey string
+	TreasuryPublicKey  string
+	USDCIssuer         string
+	EnableMultiSig     bool
+	LowThreshold       uint32
+	MediumThreshold    uint32
+	HighThreshold      uint32
+}
+
 // UserServiceAdapter adapts the user and account services to implement the USSD UserService interface
 type UserServiceAdapter struct {
-	userService        user.Service
-	accountService     account.Service
-	stellarService     stellar.Service
-	db                 *gorm.DB
-	masterKey          *bip32.Key
-	treasuryPrivateKey string
-	treasuryPublicKey  string
-	usdcIssuer         string
-	enableMultiSig     bool
-	lowThreshold       uint32
-	mediumThreshold    uint32
-	highThreshold      uint32
+	userService    user.Service
+	accountService account.Service
+	stellarService stellar.Service
+	networkMapper  *ussd.NetworkMapper
+	logger         *slog.Logger
+	db             *gorm.DB
+	walletConfig   WalletConfig
 }
 
 // NewUserServiceAdapter creates a new user service adapter
@@ -44,15 +52,10 @@ func NewUserServiceAdapter(
 	accountService account.Service,
 	stellarService stellar.Service,
 	db *gorm.DB,
-	treasuryPrivateKey string,
-	usdcIssuer string,
-	enableMultiSig bool,
-	lowThreshold uint32,
-	mediumThreshold uint32,
-	highThreshold uint32,
+	walletCfg WalletConfig,
 ) (*UserServiceAdapter, error) {
 	// Parse the treasury private key
-	treasuryKP := keypair.MustParseFull(treasuryPrivateKey)
+	treasuryKP := keypair.MustParseFull(walletCfg.TreasuryPrivateKey)
 
 	// Get the raw seed (32 bytes) from the Stellar keypair
 	// We'll use this as the master seed for BIP32 derivation
@@ -66,16 +69,16 @@ func NewUserServiceAdapter(
 		return nil, fmt.Errorf("failed to create master key: %w", err)
 	}
 
+	// Set derived values
+	walletCfg.MasterKey = masterKey
+	walletCfg.TreasuryPublicKey = treasuryKP.Address()
+
 	return &UserServiceAdapter{
-		userService:        userService,
-		accountService:     accountService,
-		stellarService:     stellarService,
-		db:                 db,
-		masterKey:          masterKey,
-		treasuryPrivateKey: treasuryPrivateKey,
-		treasuryPublicKey:  treasuryKP.Address(),
-		usdcIssuer:         usdcIssuer,
-		enableMultiSig:     enableMultiSig,
+		userService:    userService,
+		accountService: accountService,
+		stellarService: stellarService,
+		db:             db,
+		walletConfig:   walletCfg,
 	}, nil
 }
 
@@ -107,7 +110,13 @@ func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPh
 	userMap := map[string]interface{}{
 		"id":                  userResp.ID,
 		"mobile_number":       userResp.MobileNumber,
-		"mobile_country_code": userResp.MobileCountryCode,
+		"country_code":        userResp.CountryCode,
+		"mobile_network_code": userResp.MobileNetworkCode,
+		"momo_network_code":   userResp.MomoNetworkCode,
+		"momo_network_name":   userResp.MomoNetworkName,
+		"telco_name":          userResp.TelcoName,
+		"full_name":           userResp.FullName,
+		"national_id":         userResp.NationalID,
 		"kyc_status":          userResp.KYCStatus,
 		"status":              userResp.Status,
 		"role":                userResp.Role,
@@ -116,13 +125,6 @@ func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPh
 		"updated_at":          userResp.UpdatedAt,
 	}
 
-	// Add optional fields if present
-	if userResp.FullName != nil {
-		userMap["full_name"] = *userResp.FullName
-	}
-	if userResp.NationalID != nil {
-		userMap["national_id"] = *userResp.NationalID
-	}
 	if userResp.KYCVerifiedAt != nil {
 		userMap["kyc_verified_at"] = *userResp.KYCVerifiedAt
 	}
@@ -151,22 +153,50 @@ func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPh
 
 // RegisterUser registers a new user and auto-creates a Stellar account
 func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.RegisterUserRequest) (interface{}, []interface{}, error) {
-	// Convert USSD RegisterUserRequest to user service CreateUserRequest
-	fullName := req.FullName
-	nationalID := req.NationalID
+	// 1. Map Africa's Talking network code to MoMo network info
+	var momoNetworkCode, momoNetworkName, telcoName string
+	var countryCode string
 
-	createReq := user.CreateUserRequest{
-		MobileNumber:      req.MobileNumber,
-		MobileCountryCode: req.MobileCountryCode,
-		FullName:          &fullName,
-		NationalID:        &nationalID,
-		PreferredLanguage: req.PreferredLanguage,
-		Role:              "user",
+	if req.NetworkCode != "" && a.networkMapper != nil {
+		networkInfo, err := a.networkMapper.MapMobileNetworkCode(req.NetworkCode)
+		if err != nil {
+			if a.logger != nil {
+				a.logger.Warn("failed to map mobile network code",
+					slog.String("mobile_network_code", req.NetworkCode),
+					slog.String("error", err.Error()),
+				)
+			} else {
+				log.Printf("failed to map mobile network code %s: %v", req.NetworkCode, err)
+			}
+		} else {
+			momoNetworkCode = networkInfo.MomoNetworkCode
+			momoNetworkName = networkInfo.MomoNetworkName
+			telcoName = networkInfo.TelcoName
+			countryCode = networkInfo.Country
+
+			if a.logger != nil {
+				a.logger.Info("mapped mobile network code",
+					slog.String("at_network_code", req.NetworkCode),
+					slog.String("momo_network_code", networkInfo.MomoNetworkCode),
+					slog.String("momo_network_name", networkInfo.MomoNetworkName),
+					slog.String("country", networkInfo.Country),
+				)
+			}
+		}
 	}
 
-	// Set default country code if not provided
-	if createReq.MobileCountryCode == "" {
-		createReq.MobileCountryCode = "254" // Default to Kenya
+	// 2. Convert USSD RegisterUserRequest to user service CreateUserRequest
+	createReq := user.CreateUserRequest{
+		MobileNumber:      req.MobileNumber,
+		CountryCode:       countryCode,
+		MobileNetworkCode: req.NetworkCode,
+		MomoNetworkCode:   momoNetworkCode,
+		MomoNetworkName:   momoNetworkName,
+		TelcoName:         telcoName,
+		FullName:          req.FullName,
+		NationalID:        req.NationalID,
+		PreferredLanguage: req.PreferredLanguage,
+		Role:              "user",
 	}
 
 	// Set default language if not provided
@@ -174,7 +204,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 		createReq.PreferredLanguage = "en"
 	}
 
-	// BEGIN DATABASE TRANSACTION - Ensure atomic user + account creation
+	// 3. BEGIN DATABASE TRANSACTION - Ensure atomic user + account creation
 	tx := a.db.Begin()
 	if tx.Error != nil {
 		return nil, nil, fmt.Errorf("failed to begin transaction: %w", tx.Error)
@@ -207,7 +237,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	log.Printf("Assigned global account index %d for user %s", accountIndex, userResp.ID)
 
 	// Derive child keypair using BIP44
-	childKP, err := a.deriveChildKeypair(accountIndex)
+	childKP, err := a.deriveChildKeypair(accountIndex + 4) // Remove incremented index (used for testing)
 	if err != nil {
 		tx.Rollback()
 		log.Printf("Failed to derive child keypair: %v", err)
@@ -219,18 +249,18 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	stellarReq := stellar.CreateAccountRequest{
 		ChildKeypair:    childKP,
 		StartingBalance: "0", // Fully sponsored
-		EnableMultiSig:  a.enableMultiSig,
+		EnableMultiSig:  a.walletConfig.EnableMultiSig,
 	}
 
 	// Configure multi-sig if enabled
-	if a.enableMultiSig {
+	if a.walletConfig.EnableMultiSig {
 		stellarReq.MultiSigConfig = &stellar.MultiSigConfig{
-			TreasurySigner: a.treasuryPublicKey,
+			TreasurySigner: a.walletConfig.TreasuryPublicKey,
 			TreasuryWeight: 1,
 			ChildWeight:    0,
-			LowThreshold:   a.lowThreshold,
-			MedThreshold:   a.mediumThreshold,
-			HighThreshold:  a.highThreshold,
+			LowThreshold:   a.walletConfig.LowThreshold,
+			MedThreshold:   a.walletConfig.MediumThreshold,
+			HighThreshold:  a.walletConfig.HighThreshold,
 		}
 	}
 
@@ -267,21 +297,19 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	userMap := map[string]interface{}{
 		"id":                  userResp.ID,
 		"mobile_number":       userResp.MobileNumber,
-		"mobile_country_code": userResp.MobileCountryCode,
+		"country_code":        userResp.CountryCode,
+		"mobile_network_code": userResp.MobileNetworkCode,
+		"momo_network_code":   userResp.MomoNetworkCode,
+		"momo_network_name":   userResp.MomoNetworkName,
+		"telco_name":          userResp.TelcoName,
+		"full_name":           userResp.FullName,
+		"national_id":         userResp.NationalID,
 		"kyc_status":          userResp.KYCStatus,
 		"status":              userResp.Status,
 		"role":                userResp.Role,
 		"preferred_language":  userResp.PreferredLanguage,
 		"created_at":          userResp.CreatedAt,
 		"updated_at":          userResp.UpdatedAt,
-	}
-
-	// Add optional fields if present
-	if userResp.FullName != nil {
-		userMap["full_name"] = *userResp.FullName
-	}
-	if userResp.NationalID != nil {
-		userMap["national_id"] = *userResp.NationalID
 	}
 
 	// Convert account to map
@@ -304,7 +332,7 @@ func (a *UserServiceAdapter) deriveChildKeypair(accountIndex int) (*keypair.Full
 	// All indices are hardened (') for security
 
 	// Derive: m/44'
-	purpose, err := a.masterKey.NewChildKey(purposeIndex)
+	purpose, err := a.walletConfig.MasterKey.NewChildKey(purposeIndex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive purpose: %w", err)
 	}

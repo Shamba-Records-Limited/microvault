@@ -138,6 +138,32 @@ func main() {
 	paymentService.RegisterProvider("yellowcard", yellowCardProvider)
 	paymentService.RegisterProvider("fonbnk", fonbnkProvider)
 
+	// ---- Initialize YellowCard OffRamp Service (for loan disbursement) ----
+	// This service handles Mobile Money disbursements via YellowCard
+	// Uncomment when ready to integrate with loan disbursement flow
+	//
+	// yellowCardOffRampAdapter := ussdadapters.NewYellowCardOffRampAdapter(
+	// 	ussdadapters.YellowCardOffRampConfig{
+	// 		Adapter:      yellowCardProvider,
+	// 		BusinessID:   cfg.Payments.YellowCard.BusinessID,
+	// 		BusinessName: cfg.Payments.YellowCard.BusinessName,
+	// 	},
+	// )
+	// log.Println("YellowCard OffRamp adapter initialized")
+	//
+	// Usage in loan disbursement:
+	// result, err := yellowCardOffRampAdapter.InitiateOffRamp(ctx, ussdadapters.OffRampRequest{
+	// 	LoanID:           loan.ID,
+	// 	UserID:           user.ID,
+	// 	RecipientName:    user.FullName,
+	// 	AmountUSD:        loan.Amount,
+	// 	DestinationPhone: user.MobileNumber,
+	// 	CountryCode:      user.CountryCode,
+	// 	NetworkCode:      user.MomoNetworkCode,
+	// 	NetworkName:      user.MomoNetworkName,
+	// 	IdempotencyKey:   fmt.Sprintf("loan_%s", loan.ID),
+	// })
+
 	// ---- Initialize Repositories ----
 	db, err := database.GetConnection("core", &cfg.Postgres)
 	if err != nil {
@@ -176,12 +202,14 @@ func main() {
 		accountService,
 		stellarService,
 		db,
-		cfg.Stellar.TreasurySecretKey,
-		cfg.Stellar.USDCIssuer,
-		cfg.Stellar.EnableMultiSig,
-		uint32(cfg.Stellar.MultiSigLowThreshold),
-		uint32(cfg.Stellar.MultiSigMediumThreshold),
-		uint32(cfg.Stellar.MultiSigHighThreshold),
+		ussdadapters.WalletConfig{
+			TreasuryPrivateKey: cfg.Stellar.TreasurySecretKey,
+			USDCIssuer:         cfg.Stellar.USDCIssuer,
+			EnableMultiSig:     cfg.Stellar.EnableMultiSig,
+			LowThreshold:       uint32(cfg.Stellar.MultiSigLowThreshold),
+			MediumThreshold:    uint32(cfg.Stellar.MultiSigMediumThreshold),
+			HighThreshold:      uint32(cfg.Stellar.MultiSigHighThreshold),
+		},
 	)
 	if err != nil {
 		log.Fatalf("Failed to initialize USSD user service adapter: %v", err)

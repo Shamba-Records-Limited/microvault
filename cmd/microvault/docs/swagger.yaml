@@ -47,7 +47,7 @@ info:
     name: AGPL-3.0
     url: https://www.gnu.org/licenses/agpl-3.0.en.html
   termsOfService: http://swagger.io/terms/
-  title: MicroVault API
+  title: microvault API
   version: "1.0"
 paths:
   /api/v1/auth/challenge:

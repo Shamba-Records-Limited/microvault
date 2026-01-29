@@ -4,12 +4,16 @@ import "time"
 
 // CreateUserRequest represents the request to create a new user
 type CreateUserRequest struct {
-	MobileNumber      string  `json:"mobile_number" validate:"required"`
-	MobileCountryCode string  `json:"mobile_country_code" validate:"required"`
-	FullName          *string `json:"full_name,omitempty"`
-	NationalID        *string `json:"national_id,omitempty"`
-	PreferredLanguage string  `json:"preferred_language,omitempty"`
-	Role              string  `json:"role,omitempty"` // For admin creating users with specific roles
+	MobileNumber      string `json:"mobile_number" validate:"required"`
+	CountryCode       string `json:"country_code"`
+	MobileNetworkCode string `json:"mobile_network_code"`
+	MomoNetworkCode   string `json:"momo_network_code"`
+	MomoNetworkName   string `json:"momo_network_name,omitempty"`
+	TelcoName         string `json:"telco_name,omitempty"`
+	FullName          string `json:"full_name"`
+	NationalID        string `json:"national_id"`
+	PreferredLanguage string `json:"preferred_language,omitempty"`
+	Role              string `json:"role,omitempty"` // For admin creating users with specific roles
 }
 
 // UpdateUserRequest represents the request to update user information
@@ -38,9 +42,13 @@ type UpdateUserRoleRequest struct {
 type UserResponse struct {
 	ID                string     `json:"id"`
 	MobileNumber      string     `json:"mobile_number"`
-	MobileCountryCode string     `json:"mobile_country_code"`
-	FullName          *string    `json:"full_name,omitempty"`
-	NationalID        *string    `json:"national_id,omitempty"`
+	CountryCode       string     `json:"country_code"`
+	MobileNetworkCode string     `json:"mobile_network_code"`
+	MomoNetworkCode   string     `json:"momo_network_code"`
+	MomoNetworkName   string     `json:"momo_network_name,omitempty"`
+	TelcoName         string     `json:"telco_name,omitempty"`
+	FullName          string     `json:"full_name,omitempty"`
+	NationalID        string     `json:"national_id,omitempty"`
 	KYCStatus         string     `json:"kyc_status"`
 	KYCVerifiedAt     *time.Time `json:"kyc_verified_at,omitempty"`
 	PreferredLanguage string     `json:"preferred_language"`

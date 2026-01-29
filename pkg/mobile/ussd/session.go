@@ -47,12 +47,14 @@ func (sm *SessionManager) GetSession(ctx context.Context, sessionID string) (*Se
 }
 
 // CreateSession creates a new USSD session
-func (sm *SessionManager) CreateSession(ctx context.Context, sessionID, phoneNumber string) (*Session, error) {
+func (sm *SessionManager) CreateSession(ctx context.Context, sessionID, phoneNumber, serviceCode, networkCode string) (*Session, error) {
 	log.Printf("CreateSession - Creating new session for SessionID: %s, Phone: %s", sessionID, phoneNumber)
 
 	session := &Session{
 		SessionID:     sessionID,
 		PhoneNumber:   phoneNumber,
+		ServiceCode:   serviceCode,
+		NetworkCode:   networkCode,
 		CurrentMenu:   "main",
 		PreviousMenus: []string{},
 		Language:      "en",
@@ -178,11 +180,11 @@ func (sm *SessionManager) sessionKey(sessionID string) string {
 }
 
 // GetOrCreateSession gets an existing session or creates a new one
-func (sm *SessionManager) GetOrCreateSession(ctx context.Context, sessionID, phoneNumber string) (*Session, error) {
+func (sm *SessionManager) GetOrCreateSession(ctx context.Context, sessionID, phoneNumber, serviceCode, networkCode string) (*Session, error) {
 	session, err := sm.GetSession(ctx, sessionID)
 	if err != nil {
 		// Session doesn't exist, create new one
-		return sm.CreateSession(ctx, sessionID, phoneNumber)
+		return sm.CreateSession(ctx, sessionID, phoneNumber, serviceCode, networkCode)
 	}
 
 	// Extend existing session

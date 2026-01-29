@@ -53,6 +53,7 @@ func (ctrl *USSDController) HandleCallback(c *fiber.Ctx) error {
 	data["serviceCode"] = c.FormValue("serviceCode")
 	data["networkCode"] = c.FormValue("networkCode")
 
+	log.Printf("Request from AT: %v", data)
 	// Process the request using the USSD service with the africastalking provider
 	response, err := ctrl.ussdService.HandleRequest(c.Context(), "africastalking", data)
 	log.Println("USSD request processed:", response)

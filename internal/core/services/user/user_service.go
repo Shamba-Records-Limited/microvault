@@ -113,8 +113,8 @@ func (s *service) Create(ctx context.Context, req CreateUserRequest) (*UserRespo
 	}
 
 	// Check national ID uniqueness if provided
-	if req.NationalID != nil && *req.NationalID != "" {
-		_, err = s.repo.GetByNationalID(ctx, *req.NationalID)
+	if req.NationalID != "" {
+		_, err = s.repo.GetByNationalID(ctx, req.NationalID)
 		if err == nil {
 			return nil, ErrNationalIDAlreadyExists
 		}
@@ -125,8 +125,8 @@ func (s *service) Create(ctx context.Context, req CreateUserRequest) (*UserRespo
 	}
 
 	// Set defaults
-	if req.MobileCountryCode == "" {
-		req.MobileCountryCode = "254" // Default to Kenya
+	if req.CountryCode == "" {
+		req.CountryCode = "KE" // Default to Kenya
 	}
 	if req.PreferredLanguage == "" {
 		req.PreferredLanguage = "en"
@@ -138,13 +138,23 @@ func (s *service) Create(ctx context.Context, req CreateUserRequest) (*UserRespo
 	// Create user model
 	user := &models.User{
 		MobileNumber:      req.MobileNumber,
-		MobileCountryCode: req.MobileCountryCode,
-		FullName:          req.FullName,
-		NationalID:        req.NationalID,
+		CountryCode:       req.CountryCode,
+		MobileNetworkCode: req.MobileNetworkCode,
+		MomoNetworkCode:   req.MomoNetworkCode,
+		MomoNetworkName:   req.MomoNetworkName,
+		TelcoName:         req.TelcoName,
 		PreferredLanguage: req.PreferredLanguage,
 		Role:              req.Role,
 		KYCStatus:         "pending",
 		Status:            "active",
+	}
+
+	// Set optional pointer fields
+	if req.FullName != "" {
+		user.FullName = &req.FullName
+	}
+	if req.NationalID != "" {
+		user.NationalID = &req.NationalID
 	}
 
 	// Create user in database
@@ -164,13 +174,23 @@ func (s *service) CreateWithTx(ctx context.Context, tx *gorm.DB, req CreateUserR
 
 	user := &models.User{
 		MobileNumber:      req.MobileNumber,
-		MobileCountryCode: req.MobileCountryCode,
-		FullName:          req.FullName,
-		NationalID:        req.NationalID,
+		CountryCode:       req.CountryCode,
+		MobileNetworkCode: req.MobileNetworkCode,
+		MomoNetworkCode:   req.MomoNetworkCode,
+		MomoNetworkName:   req.MomoNetworkName,
+		TelcoName:         req.TelcoName,
 		PreferredLanguage: req.PreferredLanguage,
 		Role:              req.Role,
 		KYCStatus:         "pending",
 		Status:            "active",
+	}
+
+	// Set optional pointer fields
+	if req.FullName != "" {
+		user.FullName = &req.FullName
+	}
+	if req.NationalID != "" {
+		user.NationalID = &req.NationalID
 	}
 
 	if err := s.repo.CreateWithTx(ctx, tx, user); err != nil {
@@ -694,12 +714,14 @@ func (s *service) isValidStatusTransition(from, to string) bool {
 
 // toUserResponse converts a user model to response DTO
 func toUserResponse(user *models.User) *UserResponse {
-	return &UserResponse{
+	resp := &UserResponse{
 		ID:                user.ID,
 		MobileNumber:      user.MobileNumber,
-		MobileCountryCode: user.MobileCountryCode,
-		FullName:          user.FullName,
-		NationalID:        user.NationalID,
+		CountryCode:       user.CountryCode,
+		MobileNetworkCode: user.MobileNetworkCode,
+		MomoNetworkCode:   user.MomoNetworkCode,
+		MomoNetworkName:   user.MomoNetworkName,
+		TelcoName:         user.TelcoName,
 		KYCStatus:         user.KYCStatus,
 		KYCVerifiedAt:     user.KYCVerifiedAt,
 		PreferredLanguage: user.PreferredLanguage,
@@ -708,4 +730,14 @@ func toUserResponse(user *models.User) *UserResponse {
 		CreatedAt:         user.CreatedAt,
 		UpdatedAt:         user.UpdatedAt,
 	}
+
+	// Handle optional pointer fields
+	if user.FullName != nil {
+		resp.FullName = *user.FullName
+	}
+	if user.NationalID != nil {
+		resp.NationalID = *user.NationalID
+	}
+
+	return resp
 }

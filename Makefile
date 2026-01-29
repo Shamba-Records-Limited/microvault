@@ -50,7 +50,7 @@ build: build-core build-migrate
 
 build-core:
 	@echo "Building core application..."
-	@go build -o bin/microvault cmd/Microvault/main.go
+	@go build -o bin/microvault cmd/microvault/main.go
 	@echo "Build complete: bin/microvault"
 
 build-migrate:
@@ -60,7 +60,7 @@ build-migrate:
 
 # Run commands
 run:
-	@go run cmd/Microvault/main.go
+	@go run cmd/microvault/main.go
 
 # Test commands
 test:
@@ -71,11 +71,11 @@ test:
 docs:
 	@echo "Generating core API documentation..."
 	@sh scripts/generate-core-docs.sh
-	@echo "Core docs generated: cmd/Microvault/docs/"
+	@echo "Core docs generated: cmd/microvault/docs/"
 
 # Clean command
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf bin/
-	@rm -rf cmd/Microvault/docs/
+	@rm -rf cmd/microvault/docs/
 	@echo "Clean complete"

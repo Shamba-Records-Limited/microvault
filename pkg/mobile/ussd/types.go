@@ -15,6 +15,8 @@ import (
 type Session struct {
 	SessionID     string                 `json:"session_id"`
 	PhoneNumber   string                 `json:"phone_number"`
+	ServiceCode   string                 `json:"service_code"`
+	NetworkCode   string                 `json:"network_code"`
 	UserID        string                 `json:"user_id,omitempty"`
 	CurrentMenu   string                 `json:"current_menu"`
 	PreviousMenus []string               `json:"previous_menus"`
@@ -160,6 +162,7 @@ type LoanService interface {
 type RegisterUserRequest struct {
 	MobileNumber      string
 	MobileCountryCode string
+	NetworkCode       string
 	FullName          string
 	NationalID        string
 	PreferredLanguage string
