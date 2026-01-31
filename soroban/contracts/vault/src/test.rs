@@ -30,8 +30,10 @@ fn setup_vault<'a>(
     StellarAssetClient<'a>,
     Address,
     Address,
+    Address,
 ) {
     let owner = Address::generate(env);
+    let guardian = Address::generate(env);
     let treasury = Address::generate(env);
     let (asset_address, token_client, token_admin) = create_token_contract(env, &owner);
 
@@ -40,6 +42,7 @@ fn setup_vault<'a>(
         MicroVaultContract,
         (
             &owner,
+            &guardian,
             &asset_address,
             &treasury,
             String::from_str(env, "MicroVault USDC Shares"),
@@ -55,6 +58,7 @@ fn setup_vault<'a>(
         token_admin,
         owner,
         treasury,
+        guardian,
     )
 }
 
@@ -69,8 +73,10 @@ fn setup_vault_with_user<'a>(
     Address,
     Address,
     Address,
+    Address,
 ) {
-    let (client, asset_address, token_client, token_admin, owner, treasury) = setup_vault(env);
+    let (client, asset_address, token_client, token_admin, owner, treasury, guardian) =
+        setup_vault(env);
 
     let user = Address::generate(env);
     env.mock_all_auths();
@@ -83,6 +89,7 @@ fn setup_vault_with_user<'a>(
         token_admin,
         owner,
         treasury,
+        guardian,
         user,
     )
 }
@@ -96,7 +103,7 @@ fn test_initialization() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, asset_address, _token_client, _token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, asset_address, _token_client, _token_admin, _owner, treasury, _guardian) = setup_vault(&env);
 
     assert_eq!(client.query_asset(), asset_address);
     assert_eq!(client.treasury(), treasury);
@@ -113,7 +120,7 @@ fn test_deposit() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     let deposit_amount = 1_000_000i128;
@@ -136,7 +143,7 @@ fn test_deposit_exceeds_max_limit() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, _token_client, token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 0);
 
     // Mint more than default max deposit (1M USDC)
@@ -156,7 +163,7 @@ fn test_withdraw() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Deposit first
@@ -177,7 +184,7 @@ fn test_redeem() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Deposit
@@ -200,7 +207,7 @@ fn test_pause_and_unpause() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, owner, _treasury, user) =
+    let (client, _asset_address, _token_client, _token_admin, owner, _treasury, guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Pause
@@ -221,73 +228,21 @@ fn test_pause_and_unpause() {
 }
 
 // ============================================================================
-// Treasury Timelock Tests
+// Treasury Management Tests
 // ============================================================================
 
 #[test]
-fn test_treasury_update_with_timelock() {
+fn test_set_treasury() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) = setup_vault(&env);
 
     let new_treasury = Address::generate(&env);
 
-    // Propose update
-    client.propose_treasury_update(&treasury, &new_treasury);
-
-    // Try to execute immediately - should fail
-    let result = client.try_execute_treasury_update();
-    assert_eq!(result, Err(Ok(MicroVaultError::TimelockNotExpired)));
-
-    // Advance time past timelock (2 days = 172800 seconds)
-    env.ledger().set(LedgerInfo {
-        timestamp: 172801,
-        protocol_version: 23,
-        sequence_number: 100,
-        network_id: Default::default(),
-        base_reserve: 10,
-        min_temp_entry_ttl: 1000,
-        min_persistent_entry_ttl: 1000,
-        max_entry_ttl: 10000,
-    });
-
-    // Execute after timelock
-    client.execute_treasury_update();
+    // Owner can set treasury
+    client.set_treasury(&new_treasury);
     assert_eq!(client.treasury(), new_treasury);
-}
-
-#[test]
-fn test_treasury_update_unauthorized() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury) =
-        setup_vault(&env);
-
-    let attacker = Address::generate(&env);
-    let new_treasury = Address::generate(&env);
-
-    let result = client.try_propose_treasury_update(&attacker, &new_treasury);
-    assert_eq!(result, Err(Ok(MicroVaultError::Unauthorized)));
-}
-
-#[test]
-fn test_cancel_treasury_update() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (client, _asset_address, _token_client, _token_admin, _owner, treasury) = setup_vault(&env);
-
-    let new_treasury = Address::generate(&env);
-
-    // Propose and cancel
-    client.propose_treasury_update(&treasury, &new_treasury);
-    client.cancel_treasury_update(&treasury);
-
-    // Should fail - no pending update
-    let result = client.try_execute_treasury_update();
-    assert_eq!(result, Err(Ok(MicroVaultError::NoPendingUpdate)));
 }
 
 // ============================================================================
@@ -299,7 +254,7 @@ fn test_set_max_deposit() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
         setup_vault(&env);
 
     let new_limit = 500_000_000_000i128;
@@ -314,7 +269,7 @@ fn test_set_max_withdraw() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
         setup_vault(&env);
 
     let new_limit = 100_000_000_000i128;
@@ -332,7 +287,7 @@ fn test_sweep_foreign_asset() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, _token_admin, _owner, treasury, _guardian) = setup_vault(&env);
 
     // Create a foreign token (e.g., USDT)
     let foreign_admin = Address::generate(&env);
@@ -360,7 +315,7 @@ fn test_sweep_underlying_asset_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, asset_address, _token_client, token_admin, _owner, treasury, _guardian) = setup_vault(&env);
 
     // Try to sweep the underlying asset
     let vault_address = client.address.clone();
@@ -378,7 +333,7 @@ fn test_sweep_unauthorized() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
         setup_vault(&env);
 
     // Create foreign token
@@ -407,7 +362,7 @@ fn test_sweep_invalid_amount() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, _token_admin, _owner, treasury, _guardian) = setup_vault(&env);
 
     // Create foreign token
     let foreign_admin = Address::generate(&env);
@@ -439,7 +394,7 @@ fn test_multiple_depositors() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, _treasury, user_a) =
+    let (client, _asset_address, _token_client, token_admin, _owner, _treasury, _guardian, user_a) =
         setup_vault_with_user(&env, 10_000_000);
 
     // User A deposits 1M
@@ -466,7 +421,7 @@ fn test_preview_functions() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
         setup_vault(&env);
 
     let assets = 1_000_000i128;
@@ -488,7 +443,7 @@ fn test_operator_deposit() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, asset_address, token_client, token_admin, _owner, _treasury) = setup_vault(&env);
+    let (client, asset_address, token_client, token_admin, _owner, _treasury, _guardian) = setup_vault(&env);
 
     let user = Address::generate(&env);
     let operator = Address::generate(&env);
@@ -518,7 +473,7 @@ fn test_full_vault_lifecycle() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, token_admin, owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, token_client, token_admin, owner, _treasury, _guardian) = setup_vault(&env);
 
     // 1. User deposits
     let user = Address::generate(&env);
@@ -541,23 +496,9 @@ fn test_full_vault_lifecycle() {
     client.unpause(&owner);
     assert!(!client.paused());
 
-    // 5. Propose treasury update
+    // 5. Update treasury via owner-gated set_treasury
     let new_treasury = Address::generate(&env);
-    client.propose_treasury_update(&treasury, &new_treasury);
-
-    // 6. Advance time and execute
-    env.ledger().set(LedgerInfo {
-        timestamp: 172801,
-        protocol_version: 23,
-        sequence_number: 100,
-        network_id: Default::default(),
-        base_reserve: 10,
-        min_temp_entry_ttl: 1000,
-        min_persistent_entry_ttl: 1000,
-        max_entry_ttl: 10000,
-    });
-
-    client.execute_treasury_update();
+    client.set_treasury(&new_treasury);
     assert_eq!(client.treasury(), new_treasury);
 
     // 7. User redeems remaining shares
@@ -577,7 +518,7 @@ fn test_credit_delegation_initial_state() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
         setup_vault(&env);
 
     // Initial state should have zero borrowed
@@ -591,7 +532,7 @@ fn test_borrow_success() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, token_client, token_admin, _owner, treasury, _guardian) = setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -620,7 +561,7 @@ fn test_borrow_to_multiple_recipients() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, token_client, token_admin, _owner, treasury, _guardian) = setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -646,7 +587,7 @@ fn test_borrow_exceeds_utilization_cap() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) = setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -665,7 +606,7 @@ fn test_borrow_at_max_utilization() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, token_client, token_admin, _owner, treasury, _guardian) = setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);

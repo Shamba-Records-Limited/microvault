@@ -1,6 +1,16 @@
-// MicroVault ERC-4626 Vault Implementation
-// Built on OpenZeppelin Stellar Contracts Library
-// Implements SEP-56 Tokenized Vault Standard for USDC lending pool
+//! MicroVault ERC-4626 Vault
+//!
+//! SEP-56 / ERC-4626 tokenized vault for USDC credit delegation on Stellar,
+//! built on the OpenZeppelin Stellar Contracts library. Depositors receive
+//! share tokens representing their pro-rata claim on vault assets including
+//! accrued interest.
+//!
+//! Built on the OpenZeppelin Stellar Contracts library:
+//! <https://docs.openzeppelin.com/stellar-contracts>
+//!
+//! # Author
+//!
+//! Samuel Mugane <smugane@shambarecords.com>
 
 #![no_std]
 
@@ -17,54 +27,23 @@ use stellar_tokens::{
     vault::{FungibleVault, Vault},
 };
 
-// ============================================================================
-// Custom Errors
-// ============================================================================
-
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum MicroVaultError {
-    /// Caller is not authorized for this operation
     Unauthorized = 1,
-    /// Cannot sweep the underlying asset
     CannotSweepUnderlyingAsset = 2,
-    /// Amount must be positive
     InvalidAmount = 3,
-    /// Deposit exceeds maximum limit
     ExceedsMaxDeposit = 4,
-    /// Withdrawal exceeds maximum limit
     ExceedsMaxWithdraw = 5,
-    /// Treasury not set
     TreasuryNotSet = 6,
-    /// Timelock not expired
-    TimelockNotExpired = 7,
-    /// No pending update
-    NoPendingUpdate = 8,
-    /// Borrow would exceed utilization cap
     ExceedsUtilizationCap = 9,
-    /// Insufficient liquidity for withdrawal
     InsufficientLiquidity = 10,
-    /// Repay amount exceeds debt
     RepayExceedsDebt = 11,
-    /// Shares are locked and cannot be withdrawn
     SharesLocked = 12,
 }
 
-// ============================================================================
-// Custom Events
-// ============================================================================
-
-/// Emitted when a treasury update is proposed
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TreasuryUpdateProposed {
-    pub current_treasury: Address,
-    pub proposed_treasury: Address,
-    pub execute_time: u64,
-}
-
-/// Emitted when a treasury update is executed
+/// Emitted when the treasury address is changed.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TreasuryUpdated {
@@ -72,14 +51,7 @@ pub struct TreasuryUpdated {
     pub new_treasury: Address,
 }
 
-/// Emitted when a treasury update is cancelled
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TreasuryUpdateCancelled {
-    pub treasury: Address,
-}
-
-/// Emitted when foreign assets are swept from the contract
+/// Emitted when foreign assets are recovered from the contract.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ForeignAssetSwept {
@@ -88,7 +60,7 @@ pub struct ForeignAssetSwept {
     pub amount: i128,
 }
 
-/// Emitted when the max deposit limit is updated
+/// Emitted when the maximum deposit limit is changed.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MaxDepositUpdated {
@@ -96,7 +68,7 @@ pub struct MaxDepositUpdated {
     pub new_limit: i128,
 }
 
-/// Emitted when the max withdraw limit is updated
+/// Emitted when the maximum withdrawal limit is changed.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MaxWithdrawUpdated {
@@ -104,21 +76,29 @@ pub struct MaxWithdrawUpdated {
     pub new_limit: i128,
 }
 
-/// Emitted when the vault is paused
+/// Emitted when the vault is paused by the owner or guardian.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VaultPaused {
     pub by: Address,
 }
 
-/// Emitted when the vault is unpaused
+/// Emitted when the vault is unpaused by the owner.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VaultUnpaused {
     pub by: Address,
 }
 
-/// Emitted when treasury borrows from the vault
+/// Emitted when the guardian address is changed.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GuardianUpdated {
+    pub old_guardian: Address,
+    pub new_guardian: Address,
+}
+
+/// Emitted when the treasury borrows from the vault.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Borrowed {
@@ -128,7 +108,7 @@ pub struct Borrowed {
     pub total_borrowed: i128,
 }
 
-/// Emitted when treasury repays to the vault
+/// Emitted when the treasury repays borrowed funds.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Repaid {
@@ -137,7 +117,7 @@ pub struct Repaid {
     pub total_borrowed: i128,
 }
 
-/// Emitted when interest is accrued
+/// Emitted when compound interest is accrued on borrowed funds.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InterestAccrued {
@@ -146,7 +126,7 @@ pub struct InterestAccrued {
     pub utilization_rate: i128,
 }
 
-/// Emitted when the lock period is updated
+/// Emitted when the deposit lock period configuration is changed.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LockPeriodUpdated {
@@ -154,7 +134,7 @@ pub struct LockPeriodUpdated {
     pub new_period: u64,
 }
 
-/// Emitted when a user's lock time is updated
+/// Emitted when a user's share unlock time is updated (on deposit/mint).
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UserLockUpdated {
@@ -162,136 +142,96 @@ pub struct UserLockUpdated {
     pub unlock_time: u64,
 }
 
-// ============================================================================
-// Storage Keys
-// ============================================================================
-
 #[soroban_sdk::contracttype]
 pub enum DataKey {
-    /// Treasury address for credit delegation
     Treasury,
-    /// Pending treasury address for timelock
-    PendingTreasury,
-    /// Treasury update timestamp
-    TreasuryUpdateTime,
-    /// Maximum deposit limit
+    Guardian,
     MaxDeposit,
-    /// Maximum withdrawal limit
     MaxWithdraw,
-    /// Total amount borrowed by treasury
     TotalBorrowed,
-    /// Last interest accrual timestamp
     LastAccrualTime,
-    /// Lock period in seconds (0 = no lock)
     LockPeriod,
-    /// User's unlock timestamp
     UserUnlockTime(Address),
 }
 
-// ============================================================================
-// Constants
-// ============================================================================
-
-/// Treasury update timelock period (2 days in seconds)
-const TIMELOCK_PERIOD: u64 = 172800;
-
-/// Default maximum deposit limit (1M USDC with 6 decimals)
+/// Default maximum deposit limit (1M USDC with 6 decimals).
 const DEFAULT_MAX_DEPOSIT: i128 = 1_000_000_000_000;
 
-/// Default maximum withdrawal limit (1M USDC with 6 decimals)
+/// Default maximum withdrawal limit (1M USDC with 6 decimals).
 const DEFAULT_MAX_WITHDRAW: i128 = 1_000_000_000_000;
 
-/// Decimals offset for inflation attack protection
+/// Decimals offset for share-inflation attack protection.
 const DECIMALS_OFFSET: u32 = 6;
 
-/// Default lock period (0 = no lock, disabled by default)
+/// Default lock period — 0 disables locking.
 const DEFAULT_LOCK_PERIOD: u64 = 0;
 
-// ============================================================================
-// Credit Delegation Constants
-// ============================================================================
-
-/// Utilization cap (80% in WAD: 0.8 * 10^18)
+/// Utilization cap: 80% in WAD (0.8 * 10^18).
 const UTILIZATION_CAP: i128 = 800_000_000_000_000_000;
 
-/// Optimal utilization point (80% in WAD - same as cap for this model)
+/// Optimal utilization point for the interest rate model (80% in WAD).
 const OPTIMAL_UTILIZATION: i128 = 800_000_000_000_000_000;
 
-/// Base interest rate per year (2% in WAD: 0.02 * 10^18)
+/// Base interest rate: 2% APR in WAD.
 const BASE_RATE: i128 = 20_000_000_000_000_000;
 
-/// Slope 1: Rate increase per utilization below optimal (8% max at optimal)
-/// slope1 = (8% - 2%) / 80% = 7.5% per 100% utilization (in WAD)
+/// Slope 1: 7.5% per 100% utilization (below optimal). At 80% util the
+/// slope-1 contribution is 6%, giving a total of 8% APR at optimal.
 const SLOPE1: i128 = 75_000_000_000_000_000;
 
-/// Slope 2: Rate increase per utilization above optimal (steeper)
-/// At 100% utilization: base + slope1_contribution + slope2_contribution
-/// slope2 = 100% per 20% = 500% per 100% utilization (in WAD)
+/// Slope 2: 500% per 100% utilization (above optimal). Creates a steep
+/// penalty curve that discourages utilization beyond the optimal point.
 const SLOPE2: i128 = 5_000_000_000_000_000_000;
 
-/// Seconds per year (for APR to per-second conversion)
+/// Seconds per year, used for APR-to-per-second rate conversion.
 const SECONDS_PER_YEAR: u64 = 31_536_000;
 
-// ============================================================================
-// Contract
-// ============================================================================
-
+/// MicroVault ERC-4626 tokenized vault contract.
 #[contract]
 pub struct MicroVaultContract;
 
 #[contractimpl]
 impl MicroVaultContract {
-    /// Initialize the vault
+    /// Initialize the vault with the underlying asset and initial configuration.
     ///
     /// # Arguments
-    /// * `owner` - Contract owner address (admin)
-    /// * `asset` - Address of the underlying asset (e.g., USDC)
-    /// * `treasury` - Treasury wallet address for credit delegation
-    /// * `name` - Vault share token name
-    /// * `symbol` - Vault share token symbol
+    ///
+    /// * `owner` - Contract owner (typically the TimelockController address).
+    /// * `guardian` - Guardian address that can pause the vault immediately.
+    /// * `asset` - Underlying asset address (e.g. USDC).
+    /// * `treasury` - Treasury wallet for credit delegation operations.
+    /// * `name` - Share token name (e.g. "MicroVault USDC Shares").
+    /// * `symbol` - Share token symbol (e.g. "mvUSDC").
     pub fn __constructor(
         e: &Env,
         owner: Address,
+        guardian: Address,
         asset: Address,
         treasury: Address,
         name: String,
         symbol: String,
     ) {
-        // Set the contract owner
         ownable::set_owner(e, &owner);
-
-        // Initialize the vault with the underlying asset
+        e.storage().instance().set(&DataKey::Guardian, &guardian);
         Vault::set_asset(e, asset);
-
-        // Set decimals offset for inflation attack protection
         Vault::set_decimals_offset(e, DECIMALS_OFFSET);
-
-        // Set token metadata (decimals inherited from vault)
         Base::set_metadata(e, Vault::decimals(e), name, symbol);
-
-        // Store treasury address
         e.storage().instance().set(&DataKey::Treasury, &treasury);
-
-        // Initialize limits
         e.storage()
             .instance()
             .set(&DataKey::MaxDeposit, &DEFAULT_MAX_DEPOSIT);
         e.storage()
             .instance()
             .set(&DataKey::MaxWithdraw, &DEFAULT_MAX_WITHDRAW);
-
-        // Initialize credit delegation state
         e.storage().instance().set(&DataKey::TotalBorrowed, &0i128);
         e.storage()
             .instance()
             .set(&DataKey::LastAccrualTime, &e.ledger().timestamp());
     }
 
-    // ========================================================================
-    // View Functions
-    // ========================================================================
+    // —— View functions ——————————————————————————————————————————————————
 
-    /// Get the treasury address
+    /// Returns the treasury address.
     pub fn treasury(e: &Env) -> Result<Address, MicroVaultError> {
         e.storage()
             .instance()
@@ -299,7 +239,12 @@ impl MicroVaultContract {
             .ok_or(MicroVaultError::TreasuryNotSet)
     }
 
-    /// Get the maximum deposit limit
+    /// Returns the guardian address, if set.
+    pub fn guardian(e: &Env) -> Option<Address> {
+        e.storage().instance().get(&DataKey::Guardian)
+    }
+
+    /// Returns the per-transaction maximum deposit limit.
     pub fn get_max_deposit(e: &Env) -> i128 {
         e.storage()
             .instance()
@@ -307,7 +252,7 @@ impl MicroVaultContract {
             .unwrap_or(DEFAULT_MAX_DEPOSIT)
     }
 
-    /// Get the maximum withdrawal limit
+    /// Returns the per-transaction maximum withdrawal limit.
     pub fn get_max_withdraw(e: &Env) -> i128 {
         e.storage()
             .instance()
@@ -315,7 +260,7 @@ impl MicroVaultContract {
             .unwrap_or(DEFAULT_MAX_WITHDRAW)
     }
 
-    /// Get total amount borrowed by treasury
+    /// Returns the total amount currently borrowed by the treasury.
     pub fn total_borrowed(e: &Env) -> i128 {
         e.storage()
             .instance()
@@ -323,22 +268,24 @@ impl MicroVaultContract {
             .unwrap_or(0)
     }
 
-    /// Get available liquidity (assets in vault minus borrowed)
+    /// Returns available liquidity (contract token balance, excluding borrowed).
     pub fn available_liquidity(e: &Env) -> i128 {
         let token = Vault::query_asset(e);
         let token_client = soroban_sdk::token::Client::new(e, &token);
-        let vault_balance = token_client.balance(&e.current_contract_address());
-        vault_balance
+        token_client.balance(&e.current_contract_address())
     }
 
-    /// Get total assets including borrowed (for share calculations)
+    /// Returns total managed assets: available liquidity plus outstanding borrows.
+    ///
+    /// This is the denominator for share-to-asset conversions, ensuring that
+    /// depositors' shares appreciate as interest accrues on borrowed funds.
     pub fn total_managed_assets(e: &Env) -> i128 {
-        let available = Self::available_liquidity(e);
-        let borrowed = Self::total_borrowed(e);
-        available + borrowed
+        Self::available_liquidity(e) + Self::total_borrowed(e)
     }
 
-    /// Get current utilization rate (borrowed / total_managed in WAD)
+    /// Returns the current utilization rate as a WAD-scaled value (18 decimals).
+    ///
+    /// Utilization = total_borrowed / total_managed_assets.
     pub fn utilization_rate(e: &Env) -> i128 {
         let borrowed = Self::total_borrowed(e);
         if borrowed == 0 {
@@ -351,13 +298,13 @@ impl MicroVaultContract {
         Wad::from_ratio(e, borrowed, total_managed).raw()
     }
 
-    /// Get current borrow APR based on utilization
+    /// Returns the current borrow APR as a WAD-scaled value based on utilization.
     pub fn borrow_apr(e: &Env) -> i128 {
         let utilization = Self::utilization_rate(e);
         Self::calculate_borrow_rate(e, utilization)
     }
 
-    /// Get the current lock period in seconds
+    /// Returns the current deposit lock period in seconds (0 = disabled).
     pub fn get_lock_period(e: &Env) -> u64 {
         e.storage()
             .instance()
@@ -365,7 +312,7 @@ impl MicroVaultContract {
             .unwrap_or(DEFAULT_LOCK_PERIOD)
     }
 
-    /// Get a user's unlock timestamp
+    /// Returns the ledger timestamp at which `user`'s shares unlock.
     pub fn get_unlock_time(e: &Env, user: Address) -> u64 {
         e.storage()
             .persistent()
@@ -373,19 +320,22 @@ impl MicroVaultContract {
             .unwrap_or(0)
     }
 
-    /// Check if a user's shares are currently locked
+    /// Returns `true` if `user`'s shares are currently locked.
     pub fn is_locked(e: &Env, user: Address) -> bool {
         let unlock_time = Self::get_unlock_time(e, user.clone());
         e.ledger().timestamp() < unlock_time
     }
 
-    /// Get remaining lock time in seconds for a user
+    /// Returns the remaining lock time in seconds for `user` (0 if unlocked).
     pub fn remaining_lock_time(e: &Env, user: Address) -> u64 {
         let unlock_time = Self::get_unlock_time(e, user);
         unlock_time.saturating_sub(e.ledger().timestamp())
     }
 
-    /// Calculate borrow rate based on utilization using WAD fixed-point math
+    /// Dual-slope interest rate model.
+    ///
+    /// Below optimal utilization: `base_rate + utilization * slope1`.
+    /// Above optimal: adds `(utilization - optimal) * slope2` on top.
     fn calculate_borrow_rate(e: &Env, utilization: i128) -> i128 {
         let util_wad = Wad::from_raw(utilization);
         let base_wad = Wad::from_raw(BASE_RATE);
@@ -393,13 +343,11 @@ impl MicroVaultContract {
         let slope2_wad = Wad::from_raw(SLOPE2);
 
         if utilization <= OPTIMAL_UTILIZATION {
-            // Below optimal: base_rate + (utilization * slope1) in WAD
             let slope_contribution = util_wad
                 .checked_mul(e, slope1_wad)
                 .unwrap_or(Wad::from_raw(0));
             (base_wad + slope_contribution).raw()
         } else {
-            // Above optimal: base + slope1_at_optimal + (excess * slope2) in WAD
             let optimal_wad = Wad::from_raw(OPTIMAL_UTILIZATION);
             let slope1_at_optimal = optimal_wad
                 .checked_mul(e, slope1_wad)
@@ -413,11 +361,9 @@ impl MicroVaultContract {
         }
     }
 
-    // ========================================================================
-    // Admin Functions
-    // ========================================================================
+    // —— Admin functions —————————————————————————————————————————————————
 
-    /// Update maximum deposit limit (only owner)
+    /// Set the per-transaction maximum deposit limit. Owner only.
     #[only_owner]
     pub fn set_max_deposit(e: &Env, new_limit: i128) {
         let old_limit: i128 = e
@@ -425,9 +371,7 @@ impl MicroVaultContract {
             .instance()
             .get(&DataKey::MaxDeposit)
             .unwrap_or(DEFAULT_MAX_DEPOSIT);
-
         e.storage().instance().set(&DataKey::MaxDeposit, &new_limit);
-
         MaxDepositUpdated {
             old_limit,
             new_limit,
@@ -435,7 +379,7 @@ impl MicroVaultContract {
         .publish(e);
     }
 
-    /// Update maximum withdrawal limit (only owner)
+    /// Set the per-transaction maximum withdrawal limit. Owner only.
     #[only_owner]
     pub fn set_max_withdraw(e: &Env, new_limit: i128) {
         let old_limit: i128 = e
@@ -443,11 +387,9 @@ impl MicroVaultContract {
             .instance()
             .get(&DataKey::MaxWithdraw)
             .unwrap_or(DEFAULT_MAX_WITHDRAW);
-
         e.storage()
             .instance()
             .set(&DataKey::MaxWithdraw, &new_limit);
-
         MaxWithdrawUpdated {
             old_limit,
             new_limit,
@@ -455,8 +397,10 @@ impl MicroVaultContract {
         .publish(e);
     }
 
-    /// Update lock period for deposits (only owner)
-    /// Set to 0 to disable locking
+    /// Set the deposit lock period in seconds. Owner only.
+    ///
+    /// Set to 0 to disable locking. Existing locks are not retroactively
+    /// changed; only new deposits are affected.
     #[only_owner]
     pub fn set_lock_period(e: &Env, new_period: u64) {
         let old_period: u64 = e
@@ -464,11 +408,9 @@ impl MicroVaultContract {
             .instance()
             .get(&DataKey::LockPeriod)
             .unwrap_or(DEFAULT_LOCK_PERIOD);
-
         e.storage()
             .instance()
             .set(&DataKey::LockPeriod, &new_period);
-
         LockPeriodUpdated {
             old_period,
             new_period,
@@ -476,45 +418,58 @@ impl MicroVaultContract {
         .publish(e);
     }
 
-    /// Upgrade contract to new WASM code (only owner)
+    /// Update the guardian address. Owner only.
+    ///
+    /// The guardian can pause the vault immediately without going through the
+    /// timelock, enabling rapid emergency response.
+    #[only_owner]
+    pub fn set_guardian(e: &Env, new_guardian: Address) {
+        let old_guardian: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Guardian)
+            .unwrap_or_else(|| panic!("Guardian not set"));
+        e.storage()
+            .instance()
+            .set(&DataKey::Guardian, &new_guardian);
+        GuardianUpdated {
+            old_guardian,
+            new_guardian,
+        }
+        .publish(e);
+    }
+
+    /// Upgrade the contract WASM. Owner only.
     #[only_owner]
     pub fn upgrade(e: &Env, new_wasm_hash: BytesN<32>) {
         e.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
-    // ========================================================================
-    // Lock Management (Internal)
-    // ========================================================================
+    // —— Lock management (internal) —————————————————————————————————————
 
-    /// Update user's lock time using weighted average calculation
-    /// This is called internally during deposits
+    /// Compute a weighted-average unlock time when a user deposits additional
+    /// shares on top of existing ones.
+    ///
+    /// Formula: `new_unlock = now + (remaining * existing + lock_period * new) / total`
     fn update_lock_time(e: &Env, user: &Address, existing_shares: i128, new_shares: i128) {
         let lock_period = Self::get_lock_period(e);
-
-        // If lock period is 0, no locking is applied
         if lock_period == 0 {
             return;
         }
 
         let current_time = e.ledger().timestamp();
-
-        // Get current unlock time (default to current time if not set)
         let current_unlock: u64 = e
             .storage()
             .persistent()
             .get(&DataKey::UserUnlockTime(user.clone()))
             .unwrap_or(current_time);
-
-        // Calculate remaining lock time (0 if already unlocked)
         let remaining_lock = current_unlock.saturating_sub(current_time);
 
-        // If no existing shares, apply full lock period
         if existing_shares == 0 {
             let unlock_time = current_time + lock_period;
             e.storage()
                 .persistent()
                 .set(&DataKey::UserUnlockTime(user.clone()), &unlock_time);
-
             UserLockUpdated {
                 user: user.clone(),
                 unlock_time,
@@ -523,18 +478,15 @@ impl MicroVaultContract {
             return;
         }
 
-        // Calculate weighted average lock time
         let total_shares = existing_shares + new_shares;
         let weighted_lock = ((remaining_lock as i128 * existing_shares)
             + (lock_period as i128 * new_shares))
             / total_shares;
-
         let new_unlock = current_time + (weighted_lock as u64);
 
         e.storage()
             .persistent()
             .set(&DataKey::UserUnlockTime(user.clone()), &new_unlock);
-
         UserLockUpdated {
             user: user.clone(),
             unlock_time: new_unlock,
@@ -542,119 +494,35 @@ impl MicroVaultContract {
         .publish(e);
     }
 
-    // ========================================================================
-    // Treasury Management with Timelock
-    // ========================================================================
+    // —— Treasury management —————————————————————————————————————————————
 
-    /// Propose a treasury update with timelock
-    pub fn propose_treasury_update(
-        e: &Env,
-        current_treasury: Address,
-        new_treasury: Address,
-    ) -> Result<(), MicroVaultError> {
-        current_treasury.require_auth();
-
-        let treasury: Address = e
-            .storage()
-            .instance()
-            .get(&DataKey::Treasury)
-            .ok_or(MicroVaultError::TreasuryNotSet)?;
-
-        if current_treasury != treasury {
-            return Err(MicroVaultError::Unauthorized);
-        }
-
-        let update_time = e.ledger().timestamp() + TIMELOCK_PERIOD;
-
-        e.storage()
-            .instance()
-            .set(&DataKey::PendingTreasury, &new_treasury);
-        e.storage()
-            .instance()
-            .set(&DataKey::TreasuryUpdateTime, &update_time);
-
-        TreasuryUpdateProposed {
-            current_treasury,
-            proposed_treasury: new_treasury,
-            execute_time: update_time,
-        }
-        .publish(e);
-
-        Ok(())
-    }
-
-    /// Execute pending treasury update after timelock
-    pub fn execute_treasury_update(e: &Env) -> Result<(), MicroVaultError> {
-        let update_time: u64 = e
-            .storage()
-            .instance()
-            .get(&DataKey::TreasuryUpdateTime)
-            .ok_or(MicroVaultError::NoPendingUpdate)?;
-
-        if e.ledger().timestamp() < update_time {
-            return Err(MicroVaultError::TimelockNotExpired);
-        }
-
+    /// Update the treasury address. Owner only.
+    ///
+    /// When the vault owner is a [`TimelockController`], this function is
+    /// invoked via `execute_op` after a time delay, providing on-chain
+    /// transparency before the change takes effect.
+    #[only_owner]
+    pub fn set_treasury(e: &Env, new_treasury: Address) {
         let old_treasury: Address = e
             .storage()
             .instance()
             .get(&DataKey::Treasury)
-            .ok_or(MicroVaultError::TreasuryNotSet)?;
-
-        let new_treasury: Address = e
-            .storage()
-            .instance()
-            .get(&DataKey::PendingTreasury)
-            .ok_or(MicroVaultError::NoPendingUpdate)?;
-
+            .unwrap_or_else(|| panic!("Treasury not set"));
         e.storage()
             .instance()
             .set(&DataKey::Treasury, &new_treasury);
-        e.storage().instance().remove(&DataKey::PendingTreasury);
-        e.storage().instance().remove(&DataKey::TreasuryUpdateTime);
-
         TreasuryUpdated {
             old_treasury,
             new_treasury,
         }
         .publish(e);
-
-        Ok(())
     }
 
-    /// Cancel pending treasury update
-    pub fn cancel_treasury_update(
-        e: &Env,
-        current_treasury: Address,
-    ) -> Result<(), MicroVaultError> {
-        current_treasury.require_auth();
+    // —— Emergency functions —————————————————————————————————————————————
 
-        let treasury: Address = e
-            .storage()
-            .instance()
-            .get(&DataKey::Treasury)
-            .ok_or(MicroVaultError::TreasuryNotSet)?;
-
-        if current_treasury != treasury {
-            return Err(MicroVaultError::Unauthorized);
-        }
-
-        e.storage().instance().remove(&DataKey::PendingTreasury);
-        e.storage().instance().remove(&DataKey::TreasuryUpdateTime);
-
-        TreasuryUpdateCancelled {
-            treasury: current_treasury,
-        }
-        .publish(e);
-
-        Ok(())
-    }
-
-    // ========================================================================
-    // Emergency Functions
-    // ========================================================================
-
-    /// Emergency sweep function for foreign assets sent directly to contract ID
+    /// Recover foreign tokens mistakenly sent to the vault. Treasury only.
+    ///
+    /// Cannot be used to sweep the underlying asset (e.g. USDC).
     pub fn sweep_foreign_asset(
         e: &Env,
         current_treasury: Address,
@@ -669,22 +537,18 @@ impl MicroVaultContract {
             .instance()
             .get(&DataKey::Treasury)
             .ok_or(MicroVaultError::TreasuryNotSet)?;
-
         if current_treasury != treasury {
             return Err(MicroVaultError::Unauthorized);
         }
 
-        // Cannot sweep the underlying asset
         let underlying_asset = Vault::query_asset(e);
         if token_to_recover == underlying_asset {
             return Err(MicroVaultError::CannotSweepUnderlyingAsset);
         }
-
         if amount <= 0 {
             return Err(MicroVaultError::InvalidAmount);
         }
 
-        // Transfer the foreign token
         let token_client = soroban_sdk::token::Client::new(e, &token_to_recover);
         token_client.transfer(&e.current_contract_address(), &recipient, &amount);
 
@@ -698,12 +562,10 @@ impl MicroVaultContract {
         Ok(())
     }
 
-    // ========================================================================
-    // Credit Delegation Functions
-    // ========================================================================
+    // —— Credit delegation ———————————————————————————————————————————————
 
-    /// Accrue compound interest on borrowed amount using WAD fixed-point math
-    /// with per-second compounding via Wad::pow().
+    /// Accrue compound interest on the outstanding borrow using per-second
+    /// compounding via `Wad::pow`.
     fn accrue_interest(e: &Env) {
         let last_accrual: u64 = e
             .storage()
@@ -726,41 +588,32 @@ impl MicroVaultContract {
             return;
         }
 
-        // Calculate per-second compound rate using WAD
         let utilization = Self::utilization_rate(e);
         let annual_rate = Wad::from_raw(Self::calculate_borrow_rate(e, utilization));
-
-        // Per-second rate: annual_rate / SECONDS_PER_YEAR
         let rate_per_second = annual_rate
             .checked_div_int(SECONDS_PER_YEAR as i128)
             .unwrap_or(Wad::from_raw(0));
 
-        // Compound factor: (1 + rate_per_second)^time_elapsed
+        // compound_factor = (1 + rate_per_second) ^ time_elapsed
         let one = Wad::from_raw(WAD_SCALE);
         let base = one + rate_per_second;
-
-        // Safe cast: cap at u32::MAX (~136 years)
         let exponent = if time_elapsed > u32::MAX as u64 {
             u32::MAX
         } else {
             time_elapsed as u32
         };
-
         let compound_factor = base.pow(e, exponent);
 
-        // new_total = total_borrowed * compound_factor
         let new_total_borrowed = compound_factor
             .checked_mul_int(total_borrowed)
             .map(|w| w.to_integer())
             .unwrap_or(total_borrowed);
 
         let interest = new_total_borrowed - total_borrowed;
-
         if interest > 0 {
             e.storage()
                 .instance()
                 .set(&DataKey::TotalBorrowed, &new_total_borrowed);
-
             InterestAccrued {
                 interest_amount: interest,
                 new_total_borrowed,
@@ -774,12 +627,10 @@ impl MicroVaultContract {
             .set(&DataKey::LastAccrualTime, &current_time);
     }
 
-    /// Treasury borrows funds from the vault and sends to recipient (child account)
+    /// Borrow funds from the vault and transfer to `recipient`. Treasury only.
     ///
-    /// # Arguments
-    /// * `treasury_caller` - Treasury address (must sign)
-    /// * `recipient` - Child account address to receive the funds
-    /// * `amount` - Amount to borrow
+    /// Accrues interest before processing. Enforces the 80% utilization cap
+    /// and checks available liquidity.
     #[when_not_paused]
     pub fn borrow(
         e: &Env,
@@ -789,52 +640,42 @@ impl MicroVaultContract {
     ) -> Result<(), MicroVaultError> {
         treasury_caller.require_auth();
 
-        // Verify caller is treasury
         let treasury: Address = e
             .storage()
             .instance()
             .get(&DataKey::Treasury)
             .ok_or(MicroVaultError::TreasuryNotSet)?;
-
         if treasury_caller != treasury {
             return Err(MicroVaultError::Unauthorized);
         }
-
         if amount <= 0 {
             return Err(MicroVaultError::InvalidAmount);
         }
 
-        // Accrue interest first
         Self::accrue_interest(e);
 
-        // Check utilization cap
         let current_borrowed = Self::total_borrowed(e);
         let total_managed = Self::total_managed_assets(e);
         let new_borrowed = current_borrowed + amount;
 
-        // Calculate new utilization after borrow using WAD
         let new_utilization = if total_managed > 0 {
             Wad::from_ratio(e, new_borrowed, total_managed).raw()
         } else {
             return Err(MicroVaultError::InvalidAmount);
         };
-
         if new_utilization > UTILIZATION_CAP {
             return Err(MicroVaultError::ExceedsUtilizationCap);
         }
 
-        // Check available liquidity
         let available = Self::available_liquidity(e);
         if amount > available {
             return Err(MicroVaultError::InsufficientLiquidity);
         }
 
-        // Update total borrowed
         e.storage()
             .instance()
             .set(&DataKey::TotalBorrowed, &new_borrowed);
 
-        // Transfer funds directly to recipient (child account)
         let underlying_asset = Vault::query_asset(e);
         let token_client = soroban_sdk::token::Client::new(e, &underlying_asset);
         token_client.transfer(&e.current_contract_address(), &recipient, &amount);
@@ -850,27 +691,26 @@ impl MicroVaultContract {
         Ok(())
     }
 
-    /// Treasury repays borrowed funds to the vault
+    /// Repay borrowed funds to the vault. Treasury only.
+    ///
+    /// Accrues interest before processing. Panics if `amount` exceeds
+    /// outstanding debt.
     #[when_not_paused]
     pub fn repay(e: &Env, treasury_caller: Address, amount: i128) -> Result<(), MicroVaultError> {
         treasury_caller.require_auth();
 
-        // Verify caller is treasury
         let treasury: Address = e
             .storage()
             .instance()
             .get(&DataKey::Treasury)
             .ok_or(MicroVaultError::TreasuryNotSet)?;
-
         if treasury_caller != treasury {
             return Err(MicroVaultError::Unauthorized);
         }
-
         if amount <= 0 {
             return Err(MicroVaultError::InvalidAmount);
         }
 
-        // Accrue interest first
         Self::accrue_interest(e);
 
         let current_borrowed = Self::total_borrowed(e);
@@ -878,12 +718,10 @@ impl MicroVaultContract {
             return Err(MicroVaultError::RepayExceedsDebt);
         }
 
-        // Transfer funds from treasury to vault
         let underlying_asset = Vault::query_asset(e);
         let token_client = soroban_sdk::token::Client::new(e, &underlying_asset);
         token_client.transfer(&treasury, &e.current_contract_address(), &amount);
 
-        // Update total borrowed
         let new_borrowed = current_borrowed - amount;
         e.storage()
             .instance()
@@ -899,15 +737,11 @@ impl MicroVaultContract {
         Ok(())
     }
 
-    /// Force interest accrual (can be called by anyone)
+    /// Trigger interest accrual. Callable by anyone.
     pub fn accrue(e: &Env) {
         Self::accrue_interest(e);
     }
 }
-
-// ============================================================================
-// FungibleToken Implementation (for share tokens)
-// ============================================================================
 
 #[contractimpl(contracttrait)]
 impl FungibleToken for MicroVaultContract {
@@ -918,54 +752,33 @@ impl FungibleToken for MicroVaultContract {
     }
 }
 
-// ============================================================================
-// FungibleVault Implementation
-// ============================================================================
-
 #[contractimpl]
 impl FungibleVault for MicroVaultContract {
-    /// Deposit assets and receive shares
     #[when_not_paused]
     fn deposit(e: &Env, assets: i128, receiver: Address, from: Address, operator: Address) -> i128 {
-        // Check deposit limit
         let max_deposit: i128 = e
             .storage()
             .instance()
             .get(&DataKey::MaxDeposit)
             .unwrap_or(DEFAULT_MAX_DEPOSIT);
-
         if assets > max_deposit {
             panic!("Deposit exceeds maximum limit");
         }
 
-        // Get existing shares BEFORE deposit for lock calculation
         let existing_shares = Base::balance(e, &receiver);
-
-        // Perform the deposit (mints new shares)
         let new_shares = Vault::deposit(e, assets, receiver.clone(), from, operator);
-
-        // Update lock time with weighted calculation
         MicroVaultContract::update_lock_time(e, &receiver, existing_shares, new_shares);
-
         new_shares
     }
 
-    /// Mint shares by providing assets
     #[when_not_paused]
     fn mint(e: &Env, shares: i128, receiver: Address, from: Address, operator: Address) -> i128 {
-        // Get existing shares BEFORE mint for lock calculation
         let existing_shares = Base::balance(e, &receiver);
-
-        // Perform the mint
         let assets_used = Vault::mint(e, shares, receiver.clone(), from, operator);
-
-        // Update lock time with weighted calculation
         MicroVaultContract::update_lock_time(e, &receiver, existing_shares, shares);
-
         assets_used
     }
 
-    /// Withdraw assets by burning shares
     #[when_not_paused]
     fn withdraw(
         e: &Env,
@@ -974,23 +787,19 @@ impl FungibleVault for MicroVaultContract {
         owner: Address,
         operator: Address,
     ) -> i128 {
-        // Check if shares are locked
         if MicroVaultContract::is_locked(e, owner.clone()) {
             panic!("Shares are locked");
         }
 
-        // Check withdrawal limit
         let max_withdraw: i128 = e
             .storage()
             .instance()
             .get(&DataKey::MaxWithdraw)
             .unwrap_or(DEFAULT_MAX_WITHDRAW);
-
         if assets > max_withdraw {
             panic!("Withdrawal exceeds maximum limit");
         }
 
-        // Check available liquidity (credit delegation constraint)
         let available = MicroVaultContract::available_liquidity(e);
         if assets > available {
             panic!("Insufficient liquidity for withdrawal");
@@ -999,15 +808,12 @@ impl FungibleVault for MicroVaultContract {
         Vault::withdraw(e, assets, receiver, owner, operator)
     }
 
-    /// Redeem shares for assets
     #[when_not_paused]
     fn redeem(e: &Env, shares: i128, receiver: Address, owner: Address, operator: Address) -> i128 {
-        // Check if shares are locked
         if MicroVaultContract::is_locked(e, owner.clone()) {
             panic!("Shares are locked");
         }
 
-        // Check available liquidity (credit delegation constraint)
         let assets_to_receive = Vault::preview_redeem(e, shares);
         let available = MicroVaultContract::available_liquidity(e);
         if assets_to_receive > available {
@@ -1029,9 +835,9 @@ impl FungibleVault for MicroVaultContract {
         Vault::query_asset(e)
     }
 
+    /// Returns total assets including outstanding borrows so that share
+    /// holders benefit from accrued interest.
     fn total_assets(e: &Env) -> i128 {
-        // Include borrowed amounts in total assets for share calculations
-        // This ensures depositors earn interest from loans
         MicroVaultContract::total_managed_assets(e)
     }
 
@@ -1062,7 +868,6 @@ impl FungibleVault for MicroVaultContract {
             .get(&DataKey::MaxWithdraw)
             .unwrap_or(DEFAULT_MAX_WITHDRAW);
         let owner_max = Vault::max_withdraw(e, owner);
-        // Also constrained by available liquidity
         let available = MicroVaultContract::available_liquidity(e);
         owner_max.min(limit).min(available)
     }
@@ -1072,14 +877,11 @@ impl FungibleVault for MicroVaultContract {
             return 0;
         }
         let owner_max_shares = Vault::max_redeem(e, owner);
-        // Check what assets those shares convert to
         let owner_max_assets = Vault::preview_redeem(e, owner_max_shares);
-        // Constrain by available liquidity
         let available = MicroVaultContract::available_liquidity(e);
         if owner_max_assets <= available {
             owner_max_shares
         } else {
-            // Convert available liquidity back to shares
             Vault::convert_to_shares(e, available)
         }
     }
@@ -1101,16 +903,8 @@ impl FungibleVault for MicroVaultContract {
     }
 }
 
-// ============================================================================
-// Ownable Implementation
-// ============================================================================
-
 #[contractimpl(contracttrait)]
 impl Ownable for MicroVaultContract {}
-
-// ============================================================================
-// Pausable Implementation
-// ============================================================================
 
 #[contractimpl]
 impl Pausable for MicroVaultContract {
@@ -1118,26 +912,39 @@ impl Pausable for MicroVaultContract {
         pausable_mod::paused(e)
     }
 
-    #[only_owner]
+    /// Pause the vault. Callable by the owner **or** the guardian.
+    ///
+    /// This is intentionally not gated by `#[only_owner]` so that the
+    /// guardian can trigger an immediate emergency pause without going
+    /// through the TimelockController delay.
     fn pause(e: &Env, caller: Address) {
         caller.require_auth();
-        pausable_mod::pause(e);
 
+        let is_owner = ownable::owner(e)
+            .map(|o| o == caller)
+            .unwrap_or(false);
+        let is_guardian: bool = e
+            .storage()
+            .instance()
+            .get(&DataKey::Guardian)
+            .map(|g: Address| g == caller)
+            .unwrap_or(false);
+        if !is_owner && !is_guardian {
+            panic!("Unauthorized: caller is not owner or guardian");
+        }
+
+        pausable_mod::pause(e);
         VaultPaused { by: caller }.publish(e);
     }
 
+    /// Unpause the vault. Owner only (timelocked).
     #[only_owner]
     fn unpause(e: &Env, caller: Address) {
         caller.require_auth();
         pausable_mod::unpause(e);
-
         VaultUnpaused { by: caller }.publish(e);
     }
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod test;

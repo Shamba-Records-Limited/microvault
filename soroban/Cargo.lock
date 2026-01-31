@@ -840,6 +840,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "microvault-timelock-controller"
+version = "0.0.0"
+dependencies = [
+ "soroban-sdk",
+ "stellar-access",
+ "stellar-governance",
+ "stellar-macros",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1444,6 +1454,15 @@ name = "stellar-contract-utils"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a918daa29a4cfc0fe97118a2425893a0336a33b436e8f70ca4b4f5c739f23e4"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "stellar-governance"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "438bc08c4bebb1dff383732a0ee09e233882c0cf2ae3e0aae0bc0bba6995b52b"
 dependencies = [
  "soroban-sdk",
 ]

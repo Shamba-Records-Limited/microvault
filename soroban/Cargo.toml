@@ -10,6 +10,7 @@ stellar-tokens = "=0.6.0"
 stellar-access = "=0.6.0"
 stellar-contract-utils = "=0.6.0"
 stellar-macros = "=0.6.0"
+stellar-governance = "=0.6.0"
 
 [profile.release]
 opt-level = "z"
