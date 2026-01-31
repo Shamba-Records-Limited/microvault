@@ -5,11 +5,13 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, Address, BytesN, Env, String,
+    contract, contracterror, contractevent, contractimpl, Address, BytesN, Env, MuxedAddress,
+    String,
 };
 use stellar_access::ownable::{self, Ownable};
+use stellar_contract_utils::math::wad::{Wad, WAD_SCALE};
 use stellar_contract_utils::pausable::{self as pausable_mod, Pausable};
-use stellar_macros::{default_impl, only_owner, when_not_paused};
+use stellar_macros::{only_owner, when_not_paused};
 use stellar_tokens::{
     fungible::{Base, FungibleToken},
     vault::{FungibleVault, Vault},
@@ -209,25 +211,22 @@ const DEFAULT_LOCK_PERIOD: u64 = 0;
 // Credit Delegation Constants
 // ============================================================================
 
-/// Precision for rate calculations (18 decimals)
-const RATE_PRECISION: i128 = 1_000_000_000_000_000_000;
-
-/// Utilization cap (80% = 0.8 * RATE_PRECISION)
+/// Utilization cap (80% in WAD: 0.8 * 10^18)
 const UTILIZATION_CAP: i128 = 800_000_000_000_000_000;
 
-/// Optimal utilization point (80% - same as cap for this model)
+/// Optimal utilization point (80% in WAD - same as cap for this model)
 const OPTIMAL_UTILIZATION: i128 = 800_000_000_000_000_000;
 
-/// Base interest rate per year (2% = 0.02 * RATE_PRECISION)
+/// Base interest rate per year (2% in WAD: 0.02 * 10^18)
 const BASE_RATE: i128 = 20_000_000_000_000_000;
 
 /// Slope 1: Rate increase per utilization below optimal (8% max at optimal)
-/// slope1 = (8% - 2%) / 80% = 7.5% per 100% utilization
+/// slope1 = (8% - 2%) / 80% = 7.5% per 100% utilization (in WAD)
 const SLOPE1: i128 = 75_000_000_000_000_000;
 
 /// Slope 2: Rate increase per utilization above optimal (steeper)
 /// At 100% utilization: base + slope1_contribution + slope2_contribution
-/// slope2 = 100% per 20% = 500% per 100% utilization (aggressive)
+/// slope2 = 100% per 20% = 500% per 100% utilization (in WAD)
 const SLOPE2: i128 = 5_000_000_000_000_000_000;
 
 /// Seconds per year (for APR to per-second conversion)
@@ -339,7 +338,7 @@ impl MicroVaultContract {
         available + borrowed
     }
 
-    /// Get current utilization rate (borrowed / total_managed * RATE_PRECISION)
+    /// Get current utilization rate (borrowed / total_managed in WAD)
     pub fn utilization_rate(e: &Env) -> i128 {
         let borrowed = Self::total_borrowed(e);
         if borrowed == 0 {
@@ -349,13 +348,13 @@ impl MicroVaultContract {
         if total_managed == 0 {
             return 0;
         }
-        (borrowed * RATE_PRECISION) / total_managed
+        Wad::from_ratio(e, borrowed, total_managed).raw()
     }
 
     /// Get current borrow APR based on utilization
     pub fn borrow_apr(e: &Env) -> i128 {
         let utilization = Self::utilization_rate(e);
-        Self::calculate_borrow_rate(utilization)
+        Self::calculate_borrow_rate(e, utilization)
     }
 
     /// Get the current lock period in seconds
@@ -386,16 +385,31 @@ impl MicroVaultContract {
         unlock_time.saturating_sub(e.ledger().timestamp())
     }
 
-    /// Calculate borrow rate based on utilization (internal)
-    fn calculate_borrow_rate(utilization: i128) -> i128 {
+    /// Calculate borrow rate based on utilization using WAD fixed-point math
+    fn calculate_borrow_rate(e: &Env, utilization: i128) -> i128 {
+        let util_wad = Wad::from_raw(utilization);
+        let base_wad = Wad::from_raw(BASE_RATE);
+        let slope1_wad = Wad::from_raw(SLOPE1);
+        let slope2_wad = Wad::from_raw(SLOPE2);
+
         if utilization <= OPTIMAL_UTILIZATION {
-            // Below optimal: base_rate + (utilization / optimal) * slope1
-            BASE_RATE + (utilization * SLOPE1) / RATE_PRECISION
+            // Below optimal: base_rate + (utilization * slope1) in WAD
+            let slope_contribution = util_wad
+                .checked_mul(e, slope1_wad)
+                .unwrap_or(Wad::from_raw(0));
+            (base_wad + slope_contribution).raw()
         } else {
-            // Above optimal: base + slope1 contribution + excess * slope2
-            let base_at_optimal = BASE_RATE + (OPTIMAL_UTILIZATION * SLOPE1) / RATE_PRECISION;
-            let excess_utilization = utilization - OPTIMAL_UTILIZATION;
-            base_at_optimal + (excess_utilization * SLOPE2) / RATE_PRECISION
+            // Above optimal: base + slope1_at_optimal + (excess * slope2) in WAD
+            let optimal_wad = Wad::from_raw(OPTIMAL_UTILIZATION);
+            let slope1_at_optimal = optimal_wad
+                .checked_mul(e, slope1_wad)
+                .unwrap_or(Wad::from_raw(0));
+            let base_at_optimal = base_wad + slope1_at_optimal;
+            let excess = Wad::from_raw(utilization - OPTIMAL_UTILIZATION);
+            let excess_contribution = excess
+                .checked_mul(e, slope2_wad)
+                .unwrap_or(Wad::from_raw(0));
+            (base_at_optimal + excess_contribution).raw()
         }
     }
 
@@ -688,7 +702,8 @@ impl MicroVaultContract {
     // Credit Delegation Functions
     // ========================================================================
 
-    /// Accrue interest on borrowed amount (called before any borrow/repay)
+    /// Accrue compound interest on borrowed amount using WAD fixed-point math
+    /// with per-second compounding via Wad::pow().
     fn accrue_interest(e: &Env) {
         let last_accrual: u64 = e
             .storage()
@@ -711,17 +726,37 @@ impl MicroVaultContract {
             return;
         }
 
-        // Calculate interest
+        // Calculate per-second compound rate using WAD
         let utilization = Self::utilization_rate(e);
-        let borrow_rate = Self::calculate_borrow_rate(utilization);
+        let annual_rate = Wad::from_raw(Self::calculate_borrow_rate(e, utilization));
 
-        // Interest = principal * rate * time / seconds_per_year
-        // Using high precision to avoid rounding errors
-        let interest = (total_borrowed * borrow_rate * (time_elapsed as i128))
-            / (RATE_PRECISION * (SECONDS_PER_YEAR as i128));
+        // Per-second rate: annual_rate / SECONDS_PER_YEAR
+        let rate_per_second = annual_rate
+            .checked_div_int(SECONDS_PER_YEAR as i128)
+            .unwrap_or(Wad::from_raw(0));
+
+        // Compound factor: (1 + rate_per_second)^time_elapsed
+        let one = Wad::from_raw(WAD_SCALE);
+        let base = one + rate_per_second;
+
+        // Safe cast: cap at u32::MAX (~136 years)
+        let exponent = if time_elapsed > u32::MAX as u64 {
+            u32::MAX
+        } else {
+            time_elapsed as u32
+        };
+
+        let compound_factor = base.pow(e, exponent);
+
+        // new_total = total_borrowed * compound_factor
+        let new_total_borrowed = compound_factor
+            .checked_mul_int(total_borrowed)
+            .map(|w| w.to_integer())
+            .unwrap_or(total_borrowed);
+
+        let interest = new_total_borrowed - total_borrowed;
 
         if interest > 0 {
-            let new_total_borrowed = total_borrowed + interest;
             e.storage()
                 .instance()
                 .set(&DataKey::TotalBorrowed, &new_total_borrowed);
@@ -777,9 +812,9 @@ impl MicroVaultContract {
         let total_managed = Self::total_managed_assets(e);
         let new_borrowed = current_borrowed + amount;
 
-        // Calculate new utilization after borrow
+        // Calculate new utilization after borrow using WAD
         let new_utilization = if total_managed > 0 {
-            (new_borrowed * RATE_PRECISION) / total_managed
+            Wad::from_ratio(e, new_borrowed, total_managed).raw()
         } else {
             return Err(MicroVaultError::InvalidAmount);
         };
@@ -874,8 +909,7 @@ impl MicroVaultContract {
 // FungibleToken Implementation (for share tokens)
 // ============================================================================
 
-#[default_impl]
-#[contractimpl]
+#[contractimpl(contracttrait)]
 impl FungibleToken for MicroVaultContract {
     type ContractType = Vault;
 
@@ -893,8 +927,6 @@ impl FungibleVault for MicroVaultContract {
     /// Deposit assets and receive shares
     #[when_not_paused]
     fn deposit(e: &Env, assets: i128, receiver: Address, from: Address, operator: Address) -> i128 {
-        operator.require_auth();
-
         // Check deposit limit
         let max_deposit: i128 = e
             .storage()
@@ -921,8 +953,6 @@ impl FungibleVault for MicroVaultContract {
     /// Mint shares by providing assets
     #[when_not_paused]
     fn mint(e: &Env, shares: i128, receiver: Address, from: Address, operator: Address) -> i128 {
-        operator.require_auth();
-
         // Get existing shares BEFORE mint for lock calculation
         let existing_shares = Base::balance(e, &receiver);
 
@@ -944,8 +974,6 @@ impl FungibleVault for MicroVaultContract {
         owner: Address,
         operator: Address,
     ) -> i128 {
-        operator.require_auth();
-
         // Check if shares are locked
         if MicroVaultContract::is_locked(e, owner.clone()) {
             panic!("Shares are locked");
@@ -974,8 +1002,6 @@ impl FungibleVault for MicroVaultContract {
     /// Redeem shares for assets
     #[when_not_paused]
     fn redeem(e: &Env, shares: i128, receiver: Address, owner: Address, operator: Address) -> i128 {
-        operator.require_auth();
-
         // Check if shares are locked
         if MicroVaultContract::is_locked(e, owner.clone()) {
             panic!("Shares are locked");
@@ -1079,8 +1105,7 @@ impl FungibleVault for MicroVaultContract {
 // Ownable Implementation
 // ============================================================================
 
-#[default_impl]
-#[contractimpl]
+#[contractimpl(contracttrait)]
 impl Ownable for MicroVaultContract {}
 
 // ============================================================================
