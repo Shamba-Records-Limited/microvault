@@ -1,4 +1,8 @@
-#![cfg(test)]
+//! Integration tests for the MicroVault TimelockController contract.
+//!
+//! Covers constructor configuration, role assignment, operation scheduling,
+//! execution, cancellation, state transitions, salt uniqueness, role
+//! enforcement, and view functions.
 
 use crate::{TimelockController, TimelockControllerClient};
 use soroban_sdk::{
@@ -8,19 +12,12 @@ use soroban_sdk::{
 };
 use stellar_governance::timelock::OperationState;
 
-// ============================================================================
-// Test Helpers
-// ============================================================================
-
+/// Deploys a timelock controller with one proposer, one executor, and an
+/// explicit admin. Returns `(client, proposer, executor, admin)`.
 fn setup_timelock<'a>(
     env: &'a Env,
     min_delay: u32,
-) -> (
-    TimelockControllerClient<'a>,
-    Address, // proposer
-    Address, // executor
-    Address, // admin
-) {
+) -> (TimelockControllerClient<'a>, Address, Address, Address) {
     let proposer = Address::generate(env);
     let executor = Address::generate(env);
     let admin = Address::generate(env);
@@ -30,24 +27,29 @@ fn setup_timelock<'a>(
 
     let contract_id = env.register(
         TimelockController,
-        (min_delay, proposers, executors, Option::<Address>::Some(admin.clone())),
+        (
+            min_delay,
+            proposers,
+            executors,
+            Option::<Address>::Some(admin.clone()),
+        ),
     );
     let client = TimelockControllerClient::new(env, &contract_id);
 
     (client, proposer, executor, admin)
 }
 
+/// Returns an all-zeros `BytesN<32>` to represent no predecessor dependency.
 fn zero_predecessor(env: &Env) -> BytesN<32> {
     BytesN::from_array(env, &[0u8; 32])
 }
 
+/// Returns a deterministic non-zero salt for test operations.
 fn random_salt(env: &Env) -> BytesN<32> {
     BytesN::from_array(env, &[1u8; 32])
 }
 
-// ============================================================================
-// Constructor Tests
-// ============================================================================
+// --- Constructor ---
 
 #[test]
 fn test_constructor_sets_min_delay() {
@@ -66,13 +68,19 @@ fn test_constructor_grants_roles() {
     let (client, proposer, executor, _admin) = setup_timelock(&env, 100);
 
     // Proposer should have proposer role
-    assert!(client.has_role(&proposer, &symbol_short!("proposer")).is_some());
+    assert!(client
+        .has_role(&proposer, &symbol_short!("proposer"))
+        .is_some());
 
     // Proposer should also have canceler role (auto-granted)
-    assert!(client.has_role(&proposer, &symbol_short!("canceler")).is_some());
+    assert!(client
+        .has_role(&proposer, &symbol_short!("canceler"))
+        .is_some());
 
     // Executor should have executor role
-    assert!(client.has_role(&executor, &symbol_short!("executor")).is_some());
+    assert!(client
+        .has_role(&executor, &symbol_short!("executor"))
+        .is_some());
 }
 
 #[test]
@@ -99,9 +107,7 @@ fn test_constructor_self_admin() {
     assert_eq!(admin.unwrap(), client.address);
 }
 
-// ============================================================================
-// Schedule / Execute / Cancel Tests
-// ============================================================================
+// --- Schedule / Execute / Cancel ---
 
 #[test]
 fn test_schedule_and_execute_operation() {
@@ -357,9 +363,7 @@ fn test_schedule_same_op_different_salts() {
     assert!(client.is_operation_pending(&id2));
 }
 
-// ============================================================================
-// Role Enforcement Tests
-// ============================================================================
+// --- Role Enforcement ---
 
 #[test]
 fn test_non_proposer_cannot_schedule() {
@@ -416,9 +420,7 @@ fn test_non_canceler_cannot_cancel() {
     assert!(result.is_err());
 }
 
-// ============================================================================
-// View Function Tests
-// ============================================================================
+// --- View Functions ---
 
 #[test]
 fn test_get_min_delay() {

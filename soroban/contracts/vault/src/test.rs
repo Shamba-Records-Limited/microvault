@@ -1,4 +1,8 @@
-#![cfg(test)]
+//! Integration tests for the MicroVault SEP-56 tokenized vault contract.
+//!
+//! Covers initialization, deposits, withdrawals, pause/unpause, treasury
+//! management, credit delegation (borrow/repay), interest accrual, lock
+//! periods, operator patterns, and contract upgrades.
 
 use crate::{MicroVaultContract, MicroVaultContractClient, MicroVaultError};
 use soroban_sdk::{
@@ -7,10 +11,8 @@ use soroban_sdk::{
     Address, Env, String,
 };
 
-// ============================================================================
-// Test Helpers
-// ============================================================================
-
+/// Registers a Stellar asset contract and returns its address, token client,
+/// and admin client.
 fn create_token_contract<'a>(
     env: &'a Env,
     admin: &Address,
@@ -21,6 +23,9 @@ fn create_token_contract<'a>(
     (token_address.address(), token_client, token_admin)
 }
 
+/// Deploys a fully initialized vault with generated owner, guardian, and
+/// treasury addresses. Returns `(client, asset_address, token_client,
+/// token_admin, owner, treasury, guardian)`.
 fn setup_vault<'a>(
     env: &'a Env,
 ) -> (
@@ -37,7 +42,6 @@ fn setup_vault<'a>(
     let treasury = Address::generate(env);
     let (asset_address, token_client, token_admin) = create_token_contract(env, &owner);
 
-    // Deploy vault with constructor
     let contract_id = env.register(
         MicroVaultContract,
         (
@@ -62,6 +66,10 @@ fn setup_vault<'a>(
     )
 }
 
+/// Deploys a vault and creates an additional user address pre-funded with
+/// `initial_balance` of the underlying asset. Returns `(client,
+/// asset_address, token_client, token_admin, owner, treasury, guardian,
+/// user)`.
 fn setup_vault_with_user<'a>(
     env: &'a Env,
     initial_balance: i128,
@@ -94,16 +102,15 @@ fn setup_vault_with_user<'a>(
     )
 }
 
-// ============================================================================
-// Initialization Tests
-// ============================================================================
+// --- Initialization ---
 
 #[test]
 fn test_initialization() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, asset_address, _token_client, _token_admin, _owner, treasury, _guardian) = setup_vault(&env);
+    let (client, asset_address, _token_client, _token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     assert_eq!(client.query_asset(), asset_address);
     assert_eq!(client.treasury(), treasury);
@@ -111,9 +118,7 @@ fn test_initialization() {
     assert!(!client.paused());
 }
 
-// ============================================================================
-// Deposit Tests
-// ============================================================================
+// --- Deposits ---
 
 #[test]
 fn test_deposit() {
@@ -154,9 +159,7 @@ fn test_deposit_exceeds_max_limit() {
     client.deposit(&huge_amount, &user, &user, &user);
 }
 
-// ============================================================================
-// Withdrawal Tests
-// ============================================================================
+// --- Withdrawals ---
 
 #[test]
 fn test_withdraw() {
@@ -198,16 +201,14 @@ fn test_redeem() {
     assert_eq!(client.balance(&user), 0);
 }
 
-// ============================================================================
-// Pause Tests
-// ============================================================================
+// --- Pause / Unpause ---
 
 #[test]
 fn test_pause_and_unpause() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, owner, _treasury, guardian, user) =
+    let (client, _asset_address, _token_client, _token_admin, owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Pause
@@ -227,16 +228,15 @@ fn test_pause_and_unpause() {
     assert!(shares > 0);
 }
 
-// ============================================================================
-// Treasury Management Tests
-// ============================================================================
+// --- Treasury Management ---
 
 #[test]
 fn test_set_treasury() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) = setup_vault(&env);
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
 
     let new_treasury = Address::generate(&env);
 
@@ -245,9 +245,7 @@ fn test_set_treasury() {
     assert_eq!(client.treasury(), new_treasury);
 }
 
-// ============================================================================
-// Admin Limit Tests
-// ============================================================================
+// --- Admin Limits ---
 
 #[test]
 fn test_set_max_deposit() {
@@ -278,16 +276,15 @@ fn test_set_max_withdraw() {
     assert_eq!(client.get_max_withdraw(), new_limit);
 }
 
-// ============================================================================
-// Sweep Foreign Asset Tests
-// ============================================================================
+// --- Sweep Foreign Assets ---
 
 #[test]
 fn test_sweep_foreign_asset() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, treasury, _guardian) = setup_vault(&env);
+    let (client, _asset_address, _token_client, _token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Create a foreign token (e.g., USDT)
     let foreign_admin = Address::generate(&env);
@@ -315,7 +312,8 @@ fn test_sweep_underlying_asset_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, asset_address, _token_client, token_admin, _owner, treasury, _guardian) = setup_vault(&env);
+    let (client, asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Try to sweep the underlying asset
     let vault_address = client.address.clone();
@@ -362,7 +360,8 @@ fn test_sweep_invalid_amount() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, treasury, _guardian) = setup_vault(&env);
+    let (client, _asset_address, _token_client, _token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Create foreign token
     let foreign_admin = Address::generate(&env);
@@ -385,9 +384,7 @@ fn test_sweep_invalid_amount() {
     assert_eq!(result, Err(Ok(MicroVaultError::InvalidAmount)));
 }
 
-// ============================================================================
-// Multi-User Scenarios
-// ============================================================================
+// --- Multi-User Scenarios ---
 
 #[test]
 fn test_multiple_depositors() {
@@ -412,9 +409,7 @@ fn test_multiple_depositors() {
     assert_eq!(client.balance(&user_b), shares_b);
 }
 
-// ============================================================================
-// ERC-4626 Preview Functions
-// ============================================================================
+// --- SEP-56 / ERC-4626 Preview Functions ---
 
 #[test]
 fn test_preview_functions() {
@@ -434,16 +429,15 @@ fn test_preview_functions() {
     assert_eq!(preview_assets, client.convert_to_assets(&shares));
 }
 
-// ============================================================================
-// Operator Pattern Tests
-// ============================================================================
+// --- Operator Pattern ---
 
 #[test]
 fn test_operator_deposit() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, asset_address, token_client, token_admin, _owner, _treasury, _guardian) = setup_vault(&env);
+    let (client, asset_address, token_client, token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
 
     let user = Address::generate(&env);
     let operator = Address::generate(&env);
@@ -464,16 +458,15 @@ fn test_operator_deposit() {
     assert_eq!(token_client.balance(&user), 500_000);
 }
 
-// ============================================================================
-// Full Lifecycle Integration Test
-// ============================================================================
+// --- Full Lifecycle Integration ---
 
 #[test]
 fn test_full_vault_lifecycle() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, token_admin, owner, _treasury, _guardian) = setup_vault(&env);
+    let (client, _asset_address, token_client, token_admin, owner, _treasury, _guardian) =
+        setup_vault(&env);
 
     // 1. User deposits
     let user = Address::generate(&env);
@@ -509,9 +502,7 @@ fn test_full_vault_lifecycle() {
     assert_eq!(client.balance(&user), 0);
 }
 
-// ============================================================================
-// Credit Delegation Tests
-// ============================================================================
+// --- Credit Delegation ---
 
 #[test]
 fn test_credit_delegation_initial_state() {
@@ -532,7 +523,8 @@ fn test_borrow_success() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, token_admin, _owner, treasury, _guardian) = setup_vault(&env);
+    let (client, _asset_address, token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -561,7 +553,8 @@ fn test_borrow_to_multiple_recipients() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, token_admin, _owner, treasury, _guardian) = setup_vault(&env);
+    let (client, _asset_address, token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -587,7 +580,8 @@ fn test_borrow_exceeds_utilization_cap() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -606,7 +600,8 @@ fn test_borrow_at_max_utilization() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, token_admin, _owner, treasury, _guardian) = setup_vault(&env);
+    let (client, _asset_address, token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -628,7 +623,8 @@ fn test_borrow_unauthorized() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, _treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -648,7 +644,8 @@ fn test_borrow_invalid_amount() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -671,7 +668,8 @@ fn test_borrow_checks_utilization_before_liquidity() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Deposit 10M
     let depositor = Address::generate(&env);
@@ -694,7 +692,8 @@ fn test_repay_success() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -720,7 +719,8 @@ fn test_repay_partial() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -743,7 +743,8 @@ fn test_repay_exceeds_debt() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -765,7 +766,8 @@ fn test_repay_unauthorized() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -788,7 +790,8 @@ fn test_interest_accrual() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -826,7 +829,8 @@ fn test_withdrawal_limited_by_liquidity() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -850,7 +854,8 @@ fn test_max_withdraw_considers_liquidity() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -875,7 +880,8 @@ fn test_max_redeem_considers_liquidity() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -901,7 +907,8 @@ fn test_borrow_apr_increases_with_utilization() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -930,7 +937,8 @@ fn test_total_managed_assets_includes_borrowed() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // Depositor provides liquidity
     let depositor = Address::generate(&env);
@@ -957,7 +965,8 @@ fn test_full_credit_delegation_lifecycle() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, token_client, token_admin, _owner, treasury) = setup_vault(&env);
+    let (client, _asset_address, token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
 
     // 1. Depositors provide liquidity
     let depositor_a = Address::generate(&env);
@@ -1017,16 +1026,14 @@ fn test_full_credit_delegation_lifecycle() {
     assert!(assets_b >= 4_000_000); // Should have earned interest
 }
 
-// ============================================================================
-// Lock Period Tests
-// ============================================================================
+// --- Lock Period ---
 
 #[test]
 fn test_lock_period_default_zero() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
         setup_vault(&env);
 
     // Default lock period should be 0 (disabled)
@@ -1038,7 +1045,7 @@ fn test_set_lock_period() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
         setup_vault(&env);
 
     // Set lock period to 7 days
@@ -1053,7 +1060,7 @@ fn test_no_lock_when_period_is_zero() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Lock period is 0 (default)
@@ -1088,7 +1095,7 @@ fn test_lock_applied_on_deposit() {
         max_entry_ttl: 10000,
     });
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Set lock period to 7 days
@@ -1121,7 +1128,7 @@ fn test_withdraw_blocked_when_locked() {
         max_entry_ttl: 10000,
     });
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Set lock period
@@ -1151,7 +1158,7 @@ fn test_redeem_blocked_when_locked() {
         max_entry_ttl: 10000,
     });
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Set lock period
@@ -1180,7 +1187,7 @@ fn test_withdraw_allowed_after_lock_expires() {
         max_entry_ttl: 10000,
     });
 
-    let (client, _asset_address, token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Set lock period to 7 days
@@ -1228,7 +1235,7 @@ fn test_weighted_lock_calculation() {
         max_entry_ttl: 10000,
     });
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Set lock period to 7 days (604800 seconds)
@@ -1284,7 +1291,7 @@ fn test_weighted_lock_with_large_new_deposit() {
         max_entry_ttl: 10000,
     });
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 100_000_000);
 
     // Set lock period to 7 days
@@ -1331,7 +1338,7 @@ fn test_lock_after_expiry_creates_new_lock() {
         max_entry_ttl: 10000,
     });
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Set lock period to 7 days
@@ -1383,7 +1390,7 @@ fn test_mint_also_applies_lock() {
         max_entry_ttl: 10000,
     });
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, user) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 10_000_000);
 
     // Set lock period
@@ -1399,9 +1406,7 @@ fn test_mint_also_applies_lock() {
     assert_eq!(client.get_unlock_time(&user), 1000 + seven_days);
 }
 
-// ============================================================================
-// Upgrade Tests
-// ============================================================================
+// --- Upgrade ---
 
 #[test]
 fn test_upgrade_function_exists() {
@@ -1410,7 +1415,7 @@ fn test_upgrade_function_exists() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury) =
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
         setup_vault(&env);
 
     // We can't actually test upgrade without a new WASM,

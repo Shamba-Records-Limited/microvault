@@ -720,7 +720,7 @@ impl MicroVaultContract {
 
         let underlying_asset = Vault::query_asset(e);
         let token_client = soroban_sdk::token::Client::new(e, &underlying_asset);
-        token_client.transfer(&treasury, &e.current_contract_address(), &amount);
+        token_client.transfer(&treasury, e.current_contract_address(), &amount);
 
         let new_borrowed = current_borrowed - amount;
         e.storage()
@@ -920,9 +920,7 @@ impl Pausable for MicroVaultContract {
     fn pause(e: &Env, caller: Address) {
         caller.require_auth();
 
-        let is_owner = ownable::owner(e)
-            .map(|o| o == caller)
-            .unwrap_or(false);
+        let is_owner = ownable::get_owner(e).map(|o| o == caller).unwrap_or(false);
         let is_guardian: bool = e
             .storage()
             .instance()

@@ -163,6 +163,7 @@ impl TimelockController {
     ///
     /// Panics if `proposer` does not hold the proposer role or if `delay` is
     /// less than the configured minimum delay.
+    #[allow(clippy::too_many_arguments)]
     #[only_role(proposer, "proposer")]
     pub fn schedule_op(
         e: &Env,
