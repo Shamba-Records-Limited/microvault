@@ -58,7 +58,6 @@ repos:
         language: system
         pass_filenames: false
         types: [rust]
-        stages: [pre-push]
 
       - id: cargo-test
         name: Cargo test (Soroban)
@@ -66,4 +65,3 @@ repos:
         language: system
         pass_filenames: false
         types: [rust]
-        stages: [pre-push]
