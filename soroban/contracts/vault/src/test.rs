@@ -1,4 +1,4 @@
-//! Tests for the MicroVault SEP-56 tokenized vault contract.
+//! Integration tests for the MicroVault SEP-56 tokenized vault contract.
 //!
 //! Covers initialization, deposits, withdrawals, pause/unpause, treasury
 //! management, credit delegation (borrow/repay), interest accrual, lock
