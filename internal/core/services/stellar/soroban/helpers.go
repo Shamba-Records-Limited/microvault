@@ -97,6 +97,67 @@ func scValToU64(val xdr.ScVal) (uint64, error) {
 	return uint64(*val.U64), nil
 }
 
+// extractBorrowedRecipient parses the transaction result metadata XDR and
+// extracts the recipient address from the Borrowed contract event.
+// The Borrowed event has topics [symbol("Borrowed")] and data containing
+// {treasury, recipient, amount, total_borrowed} as a struct/map.
+func extractBorrowedRecipient(resultMetaXDR string, contractID string) (string, error) {
+	var meta xdr.TransactionMeta
+	if err := xdr.SafeUnmarshalBase64(resultMetaXDR, &meta); err != nil {
+		return "", fmt.Errorf("failed to decode result meta: %w", err)
+	}
+
+	sorobanMeta := meta.MustV3().SorobanMeta
+	if sorobanMeta == nil {
+		return "", fmt.Errorf("no soroban metadata in transaction")
+	}
+
+	// Decode the expected contract address for matching
+	contractBytes, err := strkey.Decode(strkey.VersionByteContract, contractID)
+	if err != nil {
+		return "", fmt.Errorf("invalid contract ID: %w", err)
+	}
+	var expectedContractID xdr.ContractId
+	copy(expectedContractID[:], contractBytes)
+
+	for _, event := range sorobanMeta.Events {
+		// Only match events from our vault contract
+		if event.ContractId == nil || *event.ContractId != expectedContractID {
+			continue
+		}
+		if event.Type != xdr.ContractEventTypeContract {
+			continue
+		}
+
+		// Check topic[0] == Symbol("Borrowed")
+		topics := event.Body.MustV0().Topics
+		if len(topics) == 0 {
+			continue
+		}
+		if topics[0].Type != xdr.ScValTypeScvSymbol || string(*topics[0].Sym) != "Borrowed" {
+			continue
+		}
+
+		// The event data is a Map with keys: treasury, recipient, amount, total_borrowed
+		data := event.Body.MustV0().Data
+		if data.Type != xdr.ScValTypeScvMap {
+			continue
+		}
+		scMap := data.MustMap()
+		if scMap == nil {
+			continue
+		}
+
+		for _, entry := range *scMap {
+			if entry.Key.Type == xdr.ScValTypeScvSymbol && string(*entry.Key.Sym) == "recipient" {
+				return scValToAddress(entry.Val)
+			}
+		}
+	}
+
+	return "", fmt.Errorf("Borrowed event not found in transaction metadata")
+}
+
 // scValToAddress extracts address string from ScVal
 func scValToAddress(val xdr.ScVal) (string, error) {
 	if val.Type != xdr.ScValTypeScvAddress {

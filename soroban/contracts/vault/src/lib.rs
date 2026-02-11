@@ -175,7 +175,7 @@ const OPTIMAL_UTILIZATION: i128 = 800_000_000_000_000_000;
 /// Base interest rate: 2% APR in WAD.
 const BASE_RATE: i128 = 20_000_000_000_000_000;
 
-/// Slope 1: 7.5% per 100% utilization (below optimal). At 80% util the
+/// Slope 1: 7.5% per 100% utilization (below optimal). At 80% utilization the
 /// slope-1 contribution is 6%, giving a total of 8% APR at optimal.
 const SLOPE1: i128 = 75_000_000_000_000_000;
 
@@ -275,23 +275,33 @@ impl MicroVaultContract {
         token_client.balance(&e.current_contract_address())
     }
 
+    /// Raw total managed assets without accruing interest first.
+    /// Used internally by `accrue_interest` and `utilization_rate` to avoid
+    /// circular recursion.
+    fn raw_total_managed_assets(e: &Env) -> i128 {
+        Self::available_liquidity(e) + Self::total_borrowed(e)
+    }
+
     /// Returns total managed assets: available liquidity plus outstanding borrows.
     ///
     /// This is the denominator for share-to-asset conversions, ensuring that
     /// depositors' shares appreciate as interest accrues on borrowed funds.
+    /// Interest is accrued first so that the returned value is always current.
     pub fn total_managed_assets(e: &Env) -> i128 {
-        Self::available_liquidity(e) + Self::total_borrowed(e)
+        Self::accrue_interest(e);
+        Self::raw_total_managed_assets(e)
     }
 
     /// Returns the current utilization rate as a WAD-scaled value (18 decimals).
     ///
     /// Utilization = total_borrowed / total_managed_assets.
     pub fn utilization_rate(e: &Env) -> i128 {
+        Self::accrue_interest(e);
         let borrowed = Self::total_borrowed(e);
         if borrowed == 0 {
             return 0;
         }
-        let total_managed = Self::total_managed_assets(e);
+        let total_managed = Self::raw_total_managed_assets(e);
         if total_managed == 0 {
             return 0;
         }
@@ -588,7 +598,14 @@ impl MicroVaultContract {
             return;
         }
 
-        let utilization = Self::utilization_rate(e);
+        // Compute utilization inline to avoid circular call through
+        // utilization_rate → total_managed_assets → accrue_interest.
+        let total_managed = Self::raw_total_managed_assets(e);
+        let utilization = if total_managed > 0 {
+            Wad::from_ratio(e, total_borrowed, total_managed).raw()
+        } else {
+            0
+        };
         let annual_rate = Wad::from_raw(Self::calculate_borrow_rate(e, utilization));
         let rate_per_second = annual_rate
             .checked_div_int(SECONDS_PER_YEAR as i128)
@@ -655,7 +672,7 @@ impl MicroVaultContract {
         Self::accrue_interest(e);
 
         let current_borrowed = Self::total_borrowed(e);
-        let total_managed = Self::total_managed_assets(e);
+        let total_managed = Self::raw_total_managed_assets(e);
         let new_borrowed = current_borrowed + amount;
 
         let new_utilization = if total_managed > 0 {
@@ -678,7 +695,7 @@ impl MicroVaultContract {
 
         let underlying_asset = Vault::query_asset(e);
         let token_client = soroban_sdk::token::Client::new(e, &underlying_asset);
-        token_client.transfer(&e.current_contract_address(), &recipient, &amount);
+        token_client.transfer(&e.current_contract_address(), &treasury, &amount);
 
         Borrowed {
             treasury: treasury_caller,
@@ -720,7 +737,7 @@ impl MicroVaultContract {
 
         let underlying_asset = Vault::query_asset(e);
         let token_client = soroban_sdk::token::Client::new(e, &underlying_asset);
-        token_client.transfer(&treasury, e.current_contract_address(), &amount);
+        token_client.transfer(&treasury_caller, e.current_contract_address(), &amount);
 
         let new_borrowed = current_borrowed - amount;
         e.storage()

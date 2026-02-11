@@ -175,16 +175,19 @@ func (s *service) simulateContractCall(
 	return &simResp, nil
 }
 
-// submitContractTransaction submits a signed contract transaction
+// submitContractTransaction submits a signed contract transaction and returns
+// the full GetTransactionResponse so callers can inspect result metadata and events.
 func (s *service) submitContractTransaction(
 	ctx context.Context,
 	signerKP *keypair.Full,
 	op *txnbuild.InvokeHostFunction,
 	simResp *protocol.SimulateTransactionResponse,
-) (string, error) {
+) (protocol.GetTransactionResponse, error) {
+	empty := protocol.GetTransactionResponse{}
+
 	sourceAccount, err := s.rpcClient.LoadAccount(ctx, signerKP.Address())
 	if err != nil {
-		return "", fmt.Errorf("failed to load source account: %w", err)
+		return empty, fmt.Errorf("failed to load source account: %w", err)
 	}
 
 	// Extract auth entries from simulation results
@@ -193,7 +196,7 @@ func (s *service) submitContractTransaction(
 		for _, authXDR := range *simResp.Results[0].AuthXDR {
 			var auth xdr.SorobanAuthorizationEntry
 			if err := xdr.SafeUnmarshalBase64(authXDR, &auth); err != nil {
-				return "", fmt.Errorf("failed to decode auth: %w", err)
+				return empty, fmt.Errorf("failed to decode auth: %w", err)
 			}
 			authEntries = append(authEntries, auth)
 		}
@@ -212,7 +215,7 @@ func (s *service) submitContractTransaction(
 	if simResp.TransactionDataXDR != "" {
 		var transactionData xdr.SorobanTransactionData
 		if err := xdr.SafeUnmarshalBase64(simResp.TransactionDataXDR, &transactionData); err != nil {
-			return "", fmt.Errorf("failed to decode transaction data: %w", err)
+			return empty, fmt.Errorf("failed to decode transaction data: %w", err)
 		}
 		op.Ext = xdr.TransactionExt{
 			V:           1,
@@ -230,35 +233,35 @@ func (s *service) submitContractTransaction(
 		Operations: []txnbuild.Operation{op},
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to build transaction: %w", err)
+		return empty, fmt.Errorf("failed to build transaction: %w", err)
 	}
 
 	// Sign transaction
 	tx, err = tx.Sign(s.networkPassphrase, signerKP)
 	if err != nil {
-		return "", fmt.Errorf("failed to sign transaction: %w", err)
+		return empty, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
 	// Submit
 	txXDR, _ := tx.Base64()
-	resp, err := s.rpcClient.SendTransaction(ctx, protocol.SendTransactionRequest{
+	sendResp, err := s.rpcClient.SendTransaction(ctx, protocol.SendTransactionRequest{
 		Transaction: txXDR,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to submit transaction: %w", err)
+		return empty, fmt.Errorf("failed to submit transaction: %w", err)
 	}
 
 	// Poll for result
 	pollCfg := rpc.DefaultPollConfig()
 	pollCfg.Logger = s.logger
-	status, err := rpc.PollTransaction(ctx, s.rpcClient, resp.Hash, pollCfg)
+	txResp, err := rpc.PollTransaction(ctx, s.rpcClient, sendResp.Hash, pollCfg)
 	if err != nil {
-		return "", err
+		return txResp, err
 	}
 
-	if status != protocol.TransactionStatusSuccess {
-		return "", fmt.Errorf("transaction failed with status: %s", status)
+	if txResp.Status != protocol.TransactionStatusSuccess {
+		return txResp, fmt.Errorf("transaction failed with status: %s", txResp.Status)
 	}
 
-	return resp.Hash, nil
+	return txResp, nil
 }

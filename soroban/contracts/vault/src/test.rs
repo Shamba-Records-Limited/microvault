@@ -538,9 +538,9 @@ fn test_borrow_success() {
     let borrow_amount = 5_000_000i128;
     client.borrow(&treasury, &child_account, &borrow_amount);
 
-    // Verify state
+    // Verify state — funds go to treasury, not child account
     assert_eq!(client.total_borrowed(), borrow_amount);
-    assert_eq!(token_client.balance(&child_account), borrow_amount);
+    assert_eq!(token_client.balance(&treasury), borrow_amount);
     assert_eq!(client.available_liquidity(), 5_000_000); // 10M - 5M borrowed
 
     // Utilization should be 50%
@@ -569,9 +569,8 @@ fn test_borrow_to_multiple_recipients() {
     client.borrow(&treasury, &child_a, &2_000_000i128);
     client.borrow(&treasury, &child_b, &3_000_000i128);
 
-    // Verify each received their funds
-    assert_eq!(token_client.balance(&child_a), 2_000_000);
-    assert_eq!(token_client.balance(&child_b), 3_000_000);
+    // Verify treasury received all borrowed funds
+    assert_eq!(token_client.balance(&treasury), 5_000_000); // 2M + 3M
     assert_eq!(client.total_borrowed(), 5_000_000);
 }
 
@@ -614,7 +613,7 @@ fn test_borrow_at_max_utilization() {
     let max_borrow = 8_000_000i128;
     client.borrow(&treasury, &child_account, &max_borrow);
 
-    assert_eq!(token_client.balance(&child_account), max_borrow);
+    assert_eq!(token_client.balance(&treasury), max_borrow);
     assert_eq!(client.total_borrowed(), max_borrow);
 }
 
@@ -987,8 +986,7 @@ fn test_full_credit_delegation_lifecycle() {
     client.borrow(&treasury, &child_2, &2_000_000i128);
 
     assert_eq!(client.total_borrowed(), 5_000_000);
-    assert_eq!(token_client.balance(&child_1), 3_000_000);
-    assert_eq!(token_client.balance(&child_2), 2_000_000);
+    assert_eq!(token_client.balance(&treasury), 5_000_000); // 3M + 2M
 
     // 3. Time passes, interest accrues
     env.ledger().set(LedgerInfo {

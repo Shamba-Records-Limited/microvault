@@ -32,13 +32,13 @@ func DefaultPollConfig() PollConfig {
 }
 
 // PollTransaction polls for transaction completion with proper logging.
-// It returns the final transaction status and any error encountered.
+// It returns the full GetTransactionResponse on success and any error encountered.
 func PollTransaction(
 	ctx context.Context,
 	client TransactionGetter,
 	txHash string,
 	cfg PollConfig,
-) (string, error) {
+) (protocol.GetTransactionResponse, error) {
 	logger := cfg.Logger.With(
 		slog.String("tx_hash", txHash),
 		slog.String("component", "poll_transaction"),
@@ -57,7 +57,7 @@ func PollTransaction(
 				slog.Int("attempt", attempt),
 				slog.String("error", ctx.Err().Error()),
 			)
-			return "", types.ErrContextCancelled
+			return protocol.GetTransactionResponse{}, types.ErrContextCancelled
 		default:
 		}
 
@@ -88,7 +88,7 @@ func PollTransaction(
 				slog.Int("attempt", attempt),
 				slog.Uint64("ledger", uint64(resp.Ledger)),
 			)
-			return protocol.TransactionStatusSuccess, nil
+			return resp, nil
 
 		case protocol.TransactionStatusFailed:
 			logger.Error("transaction failed",
@@ -96,7 +96,7 @@ func PollTransaction(
 				slog.Uint64("ledger", uint64(resp.Ledger)),
 				slog.String("result_xdr", resp.ResultXDR),
 			)
-			return protocol.TransactionStatusFailed, types.ErrTransactionFailedOnLedger
+			return resp, types.ErrTransactionFailedOnLedger
 
 		case protocol.TransactionStatusNotFound:
 			logger.Debug("transaction not yet found",
@@ -111,12 +111,12 @@ func PollTransaction(
 				slog.Int("attempt", attempt),
 				slog.String("status", resp.Status),
 			)
-			return resp.Status, types.ErrUnknownTransactionStatus
+			return resp, types.ErrUnknownTransactionStatus
 		}
 	}
 
 	logger.Error("transaction polling timed out",
 		slog.Int("max_attempts", cfg.MaxAttempts),
 	)
-	return "", types.ErrTransactionTimeout
+	return protocol.GetTransactionResponse{}, types.ErrTransactionTimeout
 }

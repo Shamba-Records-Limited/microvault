@@ -224,7 +224,7 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 	// 11. Wait for transaction to be applied to the ledger
 	pollCfg := rpc.DefaultPollConfig()
 	pollCfg.Logger = s.logger
-	status, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
+	txResult, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
 	if err != nil {
 		s.logger.Error("transaction failed",
 			slog.String("operation", "CreateSponsoredAccount"),
@@ -234,11 +234,11 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 		return types.ErrTransactionFailed
 	}
 
-	if status != protocol.TransactionStatusSuccess {
+	if txResult.Status != protocol.TransactionStatusSuccess {
 		s.logger.Error("transaction not successful",
 			slog.String("operation", "CreateSponsoredAccount"),
 			slog.String("tx_hash", txHash),
-			slog.String("status", status),
+			slog.String("status", txResult.Status),
 		)
 		return types.ErrTransactionNotSuccessful
 	}
@@ -379,7 +379,7 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 
 	pollCfg := rpc.DefaultPollConfig()
 	pollCfg.Logger = s.logger
-	status, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
+	txResult, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
 	if err != nil {
 		s.logger.Error("transaction failed",
 			slog.String("operation", "SponsoredPaymentTransaction"),
@@ -389,28 +389,13 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 		return nil, types.ErrTransactionFailed
 	}
 
-	if status != protocol.TransactionStatusSuccess {
+	if txResult.Status != protocol.TransactionStatusSuccess {
 		s.logger.Error("transaction not successful",
 			slog.String("operation", "SponsoredPaymentTransaction"),
 			slog.String("tx_hash", txHash),
-			slog.String("status", status),
+			slog.String("status", txResult.Status),
 		)
 		return nil, types.ErrTransactionNotSuccessful
-	}
-
-	txResult, err := s.rpcClient.GetTransaction(ctx, protocol.GetTransactionRequest{
-		Hash: txHash,
-	})
-	if err != nil {
-		s.logger.Warn("failed to get transaction details",
-			slog.String("operation", "SponsoredPaymentTransaction"),
-			slog.String("error", err.Error()),
-		)
-		return &types.SponsoredPaymentTransactionResponse{
-			TxHash: txHash,
-			Ledger: 0,
-			Status: status,
-		}, nil
 	}
 
 	s.logger.Info("payment successful",
@@ -424,7 +409,7 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 	return &types.SponsoredPaymentTransactionResponse{
 		TxHash: txHash,
 		Ledger: int64(txResult.Ledger),
-		Status: status,
+		Status: txResult.Status,
 	}, nil
 }
 

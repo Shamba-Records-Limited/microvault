@@ -58,6 +58,7 @@ type BorrowResponse struct {
 	TxHash           string
 	AmountBorrowed   int64
 	RecipientAddress string
+	EventRecipient   string // Child account address extracted from the on-chain Borrowed event
 }
 
 // RepayRequest represents a request to repay borrowed funds

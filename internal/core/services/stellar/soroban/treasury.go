@@ -50,17 +50,26 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 	}
 
 	// Submit transaction
-	txHash, err := s.submitContractTransaction(ctx, treasuryKP, op, simResp)
+	txResp, err := s.submitContractTransaction(ctx, treasuryKP, op, simResp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to submit borrow transaction: %w", err)
 	}
 
-	log.Printf("BorrowFromVault: %d to %s (tx: %s)", req.Amount, req.RecipientAddress, txHash)
+	// Extract the Borrowed event's recipient field from the transaction result metadata.
+	// This serves as the on-chain memo linking the borrow to the child account.
+	var eventRecipient string
+	if txResp.ResultMetaXDR != "" {
+		eventRecipient, _ = extractBorrowedRecipient(txResp.ResultMetaXDR, s.contractID)
+	}
+
+	log.Printf("BorrowFromVault: %d to %s (tx: %s, event_recipient: %s)",
+		req.Amount, req.RecipientAddress, txResp.TransactionHash, eventRecipient)
 
 	return &types.BorrowResponse{
-		TxHash:           txHash,
+		TxHash:           txResp.TransactionHash,
 		AmountBorrowed:   req.Amount,
 		RecipientAddress: req.RecipientAddress,
+		EventRecipient:   eventRecipient,
 	}, nil
 }
 
@@ -95,15 +104,15 @@ func (s *service) RepayToVault(ctx context.Context, req types.RepayRequest) (*ty
 	}
 
 	// Submit
-	txHash, err := s.submitContractTransaction(ctx, treasuryKP, op, simResp)
+	txResp, err := s.submitContractTransaction(ctx, treasuryKP, op, simResp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to submit repay transaction: %w", err)
 	}
 
-	log.Printf("RepayToVault: %d repaid (tx: %s)", req.Amount, txHash)
+	log.Printf("RepayToVault: %d repaid (tx: %s)", req.Amount, txResp.TransactionHash)
 
 	return &types.RepayResponse{
-		TxHash:       txHash,
+		TxHash:       txResp.TransactionHash,
 		AmountRepaid: req.Amount,
 	}, nil
 }
@@ -129,11 +138,11 @@ func (s *service) AccrueInterest(ctx context.Context) error {
 	}
 
 	// Submit
-	txHash, err := s.submitContractTransaction(ctx, treasuryKP, op, simResp)
+	txResp, err := s.submitContractTransaction(ctx, treasuryKP, op, simResp)
 	if err != nil {
 		return fmt.Errorf("failed to submit accrue transaction: %w", err)
 	}
 
-	log.Printf("AccrueInterest: interest accrued (tx: %s)", txHash)
+	log.Printf("AccrueInterest: interest accrued (tx: %s)", txResp.TransactionHash)
 	return nil
 }

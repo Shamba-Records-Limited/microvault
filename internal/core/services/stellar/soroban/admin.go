@@ -36,12 +36,12 @@ func (s *service) PauseVault(ctx context.Context) error {
 		return fmt.Errorf("simulation error: %s", simResp.Error)
 	}
 
-	txHash, err := s.submitContractTransaction(ctx, adminKP, op, simResp)
+	txResp, err := s.submitContractTransaction(ctx, adminKP, op, simResp)
 	if err != nil {
 		return fmt.Errorf("failed to pause vault: %w", err)
 	}
 
-	log.Printf("PauseVault: vault paused successfully (tx: %s)", txHash)
+	log.Printf("PauseVault: vault paused successfully (tx: %s)", txResp.TransactionHash)
 	return nil
 }
 
@@ -67,12 +67,12 @@ func (s *service) UnpauseVault(ctx context.Context) error {
 		return fmt.Errorf("simulation error: %s", simResp.Error)
 	}
 
-	txHash, err := s.submitContractTransaction(ctx, adminKP, op, simResp)
+	txResp, err := s.submitContractTransaction(ctx, adminKP, op, simResp)
 	if err != nil {
 		return fmt.Errorf("failed to unpause vault: %w", err)
 	}
 
-	log.Printf("UnpauseVault: vault unpaused successfully (tx: %s)", txHash)
+	log.Printf("UnpauseVault: vault unpaused successfully (tx: %s)", txResp.TransactionHash)
 	return nil
 }
 
@@ -98,12 +98,12 @@ func (s *service) SetMaxDeposit(ctx context.Context, limit int64) error {
 		return fmt.Errorf("simulation error: %s", simResp.Error)
 	}
 
-	txHash, err := s.submitContractTransaction(ctx, adminKP, op, simResp)
+	txResp, err := s.submitContractTransaction(ctx, adminKP, op, simResp)
 	if err != nil {
 		return fmt.Errorf("failed to set max deposit: %w", err)
 	}
 
-	log.Printf("SetMaxDeposit: limit set to %d (tx: %s)", limit, txHash)
+	log.Printf("SetMaxDeposit: limit set to %d (tx: %s)", limit, txResp.TransactionHash)
 	return nil
 }
 
@@ -129,12 +129,12 @@ func (s *service) SetMaxWithdraw(ctx context.Context, limit int64) error {
 		return fmt.Errorf("simulation error: %s", simResp.Error)
 	}
 
-	txHash, err := s.submitContractTransaction(ctx, adminKP, op, simResp)
+	txResp, err := s.submitContractTransaction(ctx, adminKP, op, simResp)
 	if err != nil {
 		return fmt.Errorf("failed to set max withdraw: %w", err)
 	}
 
-	log.Printf("SetMaxWithdraw: limit set to %d (tx: %s)", limit, txHash)
+	log.Printf("SetMaxWithdraw: limit set to %d (tx: %s)", limit, txResp.TransactionHash)
 	return nil
 }
 
@@ -160,11 +160,11 @@ func (s *service) SetLockPeriod(ctx context.Context, periodSeconds uint64) error
 		return fmt.Errorf("simulation error: %s", simResp.Error)
 	}
 
-	txHash, err := s.submitContractTransaction(ctx, adminKP, op, simResp)
+	txResp, err := s.submitContractTransaction(ctx, adminKP, op, simResp)
 	if err != nil {
 		return fmt.Errorf("failed to set lock period: %w", err)
 	}
 
-	log.Printf("SetLockPeriod: period set to %d seconds (tx: %s)", periodSeconds, txHash)
+	log.Printf("SetLockPeriod: period set to %d seconds (tx: %s)", periodSeconds, txResp.TransactionHash)
 	return nil
 }
