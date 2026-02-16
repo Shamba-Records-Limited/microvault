@@ -4,6 +4,10 @@
 # MicroVault
 A headless ERC-4626 tokenized vault engine for micro-lending built on the Stellar network.
 
+Vault Contract Address: [CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR](https://stellar.expert/explorer/testnet/contract/CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR)
+
+Governance Contract Address: [CC3QFA2NBGHWO4QHUCVERFVRAKVHVSM623LCLMUVRGRCMLAHZGFDNSUW](https://stellar.expert/explorer/testnet/contract/CC3QFA2NBGHWO4QHUCVERFVRAKVHVSM623LCLMUVRGRCMLAHZGFDNSUW)
+
 ## Technical Architecture
 A high-level technical architecture of the engine implementation:
 ![ERC4626-Stellar](https://github.com/user-attachments/assets/15df2664-5089-4b9b-a14e-e6e0b16da69d)
