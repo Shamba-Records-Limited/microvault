@@ -2,7 +2,7 @@
 
 [![built-with openzeppelin](https://img.shields.io/badge/built%20with-OpenZeppelin-3677FF)](https://docs.openzeppelin.com/)
 # MicroVault
-A headless ERC-4626 tokenized vault engine for micro-lending built on the Stellar network.
+A headless [SEP-56/ERC-4626](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0056.md) tokenized vault standard engine for micro-lending built on the Stellar network.
 
 Vault Contract Address: [CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR](https://stellar.expert/explorer/testnet/contract/CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR)
 
