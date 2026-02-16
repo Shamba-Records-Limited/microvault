@@ -19,8 +19,8 @@ import (
 // yellowcardTransport is a custom http.RoundTripper that signs requests
 // using YellowCard's YcHmacV1 authentication scheme.
 type yellowcardTransport struct {
-	apiKey    string
-	apiSecret string
+	publicKey string
+	SecretKey string
 	base      http.RoundTripper
 }
 
@@ -33,7 +33,7 @@ func (t *yellowcardTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		path = fmt.Sprintf("%s?%s", path, req.URL.RawQuery)
 	}
 
-	h := hmac.New(sha256.New, []byte(t.apiSecret))
+	h := hmac.New(sha256.New, []byte(t.SecretKey))
 	h.Write([]byte(date))
 	h.Write([]byte(path))
 	h.Write([]byte(req.Method))
@@ -54,7 +54,7 @@ func (t *yellowcardTransport) RoundTrip(req *http.Request) (*http.Response, erro
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-YC-Timestamp", date)
-	req.Header.Set("Authorization", fmt.Sprintf("YcHmacV1 %s:%s", t.apiKey, signature))
+	req.Header.Set("Authorization", fmt.Sprintf("YcHmacV1 %s:%s", t.publicKey, signature))
 
 	return t.base.RoundTrip(req)
 }
@@ -66,10 +66,10 @@ type YellowcardAdapter struct {
 }
 
 // NewYellowcardAdapter creates a new YellowCard adapter with HMAC request signing.
-func NewYellowcardAdapter(apiKey, apiSecret, baseURL string) *YellowcardAdapter {
+func NewYellowcardAdapter(publicKey, SecretKey, baseURL string) *YellowcardAdapter {
 	signingTransport := &yellowcardTransport{
-		apiKey:    apiKey,
-		apiSecret: apiSecret,
+		publicKey: publicKey,
+		SecretKey: SecretKey,
 		base:      http.DefaultTransport,
 	}
 

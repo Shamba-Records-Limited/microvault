@@ -114,8 +114,8 @@ func (c *StellarConfig) NewRpcClient() *rpcclient.Client {
 
 // YellowCardConfig holds all YellowCard-related configuration
 type YellowCardConfig struct {
-	APIKey        string
-	APISecret     string
+	PublicKey     string
+	SecretKey     string
 	BaseURL       string
 	WebhookSecret string
 	BusinessID    string // Registered business ID with YellowCard
@@ -176,8 +176,10 @@ func New() (*Config, error) {
 
 	stellarRpcURL := os.Getenv("STELLAR_RPC_URL")
 
-	ycAPIKey := os.Getenv("YELLOWCARD_API_KEY")
-	ycAPISecret := os.Getenv("YELLOWCARD_API_SECRET")
+	ycPublicKey := os.Getenv("YELLOW_CARD_PUBLIC_KEY")
+	ycSecretKey := os.Getenv("YELLOW_CARD_SECRET_KEY")
+	ycBusinessID := os.Getenv("YELLOW_CARD_BUSINESS_ID")
+	ycBusinessName := os.Getenv("YELLOW_CARD_BUSINESS_NAME")
 
 	fonbnkClientID := os.Getenv("FONBNK_CLIENT_ID")
 	fonbnkClientSecret := os.Getenv("FONBNK_CLIENT_SECRET")
@@ -194,28 +196,30 @@ func New() (*Config, error) {
 
 	// Create a map of required variables to check
 	required := map[string]string{
-		"SERVER_ENVIRONMENT":    serverEnvironment,
-		"SERVER_HOST":           serverHost,
-		"CORE_SERVER_PORT":      coreServerPort,
-		"CREDIT_SERVER_PORT":    creditServerPort,
-		"DB_HOST":               dbHost,
-		"DB_USER":               dbUser,
-		"DB_PASSWORD":           dbPassword,
-		"DB_NAME":               dbName,
-		"DB_PORT":               dbPort,
-		"REDIS_HOST":            redisHost,
-		"REDIS_PORT":            redisPort,
-		"STELLAR_RPC_URL":       stellarRpcURL,
-		"YELLOWCARD_API_KEY":    ycAPIKey,
-		"YELLOWCARD_API_SECRET": ycAPISecret,
-		"FONBNK_CLIENT_ID":      fonbnkClientID,
-		"FONBNK_CLIENT_SECRET":  fonbnkClientSecret,
-		"TREASURY_SECRET_KEY":   treasurySecretKey,
-		"ADMIN_SECRET_KEY":      adminSecretKey,
-		"SERVER_SECRET_KEY":     serverSecretKey,
-		"JWT_SECRET":            jwtSecret,
-		"USDC_ISSUER":           usdcIssuer,
-		"CONTRACT_ID":           contractID,
+		"SERVER_ENVIRONMENT":        serverEnvironment,
+		"SERVER_HOST":               serverHost,
+		"CORE_SERVER_PORT":          coreServerPort,
+		"CREDIT_SERVER_PORT":        creditServerPort,
+		"DB_HOST":                   dbHost,
+		"DB_USER":                   dbUser,
+		"DB_PASSWORD":               dbPassword,
+		"DB_NAME":                   dbName,
+		"DB_PORT":                   dbPort,
+		"REDIS_HOST":                redisHost,
+		"REDIS_PORT":                redisPort,
+		"STELLAR_RPC_URL":           stellarRpcURL,
+		"YELLOW_CARD_PUBLIC_KEY":    ycPublicKey,
+		"YELLOW_CARD_SECRET_KEY":    ycSecretKey,
+		"YELLOW_CARD_BUSINESS_ID":   ycBusinessID,
+		"YELLOW_CARD_BUSINESS_NAME": ycBusinessName,
+		"FONBNK_CLIENT_ID":          fonbnkClientID,
+		"FONBNK_CLIENT_SECRET":      fonbnkClientSecret,
+		"TREASURY_SECRET_KEY":       treasurySecretKey,
+		"ADMIN_SECRET_KEY":          adminSecretKey,
+		"SERVER_SECRET_KEY":         serverSecretKey,
+		"JWT_SECRET":                jwtSecret,
+		"USDC_ISSUER":               usdcIssuer,
+		"CONTRACT_ID":               contractID,
 	}
 
 	// Loop and check for empty values
@@ -237,21 +241,6 @@ func New() (*Config, error) {
 	ycBaseURL := os.Getenv("YELLOWCARD_BASE_URL")
 	if ycBaseURL == "" {
 		ycBaseURL = "https://sandbox.api.yellowcard.io"
-	}
-
-	ycWebhookSecret := os.Getenv("YELLOWCARD_WEBHOOK_SECRET")
-	if ycWebhookSecret == "" {
-		ycWebhookSecret = ycAPISecret
-	}
-
-	ycBusinessID := os.Getenv("YELLOWCARD_BUSINESS_ID")
-	if ycBusinessID == "" {
-		ycBusinessID = "microvault"
-	}
-
-	ycBusinessName := os.Getenv("YELLOWCARD_BUSINESS_NAME")
-	if ycBusinessName == "" {
-		ycBusinessName = "MicroVault Finance"
 	}
 
 	fonbnkBaseURL := os.Getenv("FONBNK_BASE_URL")
@@ -374,12 +363,11 @@ func New() (*Config, error) {
 		},
 		Payments: PaymentsConfig{
 			YellowCard: YellowCardConfig{
-				APIKey:        ycAPIKey,
-				APISecret:     ycAPISecret,
-				BaseURL:       ycBaseURL,
-				WebhookSecret: ycWebhookSecret,
-				BusinessID:    ycBusinessID,
-				BusinessName:  ycBusinessName,
+				PublicKey:    ycPublicKey,
+				SecretKey:    ycSecretKey,
+				BaseURL:      ycBaseURL,
+				BusinessID:   ycBusinessID,
+				BusinessName: ycBusinessName,
 			},
 			Fonbnk: FonbnkConfig{
 				ClientID:     fonbnkClientID,

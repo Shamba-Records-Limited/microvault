@@ -127,8 +127,8 @@ func main() {
 	)
 
 	yellowCardProvider := yellowcard.NewYellowcardAdapter(
-		cfg.Payments.YellowCard.APIKey,
-		cfg.Payments.YellowCard.APISecret,
+		cfg.Payments.YellowCard.PublicKey,
+		cfg.Payments.YellowCard.SecretKey,
 		cfg.Payments.YellowCard.BaseURL,
 	)
 
