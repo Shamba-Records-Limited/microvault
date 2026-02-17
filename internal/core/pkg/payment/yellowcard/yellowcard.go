@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment"
@@ -20,7 +21,7 @@ import (
 // using YellowCard's YcHmacV1 authentication scheme.
 type yellowcardTransport struct {
 	publicKey string
-	SecretKey string
+	secretKey string
 	base      http.RoundTripper
 }
 
@@ -33,7 +34,7 @@ func (t *yellowcardTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		path = fmt.Sprintf("%s?%s", path, req.URL.RawQuery)
 	}
 
-	h := hmac.New(sha256.New, []byte(t.SecretKey))
+	h := hmac.New(sha256.New, []byte(t.secretKey))
 	h.Write([]byte(date))
 	h.Write([]byte(path))
 	h.Write([]byte(req.Method))
@@ -66,10 +67,10 @@ type YellowcardAdapter struct {
 }
 
 // NewYellowcardAdapter creates a new YellowCard adapter with HMAC request signing.
-func NewYellowcardAdapter(publicKey, SecretKey, baseURL string) *YellowcardAdapter {
+func NewYellowcardAdapter(publicKey, secretKey, baseURL string) *YellowcardAdapter {
 	signingTransport := &yellowcardTransport{
 		publicKey: publicKey,
-		SecretKey: SecretKey,
+		secretKey: secretKey,
 		base:      http.DefaultTransport,
 	}
 
@@ -343,6 +344,8 @@ func (y *YellowcardAdapter) LookupPayment(ctx context.Context, paymentID string)
 	return &details, nil
 }
 
+// parseError reads a non-OK HTTP response body and returns a structured error,
+// preferring the YellowCard API error format when available.
 func (y *YellowcardAdapter) parseError(resp *http.Response) error {
 	body, _ := io.ReadAll(resp.Body)
 
@@ -354,15 +357,40 @@ func (y *YellowcardAdapter) parseError(resp *http.Response) error {
 	return fmt.Errorf("yellowcard: API error %d: %s", resp.StatusCode, string(body))
 }
 
+// mapYellowCardStatus converts a YellowCard payment status string to the
+// internal PaymentStatus enum. Refund states map to Failed since the original
+// payment did not succeed. Unknown statuses default to Pending.
 func mapYellowCardStatus(ycStatus string) payment.PaymentStatus {
 	switch ycStatus {
 	case StatusComplete:
 		return payment.StatusSucceeded
-	case StatusFailed, StatusExpired:
+	case StatusFailed, StatusExpired, StatusCancelled:
+		return payment.StatusFailed
+	case StatusCreated, StatusPendingApproval, StatusPendingSettlement,
+		StatusProcess, StatusProcessing, StatusPendingLiquidity, StatusPending:
+		return payment.StatusPending
+	case StatusPendingRefund, StatusRefundProcessing:
+		return payment.StatusPending
+	case StatusRefunded:
+		return payment.StatusFailed // Refunded means the original payment failed
+	case StatusRefundFailed:
 		return payment.StatusFailed
 	default:
 		return payment.StatusPending
 	}
+}
+
+// ParseStellarWalletAddress splits a YellowCard combined wallet address into
+// the Stellar address and memo components. YellowCard returns XLM addresses
+// in the format "{stellar_address}_{memo}" e.g.:
+//
+//	"GDTY5CDJDVEI4RF5RE7HNIT26FCNA3DNXFNYNMZ6TNTLQTL34YG5NL5O_4084650351"
+func ParseStellarWalletAddress(combined string) (address string, memo string, err error) {
+	parts := strings.SplitN(combined, "_", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("yellowcard: invalid stellar wallet address format: %q", combined)
+	}
+	return parts[0], parts[1], nil
 }
 
 // FilterActiveChannels returns channels that are active and match the specified type.

@@ -283,7 +283,10 @@ func main() {
 		return c.SendFile("./cmd/microvault/docs/redoc-static.html")
 	})
 
-	routes.PublicRoutes(app, authController, ussdController) // Register public routes
+	// Initialize webhook controller (event handler will be wired when disbursement service is ready)
+	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.WebhookSecret)
+
+	routes.PublicRoutes(app, authController, ussdController, webhookController) // Register public routes
 
 	// Create a channel to listen for OS signals
 	sigChan := make(chan os.Signal, 1)

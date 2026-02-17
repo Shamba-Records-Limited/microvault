@@ -43,9 +43,22 @@ type SponsoredPaymentTransactionResponse struct {
 	Status string
 }
 
-// ============================================================================
+// SendUSDCRequest represents a request to send USDC directly from the treasury wallet
+// to an external Stellar address.
+type SendUSDCRequest struct {
+	Destination string // Stellar address to send USDC to
+	Memo        string // Text memo
+	Amount      int64  // Amount in stroops (USDC * 10^7)
+}
+
+// SendUSDCResponse represents the result of a SendUSDC operation.
+type SendUSDCResponse struct {
+	TxHash string
+	Ledger int64
+	Status string
+}
+
 // Soroban Vault DTOs
-// ============================================================================
 
 // BorrowRequest represents a request to borrow funds from the vault
 type BorrowRequest struct {

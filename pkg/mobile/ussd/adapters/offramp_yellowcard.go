@@ -3,6 +3,7 @@ package adapters
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -11,9 +12,11 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment/yellowcard"
 )
 
-// YellowCardOffRampAdapter implements OffRampService using YellowCard.
+// YellowCardOffRampAdapter implements OffRampService using YellowCard with
+// dual-mode settlement: direct (crypto-funded) and fiat (YC balance-funded).
 type YellowCardOffRampAdapter struct {
 	ycAdapter    *yellowcard.YellowcardAdapter
+	treasury     TreasuryTransfer
 	businessID   string
 	businessName string
 }
@@ -21,6 +24,7 @@ type YellowCardOffRampAdapter struct {
 // YellowCardOffRampConfig contains configuration for the YellowCard off-ramp adapter.
 type YellowCardOffRampConfig struct {
 	Adapter      *yellowcard.YellowcardAdapter
+	Treasury     TreasuryTransfer // Required for direct settlement mode
 	BusinessID   string
 	BusinessName string
 }
@@ -29,6 +33,7 @@ type YellowCardOffRampConfig struct {
 func NewYellowCardOffRampAdapter(cfg YellowCardOffRampConfig) *YellowCardOffRampAdapter {
 	return &YellowCardOffRampAdapter{
 		ycAdapter:    cfg.Adapter,
+		treasury:     cfg.Treasury,
 		businessID:   cfg.BusinessID,
 		businessName: cfg.BusinessName,
 	}
@@ -36,22 +41,19 @@ func NewYellowCardOffRampAdapter(cfg YellowCardOffRampConfig) *YellowCardOffRamp
 
 var _ OffRampService = (*YellowCardOffRampAdapter)(nil)
 
-// InitiateOffRamp submits a Mobile Money disbursement to YellowCard.
+// InitiateOffRamp is the dual-mode orchestrator for loan disbursement.
+//
+// Settlement flow:
+//   - "direct" (default): Submit with directSettlement=true → send USDC to YC wallet → YC disburses fiat
+//     Failover F1: If YC API call fails → fallback to fiat
+//     Failover F2: If Stellar USDC transfer fails → fallback to fiat (USDC still in treasury)
+//   - "fiat": Check YC balance → submit with forceAccept only → YC disburses from pre-funded balance
 func (a *YellowCardOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffRampRequest) (*OffRampResult, error) {
 	if req.NetworkCode == "" {
 		return nil, fmt.Errorf("network code is required for disbursement")
 	}
 
-	availableBalance, err := a.ycAdapter.GetAvailableBalance(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check available balance: %w", err)
-	}
-
-	if availableBalance < req.AmountUSD {
-		return nil, fmt.Errorf("insufficient balance: available %.2f USD, requested %.2f USD",
-			availableBalance, req.AmountUSD)
-	}
-
+	// Resolve channel and network upfront (shared by both modes).
 	channels, err := a.ycAdapter.GetChannels(ctx, req.CountryCode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channels: %w", err)
@@ -79,12 +81,163 @@ func (a *YellowCardOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffR
 		idempotencyKey = fmt.Sprintf("%s_%s", req.LoanID, uuid.New().String()[:8])
 	}
 
-	paymentReq := yellowcard.PaymentRequest{
-		ChannelID:    momoChannel.ID,
-		SequenceID:   idempotencyKey,
-		Amount:       int(req.AmountUSD),
+	method := req.SettlementMethod
+	if method == "" {
+		method = yellowcard.SettlementMethodDirect
+	}
+
+	params := &disbursementParams{
+		req:            req,
+		momoChannel:    momoChannel,
+		networkID:      networkID,
+		networkName:    networkName,
+		idempotencyKey: idempotencyKey,
+	}
+
+	// Direct settlement path with failover.
+	if method == yellowcard.SettlementMethodDirect {
+		if a.treasury == nil {
+			return nil, fmt.Errorf("treasury transfer service is required for direct settlement")
+		}
+
+		result, err := a.tryDirectSettlement(ctx, params)
+		if err != nil {
+			// F1/F2: Direct settlement failed. USDC is still in treasury.
+			// Fallback to fiat mode with a differentiated sequenceID.
+			log.Printf("yellowcard: direct settlement failed, falling back to fiat: %v", err)
+			params.idempotencyKey = idempotencyKey + "_fiat"
+			return a.tryFiatDisbursement(ctx, params)
+		}
+		return result, nil
+	}
+
+	// Fiat settlement path (explicit or fallback).
+	return a.tryFiatDisbursement(ctx, params)
+}
+
+// disbursementParams holds pre-resolved channel/network data shared by both settlement modes.
+type disbursementParams struct {
+	req            OffRampRequest
+	momoChannel    yellowcard.Channel
+	networkID      string
+	networkName    string
+	idempotencyKey string
+}
+
+// tryDirectSettlement submits a payment with directSettlement=true and then
+// sends USDC from treasury to the YC-issued Stellar wallet address (blocking).
+func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *disbursementParams) (*OffRampResult, error) {
+	paymentReq := a.buildPaymentRequest(p)
+	paymentReq.DirectSettlement = true
+	paymentReq.SettlementInfo = &yellowcard.SettlementInfo{
+		CryptoCurrency: yellowcard.CryptoCurrencyUSDC,
+		CryptoNetwork:  yellowcard.CryptoNetworkXLM,
+	}
+
+	// F1 checkpoint: If YC API call fails, USDC is still in treasury → safe to failover.
+	resp, err := a.ycAdapter.SubmitPayment(ctx, paymentReq)
+	if err != nil {
+		return nil, fmt.Errorf("direct settlement API call failed: %w", err)
+	}
+
+	// Parse the combined wallet address format: {stellar_address}_{memo}
+	if resp.SettlementInfo == nil || resp.SettlementInfo.WalletAddress == "" {
+		return nil, fmt.Errorf("direct settlement response missing wallet address")
+	}
+
+	stellarAddr, stellarMemo, err := yellowcard.ParseStellarWalletAddress(resp.SettlementInfo.WalletAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse YC wallet address: %w", err)
+	}
+
+	// Determine the USDC amount to send (in stroops).
+	// Use the crypto amount from YC response if available, otherwise use request amount.
+	amountStroops := p.req.AmountStroops
+	if resp.SettlementInfo.CryptoAmount > 0 {
+		amountStroops = int64(resp.SettlementInfo.CryptoAmount * 10_000_000)
+	}
+	if amountStroops <= 0 {
+		return nil, fmt.Errorf("direct settlement: cannot determine USDC amount to send")
+	}
+
+	// F2 checkpoint: If Stellar tx fails, USDC is still in treasury → safe to failover.
+	txHash, err := a.treasury.SendUSDC(ctx, stellarAddr, stellarMemo, amountStroops)
+	if err != nil {
+		return nil, fmt.Errorf("USDC transfer to YC wallet failed: %w", err)
+	}
+
+	log.Printf("yellowcard: direct settlement USDC sent tx=%s to=%s memo=%s amount=%d stroops",
+		txHash, stellarAddr, stellarMemo, amountStroops)
+
+	createdAt, _ := time.Parse(time.RFC3339, resp.CreatedAt)
+
+	return &OffRampResult{
+		RequestID:        resp.ID,
+		SequenceID:       resp.SequenceID,
+		Status:           resp.Status,
+		AmountUSD:        float64(resp.Amount),
+		AmountLocal:      float64(resp.ConvertedAmount),
+		LocalCurrency:    resp.Currency,
+		ExchangeRate:     resp.Rate,
+		Fee:              resp.ServiceFeeAmountUSD + resp.NetworkFeeAmountUSD,
+		EstimatedTime:    p.momoChannel.EstimatedSettlementTime,
+		CreatedAt:        createdAt,
+		SettlementMethod: yellowcard.SettlementMethodDirect,
+		StellarAddress:   stellarAddr,
+		StellarMemo:      stellarMemo,
+		StellarTxHash:    txHash,
+	}, nil
+}
+
+// tryFiatDisbursement submits a fiat-mode payment (forceAccept only).
+// Includes a balance guard: checks YC account balance before submitting.
+func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *disbursementParams) (*OffRampResult, error) {
+	// Balance guard: check YC has sufficient USD balance for fiat disbursement.
+	availableBalance, err := a.ycAdapter.GetAvailableBalance(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check available balance: %w", err)
+	}
+
+	if availableBalance < p.req.AmountUSD {
+		return nil, &InsufficientBalanceError{
+			Available: availableBalance,
+			Requested: p.req.AmountUSD,
+		}
+	}
+
+	paymentReq := a.buildPaymentRequest(p)
+	// Fiat mode: forceAccept is set in buildPaymentRequest, no directSettlement.
+
+	resp, err := a.ycAdapter.SubmitPayment(ctx, paymentReq)
+	if err != nil {
+		return nil, fmt.Errorf("fiat disbursement failed: %w", err)
+	}
+
+	createdAt, _ := time.Parse(time.RFC3339, resp.CreatedAt)
+
+	return &OffRampResult{
+		RequestID:        resp.ID,
+		SequenceID:       resp.SequenceID,
+		Status:           resp.Status,
+		AmountUSD:        float64(resp.Amount),
+		AmountLocal:      float64(resp.ConvertedAmount),
+		LocalCurrency:    resp.Currency,
+		ExchangeRate:     resp.Rate,
+		Fee:              resp.ServiceFeeAmountUSD + resp.NetworkFeeAmountUSD,
+		EstimatedTime:    p.momoChannel.EstimatedSettlementTime,
+		CreatedAt:        createdAt,
+		SettlementMethod: yellowcard.SettlementMethodFiat,
+	}, nil
+}
+
+// buildPaymentRequest constructs the base YellowCard PaymentRequest from resolved params.
+func (a *YellowCardOffRampAdapter) buildPaymentRequest(p *disbursementParams) yellowcard.PaymentRequest {
+	return yellowcard.PaymentRequest{
+		ChannelID:    p.momoChannel.ID,
+		SequenceID:   p.idempotencyKey,
+		Amount:       int(p.req.AmountUSD),
 		Reason:       "loan_disbursement",
-		CustomerUID:  req.UserID,
+		CustomerUID:  p.req.UserID,
 		CustomerType: yellowcard.CustomerTypeInstitution,
 		ForceAccept:  true,
 		Sender: yellowcard.Sender{
@@ -92,34 +245,14 @@ func (a *YellowCardOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffR
 			BusinessName: a.businessName,
 		},
 		Destination: yellowcard.Destination{
-			AccountNumber: req.DestinationPhone,
-			AccountName:   req.RecipientName,
+			AccountNumber: p.req.DestinationPhone,
+			AccountName:   p.req.RecipientName,
 			AccountType:   yellowcard.ChannelTypeMomo,
-			NetworkID:     networkID,
-			NetworkName:   networkName,
-			Country:       req.CountryCode,
+			NetworkID:     p.networkID,
+			NetworkName:   p.networkName,
+			Country:       p.req.CountryCode,
 		},
 	}
-
-	resp, err := a.ycAdapter.SubmitPayment(ctx, paymentReq)
-	if err != nil {
-		return nil, fmt.Errorf("disbursement failed: %w", err)
-	}
-
-	createdAt, _ := time.Parse(time.RFC3339, resp.CreatedAt)
-
-	return &OffRampResult{
-		RequestID:     resp.ID,
-		SequenceID:    resp.SequenceID,
-		Status:        resp.Status,
-		AmountUSD:     float64(resp.Amount),
-		AmountLocal:   float64(resp.ConvertedAmount),
-		LocalCurrency: resp.Currency,
-		ExchangeRate:  resp.Rate,
-		Fee:           0,
-		EstimatedTime: momoChannel.EstimatedSettlementTime,
-		CreatedAt:     createdAt,
-	}, nil
 }
 
 // GetOffRampStatus retrieves the status of a disbursement from YellowCard.
@@ -262,6 +395,8 @@ func (a *YellowCardOffRampAdapter) GetAvailableBalance(ctx context.Context) (flo
 	return a.ycAdapter.GetAvailableBalance(ctx)
 }
 
+// validateNetwork resolves a network code or name to a YellowCard network ID
+// and verifies the network is active in the given country.
 func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryCode, networkCode, networkName string) (networkID string, resolvedName string, err error) {
 	networks, err := a.ycAdapter.GetNetworks(ctx, countryCode)
 	if err != nil {
@@ -299,6 +434,19 @@ func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryC
 	return matchedNetwork.ID, matchedNetwork.Name, nil
 }
 
+// InsufficientBalanceError is returned when the YellowCard account balance
+// is too low for a fiat disbursement.
+type InsufficientBalanceError struct {
+	Available float64
+	Requested float64
+}
+
+// Error returns a human-readable description of the insufficient balance condition.
+func (e *InsufficientBalanceError) Error() string {
+	return fmt.Sprintf("insufficient YC balance: available %.2f USD, requested %.2f USD",
+		e.Available, e.Requested)
+}
+
 // NetworkNotFoundError is returned when a network is not found in YellowCard.
 type NetworkNotFoundError struct {
 	NetworkCode string
@@ -306,6 +454,7 @@ type NetworkNotFoundError struct {
 	Country     string
 }
 
+// Error returns a human-readable description of the missing network.
 func (e *NetworkNotFoundError) Error() string {
 	return fmt.Sprintf("network '%s' (%s) not found in country %s", e.NetworkName, e.NetworkCode, e.Country)
 }
@@ -318,6 +467,7 @@ type NetworkInactiveError struct {
 	Status      string
 }
 
+// Error returns a human-readable description of the inactive network.
 func (e *NetworkInactiveError) Error() string {
 	return fmt.Sprintf("network '%s' (%s) is currently %s in country %s", e.NetworkName, e.NetworkCode, e.Status, e.Country)
 }

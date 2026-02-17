@@ -7,7 +7,7 @@ import (
 )
 
 // PublicRoutes func for describe group of public routes.
-func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussdController *controllers.USSDController) {
+func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussdController *controllers.USSDController, webhookController *controllers.WebhookController) {
 	// Create routes group.
 	route := a.Group("/api/v1")
 
@@ -17,4 +17,7 @@ func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussd
 	// Routes for POST method:
 	route.Post("/auth/verify", middleware.FormatResponse(), authController.VerifyChallenge)
 	route.Post("/mobile/ussd-callback", ussdController.HandleCallback)
+
+	// Webhook routes (no auth middleware — verified via HMAC signature).
+	route.Post("/webhooks/yellowcard", webhookController.HandleYellowCardWebhook)
 }

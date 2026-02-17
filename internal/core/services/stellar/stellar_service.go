@@ -16,6 +16,8 @@ type (
 	MultiSigConfig                      = types.MultiSigConfig
 	SponsoredPaymentTransactionRequest  = types.SponsoredPaymentTransactionRequest
 	SponsoredPaymentTransactionResponse = types.SponsoredPaymentTransactionResponse
+	SendUSDCRequest                     = types.SendUSDCRequest
+	SendUSDCResponse                    = types.SendUSDCResponse
 	BorrowRequest                       = types.BorrowRequest
 	BorrowResponse                      = types.BorrowResponse
 	RepayRequest                        = types.RepayRequest
@@ -75,6 +77,10 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req CreateAccountR
 
 func (s *service) SponsoredPaymentTransaction(ctx context.Context, req SponsoredPaymentTransactionRequest) (*SponsoredPaymentTransactionResponse, error) {
 	return s.classicService.SponsoredPaymentTransaction(ctx, req)
+}
+
+func (s *service) SendUSDC(ctx context.Context, req SendUSDCRequest) (*SendUSDCResponse, error) {
+	return s.classicService.SendUSDC(ctx, req)
 }
 
 // Soroban view method delegation

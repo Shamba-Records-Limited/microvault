@@ -29,10 +29,16 @@ type RPCClient interface {
 // Ensure rpcclient.Client implements RPCClient
 var _ RPCClient = (*rpcclient.Client)(nil)
 
-// Service defines the interface for Stellar classic operations
+// Service defines the interface for Stellar classic operations.
 type Service interface {
+	// CreateSponsoredAccount creates a new child account with sponsorship and USDC trustline.
 	CreateSponsoredAccount(ctx context.Context, req types.CreateAccountRequest) error
+
+	// SponsoredPaymentTransaction executes a sponsored payment from a child account.
 	SponsoredPaymentTransaction(ctx context.Context, req types.SponsoredPaymentTransactionRequest) (*types.SponsoredPaymentTransactionResponse, error)
+
+	// SendUSDC sends USDC directly from the treasury wallet to an external Stellar address with a memo.
+	SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error)
 }
 
 type service struct {
@@ -407,6 +413,155 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 	)
 
 	return &types.SponsoredPaymentTransactionResponse{
+		TxHash: txHash,
+		Ledger: int64(txResult.Ledger),
+		Status: txResult.Status,
+	}, nil
+}
+
+// SendUSDC sends USDC directly from the treasury wallet to a destination Stellar address
+// with a text memo.
+func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error) {
+	// 1. Validate request
+	destination, err := keypair.ParseAddress(req.Destination)
+	if err != nil {
+		s.logger.Error("SendUSDC: invalid destination address", slog.String("destination", req.Destination))
+		return nil, types.ErrInvalidStellarAddress
+	}
+
+	if req.Amount <= 0 {
+		return nil, types.ErrInvalidTransactionAmount
+	}
+
+	// 2. Validate destination has USDC trustline
+	destinationAccount, err := s.rpcClient.LoadAccount(ctx, destination.Address())
+	if err != nil {
+		s.logger.Error("SendUSDC: failed to load destination account", slog.String("destination", req.Destination))
+		return nil, types.ErrFailedToLoadAccount
+	}
+
+	hasTrustline, err := hasAssetTrustline(ctx, s.rpcClient, destinationAccount.GetAccountID(), "USDC", s.usdcIssuer)
+	if err != nil {
+		return nil, types.ErrFailedToValidateTrustline
+	}
+	if !hasTrustline {
+		return nil, types.ErrMissingTrustline
+	}
+
+	// 3. Build treasury payment transaction
+	treasuryKP := keypair.MustParseFull(s.treasurySecretKey)
+
+	treasuryAccount, err := s.rpcClient.LoadAccount(ctx, treasuryKP.Address())
+	if err != nil {
+		return nil, types.ErrFailedToLoadAccount
+	}
+
+	usdcAsset := txnbuild.CreditAsset{
+		Code:   "USDC",
+		Issuer: s.usdcIssuer,
+	}
+
+	// Convert stroops to string amount (divide by 10^7)
+	amountStr := strconv.FormatFloat(float64(req.Amount)/10_000_000, 'f', 7, 64)
+
+	ops := []txnbuild.Operation{
+		&txnbuild.Payment{
+			Destination: destination.Address(),
+			Amount:      amountStr,
+			Asset:       usdcAsset,
+		},
+	}
+
+	txParams := txnbuild.TransactionParams{
+		SourceAccount:        treasuryAccount,
+		IncrementSequenceNum: true,
+		BaseFee:              txnbuild.MinBaseFee,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+		Operations: ops,
+	}
+
+	// Add text memo if provided
+	if req.Memo != "" {
+		txParams.Memo = txnbuild.MemoText(req.Memo)
+	}
+
+	tx, err := txnbuild.NewTransaction(txParams)
+	if err != nil {
+		s.logger.Error("SendUSDC: failed to build transaction", slog.String("error", err.Error()))
+		return nil, types.ErrFailedToBuildTransaction
+	}
+
+	// 4. Sign with treasury key
+	tx, err = tx.Sign(s.networkPassphrase, treasuryKP)
+	if err != nil {
+		s.logger.Error("SendUSDC: failed to sign transaction", slog.String("error", err.Error()))
+		return nil, types.ErrFailedToSignWithSponsorKey
+	}
+
+	// 5. Convert to XDR and submit
+	xdrTx, err := tx.Base64()
+	if err != nil {
+		return nil, types.ErrFailedToConvertTransaction
+	}
+
+	txResponse, err := s.rpcClient.SendTransaction(ctx, protocol.SendTransactionRequest{
+		Transaction: xdrTx,
+	})
+	if err != nil {
+		s.logger.Error("SendUSDC: failed to submit transaction", slog.String("error", err.Error()))
+		return nil, types.ErrFailedToSubmitTransaction
+	}
+
+	// 6. Handle submission status
+	switch txResponse.Status {
+	case stellarcore.TXStatusError:
+		s.logger.Error("SendUSDC: transaction rejected",
+			slog.String("error_xdr", txResponse.ErrorResultXDR),
+		)
+		return nil, types.ErrTransactionRejected
+	case stellarcore.TXStatusTryAgainLater:
+		return nil, types.ErrStellarCoreOverloaded
+	}
+
+	txHash := txResponse.Hash
+	s.logger.Info("SendUSDC: transaction submitted, waiting for confirmation",
+		slog.String("tx_hash", txHash),
+		slog.String("destination", req.Destination),
+		slog.String("memo", req.Memo),
+		slog.Int64("amount_stroops", req.Amount),
+	)
+
+	// 7. Poll for confirmation
+	pollCfg := rpc.DefaultPollConfig()
+	pollCfg.Logger = s.logger
+	txResult, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
+	if err != nil {
+		s.logger.Error("SendUSDC: transaction failed",
+			slog.String("tx_hash", txHash),
+			slog.String("error", err.Error()),
+		)
+		return nil, types.ErrTransactionFailed
+	}
+
+	if txResult.Status != protocol.TransactionStatusSuccess {
+		s.logger.Error("SendUSDC: transaction not successful",
+			slog.String("tx_hash", txHash),
+			slog.String("status", txResult.Status),
+		)
+		return nil, types.ErrTransactionNotSuccessful
+	}
+
+	s.logger.Info("SendUSDC: payment successful",
+		slog.String("tx_hash", txHash),
+		slog.String("destination", req.Destination),
+		slog.String("memo", req.Memo),
+		slog.Int64("amount_stroops", req.Amount),
+		slog.Uint64("ledger", uint64(txResult.Ledger)),
+	)
+
+	return &types.SendUSDCResponse{
 		TxHash: txHash,
 		Ledger: int64(txResult.Ledger),
 		Status: txResult.Status,
