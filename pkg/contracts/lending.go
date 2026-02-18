@@ -1,0 +1,84 @@
+package contracts
+
+import (
+	"context"
+	"time"
+)
+
+// Lender defines the interface for loan origination and retrieval.
+type Lender interface {
+	AssessEligibility(ctx context.Context, req EligibilityRequest) (*EligibilityResult, error)
+	CreateLoan(ctx context.Context, req CreateLoanRequest) (*LoanRecord, error)
+	GetLoan(ctx context.Context, loanID string) (*LoanRecord, error)
+	GetUserLoans(ctx context.Context, userID string) ([]*LoanRecord, error)
+}
+
+// LoanNotifier defines the interface for sending loan lifecycle notifications.
+type LoanNotifier interface {
+	NotifyLoanRequested(ctx context.Context, n LoanNotification) error
+	NotifyLoanDisbursed(ctx context.Context, n LoanNotification) error
+	NotifyLoanFailed(ctx context.Context, n LoanNotification) error
+}
+
+// EligibilityRequest contains the data needed to assess loan eligibility.
+type EligibilityRequest struct {
+	UserID       string
+	Amount       int64 // In stroops (USDC * 10^7)
+	DurationDays int
+}
+
+// EligibilityResult contains the outcome of an eligibility assessment.
+type EligibilityResult struct {
+	Approved     bool
+	Reason       string
+	MaxAmount    int64   // Maximum eligible amount in stroops
+	InterestRate float64 // Annual interest rate as a decimal (e.g. 0.12 = 12%)
+}
+
+// CreateLoanRequest contains the data needed to create a new loan.
+type CreateLoanRequest struct {
+	UserID            string
+	AccountID         string
+	PrincipalAmount   int64  // In stroops
+	PrincipalAsset    string // e.g. "USDC"
+	InterestRateBps   int32  // Basis points
+	DurationDays      int
+	RepaymentSchedule string // "daily", "weekly", "bi_weekly", "monthly", "lump_sum"
+}
+
+// LoanRecord represents a loan with vault and ramp disbursement tracking.
+type LoanRecord struct {
+	ID                 string
+	LoanNumber         string
+	UserID             string
+	AccountID          string
+	PrincipalAmount    int64
+	PrincipalAsset     string
+	InterestRateBps    int32
+	TotalAmount        int64
+	DurationDays       int
+	RepaymentSchedule  string
+	DueDate            *time.Time
+	Status             string // "pending", "approved", "disbursed", "repaid", "defaulted", "cancelled"
+	VaultTxHash        string
+	RampProvider       string
+	RampRequestID      string
+	RampSequenceID     string
+	RampFiatAmount     int64
+	RampFiatCurrency   string
+	SettlementMethod   string // "direct" or "fiat"
+	DisbursementStatus string // "pending", "crypto_sent", "processing", "complete", "refund_pending", "failed"
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+// LoanNotification contains data for loan lifecycle notifications.
+type LoanNotification struct {
+	LoanID      string
+	LoanNumber  string
+	UserID      string
+	PhoneNumber string
+	Amount      int64
+	Currency    string
+	Status      string
+}
