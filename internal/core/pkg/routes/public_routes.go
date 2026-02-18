@@ -2,12 +2,13 @@ package routes
 
 import (
 	"github.com/Shamba-Records-Limited/microvault/internal/core/app/controllers"
+	pkgcontrollers "github.com/Shamba-Records-Limited/microvault/pkg/controllers"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/gofiber/fiber/v2"
 )
 
 // PublicRoutes func for describe group of public routes.
-func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussdController *controllers.USSDController, webhookController *controllers.WebhookController) {
+func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussdController *controllers.USSDController, webhookController *pkgcontrollers.WebhookController) {
 	// Create routes group.
 	route := a.Group("/api/v1")
 

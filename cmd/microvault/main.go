@@ -8,9 +8,9 @@ import (
 	"time"
 
 	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment/fonbnk"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment/yellowcard"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/fonbnk"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 
 	// "github.com/Shamba-Records-Limited/microvault/internal/credit/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/app/controllers"
@@ -18,10 +18,10 @@ import (
 	routes "github.com/Shamba-Records-Limited/microvault/internal/core/pkg/routes"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/account"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/auth"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/user"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/validation"
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
+	pkgcontrollers "github.com/Shamba-Records-Limited/microvault/pkg/controllers"
 	"github.com/Shamba-Records-Limited/microvault/pkg/health"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
@@ -29,6 +29,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	ussdadapters "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
 	ussdAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/providers/africastalking"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
 	"github.com/Shamba-Records-Limited/microvault/platform/cache"
 	"github.com/Shamba-Records-Limited/microvault/platform/database"
 	"github.com/gofiber/fiber/v2"
@@ -284,7 +285,7 @@ func main() {
 	})
 
 	// Initialize webhook controller (event handler will be wired when disbursement service is ready)
-	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.WebhookSecret)
+	webhookController := pkgcontrollers.NewWebhookController(nil, cfg.Payments.YellowCard.WebhookSecret)
 
 	routes.PublicRoutes(app, authController, ussdController, webhookController) // Register public routes
 

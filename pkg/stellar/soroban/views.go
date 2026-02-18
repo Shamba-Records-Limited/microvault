@@ -7,7 +7,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar/types"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
 // ============================================================================

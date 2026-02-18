@@ -5,9 +5,15 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/Shamba-Records-Limited/microvault/internal/core/app/controllers"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment/yellowcard"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 )
+
+// WebhookEventHandler processes incoming YellowCard webhook events.
+type WebhookEventHandler interface {
+	// ProcessYellowCardEvent handles a single webhook event, mapping it to the
+	// appropriate disbursement status update and triggering any side effects.
+	ProcessYellowCardEvent(event yellowcard.WebhookEvent) error
+}
 
 // DisbursementUpdater is the interface for updating loan disbursement status.
 // Implemented by the loan/disbursement service.
@@ -42,7 +48,7 @@ func NewService(disbursements DisbursementUpdater, alerts AlertService) *Service
 	}
 }
 
-var _ controllers.WebhookEventHandler = (*Service)(nil)
+var _ WebhookEventHandler = (*Service)(nil)
 
 // ProcessYellowCardEvent handles a single YellowCard webhook event by mapping
 // it to the appropriate disbursement status update and side effects.

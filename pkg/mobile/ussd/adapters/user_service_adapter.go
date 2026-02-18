@@ -7,7 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/account"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/user"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	"github.com/google/uuid"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar/types"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
 // StellarSendUSDC is the subset of the Stellar service needed for treasury USDC transfers.

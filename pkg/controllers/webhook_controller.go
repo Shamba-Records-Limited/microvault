@@ -8,24 +8,18 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment/yellowcard"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
+	"github.com/Shamba-Records-Limited/microvault/pkg/webhook"
 )
-
-// WebhookEventHandler processes incoming YellowCard webhook events.
-type WebhookEventHandler interface {
-	// ProcessYellowCardEvent handles a single webhook event, mapping it to the
-	// appropriate disbursement status update and triggering any side effects.
-	ProcessYellowCardEvent(event yellowcard.WebhookEvent) error
-}
 
 // WebhookController handles webhook endpoints for payment providers.
 type WebhookController struct {
-	eventHandler  WebhookEventHandler
+	eventHandler  webhook.WebhookEventHandler
 	webhookSecret string
 }
 
 // NewWebhookController creates a new WebhookController with the provided dependencies.
-func NewWebhookController(eventHandler WebhookEventHandler, webhookSecret string) *WebhookController {
+func NewWebhookController(eventHandler webhook.WebhookEventHandler, webhookSecret string) *WebhookController {
 	return &WebhookController{
 		eventHandler:  eventHandler,
 		webhookSecret: webhookSecret,

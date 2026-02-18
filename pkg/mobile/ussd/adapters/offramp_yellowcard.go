@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment/yellowcard"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 )
 
 // YellowCardOffRampAdapter implements OffRampService using YellowCard with

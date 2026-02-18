@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment/yellowcard"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
 )
 

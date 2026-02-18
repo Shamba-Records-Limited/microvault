@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	stellartesting "github.com/Shamba-Records-Limited/microvault/internal/core/services/stellar/testing"
+	stellartesting "github.com/Shamba-Records-Limited/microvault/pkg/stellar/testing"
 )
 
 // Verify MockRPCClient implements RPCClient interface

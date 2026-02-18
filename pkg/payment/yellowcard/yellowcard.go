@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/internal/core/pkg/payment"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment"
 )
 
 // yellowcardTransport is a custom http.RoundTripper that signs requests
