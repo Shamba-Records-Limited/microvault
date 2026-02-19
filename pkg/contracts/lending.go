@@ -15,9 +15,12 @@ type Lender interface {
 
 // LoanNotifier defines the interface for sending loan lifecycle notifications.
 type LoanNotifier interface {
-	NotifyLoanRequested(ctx context.Context, n LoanNotification) error
+	NotifyLoanApproved(ctx context.Context, n LoanNotification) error
+	NotifyLoanRejected(ctx context.Context, n LoanNotification) error
 	NotifyLoanDisbursed(ctx context.Context, n LoanNotification) error
 	NotifyLoanFailed(ctx context.Context, n LoanNotification) error
+	NotifyRepaymentReceived(ctx context.Context, n LoanNotification) error
+	NotifyRepaymentReminder(ctx context.Context, n LoanNotification) error
 }
 
 // EligibilityRequest contains the data needed to assess loan eligibility.
@@ -74,11 +77,15 @@ type LoanRecord struct {
 
 // LoanNotification contains data for loan lifecycle notifications.
 type LoanNotification struct {
-	LoanID      string
-	LoanNumber  string
-	UserID      string
-	PhoneNumber string
-	Amount      int64
-	Currency    string
-	Status      string
+	LoanID           string
+	LoanNumber       string
+	UserID           string
+	PhoneNumber      string
+	Amount           int64      // Raw amount (stroops/cents) for consumers that need it
+	DisplayAmount    float64    // Display-ready (e.g. 5000.00)
+	DisplayCurrency  string     // e.g. "KES", "USD"
+	Status           string
+	Reason           string     // For rejection notifications
+	RemainingBalance float64    // For repayment confirmations
+	DueDate          *time.Time // For repayment reminders
 }

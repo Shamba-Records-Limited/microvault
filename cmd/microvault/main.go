@@ -12,7 +12,6 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/fonbnk"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 
-	// "github.com/Shamba-Records-Limited/microvault/internal/credit/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/app/controllers"
 	routes "github.com/Shamba-Records-Limited/microvault/internal/core/pkg/routes"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/auth"
@@ -26,6 +25,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
 	smsAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms/providers/africastalking"
+	mvnotifications "github.com/Shamba-Records-Limited/microvault/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	ussdadapters "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
 	ussdAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/providers/africastalking"
@@ -244,19 +244,17 @@ func main() {
 	smsService.RegisterProvider("africastalking", AfricasTalkingSMSProvider)
 
 	// ---- Initialize Notification Service ----
-	// Initialize notification service with SMS service
-	// notificationService := notifications.NewSMSNotificationService(
-	// 	smsService,
-	// 	"africastalking", // default provider
-	// 	cfg.Mobile.AfricasTalking.Shortcode,
-	// )
-	// log.Println("Notification service initialized")
-
-	// Inject dependencies to consumer(s)
-	// disbursementService := disbursement.NewService(paymentService, smsService, ussdService, notificationService)
-
-	// Inject service to handler
-	// disbursementHandler := handlers.NewDisbursementHandler(disbursementService)
+	// Create notifier (NoOp if AT provider not configured)
+	var notifier mvnotifications.Notifier
+	atProvider, providerErr := smsService.GetProvider("africastalking")
+	if providerErr == nil {
+		notifier = mvnotifications.NewSMSNotifier(atProvider, "microvault")
+	} else {
+		notifier = &mvnotifications.NoOpNotifier{}
+	}
+	loanNotifier := mvnotifications.NewSMSLoanNotifier(notifier, nil)
+	_ = loanNotifier // will be wired to adapters when loan disbursement is integrated
+	log.Println("Notification service initialized")
 
 	// ---- Initialize Application ----
 	// Create a new fiber app
