@@ -62,14 +62,22 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 		eventRecipient, _ = extractBorrowedRecipient(txResp.ResultMetaXDR, s.contractID)
 	}
 
-	log.Printf("BorrowFromVault: %d to %s (tx: %s, event_recipient: %s)",
-		req.Amount, req.RecipientAddress, txResp.TransactionHash, eventRecipient)
+	// Fetch current borrow index after the borrow has been processed.
+	borrowIndex, err := s.GetBorrowIndex(ctx)
+	if err != nil {
+		log.Printf("BorrowFromVault: failed to fetch borrow index: %v", err)
+		// Non-fatal: borrow succeeded, index is supplementary data.
+	}
+
+	log.Printf("BorrowFromVault: %d to %s (tx: %s, event_recipient: %s, borrow_index: %d)",
+		req.Amount, req.RecipientAddress, txResp.TransactionHash, eventRecipient, borrowIndex)
 
 	return &types.BorrowResponse{
 		TxHash:           txResp.TransactionHash,
 		AmountBorrowed:   req.Amount,
 		RecipientAddress: req.RecipientAddress,
 		EventRecipient:   eventRecipient,
+		BorrowIndex:      borrowIndex,
 	}, nil
 }
 

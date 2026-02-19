@@ -17,10 +17,22 @@ type RefundPendingFetcher interface {
 	GetRefundPendingDisbursements() ([]RefundPendingRecord, error)
 }
 
-// RefundPendingRecord identifies a disbursement awaiting refund.
+// RefundPendingRecord identifies a disbursement awaiting refund,
+// including the data needed to attempt a fiat failover.
 type RefundPendingRecord struct {
-	SequenceID string // YC sequenceId / idempotency key
-	PaymentID  string // YC payment ID
+	SequenceID       string  // YC sequenceId / idempotency key
+	PaymentID        string  // YC payment ID
+	LoanID           string  // Loan ID for tracking
+	UserID           string  // User ID for tracking
+	RecipientName    string  // Recipient name for fiat disbursement
+	AmountUSD        float64 // Amount in USD
+	AmountStroops    int64   // Amount in stroops (USDC * 10^7)
+	RampFiatAmount   int64   // Original off-ramp fiat amount in cents (local currency)
+	RampFiatCurrency string  // Original off-ramp fiat currency (e.g. "KES")
+	DestinationPhone string  // Recipient phone number
+	CountryCode      string  // ISO country code
+	NetworkCode      string  // MoMo network code
+	NetworkName      string  // MoMo network name
 }
 
 // RefundPollerConfig configures the refund polling behavior.
@@ -50,6 +62,7 @@ type RefundPoller struct {
 	fetcher      RefundPendingFetcher
 	disbursement DisbursementUpdater
 	alerts       AlertService
+	transactions TransactionRecorder
 	config       RefundPollerConfig
 }
 
@@ -60,6 +73,7 @@ func NewRefundPoller(
 	fetcher RefundPendingFetcher,
 	disbursement DisbursementUpdater,
 	alerts AlertService,
+	transactions TransactionRecorder,
 	config RefundPollerConfig,
 ) *RefundPoller {
 	return &RefundPoller{
@@ -68,6 +82,7 @@ func NewRefundPoller(
 		fetcher:      fetcher,
 		disbursement: disbursement,
 		alerts:       alerts,
+		transactions: transactions,
 		config:       config,
 	}
 }
@@ -155,14 +170,44 @@ func (p *RefundPoller) checkRefund(ctx context.Context, rec RefundPendingRecord)
 // attemptFiatFailover triggers a fiat-mode disbursement for a refunded direct settlement.
 // This is a best-effort operation — if it fails, the ops team is alerted.
 func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendingRecord) {
-	// Note: The actual fiat failover requires the original OffRampRequest data (amount, recipient, etc.)
-	// which should be persisted with the disbursement record. The RefundPendingFetcher should be
-	// extended to return the full request data when the disbursement service is implemented.
-	//
-	// For now, we log and alert ops. The webhook service can also trigger fiat failover
-	// when it receives the REFUNDED event.
-	p.alertOps("Refund Received — Fiat Failover Needed",
-		fmt.Sprintf("Payment %s (seq: %s) has been refunded. Fiat failover should be triggered.", rec.PaymentID, rec.SequenceID))
+	fiatResult, err := p.offRamp.InitiateOffRamp(ctx, adapters.OffRampRequest{
+		LoanID:           rec.LoanID,
+		UserID:           rec.UserID,
+		RecipientName:    rec.RecipientName,
+		AmountUSD:        rec.AmountUSD,
+		AmountStroops:    rec.AmountStroops,
+		DestinationPhone: rec.DestinationPhone,
+		CountryCode:      rec.CountryCode,
+		NetworkCode:      rec.NetworkCode,
+		NetworkName:      rec.NetworkName,
+		SettlementMethod: "fiat",
+		IdempotencyKey:   rec.SequenceID + "_fiat",
+	})
+	if err != nil {
+		log.Printf("refund_poller: fiat failover failed for %s: %v", rec.PaymentID, err)
+		p.alertOps("Fiat Failover Failed",
+			fmt.Sprintf("Payment %s (seq: %s) fiat failover failed: %v", rec.PaymentID, rec.SequenceID, err))
+
+		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, yellowcard.DisbursementFailed); err != nil {
+			log.Printf("refund_poller: failed to mark %s as failed: %v", rec.SequenceID, err)
+		}
+		return
+	}
+
+	fiatStatus := "fiat_submitted"
+	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, fiatStatus); err != nil {
+		log.Printf("refund_poller: failed to update fiat status for %s: %v", rec.SequenceID, err)
+	}
+
+	// Record fiat failover transaction via recorder.
+	if p.transactions != nil {
+		if err := p.transactions.RecordFiatFailover(ctx, rec, fiatResult.RequestID); err != nil {
+			log.Printf("refund_poller: failed to record fiat failover transaction: %v", err)
+		}
+	}
+
+	log.Printf("refund_poller: fiat failover initiated for %s, new request_id=%s",
+		rec.PaymentID, fiatResult.RequestID)
 }
 
 // alertOps sends an alert to the operations team, logging on failure.

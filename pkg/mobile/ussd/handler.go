@@ -14,12 +14,14 @@ func NewUSSDHandler(
 	menuRegistry *MenuRegistry,
 	userService UserService,
 	loanService LoanService,
+	rateService RateService,
 ) *USSDHandler {
 	return &USSDHandler{
 		sessionManager: sessionManager,
 		menuRegistry:   menuRegistry,
 		userService:    userService,
 		loanService:    loanService,
+		rateService:    rateService,
 	}
 }
 
@@ -281,15 +283,16 @@ func (h *USSDHandler) handleCheckBalance(ctx context.Context, session *Session) 
 	return h.formatResponse(session.Language, "END", response.String()), nil
 }
 
-// handleLoanAmount handles loan amount input
+// handleLoanAmount handles loan amount input in KES
 func (h *USSDHandler) handleLoanAmount(ctx context.Context, session *Session, input string) (string, error) {
 	amount, err := strconv.ParseFloat(input, 64)
-	if err != nil || amount < 10 || amount > 10000 {
+	if err != nil || amount < 500 || amount > 500000 {
 		return h.showLoanAmountMenu(session)
 	}
 
-	// Store amount in stroops (multiply by 1,000,000)
-	session.Data["loan_amount"] = int64(amount * 1000000)
+	// Store local currency amount in cents
+	session.Data["loan_amount_local"] = int64(amount * 100) // KES cents
+	session.Data["local_currency"] = "KES"
 	session.CurrentMenu = "loan_duration"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
@@ -386,10 +389,13 @@ func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, i
 	}
 
 	// Extract user disbursement details for off-ramp
-	var recipientName, countryCode, networkCode, networkName string
+	var recipientName, nationalID, countryCode, networkCode, networkName string
 	if userMap, ok := userData.(map[string]interface{}); ok {
 		if v, ok := userMap["full_name"].(*string); ok && v != nil {
 			recipientName = *v
+		}
+		if v, ok := userMap["national_id"].(*string); ok && v != nil {
+			nationalID = *v
 		}
 		if v, ok := userMap["country_code"].(string); ok {
 			countryCode = v
@@ -402,12 +408,18 @@ func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, i
 		}
 	}
 
+	// Extract local currency data from session
+	localAmount, _ := session.Data["loan_amount_local"].(int64)
+	localCurrency, _ := session.Data["local_currency"].(string)
+	conversionRate, _ := session.Data["conversion_rate"].(float64)
+
 	// Submit loan request
 	_, err = h.loanService.RequestLoan(ctx, &LoanRequest{
 		UserID:          session.UserID,
 		AccountID:       accountID,
 		PhoneNumber:     session.PhoneNumber,
 		RecipientName:   recipientName,
+		NationalID:      nationalID,
 		CountryCode:     countryCode,
 		NetworkCode:     networkCode,
 		NetworkName:     networkName,
@@ -415,6 +427,9 @@ func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, i
 		PrincipalAsset:  "USDC",
 		DurationDays:    duration,
 		RepaymentSched:  schedule,
+		LocalAmount:     localAmount,
+		LocalCurrency:   localCurrency,
+		ConversionRate:  conversionRate,
 	})
 
 	if err != nil {
@@ -450,24 +465,26 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 		}
 
 		// Extract loan details
-		var totalAmount int64
 		var loanRef = "N/A"
 		var status = "Unknown"
+		var displayAmount string
 
 		if loanMap, ok := loan.(map[string]interface{}); ok {
-			if amt, ok := loanMap["total_amount"].(int64); ok {
-				totalAmount = amt
-			}
 			if ref, ok := loanMap["loan_number"].(string); ok {
 				loanRef = ref
 			}
 			if st, ok := loanMap["status"].(string); ok {
 				status = st
 			}
+			// Prefer KES amount if available
+			if kesAmt, ok := loanMap["disbursement_amount_kes"].(*int64); ok && kesAmt != nil {
+				displayAmount = fmt.Sprintf("KES %.0f", float64(*kesAmt)/100.0)
+			} else if amt, ok := loanMap["total_amount"].(int64); ok {
+				displayAmount = fmt.Sprintf("KES %.0f", float64(amt)/1e7*153.50)
+			}
 		}
 
-		amountUSD := float64(totalAmount) / 1000000
-		response.WriteString(fmt.Sprintf("%d. %s\n$%.2f - %s\n\n", i+1, loanRef, amountUSD, status))
+		response.WriteString(fmt.Sprintf("%d. %s\n%s - %s\n\n", i+1, loanRef, displayAmount, status))
 	}
 
 	return h.formatResponse(session.Language, "END", response.String()), nil
@@ -513,20 +530,22 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, inp
 			break
 		}
 
-		var totalAmount int64
 		var loanRef = "N/A"
+		var displayAmount string
 
 		if loanMap, ok := loan.(map[string]interface{}); ok {
-			if amt, ok := loanMap["total_amount"].(int64); ok {
-				totalAmount = amt
-			}
 			if ref, ok := loanMap["loan_number"].(string); ok {
 				loanRef = ref
 			}
+			// Prefer KES repayment amount if available
+			if kesAmt, ok := loanMap["repayment_amount_kes"].(*int64); ok && kesAmt != nil {
+				displayAmount = fmt.Sprintf("KES %.0f", float64(*kesAmt)/100.0)
+			} else if amt, ok := loanMap["total_amount"].(int64); ok {
+				displayAmount = fmt.Sprintf("KES %.0f", float64(amt)/1e7*153.50)
+			}
 		}
 
-		amountUSD := float64(totalAmount) / 1000000
-		response.WriteString(fmt.Sprintf("Loan: %s\nDue: $%.2f\n\n", loanRef, amountUSD))
+		response.WriteString(fmt.Sprintf("Loan: %s\nDue: %s\n\n", loanRef, displayAmount))
 	}
 
 	return h.formatResponse(session.Language, "END", response.String()), nil
@@ -671,11 +690,32 @@ func (h *USSDHandler) showLoanConfirmation(ctx context.Context, session *Session
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	amount, _ := session.Data["loan_amount"].(int64)
+	localAmountCents, _ := session.Data["loan_amount_local"].(int64)
 	duration, _ := session.Data["loan_duration"].(int)
 
-	// Check eligibility
-	approval, err := h.loanService.CheckLoanEligibility(ctx, session.UserID, amount, duration)
+	// Fetch exchange rate
+	var buyRate float64
+	if h.rateService != nil {
+		rate, err := h.rateService.GetExchangeRate(ctx, "KES")
+		if err != nil {
+			log.Printf("showLoanConfirmation: failed to get exchange rate: %v", err)
+			return h.formatError(session.Language, "error"), nil
+		}
+		buyRate = rate
+	} else {
+		buyRate = 153.50 // fallback
+	}
+
+	// Convert KES to USDC stroops: (KES / rate) * 1e7
+	localAmount := float64(localAmountCents) / 100.0
+	usdcStroops := int64(localAmount / buyRate * 1e7)
+
+	// Store converted amount and rate in session
+	session.Data["loan_amount"] = usdcStroops
+	session.Data["conversion_rate"] = buyRate
+
+	// Check eligibility with USDC amount
+	approval, err := h.loanService.CheckLoanEligibility(ctx, session.UserID, usdcStroops, duration)
 	if err != nil || !approval.Approved {
 		reason := "Unknown error"
 		if approval != nil {
@@ -684,18 +724,23 @@ func (h *USSDHandler) showLoanConfirmation(ctx context.Context, session *Session
 		return h.formatResponse(session.Language, "END", fmt.Sprintf("Loan not approved: %s", reason)), nil
 	}
 
-	amountUSD := float64(amount) / 1000000
+	// Calculate estimated interest in KES
 	interestRate := approval.InterestRate * 100
-	interestAmount := float64(amount) * approval.InterestRate * float64(duration) / 365.0 / 1000000
-	totalAmount := amountUSD + interestAmount
+	interestAmountKES := localAmount * approval.InterestRate * float64(duration) / 365.0
+	totalKES := localAmount + interestAmountKES
 
 	var response strings.Builder
 	response.WriteString("Loan Summary:\n")
-	response.WriteString(fmt.Sprintf("Amount: $%.2f\n", amountUSD))
+	response.WriteString(fmt.Sprintf("Amount: KES %.0f\n", localAmount))
 	response.WriteString(fmt.Sprintf("Duration: %d days\n", duration))
-	response.WriteString(fmt.Sprintf("Interest: %.1f%%\n", interestRate))
-	response.WriteString(fmt.Sprintf("Total: $%.2f\n\n", totalAmount))
+	response.WriteString(fmt.Sprintf("Interest: ~%.1f%%\n", interestRate))
+	response.WriteString(fmt.Sprintf("Est. Total: ~KES %.0f\n", totalKES))
+	response.WriteString(fmt.Sprintf("Rate: 1 USD = %.2f KES\n\n", buyRate))
 	response.WriteString("1. Confirm\n0. Cancel")
+
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
 
 	return h.formatResponse(session.Language, "CON", response.String()), nil
 }

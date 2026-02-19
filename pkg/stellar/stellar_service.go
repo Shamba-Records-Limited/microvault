@@ -108,6 +108,10 @@ func (s *service) GetBorrowAPR(ctx context.Context) (int64, error) {
 	return s.sorobanService.GetBorrowAPR(ctx)
 }
 
+func (s *service) GetBorrowIndex(ctx context.Context) (int64, error) {
+	return s.sorobanService.GetBorrowIndex(ctx)
+}
+
 func (s *service) IsUserLocked(ctx context.Context, userAddress string) (bool, error) {
 	return s.sorobanService.IsUserLocked(ctx, userAddress)
 }

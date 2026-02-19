@@ -71,11 +71,11 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(registerMenu)
 
-	// Loan amount
+	// Loan amount (KES)
 	loanAmountMenu := NewMenuBuilder("loan_amount").
-		WithTitle("en", "Enter loan amount (min 10, max 10000):").
-		WithTitle("sw", "Weka kiasi cha mkopo (chini 10, juu 10000):").
-		WithTitle("fr", "Entrez montant du prêt (min 10, max 10000):").
+		WithTitle("en", "Enter loan amount in KES (min 500, max 500000):").
+		WithTitle("sw", "Weka kiasi cha mkopo kwa KES (chini 500, juu 500000):").
+		WithTitle("fr", "Entrez montant du prêt en KES (min 500, max 500000):").
 		WithAuth(true).
 		Build()
 	registry.Register(loanAmountMenu)

@@ -86,8 +86,10 @@ type Destination struct {
 }
 
 // SettlementInfo contains crypto settlement details for direct settlement mode.
-// In requests, specify CryptoCurrency, CryptoNetwork, and CryptoAmount.
-// In responses, YellowCard populates WalletAddress (and WalletTag for XLM).
+//
+// In the request, specify CryptoCurrency, CryptoNetwork, and CryptoAmount.
+// In the response, YellowCard populates these plus WalletAddress, CryptoUSDRate,
+// CryptoLocalRate, and ExpiresAt.
 //
 // For Stellar/USDC, YellowCard returns the address and memo as a combined string:
 //
@@ -110,8 +112,9 @@ type SettlementInfo struct {
 // Either Amount (USD) or LocalAmount must be specified, not both.
 // ForceAccept is always set to true to skip the approval window.
 //
-// For direct settlement, set DirectSettlement=true and provide SettlementInfo
-// with crypto details. YellowCard will return a wallet address to send crypto to.
+// For direct settlement, set DirectSettlement=true and include SettlementInfo
+// with CryptoCurrency, CryptoNetwork, and CryptoAmount. YellowCard returns
+// these plus WalletAddress, CryptoUSDRate, CryptoLocalRate, and ExpiresAt.
 type PaymentRequest struct {
 	ChannelID        string          `json:"channelId"`
 	SequenceID       string          `json:"sequenceId"`

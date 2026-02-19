@@ -36,6 +36,7 @@ type Service interface {
 	GetTotalManagedAssets(ctx context.Context) (int64, error)
 	GetUtilizationRate(ctx context.Context) (int64, error)
 	GetBorrowAPR(ctx context.Context) (int64, error)
+	GetBorrowIndex(ctx context.Context) (int64, error)
 	IsUserLocked(ctx context.Context, userAddress string) (bool, error)
 	GetLockPeriod(ctx context.Context) (uint64, error)
 	GetRemainingLockTime(ctx context.Context, userAddress string) (uint64, error)

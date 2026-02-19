@@ -62,4 +62,9 @@ const (
 	TxCategoryOnChain  = "on_chain"
 	TxCategoryOffChain = "off_chain"
 	TxCategoryInternal = "internal"
+
+	// Transaction Types — Loan Disbursement
+	TxTypeVaultBorrow  = "vault_borrow"  // USDC borrowed from Stellar vault to user account
+	TxTypeOffRamp      = "off_ramp"      // Off-ramp initiated (crypto-to-fiat via YellowCard)
+	TxTypeFiatFailover = "fiat_failover" // Fiat failover after direct settlement refund
 )

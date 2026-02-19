@@ -98,6 +98,7 @@ type USSDHandler struct {
 	menuRegistry   *MenuRegistry
 	userService    UserService
 	loanService    LoanService
+	rateService    RateService
 }
 
 // ============================================================================
@@ -151,6 +152,11 @@ type UserService interface {
 	RegisterUser(ctx context.Context, req *RegisterUserRequest) (interface{}, []interface{}, error)
 }
 
+// RateService provides exchange rate lookups for local currency conversion.
+type RateService interface {
+	GetExchangeRate(ctx context.Context, currency string) (buyRate float64, err error)
+}
+
 // LoanService defines the interface for loan-related operations
 type LoanService interface {
 	GetUserLoans(ctx context.Context, userID string) ([]interface{}, error)
@@ -174,13 +180,17 @@ type LoanRequest struct {
 	AccountID       string
 	PhoneNumber     string
 	RecipientName   string
+	NationalID      string
 	CountryCode     string
 	NetworkCode     string
 	NetworkName     string
-	PrincipalAmount int64
+	PrincipalAmount int64   // USDC amount in stroops
 	PrincipalAsset  string
 	DurationDays    int
 	RepaymentSched  string
+	LocalAmount     int64   // Local currency amount in cents (e.g. KES cents)
+	LocalCurrency   string  // Local currency code (e.g. "KES")
+	ConversionRate  float64 // YC buy rate at quote time (e.g. 153.50)
 }
 
 // LoanApproval represents a loan approval decision

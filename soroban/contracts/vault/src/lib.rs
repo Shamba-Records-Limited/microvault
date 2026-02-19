@@ -152,6 +152,7 @@ pub enum DataKey {
     LastAccrualTime,
     LockPeriod,
     UserUnlockTime(Address),
+    BorrowIndex, // Cumulative debt index
 }
 
 /// Default maximum deposit limit (1M USDC with 6 decimals).
@@ -227,6 +228,9 @@ impl MicroVaultContract {
         e.storage()
             .instance()
             .set(&DataKey::LastAccrualTime, &e.ledger().timestamp());
+        e.storage()
+            .instance()
+            .set(&DataKey::BorrowIndex, &WAD_SCALE);
     }
 
     // —— View functions ——————————————————————————————————————————————————
@@ -306,6 +310,17 @@ impl MicroVaultContract {
             return 0;
         }
         Wad::from_ratio(e, borrowed, total_managed).raw()
+    }
+
+    /// Returns the cumulative borrow index (WAD scale, 1e18 = 1.0).
+    ///
+    /// Accrues interest first so the index is always current.
+    pub fn get_borrow_index(e: &Env) -> i128 {
+        Self::accrue_interest(e);
+        e.storage()
+            .instance()
+            .get(&DataKey::BorrowIndex)
+            .unwrap_or(WAD_SCALE)
     }
 
     /// Returns the current borrow APR as a WAD-scaled value based on utilization.
@@ -625,6 +640,20 @@ impl MicroVaultContract {
             .checked_mul_int(total_borrowed)
             .map(|w| w.to_integer())
             .unwrap_or(total_borrowed);
+
+        // Update cumulative borrow index
+        let old_index: i128 = e
+            .storage()
+            .instance()
+            .get(&DataKey::BorrowIndex)
+            .unwrap_or(WAD_SCALE);
+        let old_index_wad = Wad::from_raw(old_index);
+        let new_index = old_index_wad
+            .checked_mul(e, compound_factor)
+            .unwrap_or(old_index_wad);
+        e.storage()
+            .instance()
+            .set(&DataKey::BorrowIndex, &new_index.raw());
 
         let interest = new_total_borrowed - total_borrowed;
         if interest > 0 {

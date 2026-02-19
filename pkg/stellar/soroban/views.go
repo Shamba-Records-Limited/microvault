@@ -194,6 +194,36 @@ func (s *service) GetBorrowAPR(ctx context.Context) (int64, error) {
 	return scValToI128(resultXDR)
 }
 
+// GetBorrowIndex returns the cumulative borrow index from the vault (WAD scale)
+func (s *service) GetBorrowIndex(ctx context.Context) (int64, error) {
+	op, err := s.buildInvokeContractOp("get_borrow_index", nil)
+	if err != nil {
+		return 0, err
+	}
+
+	adminKP := keypair.MustParseFull(s.adminPrivateKey)
+	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
+	if err != nil {
+		return 0, err
+	}
+
+	if simResp.Error != "" {
+		return 0, fmt.Errorf("simulation error: %s", simResp.Error)
+	}
+
+	if len(simResp.Results) == 0 {
+		return 0, types.ErrNoSimulationResult
+	}
+
+	var resultXDR xdr.ScVal
+	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
+	if err != nil {
+		return 0, fmt.Errorf("failed to decode result: %w", err)
+	}
+
+	return scValToI128(resultXDR)
+}
+
 // IsUserLocked checks if a user's vault shares are locked
 func (s *service) IsUserLocked(ctx context.Context, userAddress string) (bool, error) {
 	userAddr, err := addressToScVal(userAddress)

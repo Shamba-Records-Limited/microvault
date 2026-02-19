@@ -14,11 +14,11 @@ import (
 
 	// "github.com/Shamba-Records-Limited/microvault/internal/credit/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/app/controllers"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/app/repository"
 	routes "github.com/Shamba-Records-Limited/microvault/internal/core/pkg/routes"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services/account"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/auth"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services/user"
+	"github.com/Shamba-Records-Limited/microvault/pkg/account"
+	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
+	"github.com/Shamba-Records-Limited/microvault/pkg/user"
 	"github.com/Shamba-Records-Limited/microvault/internal/core/services/validation"
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	pkgcontrollers "github.com/Shamba-Records-Limited/microvault/pkg/controllers"
@@ -219,7 +219,7 @@ func main() {
 
 	// Initialize USSD handler with real services
 	// Note: loanService is nil for now - will be implemented later
-	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil)
+	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil, nil)
 	ussdService := ussd.NewUSSDService(handler)
 
 	// Register USSD providers

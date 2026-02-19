@@ -72,6 +72,7 @@ type BorrowResponse struct {
 	AmountBorrowed   int64
 	RecipientAddress string
 	EventRecipient   string // Child account address extracted from the on-chain Borrowed event
+	BorrowIndex      int64  // Borrow index at time of borrow (WAD scale, 1e18 = 1.0)
 }
 
 // RepayRequest represents a request to repay borrowed funds

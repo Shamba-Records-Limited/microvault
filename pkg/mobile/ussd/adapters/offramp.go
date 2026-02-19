@@ -59,7 +59,8 @@ type OffRampResult struct {
 	AmountLocal      float64
 	LocalCurrency    string
 	ExchangeRate     float64
-	Fee              float64
+	Fee              float64 // Total fee in USD
+	FeeLocal         float64 // Total fee in local currency
 	EstimatedTime    int
 	CreatedAt        time.Time
 	SettlementMethod string // "direct" or "fiat" — which mode was actually used

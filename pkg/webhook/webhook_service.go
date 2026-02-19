@@ -2,6 +2,7 @@
 package webhook
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -34,17 +35,28 @@ type AlertService interface {
 	AlertOps(subject string, message string) error
 }
 
+// TransactionRecorder records and updates transaction records for disbursement events.
+type TransactionRecorder interface {
+	// UpdateTransactionByExternalID updates an existing transaction found by its external ID.
+	UpdateTransactionByExternalID(ctx context.Context, externalID string, status string, externalStatus string) error
+
+	// RecordFiatFailover records a fiat failover transaction after a direct settlement refund.
+	RecordFiatFailover(ctx context.Context, rec RefundPendingRecord, newRequestID string) error
+}
+
 // Service processes incoming payment provider webhook events.
 type Service struct {
 	disbursements DisbursementUpdater
 	alerts        AlertService
+	transactions  TransactionRecorder
 }
 
 // NewService creates a new webhook processing service.
-func NewService(disbursements DisbursementUpdater, alerts AlertService) *Service {
+func NewService(disbursements DisbursementUpdater, alerts AlertService, transactions TransactionRecorder) *Service {
 	return &Service{
 		disbursements: disbursements,
 		alerts:        alerts,
+		transactions:  transactions,
 	}
 }
 

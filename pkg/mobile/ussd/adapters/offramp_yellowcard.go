@@ -126,12 +126,17 @@ type disbursementParams struct {
 
 // tryDirectSettlement submits a payment with directSettlement=true and then
 // sends USDC from treasury to the YC-issued Stellar wallet address (blocking).
+//
+// The request includes settlementInfo with cryptoCurrency, cryptoNetwork, and
+// cryptoAmount. YC returns the same fields plus walletAddress, cryptoUSDRate,
+// cryptoLocalRate, and expiresAt in the response.
 func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *disbursementParams) (*OffRampResult, error) {
 	paymentReq := a.buildPaymentRequest(p)
 	paymentReq.DirectSettlement = true
 	paymentReq.SettlementInfo = &yellowcard.SettlementInfo{
 		CryptoCurrency: yellowcard.CryptoCurrencyUSDC,
 		CryptoNetwork:  yellowcard.CryptoNetworkXLM,
+		CryptoAmount:   p.req.AmountUSD,
 	}
 
 	// F1 checkpoint: If YC API call fails, USDC is still in treasury → safe to failover.
@@ -180,6 +185,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		LocalCurrency:    resp.Currency,
 		ExchangeRate:     resp.Rate,
 		Fee:              resp.ServiceFeeAmountUSD + resp.NetworkFeeAmountUSD,
+		FeeLocal:         resp.ServiceFeeAmountLocal + resp.NetworkFeeAmountLocal,
 		EstimatedTime:    p.momoChannel.EstimatedSettlementTime,
 		CreatedAt:        createdAt,
 		SettlementMethod: yellowcard.SettlementMethodDirect,
@@ -224,6 +230,7 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 		LocalCurrency:    resp.Currency,
 		ExchangeRate:     resp.Rate,
 		Fee:              resp.ServiceFeeAmountUSD + resp.NetworkFeeAmountUSD,
+		FeeLocal:         resp.ServiceFeeAmountLocal + resp.NetworkFeeAmountLocal,
 		EstimatedTime:    p.momoChannel.EstimatedSettlementTime,
 		CreatedAt:        createdAt,
 		SettlementMethod: yellowcard.SettlementMethodFiat,

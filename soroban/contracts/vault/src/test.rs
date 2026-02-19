@@ -1404,6 +1404,194 @@ fn test_mint_also_applies_lock() {
     assert_eq!(client.get_unlock_time(&user), 1000 + seven_days);
 }
 
+// --- Borrow Index ---
+
+#[test]
+fn test_borrow_index_initial_value() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
+
+    // Initial borrow index should be WAD_SCALE (1e18)
+    let index = client.get_borrow_index();
+    assert_eq!(index, 1_000_000_000_000_000_000i128);
+}
+
+#[test]
+fn test_borrow_index_unchanged_without_time() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
+
+    // Depositor provides liquidity
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &10_000_000i128);
+    client.deposit(&10_000_000i128, &depositor, &depositor, &depositor);
+
+    let index_before = client.get_borrow_index();
+
+    // Borrow — no time elapsed, so index stays the same
+    let child = Address::generate(&env);
+    client.borrow(&treasury, &child, &5_000_000i128);
+
+    let index_after = client.get_borrow_index();
+    assert_eq!(index_before, index_after);
+}
+
+#[test]
+fn test_borrow_index_increases_with_interest() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
+
+    // Depositor provides liquidity
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &10_000_000i128);
+    client.deposit(&10_000_000i128, &depositor, &depositor, &depositor);
+
+    // Borrow to create utilization (interest only accrues when total_borrowed > 0)
+    let child = Address::generate(&env);
+    client.borrow(&treasury, &child, &5_000_000i128);
+
+    let index_before = client.get_borrow_index();
+    assert_eq!(index_before, 1_000_000_000_000_000_000i128);
+
+    // Advance 30 days
+    env.ledger().set(LedgerInfo {
+        timestamp: 2_592_000,
+        protocol_version: 23,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+
+    let index_after = client.get_borrow_index();
+
+    // Index should have increased (interest compounded)
+    assert!(
+        index_after > index_before,
+        "Borrow index should increase after interest accrual: before={}, after={}",
+        index_before,
+        index_after
+    );
+}
+
+#[test]
+fn test_borrow_index_monotonically_increases() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
+
+    // Depositor provides liquidity
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &10_000_000i128);
+    client.deposit(&10_000_000i128, &depositor, &depositor, &depositor);
+
+    // Borrow to create utilization
+    let child = Address::generate(&env);
+    client.borrow(&treasury, &child, &5_000_000i128);
+
+    // Advance 30 days, get index
+    env.ledger().set(LedgerInfo {
+        timestamp: 2_592_000,
+        protocol_version: 23,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+    let index_30d = client.get_borrow_index();
+
+    // Advance to 60 days, get index
+    env.ledger().set(LedgerInfo {
+        timestamp: 5_184_000,
+        protocol_version: 23,
+        sequence_number: 200,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+    let index_60d = client.get_borrow_index();
+
+    // Advance to 365 days, get index
+    env.ledger().set(LedgerInfo {
+        timestamp: 31_536_000,
+        protocol_version: 23,
+        sequence_number: 300,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+    let index_1y = client.get_borrow_index();
+
+    // Index must be strictly monotonically increasing
+    assert!(
+        index_30d < index_60d,
+        "30d < 60d: {} < {}",
+        index_30d,
+        index_60d
+    );
+    assert!(
+        index_60d < index_1y,
+        "60d < 1y: {} < {}",
+        index_60d,
+        index_1y
+    );
+}
+
+#[test]
+fn test_borrow_index_stable_without_borrows() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
+
+    // Depositor provides liquidity but no one borrows
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &10_000_000i128);
+    client.deposit(&10_000_000i128, &depositor, &depositor, &depositor);
+
+    let index_before = client.get_borrow_index();
+
+    // Advance 1 year
+    env.ledger().set(LedgerInfo {
+        timestamp: 31_536_000,
+        protocol_version: 23,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+
+    let index_after = client.get_borrow_index();
+
+    // Index should not change when there are no borrows
+    assert_eq!(
+        index_before, index_after,
+        "Borrow index should not change without borrows"
+    );
+}
+
 // --- Upgrade ---
 
 #[test]

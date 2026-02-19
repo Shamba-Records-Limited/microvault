@@ -6,8 +6,8 @@ import (
 	"log"
 	"slices"
 
-	"github.com/Shamba-Records-Limited/microvault/internal/core/app/repository"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services"
+	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
+	"github.com/Shamba-Records-Limited/microvault/pkg/services"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 )
 
