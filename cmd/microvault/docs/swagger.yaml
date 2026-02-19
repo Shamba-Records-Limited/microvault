@@ -1,5 +1,69 @@
 basePath: /
 definitions:
+  fiber.Error:
+    properties:
+      code:
+        type: integer
+      message:
+        type: string
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.SettlementInfo:
+    properties:
+      cryptoAmount:
+        type: number
+      cryptoCurrency:
+        type: string
+      cryptoLocalRate:
+        type: number
+      cryptoNetwork:
+        type: string
+      cryptoUSDRate:
+        type: number
+      expiresAt:
+        type: string
+      lnInvoice:
+        type: string
+      walletAddress:
+        type: string
+      walletTag:
+        type: string
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.WebhookEvent:
+    properties:
+      data:
+        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.WebhookPayload'
+      event:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.WebhookPayload:
+    properties:
+      amount:
+        type: integer
+      convertedAmount:
+        type: integer
+      country:
+        type: string
+      createdAt:
+        type: string
+      currency:
+        type: string
+      directSettlement:
+        type: boolean
+      id:
+        type: string
+      rate:
+        type: number
+      sequenceId:
+        type: string
+      settlementInfo:
+        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.SettlementInfo'
+      status:
+        type: string
+      updatedAt:
+        type: string
+    type: object
   internal_core_app_controllers.ChallengeResponse:
     properties:
       challenge_id:
@@ -151,4 +215,43 @@ paths:
       summary: USSD Callback Handler
       tags:
       - USSD
+  /api/v1/webhooks/yellowcard:
+    post:
+      consumes:
+      - application/json
+      description: Handle incoming webhooks from YellowCard payment service
+      parameters:
+      - description: HMAC signature for verification
+        in: header
+        name: X-YC-Signature
+        required: true
+        type: string
+      - description: Webhook event data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.WebhookEvent'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            type: string
+        "400":
+          description: Invalid webhook payload
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "401":
+          description: Signature verification failed
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to process webhook
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Process YellowCard Payment Webhook
+      tags:
+      - Webhooks
 swagger: "2.0"
