@@ -5,7 +5,7 @@ members = [
 ]
 
 [workspace.dependencies]
-soroban-sdk = "23.5.1"
+soroban-sdk = "23.5.2"
 stellar-tokens = "=0.6.0"
 stellar-access = "=0.6.0"
 stellar-contract-utils = "=0.6.0"
