@@ -371,8 +371,8 @@ func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, i
 	duration, _ := session.Data["loan_duration"].(int)
 	schedule, _ := session.Data["repayment_schedule"].(string)
 
-	// Get first account
-	_, accounts, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
+	// Get user and first account
+	userData, accounts, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
 	if err != nil || len(accounts) == 0 {
 		return h.formatError(session.Language, "error"), nil
 	}
@@ -385,10 +385,32 @@ func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, i
 		}
 	}
 
+	// Extract user disbursement details for off-ramp
+	var recipientName, countryCode, networkCode, networkName string
+	if userMap, ok := userData.(map[string]interface{}); ok {
+		if v, ok := userMap["full_name"].(*string); ok && v != nil {
+			recipientName = *v
+		}
+		if v, ok := userMap["country_code"].(string); ok {
+			countryCode = v
+		}
+		if v, ok := userMap["momo_network_code"].(string); ok {
+			networkCode = v
+		}
+		if v, ok := userMap["momo_network_name"].(string); ok {
+			networkName = v
+		}
+	}
+
 	// Submit loan request
 	_, err = h.loanService.RequestLoan(ctx, &LoanRequest{
 		UserID:          session.UserID,
 		AccountID:       accountID,
+		PhoneNumber:     session.PhoneNumber,
+		RecipientName:   recipientName,
+		CountryCode:     countryCode,
+		NetworkCode:     networkCode,
+		NetworkName:     networkName,
 		PrincipalAmount: amount,
 		PrincipalAsset:  "USDC",
 		DurationDays:    duration,

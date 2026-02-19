@@ -172,6 +172,11 @@ type RegisterUserRequest struct {
 type LoanRequest struct {
 	UserID          string
 	AccountID       string
+	PhoneNumber     string
+	RecipientName   string
+	CountryCode     string
+	NetworkCode     string
+	NetworkName     string
 	PrincipalAmount int64
 	PrincipalAsset  string
 	DurationDays    int
