@@ -1,5 +1,31 @@
 basePath: /
 definitions:
+  controllers.ChallengeResponse:
+    properties:
+      challenge_id:
+        type: string
+      expires_at:
+        type: integer
+      transaction:
+        type: string
+    type: object
+  controllers.VerifyRequest:
+    properties:
+      challenge_id:
+        type: string
+      signed_transaction:
+        type: string
+    required:
+    - challenge_id
+    - signed_transaction
+    type: object
+  controllers.VerifyResponse:
+    properties:
+      expires_at:
+        type: integer
+      token:
+        type: string
+    type: object
   fiber.Error:
     properties:
       code:
@@ -64,32 +90,6 @@ definitions:
       updatedAt:
         type: string
     type: object
-  internal_core_app_controllers.ChallengeResponse:
-    properties:
-      challenge_id:
-        type: string
-      expires_at:
-        type: integer
-      transaction:
-        type: string
-    type: object
-  internal_core_app_controllers.VerifyRequest:
-    properties:
-      challenge_id:
-        type: string
-      signed_transaction:
-        type: string
-    required:
-    - challenge_id
-    - signed_transaction
-    type: object
-  internal_core_app_controllers.VerifyResponse:
-    properties:
-      expires_at:
-        type: integer
-      token:
-        type: string
-    type: object
   middleware.Response:
     properties:
       code:
@@ -125,7 +125,7 @@ paths:
         "200":
           description: Challenge generated successfully
           schema:
-            $ref: '#/definitions/internal_core_app_controllers.ChallengeResponse'
+            $ref: '#/definitions/controllers.ChallengeResponse'
         "500":
           description: Failed to generate challenge
           schema:
@@ -145,14 +145,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_core_app_controllers.VerifyRequest'
+          $ref: '#/definitions/controllers.VerifyRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Challenge verified successfully
           schema:
-            $ref: '#/definitions/internal_core_app_controllers.VerifyResponse'
+            $ref: '#/definitions/controllers.VerifyResponse'
         "400":
           description: Invalid request body or transaction
           schema:
@@ -172,12 +172,18 @@ paths:
       summary: Verify Challenge
       tags:
       - Authentication
-  /api/v1/mobile/ussd-callback:
+  /api/v1/mobile/ussd/{provider}:
     post:
       consumes:
       - application/x-www-form-urlencoded
-      description: Handle USSD callback requests from the USSD gateway
+      description: Handle USSD callback requests from the USSD gateway. The provider
+        is specified in the URL path.
       parameters:
+      - description: USSD provider name (e.g. africastalking)
+        in: path
+        name: provider
+        required: true
+        type: string
       - description: Session ID
         in: formData
         name: sessionId
@@ -209,9 +215,9 @@ paths:
           schema:
             type: string
         "500":
-          description: Failed to process USSD request
+          description: END An error occurred. Please try again.
           schema:
-            $ref: '#/definitions/middleware.Response'
+            type: string
       summary: USSD Callback Handler
       tags:
       - USSD

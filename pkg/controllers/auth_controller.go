@@ -3,8 +3,8 @@ package controllers
 import (
 	"errors"
 
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services/auth"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services/validation"
+	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
+	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 	"github.com/gofiber/fiber/v2"
 )
 

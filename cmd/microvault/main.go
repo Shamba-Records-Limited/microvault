@@ -12,15 +12,14 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/fonbnk"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 
-	"github.com/Shamba-Records-Limited/microvault/internal/core/app/controllers"
 	routes "github.com/Shamba-Records-Limited/microvault/internal/core/pkg/routes"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services/auth"
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
+	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
+	"github.com/Shamba-Records-Limited/microvault/pkg/controllers"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/user"
-	"github.com/Shamba-Records-Limited/microvault/internal/core/services/validation"
-	"github.com/Shamba-Records-Limited/microvault/pkg/config"
-	pkgcontrollers "github.com/Shamba-Records-Limited/microvault/pkg/controllers"
+	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 	"github.com/Shamba-Records-Limited/microvault/pkg/health"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
@@ -283,7 +282,7 @@ func main() {
 	})
 
 	// Initialize webhook controller (event handler will be wired when disbursement service is ready)
-	webhookController := pkgcontrollers.NewWebhookController(nil, cfg.Payments.YellowCard.WebhookSecret)
+	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.WebhookSecret)
 
 	routes.PublicRoutes(app, authController, ussdController, webhookController) // Register public routes
 

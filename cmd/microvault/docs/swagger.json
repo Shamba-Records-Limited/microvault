@@ -34,7 +34,7 @@
                     "200": {
                         "description": "Challenge generated successfully",
                         "schema": {
-                            "$ref": "#/definitions/internal_core_app_controllers.ChallengeResponse"
+                            "$ref": "#/definitions/controllers.ChallengeResponse"
                         }
                     },
                     "500": {
@@ -66,7 +66,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_core_app_controllers.VerifyRequest"
+                            "$ref": "#/definitions/controllers.VerifyRequest"
                         }
                     }
                 ],
@@ -74,7 +74,7 @@
                     "200": {
                         "description": "Challenge verified successfully",
                         "schema": {
-                            "$ref": "#/definitions/internal_core_app_controllers.VerifyResponse"
+                            "$ref": "#/definitions/controllers.VerifyResponse"
                         }
                     },
                     "400": {
@@ -104,9 +104,9 @@
                 }
             }
         },
-        "/api/v1/mobile/ussd-callback": {
+        "/api/v1/mobile/ussd/{provider}": {
             "post": {
-                "description": "Handle USSD callback requests from the USSD gateway",
+                "description": "Handle USSD callback requests from the USSD gateway. The provider is specified in the URL path.",
                 "consumes": [
                     "application/x-www-form-urlencoded"
                 ],
@@ -118,6 +118,13 @@
                 ],
                 "summary": "USSD Callback Handler",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "USSD provider name (e.g. africastalking)",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    },
                     {
                         "type": "string",
                         "description": "Session ID",
@@ -160,9 +167,9 @@
                         }
                     },
                     "500": {
-                        "description": "Failed to process USSD request",
+                        "description": "END An error occurred. Please try again.",
                         "schema": {
-                            "$ref": "#/definitions/middleware.Response"
+                            "type": "string"
                         }
                     }
                 }
@@ -229,6 +236,46 @@
         }
     },
     "definitions": {
+        "controllers.ChallengeResponse": {
+            "type": "object",
+            "properties": {
+                "challenge_id": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "integer"
+                },
+                "transaction": {
+                    "type": "string"
+                }
+            }
+        },
+        "controllers.VerifyRequest": {
+            "type": "object",
+            "required": [
+                "challenge_id",
+                "signed_transaction"
+            ],
+            "properties": {
+                "challenge_id": {
+                    "type": "string"
+                },
+                "signed_transaction": {
+                    "type": "string"
+                }
+            }
+        },
+        "controllers.VerifyResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "integer"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
         "fiber.Error": {
             "type": "object",
             "properties": {
@@ -323,46 +370,6 @@
                     "type": "string"
                 },
                 "updatedAt": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_core_app_controllers.ChallengeResponse": {
-            "type": "object",
-            "properties": {
-                "challenge_id": {
-                    "type": "string"
-                },
-                "expires_at": {
-                    "type": "integer"
-                },
-                "transaction": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_core_app_controllers.VerifyRequest": {
-            "type": "object",
-            "required": [
-                "challenge_id",
-                "signed_transaction"
-            ],
-            "properties": {
-                "challenge_id": {
-                    "type": "string"
-                },
-                "signed_transaction": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_core_app_controllers.VerifyResponse": {
-            "type": "object",
-            "properties": {
-                "expires_at": {
-                    "type": "integer"
-                },
-                "token": {
                     "type": "string"
                 }
             }
