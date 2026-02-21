@@ -6,5 +6,5 @@ tmp_dir = "tmp/core"
   cmd = "go build -o ./tmp/core/main ./cmd/microvault/main.go"
   exclude_dir = ["tmp", "vendor", "credit", "cmd/microvault/docs", ".git"]
   include_dir = ["cmd/microvault", "internal", "pkg", "platform"]
-  include_ext = ["go"]
+  include_ext = ["go", "toml", "yaml", "yml", "json"]
   delay = 1000

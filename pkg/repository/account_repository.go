@@ -159,7 +159,7 @@ func (r *accountRepository) GetNextAccountIndex(ctx context.Context, userID stri
 	}
 
 	if maxIndex != nil {
-		nextIndex := int(*maxIndex) + 1
+		nextIndex := int(*maxIndex)
 		log.Printf("GetNextAccountIndex: returning global index %d (max was %d)", nextIndex, *maxIndex)
 		return nextIndex, nil
 	}
