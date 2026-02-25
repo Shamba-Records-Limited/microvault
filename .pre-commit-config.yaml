@@ -65,3 +65,20 @@ repos:
         language: system
         pass_filenames: false
         types: [rust]
+
+  # Web project hooks
+  - repo: local
+    hooks:
+      - id: oxlint
+        name: Lint with oxlint
+        entry: bash -c 'cd web && npm run lint'
+        language: system
+        pass_filenames: false
+        types_or: [javascript, jsx, ts, tsx, json]
+
+      - id: typescript-check
+        name: TypeScript type check
+        entry: bash -c 'cd web && npm run typecheck'
+        language: system
+        pass_filenames: false
+        types_or: [ts, tsx]

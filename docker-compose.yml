@@ -98,6 +98,35 @@ services:
       retries: 5
       start_period: 10s
 
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    container_name: microvault-web
+    environment:
+      VITE_VAULT_CONTRACT_ID: ${VITE_VAULT_CONTRACT_ID:-CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR}
+      VITE_SOROBAN_RPC_URL: ${VITE_SOROBAN_RPC_URL:-https://soroban-testnet.stellar.org}
+      VITE_NETWORK_PASSPHRASE: ${VITE_NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}
+      VITE_STELLAR_EXPLORER_URL: ${VITE_STELLAR_EXPLORER_URL:-https://stellar.expert/explorer/testnet}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    develop:
+      watch:
+        - action: sync
+          path: ./web/src
+          target: /app/src
+        - action: sync
+          path: ./web/public
+          target: /app/public
+        - action: sync
+          path: ./web/index.html
+          target: /app/index.html
+        - action: rebuild
+          path: ./web/package.json
+        - action: rebuild
+          path: ./web/package-lock.json
+
 volumes:
   postgres_data:
   redis_data:
