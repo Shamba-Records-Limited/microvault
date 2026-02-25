@@ -6,7 +6,11 @@ import {
   ShieldCheck,
   Zap,
   Users,
+  ExternalLink,
 } from "lucide-react";
+import stellarLogo from "@/assets/stellar-logo.png";
+import atLogo from "@/assets/at.png";
+import yellowCardLogo from "@/assets/yellowcard-logo.avif";
 
 const stats = [
   { value: "2.5B", label: "Africa's population by 2050" },
@@ -48,7 +52,7 @@ export default function UseCasePage() {
       {/* Hero */}
       <section className="mb-16">
         <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">
-          Use Case
+          Our Approach
         </p>
         <h1 className="text-4xl md:text-5xl font-bold leading-tight mb-6">
           Bridging the{" "}
@@ -74,7 +78,7 @@ export default function UseCasePage() {
               <p className="text-3xl font-bold tracking-tight mb-1">
                 {stat.value}
               </p>
-              <p className="text-xs text-muted-foreground leading-snug">
+              <p className="text-sm text-muted-foreground leading-snug">
                 {stat.label}
               </p>
             </div>
@@ -142,7 +146,7 @@ export default function UseCasePage() {
                 >
                   <div className="flex items-center gap-3 mb-3">
                     <pillar.icon className="h-4 w-4 text-foreground" />
-                    <h3 className="font-semibold text-sm">{pillar.title}</h3>
+                    <h3 className="font-semibold text-base">{pillar.title}</h3>
                   </div>
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     {pillar.description}
@@ -197,6 +201,79 @@ export default function UseCasePage() {
           every loan is trustless, auditable, and scalable to reach millions of
           farmers at once.
         </p>
+      </section>
+
+      <Separator className="mb-16" />
+
+      {/* Infrastructure Partners */}
+      <section className="mb-16">
+        <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-6">
+          Infrastructure
+        </p>
+        <div className="grid md:grid-cols-3 gap-6">
+          <a
+            href="https://stellar.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group border border-border rounded-lg p-5 hover:bg-muted/30 transition-colors"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <img
+                src={stellarLogo}
+                alt="Stellar Network"
+                className="h-7 w-7 object-contain"
+              />
+              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <h3 className="font-semibold text-base mb-1">Stellar Network</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Borderless payments and Soroban smart contracts power
+              transparent, auditable DeFi lending via the SEP-56 Vault standard.
+            </p>
+          </a>
+
+          <a
+            href="https://africastalking.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group border border-border rounded-lg p-5 hover:bg-muted/30 transition-colors"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <img
+                src={atLogo}
+                alt="Africa's Talking"
+                className="h-7 object-contain"
+              />
+              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <h3 className="font-semibold text-base mb-1">Africa&apos;s Talking</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              USSD and SMS mobile services enabling farmers to access
+              loans and manage repayments from any phone.
+            </p>
+          </a>
+
+          <a
+            href="https://yellowcard.io/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group border border-border rounded-lg p-5 hover:bg-muted/30 transition-colors"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <img
+                src={yellowCardLogo}
+                alt="Yellow Card"
+                className="h-7 object-contain"
+              />
+              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <h3 className="font-semibold text-base mb-1">Yellow Card</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Fiat on/off-ramp infrastructure enabling last-mile loan
+              disbursement and repayment across Africa.
+            </p>
+          </a>
+        </div>
       </section>
     </main>
   );

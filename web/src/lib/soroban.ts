@@ -17,12 +17,16 @@ const contractId = import.meta.env.VITE_VAULT_CONTRACT_ID;
 const server = new rpc.Server(rpcUrl);
 const contract = new Contract(contractId);
 
-// Zero account for simulation — no signing needed for view functions
+/** Zero-balance account used as the source for simulated (read-only) transactions. */
 const SOURCE_ACCOUNT = new Account(
   "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
   "0",
 );
 
+/**
+ * Invoke a Soroban contract view function via `simulateTransaction`.
+ * No signing or fees are required — the call is read-only.
+ */
 async function callViewFunction(
   functionName: string,
   args: xdr.ScVal[] = [],
@@ -53,16 +57,19 @@ async function callViewFunction(
   return retval;
 }
 
+/** Convert an on-chain i128 ScVal to a JS number, dividing by the given scale. */
 function i128ToNumber(scVal: xdr.ScVal, scale: bigint): number {
   const raw = scValToNative(scVal) as bigint;
   return Number(raw) / Number(scale);
 }
 
+/** Convert a WAD-scaled (1e18) ScVal to a human-readable percentage. */
 function wadToPercent(scVal: xdr.ScVal): number {
   const raw = scValToNative(scVal) as bigint;
   return (Number(raw) / Number(WAD_SCALE)) * 100;
 }
 
+/** Fetch all numeric vault metrics (TVL, borrowed, utilization, APR, paused) in a single batch. */
 export async function fetchVaultStats(): Promise<VaultStats> {
   const [totalManaged, totalBorrowed, availableLiquidity, utilizationRate, borrowApr, paused] =
     await Promise.all([
@@ -84,6 +91,7 @@ export async function fetchVaultStats(): Promise<VaultStats> {
   };
 }
 
+/** Fetch vault governance addresses (owner, treasury, guardian). Guardian/owner may be null. */
 export async function fetchVaultAddresses(): Promise<VaultAddresses> {
   const [treasury, owner, guardian] = await Promise.all([
     callViewFunction("treasury"),

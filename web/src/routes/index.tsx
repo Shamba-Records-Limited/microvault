@@ -72,7 +72,7 @@ export default function IndexPage() {
           <p className="text-sm text-muted-foreground">
             {statsError.message}
           </p>
-          <p className="text-xs text-muted-foreground mt-2">
+          <p className="text-sm text-muted-foreground mt-2">
             Check that VITE_VAULT_CONTRACT_ID is set to a valid Soroban contract
             address and the RPC endpoint is reachable.
           </p>

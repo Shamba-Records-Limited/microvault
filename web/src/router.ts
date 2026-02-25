@@ -1,9 +1,13 @@
 import { createRouter, createRoute, createRootRoute } from "@tanstack/react-router";
 import RootLayout from "./routes/__root";
 import IndexPage from "./routes/index";
-import UseCasePage from "./routes/use-case";
+import OurApproachPage from "./routes/our-approach";
+import NotFoundPage from "./routes/not-found";
 
-const rootRoute = createRootRoute({ component: RootLayout });
+const rootRoute = createRootRoute({
+  component: RootLayout,
+  notFoundComponent: NotFoundPage,
+});
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -11,13 +15,13 @@ const indexRoute = createRoute({
   component: IndexPage,
 });
 
-const useCaseRoute = createRoute({
+const ourApproachRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/use-case",
-  component: UseCasePage,
+  path: "/our-approach",
+  component: OurApproachPage,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, useCaseRoute]);
+const routeTree = rootRoute.addChildren([indexRoute, ourApproachRoute]);
 
 export const router = createRouter({ routeTree });
 

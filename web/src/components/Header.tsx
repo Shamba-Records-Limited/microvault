@@ -18,10 +18,10 @@ export function Header() {
 
           <nav className="hidden md:flex items-center gap-6">
             <Link
-              to="/use-case"
+              to="/our-approach"
               className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
-              Use Case
+              Our Approach
             </Link>
           </nav>
         </div>

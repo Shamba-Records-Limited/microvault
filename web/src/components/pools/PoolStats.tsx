@@ -8,6 +8,7 @@ interface PoolStatsProps {
   totalBorrowed: number;
 }
 
+/** Protocol-level stats cards showing TVL, pool count, and total borrowed. */
 export function PoolStats({ totalTvl, poolCount, totalBorrowed }: PoolStatsProps) {
   const stats = [
     {

@@ -1,4 +1,4 @@
-import { MapPin, Mail, Phone } from "lucide-react";
+import { MapPin, Mail, Phone, Facebook, Twitter, Linkedin } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import shambaLogo from "@/assets/shamba-logo.svg";
 
@@ -25,7 +25,7 @@ export function Footer() {
                 />
               </div>
             </a>
-            <p className="text-xs text-muted-foreground max-w-xs">
+            <p className="text-sm text-muted-foreground max-w-xs">
               Microvault is built by Shamba Records — turning farm data into
               financial identity for emerging markets.
             </p>
@@ -64,9 +64,40 @@ export function Footer() {
 
         <Separator className="my-6" />
 
-        <p className="text-xs text-muted-foreground text-center">
-          &copy; {year} Shamba Records. All rights reserved.
-        </p>
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <p className="text-sm text-muted-foreground">
+            &copy; {year} Shamba Records. All rights reserved.
+          </p>
+          <div className="flex items-center gap-4">
+            <a
+              href="https://www.facebook.com/ShambaRecords"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Shamba Records on Facebook"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Facebook className="h-4 w-4" />
+            </a>
+            <a
+              href="https://x.com/RecordsShamba"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Shamba Records on X"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Twitter className="h-4 w-4" />
+            </a>
+            <a
+              href="https://www.linkedin.com/company/shamba-records/"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Shamba Records on LinkedIn"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Linkedin className="h-4 w-4" />
+            </a>
+          </div>
+        </div>
       </div>
     </footer>
   );

@@ -13,6 +13,7 @@ interface PoolCardProps {
   pool: Pool;
 }
 
+/** Expandable card displaying pool metrics, governance addresses, and asset breakdown. */
 export function PoolCard({ pool }: PoolCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
