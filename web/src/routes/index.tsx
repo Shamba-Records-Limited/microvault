@@ -3,18 +3,20 @@ import { PoolStats } from "@/components/pools/PoolStats";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useVaultStats } from "@/hooks/use-vault-stats";
 import { useVaultAddresses } from "@/hooks/use-vault-addresses";
+import { useVaultMetadata } from "@/hooks/use-vault-metadata";
 import type { Pool } from "@/types/vault";
 
 export default function IndexPage() {
   const { data: stats, isLoading: statsLoading, error: statsError } = useVaultStats();
   const { data: addresses, isLoading: addressesLoading } = useVaultAddresses();
+  const { data: metadata, isLoading: metadataLoading } = useVaultMetadata();
 
-  const isLoading = statsLoading || addressesLoading;
+  const isLoading = statsLoading || addressesLoading || metadataLoading;
   const pool: Pool | null =
-    stats && addresses
+    stats && addresses && metadata
       ? {
           id: "1",
-          name: "Microvault USDC Pool",
+          name: metadata.name,
           address: addresses.contractId,
           tvl: stats.totalManagedAssets,
           apy: stats.borrowApr,
@@ -22,7 +24,7 @@ export default function IndexPage() {
           totalBorrowed: stats.totalBorrowed,
           assets: [
             {
-              symbol: "USDC",
+              symbol: metadata.symbol,
               supplied: stats.totalManagedAssets,
               borrowed: stats.totalBorrowed,
             },

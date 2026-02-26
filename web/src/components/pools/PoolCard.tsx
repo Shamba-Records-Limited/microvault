@@ -1,13 +1,20 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronUp, Coins, Users, Landmark, Shield } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Coins,
+  Users,
+  Landmark,
+  Shield,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { DEFAULT_EXPLORER_URL } from "@/lib/constants";
 import type { Pool } from "@/types/vault";
 
-const explorerUrl = import.meta.env.VITE_STELLAR_EXPLORER_URL || DEFAULT_EXPLORER_URL;
+const explorerUrl =
+  import.meta.env.VITE_STELLAR_EXPLORER_URL || DEFAULT_EXPLORER_URL;
 
 interface PoolCardProps {
   pool: Pool;
@@ -29,7 +36,17 @@ export function PoolCard({ pool }: PoolCardProps) {
               <Coins className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h3 className="font-semibold text-base">{pool.name}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-base">{pool.name}</h3>
+                <div
+                  className={cn(
+                    "h-2.5 w-2.5 rounded-full",
+                    pool.status === "active" &&
+                      "bg-green-500 ring-2 ring-green-500/50 animate-caret-blink",
+                    pool.status === "frozen" && "bg-gray-400",
+                  )}
+                />
+              </div>
               <a
                 href={`${explorerUrl}/contract/${pool.address}`}
                 target="_blank"
@@ -43,18 +60,6 @@ export function PoolCard({ pool }: PoolCardProps) {
           </div>
 
           <div className="flex items-center gap-6">
-            <Badge
-              variant={pool.status === "active" ? "default" : "secondary"}
-              className={cn(
-                pool.status === "active" &&
-                  "bg-primary/10 text-primary hover:bg-primary/20",
-                pool.status === "frozen" &&
-                  "bg-destructive/10 text-destructive hover:bg-destructive/20",
-              )}
-            >
-              {pool.status}
-            </Badge>
-
             <div className="hidden md:flex items-center gap-8">
               <div className="text-right">
                 <p className="text-xs text-muted-foreground">TVL</p>

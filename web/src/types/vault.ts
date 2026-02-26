@@ -14,6 +14,14 @@ export interface VaultStats {
   isPaused: boolean;
 }
 
+/** On-chain vault name and asset symbol from the `name()` and `symbol()` view functions. */
+export interface VaultMetadata {
+  /** Vault name with "Pool" suffix (e.g. "Microvault USDC Pool"). */
+  name: string;
+  /** Underlying asset symbol (e.g. "USDC"). */
+  symbol: string;
+}
+
 /** Governance addresses associated with the vault contract. */
 export interface VaultAddresses {
   contractId: string;
