@@ -1196,8 +1196,8 @@ func (h *USSDHandler) handlePINRecoveryConfirm(ctx context.Context, session *Ses
 
 // showMenu is a generic helper that renders a registered menu by ID.
 func (h *USSDHandler) showMenu(session *Session, menuID string) (string, error) {
-	menu, error := h.menuRegistry.Get(menuID)
-	if error != nil {
+	menu, err := h.menuRegistry.Get(menuID)
+	if err != nil {
 		return h.formatError(session.Language, "error"), nil
 	}
 	return "CON " + menu.Render(session.Language), nil
