@@ -17,18 +17,18 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/Shamba-Records-Limited/microvault/pkg/controllers"
-	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
-	"github.com/Shamba-Records-Limited/microvault/pkg/user"
-	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 	"github.com/Shamba-Records-Limited/microvault/pkg/health"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
 	smsAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms/providers/africastalking"
-	mvnotifications "github.com/Shamba-Records-Limited/microvault/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	ussdadapters "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
 	ussdAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/providers/africastalking"
+	mvnotifications "github.com/Shamba-Records-Limited/microvault/pkg/notifications"
+	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
+	"github.com/Shamba-Records-Limited/microvault/pkg/user"
+	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 	"github.com/Shamba-Records-Limited/microvault/platform/cache"
 	"github.com/Shamba-Records-Limited/microvault/platform/database"
 	"github.com/gofiber/fiber/v2"
@@ -218,7 +218,7 @@ func main() {
 
 	// Initialize USSD handler with real services
 	// Note: loanService is nil for now - will be implemented later
-	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil, nil)
+	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil, nil, nil, nil)
 	ussdService := ussd.NewUSSDService(handler)
 
 	// Register USSD providers

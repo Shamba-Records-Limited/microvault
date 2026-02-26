@@ -1,0 +1,410 @@
+package pin
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
+	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
+	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// Service constants.
+const (
+	// MaxPINAttempts is the number of consecutive wrong PIN entries allowed
+	// before the account is locked.
+	MaxPINAttempts = 3
+
+	// LockoutDuration is how long an account stays locked after exceeding
+	// MaxPINAttempts.
+	LockoutDuration = 15 * time.Minute
+
+	// BcryptCost is the bcrypt work factor used for hashing PINs and
+	// security question answers.
+	BcryptCost = 10
+)
+
+// Service errors.
+var (
+	// ErrAccountLocked is returned when a PIN operation is attempted on a
+	// locked account.
+	ErrAccountLocked = errors.New("account is temporarily locked")
+
+	// ErrPINNotSet is returned when a PIN operation requires an existing PIN
+	// but the user has not set one.
+	ErrPINNotSet = errors.New("PIN has not been set")
+
+	// ErrPINIncorrect is returned when the supplied PIN does not match the
+	// stored hash.
+	ErrPINIncorrect = errors.New("incorrect PIN")
+
+	// ErrPINSameAsOld is returned when a new PIN is identical to the current
+	// one during a change operation.
+	ErrPINSameAsOld = errors.New("new PIN must be different from current PIN")
+
+	// ErrSecurityAnswerMismatch is returned when one or more security
+	// question answers do not match.
+	ErrSecurityAnswerMismatch = errors.New("security answers do not match")
+
+	// ErrInsufficientQuestions is returned when fewer than the required
+	// number of security questions are provided.
+	ErrInsufficientQuestions = errors.New("at least 2 security questions are required")
+)
+
+// QuestionAnswer pairs a predefined question ID with the user's plaintext
+// answer. The answer is normalized and hashed before storage.
+type QuestionAnswer struct {
+	QuestionID int
+	Answer     string
+}
+
+// Service provides PIN management operations including creation, verification,
+// change, reset, and security question handling. It sends SMS notifications
+// as side effects of certain operations via an [contracts.AccountNotifier].
+//
+// All methods that access the database accept a [context.Context] for
+// cancellation and timeout propagation.
+type Service struct {
+	userRepo    repository.UserRepository
+	sqRepo      *SecurityQuestionRepository
+	notifier    contracts.AccountNotifier
+	maxAttempts int
+	lockout     time.Duration
+}
+
+// NewService creates a new PIN management service. If notifier is nil, a
+// [notifications.NoOpAccountNotifier] is used.
+func NewService(
+	userRepo repository.UserRepository,
+	sqRepo *SecurityQuestionRepository,
+	notifier contracts.AccountNotifier,
+) *Service {
+	if notifier == nil {
+		notifier = &notifications.NoOpAccountNotifier{}
+	}
+	return &Service{
+		userRepo:    userRepo,
+		sqRepo:      sqRepo,
+		notifier:    notifier,
+		maxAttempts: MaxPINAttempts,
+		lockout:     LockoutDuration,
+	}
+}
+
+// SetPIN creates a PIN for a user who does not yet have one. The PIN is
+// validated for strength, hashed with bcrypt, and stored. Returns a
+// validation error if the PIN is weak.
+func (s *Service) SetPIN(ctx context.Context, userID, pin string) error {
+	if err := ValidatePIN(pin); err != nil {
+		return fmt.Errorf("validate PIN: %w", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(pin), BcryptCost)
+	if err != nil {
+		return fmt.Errorf("hash PIN: %w", err)
+	}
+
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get user %s: %w", userID, err)
+	}
+
+	hashStr := string(hash)
+	now := time.Now()
+	user.PinHash = &hashStr
+	user.PinSetAt = &now
+	user.PinAttempts = 0
+	user.PinLockedUntil = nil
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return fmt.Errorf("save PIN for user %s: %w", userID, err)
+	}
+
+	return nil
+}
+
+// VerifyPIN checks the supplied PIN against the stored hash. On failure it
+// increments the attempt counter and sends an SMS notification. If the
+// maximum attempts are exceeded the account is locked and a lockout
+// notification is sent.
+//
+// Returns (true, nil) on success, (false, nil) on wrong PIN (with side
+// effects), or (false, error) on system errors or if the account is locked.
+func (s *Service) VerifyPIN(ctx context.Context, userID, pin string) (bool, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("get user %s: %w", userID, err)
+	}
+
+	if user.PinHash == nil {
+		return false, ErrPINNotSet
+	}
+
+	// Check lockout.
+	if user.PinLockedUntil != nil && time.Now().Before(*user.PinLockedUntil) {
+		return false, fmt.Errorf("%w: try again after %s",
+			ErrAccountLocked, user.PinLockedUntil.Format("15:04"))
+	}
+
+	// Compare PIN.
+	if err := bcrypt.CompareHashAndPassword([]byte(*user.PinHash), []byte(pin)); err != nil {
+		return s.handleFailedAttempt(ctx, user)
+	}
+
+	// Success — reset attempt counter.
+	if user.PinAttempts > 0 {
+		user.PinAttempts = 0
+		user.PinLockedUntil = nil
+		if err := s.userRepo.Update(ctx, user); err != nil {
+			return true, fmt.Errorf("reset PIN attempts for user %s: %w", userID, err)
+		}
+	}
+
+	return true, nil
+}
+
+// ChangePIN verifies the old PIN then sets a new one. The new PIN must differ
+// from the old and pass strength validation. Sends an SMS on success or
+// failure.
+func (s *Service) ChangePIN(ctx context.Context, userID, oldPin, newPin string) error {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get user %s: %w", userID, err)
+	}
+
+	if user.PinHash == nil {
+		s.notifyChangeFailed(ctx, user, ErrPINNotSet.Error())
+		return ErrPINNotSet
+	}
+
+	// Verify old PIN without incrementing attempt counter on failure —
+	// that is handled by the caller via VerifyPIN if desired.
+	if err := bcrypt.CompareHashAndPassword([]byte(*user.PinHash), []byte(oldPin)); err != nil {
+		s.notifyChangeFailed(ctx, user, ErrPINIncorrect.Error())
+		return ErrPINIncorrect
+	}
+
+	// Reject same PIN.
+	if oldPin == newPin {
+		s.notifyChangeFailed(ctx, user, ErrPINSameAsOld.Error())
+		return ErrPINSameAsOld
+	}
+
+	// Validate new PIN strength.
+	if err := ValidatePIN(newPin); err != nil {
+		s.notifyChangeFailed(ctx, user, err.Error())
+		return fmt.Errorf("validate new PIN: %w", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPin), BcryptCost)
+	if err != nil {
+		return fmt.Errorf("hash new PIN: %w", err)
+	}
+
+	hashStr := string(hash)
+	now := time.Now()
+	user.PinHash = &hashStr
+	user.PinSetAt = &now
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return fmt.Errorf("save new PIN for user %s: %w", userID, err)
+	}
+
+	// Notify success.
+	_ = s.notifier.NotifyPINChanged(ctx, contracts.AccountNotification{
+		UserID:      userID,
+		PhoneNumber: user.MobileNumber,
+	})
+
+	return nil
+}
+
+// ResetPIN sets a new PIN without requiring the old one. This is called after
+// the caller has verified the user's identity via security questions. It
+// clears any lockout state. Sends an SMS on success or failure.
+func (s *Service) ResetPIN(ctx context.Context, userID, newPin string) error {
+	if err := ValidatePIN(newPin); err != nil {
+		return fmt.Errorf("validate new PIN: %w", err)
+	}
+
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get user %s: %w", userID, err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPin), BcryptCost)
+	if err != nil {
+		s.notifyResetFailed(ctx, user, "internal error")
+		return fmt.Errorf("hash new PIN: %w", err)
+	}
+
+	hashStr := string(hash)
+	now := time.Now()
+	user.PinHash = &hashStr
+	user.PinSetAt = &now
+	user.PinAttempts = 0
+	user.PinLockedUntil = nil
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		s.notifyResetFailed(ctx, user, "failed to save PIN")
+		return fmt.Errorf("save reset PIN for user %s: %w", userID, err)
+	}
+
+	_ = s.notifier.NotifyPINReset(ctx, contracts.AccountNotification{
+		UserID:      userID,
+		PhoneNumber: user.MobileNumber,
+	})
+
+	return nil
+}
+
+// IsLocked reports whether the user's account is currently locked due to
+// failed PIN attempts. If locked, it returns the time the lockout expires.
+func (s *Service) IsLocked(ctx context.Context, userID string) (bool, time.Time, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return false, time.Time{}, fmt.Errorf("get user %s: %w", userID, err)
+	}
+
+	if user.PinLockedUntil != nil && time.Now().Before(*user.PinLockedUntil) {
+		return true, *user.PinLockedUntil, nil
+	}
+
+	return false, time.Time{}, nil
+}
+
+// HasPIN reports whether the user has a PIN set.
+func (s *Service) HasPIN(ctx context.Context, userID string) (bool, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("get user %s: %w", userID, err)
+	}
+	return user.PinHash != nil, nil
+}
+
+// SetSecurityQuestions stores hashed answers for the given questions. At least
+// 2 questions are required. Answers are normalized (trimmed, lowercased)
+// before hashing with bcrypt. Existing questions for the user are upserted.
+func (s *Service) SetSecurityQuestions(ctx context.Context, userID string, questions []QuestionAnswer) error {
+	if len(questions) < 2 {
+		return ErrInsufficientQuestions
+	}
+
+	sqModels := make([]models.SecurityQuestion, len(questions))
+	for i, qa := range questions {
+		normalized := NormalizeAnswer(qa.Answer)
+		hash, err := bcrypt.GenerateFromPassword([]byte(normalized), BcryptCost)
+		if err != nil {
+			return fmt.Errorf("hash answer for question %d: %w", qa.QuestionID, err)
+		}
+		sqModels[i] = models.SecurityQuestion{
+			UserID:     userID,
+			QuestionID: qa.QuestionID,
+			AnswerHash: string(hash),
+		}
+	}
+
+	if err := s.sqRepo.UpsertForUser(ctx, sqModels); err != nil {
+		return fmt.Errorf("save security questions for user %s: %w", userID, err)
+	}
+
+	return nil
+}
+
+// VerifySecurityAnswers checks the supplied answers against the stored hashes
+// for the given user. All answers must match for the result to be true.
+// Answers are normalized before comparison.
+func (s *Service) VerifySecurityAnswers(ctx context.Context, userID string, answers []QuestionAnswer) (bool, error) {
+	stored, err := s.sqRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("get security questions for user %s: %w", userID, err)
+	}
+
+	// Build lookup by question ID.
+	hashByQID := make(map[int]string, len(stored))
+	for _, sq := range stored {
+		hashByQID[sq.QuestionID] = sq.AnswerHash
+	}
+
+	for _, qa := range answers {
+		storedHash, ok := hashByQID[qa.QuestionID]
+		if !ok {
+			return false, nil
+		}
+		normalized := NormalizeAnswer(qa.Answer)
+		if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(normalized)); err != nil {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// GetUserQuestionIDs returns the predefined question IDs that the user has
+// configured for recovery. Returns an empty slice if none are set.
+func (s *Service) GetUserQuestionIDs(ctx context.Context, userID string) ([]int, error) {
+	ids, err := s.sqRepo.GetQuestionIDsByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get question IDs for user %s: %w", userID, err)
+	}
+	return ids, nil
+}
+
+// handleFailedAttempt increments the attempt counter, optionally locks the
+// account, persists the change, and sends the appropriate SMS notification.
+func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (bool, error) {
+	user.PinAttempts++
+
+	if user.PinAttempts >= s.maxAttempts {
+		lockUntil := time.Now().Add(s.lockout)
+		user.PinLockedUntil = &lockUntil
+
+		if err := s.userRepo.Update(ctx, user); err != nil {
+			return false, fmt.Errorf("lock account for user %s: %w", user.ID, err)
+		}
+
+		_ = s.notifier.NotifyAccountLocked(ctx, contracts.AccountNotification{
+			UserID:      user.ID,
+			PhoneNumber: user.MobileNumber,
+			LockedUntil: lockUntil.Format("15:04"),
+		})
+
+		return false, nil
+	}
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return false, fmt.Errorf("update PIN attempts for user %s: %w", user.ID, err)
+	}
+
+	_ = s.notifier.NotifyPINWrongAttempt(ctx, contracts.AccountNotification{
+		UserID:            user.ID,
+		PhoneNumber:       user.MobileNumber,
+		RemainingAttempts: s.maxAttempts - user.PinAttempts,
+	})
+
+	return false, nil
+}
+
+// notifyChangeFailed sends a PIN change failure notification, ignoring
+// delivery errors (best-effort).
+func (s *Service) notifyChangeFailed(ctx context.Context, user *models.User, reason string) {
+	_ = s.notifier.NotifyPINChangeFailed(ctx, contracts.AccountNotification{
+		UserID:      user.ID,
+		PhoneNumber: user.MobileNumber,
+		Reason:      reason,
+	})
+}
+
+// notifyResetFailed sends a PIN reset failure notification, ignoring
+// delivery errors (best-effort).
+func (s *Service) notifyResetFailed(ctx context.Context, user *models.User, reason string) {
+	_ = s.notifier.NotifyPINResetFailed(ctx, contracts.AccountNotification{
+		UserID:      user.ID,
+		PhoneNumber: user.MobileNumber,
+		Reason:      reason,
+	})
+}
