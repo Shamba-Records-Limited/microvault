@@ -42,13 +42,13 @@ func (sm *SessionManager) GetSession(ctx context.Context, sessionID string) (*Se
 		return nil, fmt.Errorf("failed to unmarshal session: %v", err)
 	}
 
-	log.Printf("GetSession successful - Key: %s, CurrentMenu: %s, Phone: %s", key, session.CurrentMenu, session.PhoneNumber)
+	log.Printf("GetSession successful - Key: %s, CurrentMenu: %s, Phone: %s", key, session.CurrentMenu, redactPhone(session.PhoneNumber))
 	return &session, nil
 }
 
 // CreateSession creates a new USSD session
 func (sm *SessionManager) CreateSession(ctx context.Context, sessionID, phoneNumber, serviceCode, networkCode string) (*Session, error) {
-	log.Printf("CreateSession - Creating new session for SessionID: %s, Phone: %s", sessionID, phoneNumber)
+	log.Printf("CreateSession - Creating new session for SessionID: %s, Phone: %s", sessionID, redactPhone(phoneNumber))
 
 	session := &Session{
 		SessionID:     sessionID,

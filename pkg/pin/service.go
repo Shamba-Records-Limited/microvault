@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
@@ -227,6 +228,8 @@ func (s *Service) ChangePIN(ctx context.Context, userID, oldPin, newPin string) 
 // the caller has verified the user's identity via security questions. It
 // clears any lockout state. Sends an SMS on success or failure.
 func (s *Service) ResetPIN(ctx context.Context, userID, newPin string) error {
+	slog.Info("pin: reset initiated", slog.String("user_id", userID))
+
 	if err := ValidatePIN(newPin); err != nil {
 		return fmt.Errorf("validate new PIN: %w", err)
 	}
@@ -254,10 +257,19 @@ func (s *Service) ResetPIN(ctx context.Context, userID, newPin string) error {
 		return fmt.Errorf("save reset PIN for user %s: %w", userID, err)
 	}
 
-	_ = s.notifier.NotifyPINReset(ctx, contracts.AccountNotification{
+	slog.Info("pin: reset succeeded, sending SMS notification",
+		slog.String("user_id", userID),
+	)
+
+	if err := s.notifier.NotifyPINReset(ctx, contracts.AccountNotification{
 		UserID:      userID,
 		PhoneNumber: user.MobileNumber,
-	})
+	}); err != nil {
+		slog.Error("pin: reset SMS notification failed",
+			slog.String("user_id", userID),
+			slog.String("error", err.Error()),
+		)
+	}
 
 	return nil
 }

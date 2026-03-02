@@ -12,6 +12,49 @@ import (
 	pinPkg "github.com/Shamba-Records-Limited/microvault/pkg/pin"
 )
 
+// sensitiveMenus lists menus where user input contains PII (PINs, national IDs, names).
+var sensitiveMenus = map[string]bool{
+	"register":                 true, // full name
+	"register_national_id":     true, // national ID
+	"pin_create":               true,
+	"pin_confirm":              true,
+	"pin_verify_loan":          true,
+	"pin_verify_repay":         true,
+	"pin_change_old":           true,
+	"pin_change_new":           true,
+	"pin_change_confirm":       true,
+	"pin_recovery_national_id": true,
+	"pin_recovery_q1":          true, // security answer
+	"pin_recovery_q2":          true, // security answer
+	"pin_recovery_new":         true,
+	"pin_recovery_confirm":     true,
+}
+
+// redactPhone masks the middle digits of a phone number.
+// e.g. "254799334972" → "2547XXXX972", "+254799334972" → "+2547XXXX972"
+func redactPhone(phone string) string {
+	digits := phone
+	prefix := ""
+	if strings.HasPrefix(phone, "+") {
+		prefix = "+"
+		digits = phone[1:]
+	}
+	if len(digits) <= 6 {
+		return phone // too short to redact meaningfully
+	}
+	// Keep first 4 and last 3 digits, mask the rest
+	masked := digits[:4] + strings.Repeat("X", len(digits)-7) + digits[len(digits)-3:]
+	return prefix + masked
+}
+
+// safeInput returns the input for logging, redacted if the current menu handles sensitive data.
+func safeInput(menu, input string) string {
+	if sensitiveMenus[menu] {
+		return "[REDACTED]"
+	}
+	return fmt.Sprintf("%q", input)
+}
+
 // NewUSSDHandler creates a new USSD handler. The pinService and
 // accountNotifier parameters may be nil; if so, PIN verification gates and
 // registration SMS notifications are silently skipped.
@@ -46,8 +89,8 @@ func (h *USSDHandler) HandleRequest(ctx context.Context, sessionID, phoneNumber,
 		return h.formatError("en", "session_expired"), nil
 	}
 
-	log.Printf("USSD Session - ID: %s, ServiceCode%s, NetworkCode: %s, Phone: %s, CurrentMenu: %s, Input: %q",
-		sessionID, serviceCode, networkCode, phoneNumber, session.CurrentMenu, input)
+	log.Printf("USSD Session - ID: %s, ServiceCode: %s, NetworkCode: %s, Phone: %s, CurrentMenu: %s, Input: %s",
+		sessionID, serviceCode, networkCode, redactPhone(phoneNumber), session.CurrentMenu, safeInput(session.CurrentMenu, input))
 
 	// Handle empty input (first request)
 	if input == "" {
@@ -83,13 +126,15 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 		return response, nil
 	}
 
-	// User registered, associate with session and show main menu
-	// Extract user ID (assuming user has an ID field)
+	// User registered, associate with session and show main menu.
+	// Always reset to main menu to prevent stale CurrentMenu from a
+	// previous session with the same ID (AT retries, etc.).
 	if userMap, ok := user.(map[string]interface{}); ok {
 		if id, ok := userMap["id"].(string); ok {
 			session.UserID = id
 		}
 	}
+	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
@@ -233,6 +278,10 @@ func (h *USSDHandler) handleLanguageSelect(ctx context.Context, session *Session
 	case "3":
 		language = "fr"
 	case "0":
+		session.CurrentMenu = "main"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
 		return h.showMainMenu(session)
 	default:
 		return h.showLanguageMenu(session)
@@ -249,7 +298,7 @@ func (h *USSDHandler) handleLanguageSelect(ctx context.Context, session *Session
 
 // handleRegistration handles user registration
 func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, input string) (string, error) {
-	log.Printf("handleRegistration called - Input: %q, SessionID: %s", input, session.SessionID)
+	log.Printf("handleRegistration called - SessionID: %s", session.SessionID)
 
 	// Store name
 	session.Data["full_name"] = input
@@ -260,7 +309,7 @@ func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, 
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
 
-	log.Printf("Registration - stored full_name: %q, updated CurrentMenu to: register_national_id", input)
+	log.Printf("Registration - stored full_name, updated CurrentMenu to: register_national_id")
 
 	return h.formatResponse(session.Language, "CON", "Enter your national ID:"), nil
 }
@@ -347,6 +396,10 @@ func (h *USSDHandler) handleLoanDuration(ctx context.Context, session *Session, 
 	case "4":
 		days = 90
 	case "0":
+		session.CurrentMenu = "main"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
 		return h.showMainMenu(session)
 	default:
 		return h.showLoanDurationMenu(session)
@@ -396,6 +449,10 @@ func (h *USSDHandler) handleRepaymentSchedule(ctx context.Context, session *Sess
 // pressing "1" routes to PIN verification before submitting the loan.
 func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, input string) (string, error) {
 	if input != "1" {
+		session.CurrentMenu = "main"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
 		return h.showMainMenu(session)
 	}
 
@@ -616,6 +673,10 @@ func (h *USSDHandler) handleMyAccount(ctx context.Context, session *Session, inp
 		}
 		return h.showLanguageMenu(session)
 	case "0": // Main Menu
+		session.CurrentMenu = "main"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
 		return h.showMainMenu(session)
 	default:
 		return h.showAccountMenu(session)

@@ -7,7 +7,7 @@ import (
 )
 
 // PublicRoutes func for describe group of public routes.
-func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussdController *controllers.USSDController, webhookController *controllers.WebhookController) {
+func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussdController *controllers.USSDController, webhookController *controllers.WebhookController, smsCallbackController *controllers.SMSCallbackController) {
 	// Create routes group.
 	route := a.Group("/api/v1")
 
@@ -19,6 +19,9 @@ func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussd
 
 	// USSD callback — supports multiple providers via URL param
 	route.Post("/mobile/ussd/:provider", ussdController.HandleCallback)
+
+	// SMS delivery report callback — supports multiple providers via URL param
+	route.Post("/mobile/sms/:provider/delivery", smsCallbackController.HandleDeliveryReport)
 
 	// Webhook routes (no auth middleware — verified via HMAC signature).
 	route.Post("/webhooks/yellowcard", webhookController.HandleYellowCardWebhook)

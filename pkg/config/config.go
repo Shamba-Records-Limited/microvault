@@ -137,9 +137,23 @@ type PaymentsConfig struct {
 
 // AfricasTalkingConfig holds all SMS/USSD-related configuration for Africa's Talking
 type AfricasTalkingConfig struct {
-	Username string
-	APIKey   string
-	BaseURL  string
+	Username  string
+	APIKey    string
+	BaseURL   string
+	SenderID  string // from AT_SENDER_ID (alphanumeric or shortcode)
+	Shortcode string // from AT_SHORTCODE (numeric shortcode)
+}
+
+// ResolveSenderID returns the sender ID to use for SMS.
+// Priority: SenderID > Shortcode > "" (AT defaults to AFRICASTKNG).
+func (c *AfricasTalkingConfig) ResolveSenderID() string {
+	if c.SenderID != "" {
+		return c.SenderID
+	}
+	if c.Shortcode != "" {
+		return c.Shortcode
+	}
+	return ""
 }
 
 // MobileConfig holds all mobile-related configuration
@@ -258,9 +272,10 @@ func New() (*Config, error) {
 		mobileBaseURL = "https://api.sandbox.africastalking.com/version1"
 	} else if mobileBaseURL == "" {
 		mobileBaseURL = "https://api.africastalking.com/version1"
-	} else {
-		mobileBaseURL = ""
 	}
+
+	mobileSenderID := os.Getenv("AT_SENDER_ID")
+	mobileShortcode := os.Getenv("AT_SHORTCODE")
 
 	// Determine network passphrase based on environment
 	networkPassphrase := network.PublicNetworkPassphrase
@@ -377,9 +392,11 @@ func New() (*Config, error) {
 		},
 		Mobile: MobileConfig{
 			AfricasTalking: AfricasTalkingConfig{
-				Username: mobileUsername,
-				APIKey:   mobileAPIKey,
-				BaseURL:  mobileBaseURL,
+				Username:  mobileUsername,
+				APIKey:    mobileAPIKey,
+				BaseURL:   mobileBaseURL,
+				SenderID:  mobileSenderID,
+				Shortcode: mobileShortcode,
 			},
 		},
 		Auth: AuthConfig{

@@ -233,7 +233,7 @@ func main() {
 	var notifier mvnotifications.Notifier
 	atProvider, providerErr := smsService.GetProvider("africastalking")
 	if providerErr == nil {
-		notifier = mvnotifications.NewSMSNotifier(atProvider, "microvault")
+		notifier = mvnotifications.NewSMSNotifier(atProvider, cfg.Mobile.AfricasTalking.ResolveSenderID())
 	} else {
 		notifier = &mvnotifications.NoOpNotifier{}
 	}
@@ -293,7 +293,11 @@ func main() {
 	// Initialize webhook controller (event handler will be wired when disbursement service is ready)
 	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.WebhookSecret)
 
-	routes.PublicRoutes(app, authController, ussdController, webhookController) // Register public routes
+	// Initialize SMS delivery report callback controller
+	smsCallbackHandler := sms.NewDeliveryReportHandler()
+	smsCallbackController := controllers.NewSMSCallbackController(smsCallbackHandler)
+
+	routes.PublicRoutes(app, authController, ussdController, webhookController, smsCallbackController) // Register public routes
 
 	// Create a channel to listen for OS signals
 	sigChan := make(chan os.Signal, 1)
