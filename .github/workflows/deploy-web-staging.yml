@@ -1,8 +1,8 @@
-name: Build & Deploy Web - Production
+name: Build & Deploy Web - Staging
 
 on:
   push:
-    branches: ["prod"]
+    branches: ["staging"]
 
 env:
   REGISTRY: ghcr.io
@@ -34,7 +34,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
-            type=raw,value=prod-latest
+            type=raw,value=staging-latest
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
