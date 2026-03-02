@@ -43,3 +43,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VITE_VAULT_CONTRACT_ID=${{ vars.VITE_VAULT_CONTRACT_ID }}
+            VITE_SOROBAN_RPC_URL=${{ vars.VITE_SOROBAN_RPC_URL }}
+            VITE_NETWORK_PASSPHRASE=${{ vars.VITE_NETWORK_PASSPHRASE }}
+            VITE_STELLAR_EXPLORER_URL=${{ vars.VITE_STELLAR_EXPLORER_URL }}
