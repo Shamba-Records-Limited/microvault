@@ -138,7 +138,48 @@ export function PoolCard({ pool }: PoolCardProps) {
             {/* Asset Breakdown */}
             <div>
               <h4 className="text-sm font-medium mb-3">Asset Breakdown</h4>
-              <div className="overflow-x-auto">
+
+              {/* Mobile: stacked cards */}
+              <div className="md:hidden space-y-3">
+                {pool.assets.map((asset) => (
+                  <div
+                    key={asset.symbol}
+                    className="rounded-lg border border-border/50 p-3 space-y-2"
+                  >
+                    <p className="font-medium">
+                      {asset.contractAddress ? (
+                        <a
+                          href={`${explorerUrl}/contract/${asset.contractAddress}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:underline"
+                        >
+                          {asset.symbol}
+                        </a>
+                      ) : (
+                        asset.symbol
+                      )}
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                      <span className="text-muted-foreground">Supplied</span>
+                      <span className="text-right">{formatCurrency(asset.supplied)}</span>
+                      <span className="text-muted-foreground">Borrowed</span>
+                      <span className="text-right">{formatCurrency(asset.borrowed)}</span>
+                      <span className="text-muted-foreground">Liquidity</span>
+                      <span className="text-right">{formatCurrency(asset.supplied - asset.borrowed)}</span>
+                      <span className="text-muted-foreground">Utilization</span>
+                      <span className="text-right">
+                        {asset.supplied > 0
+                          ? formatPercent((asset.borrowed / asset.supplied) * 100)
+                          : "0.00%"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop: table */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">
