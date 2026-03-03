@@ -6,6 +6,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
@@ -45,6 +46,34 @@ func redactPhone(phone string) string {
 	// Keep first 4 and last 3 digits, mask the rest
 	masked := digits[:4] + strings.Repeat("X", len(digits)-7) + digits[len(digits)-3:]
 	return prefix + masked
+}
+
+// toInt extracts an int from a session data value. JSON (Redis) round-trips
+// decode numbers as float64, so this handles both int and float64.
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+// toInt64 extracts an int64 from a session data value, handling the same
+// JSON float64 round-trip issue as toInt.
+func toInt64(v interface{}) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case float64:
+		return int64(n)
+	case int:
+		return int64(n)
+	default:
+		return 0
+	}
 }
 
 // safeInput returns the input for logging, redacted if the current menu handles sensitive data.
@@ -476,8 +505,8 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	}
 
 	// Get loan details from session
-	amount, _ := session.Data["loan_amount"].(int64)
-	duration, _ := session.Data["loan_duration"].(int)
+	amount := toInt64(session.Data["loan_amount"])
+	duration := toInt(session.Data["loan_duration"])
 	schedule, _ := session.Data["repayment_schedule"].(string)
 
 	// Get user and first account
@@ -515,7 +544,7 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	}
 
 	// Extract local currency data from session
-	localAmount, _ := session.Data["loan_amount_local"].(int64)
+	localAmount := toInt64(session.Data["loan_amount_local"])
 	localCurrency, _ := session.Data["local_currency"].(string)
 	conversionRate, _ := session.Data["conversion_rate"].(float64)
 
@@ -726,8 +755,8 @@ func (h *USSDHandler) showLoanConfirmation(ctx context.Context, session *Session
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	localAmountCents, _ := session.Data["loan_amount_local"].(int64)
-	duration, _ := session.Data["loan_duration"].(int)
+	localAmountCents := toInt64(session.Data["loan_amount_local"])
+	duration := toInt(session.Data["loan_duration"])
 
 	// Fetch exchange rate
 	var buyRate float64
@@ -882,7 +911,7 @@ func (h *USSDHandler) handleSecurityQ2Select(ctx context.Context, session *Sessi
 	}
 
 	// Must differ from Q1.
-	q1ID, _ := session.Data["sq1_id"].(int)
+	q1ID := toInt(session.Data["sq1_id"])
 	if qID == q1ID {
 		return h.showMenu(session, "security_q2_select")
 	}
@@ -907,9 +936,9 @@ func (h *USSDHandler) handleSecurityQ2Answer(ctx context.Context, session *Sessi
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	q1ID, _ := session.Data["sq1_id"].(int)
+	q1ID := toInt(session.Data["sq1_id"])
 	q1Answer, _ := session.Data["sq1_answer"].(string)
-	q2ID, _ := session.Data["sq2_id"].(int)
+	q2ID := toInt(session.Data["sq2_id"])
 
 	err := h.pinService.SetSecurityQuestions(ctx, session.UserID, []pinPkg.QuestionAnswer{
 		{QuestionID: q1ID, Answer: q1Answer},
@@ -959,7 +988,7 @@ func (h *USSDHandler) handlePINVerifyLoan(ctx context.Context, session *Session,
 	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
 	if err != nil {
 		if strings.Contains(err.Error(), "locked") {
-			return h.formatResponse(session.Language, "END", "pin_locked"), nil
+			return h.formatLockedMessage(ctx, session), nil
 		}
 		return h.formatError(session.Language, "error"), nil
 	}
@@ -967,6 +996,9 @@ func (h *USSDHandler) handlePINVerifyLoan(ctx context.Context, session *Session,
 	if !ok {
 		// Wrong PIN — let user retry (service already sent SMS + incremented attempts).
 		remaining := h.getRemainingAttempts(ctx, session.UserID)
+		if remaining <= 0 {
+			return h.formatLockedMessage(ctx, session), nil
+		}
 		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
 		return "CON " + msg, nil
 	}
@@ -983,13 +1015,16 @@ func (h *USSDHandler) handlePINVerifyRepay(ctx context.Context, session *Session
 	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
 	if err != nil {
 		if strings.Contains(err.Error(), "locked") {
-			return h.formatResponse(session.Language, "END", "pin_locked"), nil
+			return h.formatLockedMessage(ctx, session), nil
 		}
 		return h.formatError(session.Language, "error"), nil
 	}
 
 	if !ok {
 		remaining := h.getRemainingAttempts(ctx, session.UserID)
+		if remaining <= 0 {
+			return h.formatLockedMessage(ctx, session), nil
+		}
 		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
 		return "CON " + msg, nil
 	}
@@ -1054,13 +1089,16 @@ func (h *USSDHandler) handlePINChangeOld(ctx context.Context, session *Session, 
 	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
 	if err != nil {
 		if strings.Contains(err.Error(), "locked") {
-			return h.formatResponse(session.Language, "END", "pin_locked"), nil
+			return h.formatLockedMessage(ctx, session), nil
 		}
 		return h.formatError(session.Language, "error"), nil
 	}
 
 	if !ok {
 		remaining := h.getRemainingAttempts(ctx, session.UserID)
+		if remaining <= 0 {
+			return h.formatLockedMessage(ctx, session), nil
+		}
 		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
 		return "CON " + msg, nil
 	}
@@ -1135,8 +1173,8 @@ func (h *USSDHandler) handlePINRecoveryNationalID(ctx context.Context, session *
 
 	var storedNationalID string
 	if userMap, ok := user.(map[string]interface{}); ok {
-		if v, ok := userMap["national_id"].(*string); ok && v != nil {
-			storedNationalID = *v
+		if v, ok := userMap["national_id"].(string); ok {
+			storedNationalID = v
 		}
 	}
 
@@ -1153,13 +1191,18 @@ func (h *USSDHandler) handlePINRecoveryNationalID(ctx context.Context, session *
 		}
 	}
 
+	// Bail out if no security questions were stored.
+	if session.Data["recovery_q1_id"] == nil || session.Data["recovery_q2_id"] == nil {
+		return h.formatResponse(session.Language, "END", "recovery_no_questions"), nil
+	}
+
 	session.CurrentMenu = "pin_recovery_q1"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
 
 	// Show the specific question text.
-	q1ID, _ := session.Data["recovery_q1_id"].(int)
+	q1ID := toInt(session.Data["recovery_q1_id"])
 	qKey := fmt.Sprintf("sq_%d", q1ID)
 	qText := GetLocalizedMessage(session.Language, qKey)
 	return fmt.Sprintf("CON %s", qText), nil
@@ -1173,7 +1216,7 @@ func (h *USSDHandler) handlePINRecoveryQ1(ctx context.Context, session *Session,
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
 
-	q2ID, _ := session.Data["recovery_q2_id"].(int)
+	q2ID := toInt(session.Data["recovery_q2_id"])
 	qKey := fmt.Sprintf("sq_%d", q2ID)
 	qText := GetLocalizedMessage(session.Language, qKey)
 	return fmt.Sprintf("CON %s", qText), nil
@@ -1185,9 +1228,9 @@ func (h *USSDHandler) handlePINRecoveryQ2(ctx context.Context, session *Session,
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	q1ID, _ := session.Data["recovery_q1_id"].(int)
+	q1ID := toInt(session.Data["recovery_q1_id"])
 	a1, _ := session.Data["recovery_a1"].(string)
-	q2ID, _ := session.Data["recovery_q2_id"].(int)
+	q2ID := toInt(session.Data["recovery_q2_id"])
 
 	ok, err := h.pinService.VerifySecurityAnswers(ctx, session.UserID, []pinPkg.QuestionAnswer{
 		{QuestionID: q1ID, Answer: a1},
@@ -1271,14 +1314,35 @@ func (h *USSDHandler) getRemainingAttempts(ctx context.Context, userID string) i
 	if h.pinService == nil {
 		return 0
 	}
-	// The PIN service's VerifyPIN already handles attempt tracking. We
-	// approximate remaining attempts by checking lock status.
-	locked, _, err := h.pinService.IsLocked(ctx, userID)
-	if err != nil || locked {
+	remaining, err := h.pinService.GetRemainingAttempts(ctx, userID)
+	if err != nil {
 		return 0
 	}
-	// Default remaining attempts — the exact count is managed by the service.
-	return pinPkg.MaxPINAttempts - 1
+	return remaining
+}
+
+// formatLockedMessage formats the pin_locked message with the actual lockout expiry time.
+func (h *USSDHandler) formatLockedMessage(ctx context.Context, session *Session) string {
+	lockedUntil := "a few minutes"
+	if h.pinService != nil {
+		if locked, until, err := h.pinService.IsLocked(ctx, session.UserID); err == nil && locked {
+			remaining := time.Until(until).Round(time.Minute)
+			if remaining <= 0 {
+				lockedUntil = "less than a minute"
+			} else if remaining < time.Hour {
+				mins := int(remaining.Minutes())
+				if mins == 1 {
+					lockedUntil = "1 minute"
+				} else {
+					lockedUntil = fmt.Sprintf("%d minutes", mins)
+				}
+			} else {
+				lockedUntil = fmt.Sprintf("%d minutes", int(remaining.Minutes()))
+			}
+		}
+	}
+	msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_locked"), lockedUntil)
+	return "END " + msg
 }
 
 // formatResponse formats a response with type prefix

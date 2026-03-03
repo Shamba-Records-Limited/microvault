@@ -56,8 +56,8 @@ type AccountNotification struct {
 	// Used by NotifyPINWrongAttempt.
 	RemainingAttempts int
 
-	// LockedUntil is a human-readable time string (e.g. "14:30") indicating
-	// when the lockout expires. Used by NotifyAccountLocked.
+	// LockedUntil is a human-readable duration string (e.g. "15 minutes")
+	// indicating how long until the lockout expires. Used by NotifyAccountLocked.
 	LockedUntil string
 
 	// Reason provides a human-readable explanation for failure notifications.

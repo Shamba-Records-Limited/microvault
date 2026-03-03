@@ -50,7 +50,7 @@ func DefaultAccountTemplates() *AccountTemplates {
 		WrongAttempt: "ALERT: An incorrect PIN was entered on your Shamba Records account. " +
 			"%d attempt(s) remaining before your account is locked.",
 		AccountLocked: "SECURITY: Your Shamba Records account has been temporarily locked " +
-			"due to multiple failed PIN attempts. Try again after %s or dial to reset your PIN.",
+			"due to multiple failed PIN attempts. Try again in %s or dial to reset your PIN.",
 		PINChanged: "Your Shamba Records PIN has been changed successfully. " +
 			"If you did not make this change, dial *384*1234# immediately to reset your PIN.",
 		PINChangeFailed: "A PIN change attempt on your Shamba Records account was unsuccessful. " +

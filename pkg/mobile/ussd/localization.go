@@ -187,14 +187,19 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"fr": "La pièce d'identité ne correspond pas à nos dossiers.",
 		},
 		"recovery_success": {
-			"en": "PIN reset successfully. You can now log in.",
-			"sw": "PIN imewekwa upya. Sasa unaweza kuingia.",
-			"fr": "PIN réinitialisé avec succès. Vous pouvez maintenant vous connecter.",
+			"en": "Your PIN has been reset. You can now use your new PIN.",
+			"sw": "PIN yako imewekwa upya. Sasa unaweza kutumia PIN yako mpya.",
+			"fr": "Votre PIN a été réinitialisé. Vous pouvez maintenant utiliser votre nouveau PIN.",
 		},
 		"recovery_answers_wrong": {
 			"en": "Security answer incorrect. PIN reset failed.",
 			"sw": "Jibu la usalama si sahihi. Kuweka upya PIN kumeshindikana.",
 			"fr": "Réponse de sécurité incorrecte. Réinitialisation du PIN échouée.",
+		},
+		"recovery_no_questions": {
+			"en": "No security questions set. Please contact support to reset your PIN.",
+			"sw": "Hakuna maswali ya usalama. Tafadhali wasiliana na msaada kubadilisha PIN yako.",
+			"fr": "Aucune question de sécurité définie. Veuillez contacter le support.",
 		},
 
 		// ── Registration Completion ─────────────────────────────────

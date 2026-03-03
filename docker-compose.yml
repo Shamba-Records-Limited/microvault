@@ -7,6 +7,7 @@ services:
       POSTGRES_USER: ${DB_USER:?You must provide the 'DB_USER' variable in the .env file}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?You must provide the 'DB_PASSWORD' variable in the .env file}
       POSTGRES_DB: ${DB_NAME:?You must provide the 'DB_NAME' variable in the .env file}
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
