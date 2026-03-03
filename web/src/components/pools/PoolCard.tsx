@@ -32,7 +32,7 @@ export function PoolCard({ pool }: PoolCardProps) {
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
               <Coins className="h-5 w-5 text-primary" />
             </div>
             <div>
@@ -56,10 +56,24 @@ export function PoolCard({ pool }: PoolCardProps) {
               >
                 {pool.address.slice(0, 8)}...{pool.address.slice(-6)}
               </a>
+              {/* Mobile stats: below name */}
+              <div className="flex items-center gap-4 mt-2 md:hidden">
+                <div>
+                  <p className="text-xs text-muted-foreground">TVL</p>
+                  <p className="font-semibold text-sm">{formatCurrency(pool.tvl)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">APY</p>
+                  <p className="font-semibold text-primary text-sm">
+                    {formatPercent(pool.apy)}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-6">
+            {/* Desktop stats: right side */}
             <div className="hidden md:flex items-center gap-8">
               <div className="text-right">
                 <p className="text-xs text-muted-foreground">TVL</p>
