@@ -45,7 +45,7 @@ export function Header() {
             <span className="font-bold text-lg tracking-tight">Microvault</span>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-6">
+          <nav className="flex items-center gap-6">
             <Link
               to="/our-approach"
               className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
