@@ -1,4 +1,4 @@
-<img width="2048" height="420" alt="microvault-banner-cropped" src="https://github.com/user-attachments/assets/a80fa586-4f26-4bec-8cca-b364575e6a07" />
+<img width="927" height="261" alt="microvault-banner-16:9-1" src="https://github.com/user-attachments/assets/cc30d42f-3885-4068-9707-c65ed10c2f7d" />
 
 [![built-with openzeppelin](https://img.shields.io/badge/built%20with-OpenZeppelin-3677FF)](https://docs.openzeppelin.com/)
 # Microvault
