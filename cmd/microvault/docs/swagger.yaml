@@ -172,6 +172,48 @@ paths:
       summary: Verify Challenge
       tags:
       - Authentication
+  /api/v1/mobile/sms/{provider}/delivery:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Handle incoming SMS delivery report callbacks from Africa's Talking
+      parameters:
+      - description: AT message ID
+        in: formData
+        name: id
+        required: true
+        type: string
+      - description: Delivery status
+        in: formData
+        name: status
+        required: true
+        type: string
+      - description: Recipient phone number
+        in: formData
+        name: phoneNumber
+        type: string
+      - description: Network code
+        in: formData
+        name: networkCode
+        type: string
+      - description: Failure reason (if applicable)
+        in: formData
+        name: failureReason
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: ok
+          schema:
+            type: string
+        "400":
+          description: Invalid callback payload
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Process SMS Delivery Report
+      tags:
+      - Mobile
   /api/v1/mobile/ussd/{provider}:
     post:
       consumes:

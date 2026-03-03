@@ -264,6 +264,10 @@ func (r *userRepository) Update(ctx context.Context, user *models.User) error {
 			"preferred_language": user.PreferredLanguage,
 			"status":             user.Status,
 			"role":               user.Role,
+			"pin_hash":           user.PinHash,
+			"pin_attempts":       user.PinAttempts,
+			"pin_locked_until":   user.PinLockedUntil,
+			"pin_set_at":         user.PinSetAt,
 			"updated_at":         time.Now(),
 		})
 	if result.RowsAffected == 0 {

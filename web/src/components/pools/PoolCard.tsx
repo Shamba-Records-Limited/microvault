@@ -1,13 +1,20 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronUp, Coins, Users, Landmark, Shield } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Coins,
+  Users,
+  Landmark,
+  Shield,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { DEFAULT_EXPLORER_URL } from "@/lib/constants";
 import type { Pool } from "@/types/vault";
 
-const explorerUrl = import.meta.env.VITE_STELLAR_EXPLORER_URL || DEFAULT_EXPLORER_URL;
+const explorerUrl =
+  import.meta.env.VITE_STELLAR_EXPLORER_URL || DEFAULT_EXPLORER_URL;
 
 interface PoolCardProps {
   pool: Pool;
@@ -25,11 +32,21 @@ export function PoolCard({ pool }: PoolCardProps) {
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
               <Coins className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h3 className="font-semibold text-base">{pool.name}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-base">{pool.name}</h3>
+                <div
+                  className={cn(
+                    "h-2.5 w-2.5 rounded-full",
+                    pool.status === "active" &&
+                      "bg-green-500 ring-2 ring-green-500/50 animate-caret-blink",
+                    pool.status === "frozen" && "bg-gray-400",
+                  )}
+                />
+              </div>
               <a
                 href={`${explorerUrl}/contract/${pool.address}`}
                 target="_blank"
@@ -39,22 +56,24 @@ export function PoolCard({ pool }: PoolCardProps) {
               >
                 {pool.address.slice(0, 8)}...{pool.address.slice(-6)}
               </a>
+              {/* Mobile stats: below name */}
+              <div className="flex items-center gap-4 mt-2 md:hidden">
+                <div>
+                  <p className="text-xs text-muted-foreground">TVL</p>
+                  <p className="font-semibold text-sm">{formatCurrency(pool.tvl)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">APY</p>
+                  <p className="font-semibold text-primary text-sm">
+                    {formatPercent(pool.apy)}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-6">
-            <Badge
-              variant={pool.status === "active" ? "default" : "secondary"}
-              className={cn(
-                pool.status === "active" &&
-                  "bg-primary/10 text-primary hover:bg-primary/20",
-                pool.status === "frozen" &&
-                  "bg-destructive/10 text-destructive hover:bg-destructive/20",
-              )}
-            >
-              {pool.status}
-            </Badge>
-
+            {/* Desktop stats: right side */}
             <div className="hidden md:flex items-center gap-8">
               <div className="text-right">
                 <p className="text-xs text-muted-foreground">TVL</p>
@@ -133,7 +152,48 @@ export function PoolCard({ pool }: PoolCardProps) {
             {/* Asset Breakdown */}
             <div>
               <h4 className="text-sm font-medium mb-3">Asset Breakdown</h4>
-              <div className="overflow-x-auto">
+
+              {/* Mobile: stacked cards */}
+              <div className="md:hidden space-y-3">
+                {pool.assets.map((asset) => (
+                  <div
+                    key={asset.symbol}
+                    className="rounded-lg border border-border/50 p-3 space-y-2"
+                  >
+                    <p className="font-medium">
+                      {asset.contractAddress ? (
+                        <a
+                          href={`${explorerUrl}/contract/${asset.contractAddress}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:underline"
+                        >
+                          {asset.symbol}
+                        </a>
+                      ) : (
+                        asset.symbol
+                      )}
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                      <span className="text-muted-foreground">Supplied</span>
+                      <span className="text-right">{formatCurrency(asset.supplied)}</span>
+                      <span className="text-muted-foreground">Borrowed</span>
+                      <span className="text-right">{formatCurrency(asset.borrowed)}</span>
+                      <span className="text-muted-foreground">Liquidity</span>
+                      <span className="text-right">{formatCurrency(asset.supplied - asset.borrowed)}</span>
+                      <span className="text-muted-foreground">Utilization</span>
+                      <span className="text-right">
+                        {asset.supplied > 0
+                          ? formatPercent((asset.borrowed / asset.supplied) * 100)
+                          : "0.00%"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop: table */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">

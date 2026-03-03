@@ -137,9 +137,23 @@ type PaymentsConfig struct {
 
 // AfricasTalkingConfig holds all SMS/USSD-related configuration for Africa's Talking
 type AfricasTalkingConfig struct {
-	Username string
-	APIKey   string
-	BaseURL  string
+	Username  string
+	APIKey    string
+	BaseURL   string
+	SenderID  string // from AT_SENDER_ID (alphanumeric or shortcode)
+	Shortcode string // from AT_SHORTCODE (numeric shortcode)
+}
+
+// ResolveSenderID returns the sender ID to use for SMS.
+// Priority: SenderID > Shortcode > "" (AT defaults to AFRICASTKNG).
+func (c *AfricasTalkingConfig) ResolveSenderID() string {
+	if c.SenderID != "" {
+		return c.SenderID
+	}
+	if c.Shortcode != "" {
+		return c.Shortcode
+	}
+	return ""
 }
 
 // MobileConfig holds all mobile-related configuration
@@ -152,6 +166,7 @@ type AuthConfig struct {
 	JWTExpiration       time.Duration
 	JWTRefreshWindow    time.Duration
 	ChallengeExpiration time.Duration
+	PINLockoutDuration  time.Duration // from PIN_LOCKOUT_SECONDS (default 900 = 15min)
 }
 
 // New loads and returns a new Config struct populated from environment variables.
@@ -258,9 +273,10 @@ func New() (*Config, error) {
 		mobileBaseURL = "https://api.sandbox.africastalking.com/version1"
 	} else if mobileBaseURL == "" {
 		mobileBaseURL = "https://api.africastalking.com/version1"
-	} else {
-		mobileBaseURL = ""
 	}
+
+	mobileSenderID := os.Getenv("AT_SENDER_ID")
+	mobileShortcode := os.Getenv("AT_SHORTCODE")
 
 	// Determine network passphrase based on environment
 	networkPassphrase := network.PublicNetworkPassphrase
@@ -377,9 +393,11 @@ func New() (*Config, error) {
 		},
 		Mobile: MobileConfig{
 			AfricasTalking: AfricasTalkingConfig{
-				Username: mobileUsername,
-				APIKey:   mobileAPIKey,
-				BaseURL:  mobileBaseURL,
+				Username:  mobileUsername,
+				APIKey:    mobileAPIKey,
+				BaseURL:   mobileBaseURL,
+				SenderID:  mobileSenderID,
+				Shortcode: mobileShortcode,
 			},
 		},
 		Auth: AuthConfig{
@@ -387,6 +405,16 @@ func New() (*Config, error) {
 			JWTExpiration:       time.Hour * 24,
 			JWTRefreshWindow:    time.Hour * 1,
 			ChallengeExpiration: time.Hour * 5,
+			PINLockoutDuration:  parsePINLockout(),
 		},
 	}, nil
+}
+
+// parsePINLockout reads PIN_LOCKOUT_SECONDS from the environment.
+// Defaults to 900 (15 minutes) if unset or invalid.
+func parsePINLockout() time.Duration {
+	if s, err := strconv.Atoi(os.Getenv("PIN_LOCKOUT_SECONDS")); err == nil && s > 0 {
+		return time.Duration(s) * time.Second
+	}
+	return 15 * time.Minute
 }

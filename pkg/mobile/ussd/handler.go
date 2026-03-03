@@ -6,22 +6,107 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
+	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
+	pinPkg "github.com/Shamba-Records-Limited/microvault/pkg/pin"
 )
 
-// NewUSSDHandler creates a new USSD handler
+// sensitiveMenus lists menus where user input contains PII (PINs, national IDs, names).
+var sensitiveMenus = map[string]bool{
+	"register":                 true, // full name
+	"register_national_id":     true, // national ID
+	"pin_create":               true,
+	"pin_confirm":              true,
+	"pin_verify_loan":          true,
+	"pin_verify_repay":         true,
+	"pin_change_old":           true,
+	"pin_change_new":           true,
+	"pin_change_confirm":       true,
+	"pin_recovery_national_id": true,
+	"pin_recovery_q1":          true, // security answer
+	"pin_recovery_q2":          true, // security answer
+	"pin_recovery_new":         true,
+	"pin_recovery_confirm":     true,
+}
+
+// redactPhone masks the middle digits of a phone number.
+// e.g. "254799334972" → "2547XXXX972", "+254799334972" → "+2547XXXX972"
+func redactPhone(phone string) string {
+	digits := phone
+	prefix := ""
+	if strings.HasPrefix(phone, "+") {
+		prefix = "+"
+		digits = phone[1:]
+	}
+	if len(digits) <= 6 {
+		return phone // too short to redact meaningfully
+	}
+	// Keep first 4 and last 3 digits, mask the rest
+	masked := digits[:4] + strings.Repeat("X", len(digits)-7) + digits[len(digits)-3:]
+	return prefix + masked
+}
+
+// toInt extracts an int from a session data value. JSON (Redis) round-trips
+// decode numbers as float64, so this handles both int and float64.
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+// toInt64 extracts an int64 from a session data value, handling the same
+// JSON float64 round-trip issue as toInt.
+func toInt64(v interface{}) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case float64:
+		return int64(n)
+	case int:
+		return int64(n)
+	default:
+		return 0
+	}
+}
+
+// safeInput returns the input for logging, redacted if the current menu handles sensitive data.
+func safeInput(menu, input string) string {
+	if sensitiveMenus[menu] {
+		return "[REDACTED]"
+	}
+	return fmt.Sprintf("%q", input)
+}
+
+// NewUSSDHandler creates a new USSD handler. The pinService and
+// accountNotifier parameters may be nil; if so, PIN verification gates and
+// registration SMS notifications are silently skipped.
 func NewUSSDHandler(
 	sessionManager *SessionManager,
 	menuRegistry *MenuRegistry,
 	userService UserService,
 	loanService LoanService,
 	rateService RateService,
+	pinService PINService,
+	accountNotifier contracts.AccountNotifier,
 ) *USSDHandler {
+	if accountNotifier == nil {
+		accountNotifier = &notifications.NoOpAccountNotifier{}
+	}
 	return &USSDHandler{
-		sessionManager: sessionManager,
-		menuRegistry:   menuRegistry,
-		userService:    userService,
-		loanService:    loanService,
-		rateService:    rateService,
+		sessionManager:  sessionManager,
+		menuRegistry:    menuRegistry,
+		userService:     userService,
+		loanService:     loanService,
+		rateService:     rateService,
+		pinService:      pinService,
+		accountNotifier: accountNotifier,
 	}
 }
 
@@ -33,8 +118,8 @@ func (h *USSDHandler) HandleRequest(ctx context.Context, sessionID, phoneNumber,
 		return h.formatError("en", "session_expired"), nil
 	}
 
-	log.Printf("USSD Session - ID: %s, ServiceCode%s, NetworkCode: %s, Phone: %s, CurrentMenu: %s, Input: %q",
-		sessionID, serviceCode, networkCode, phoneNumber, session.CurrentMenu, input)
+	log.Printf("USSD Session - ID: %s, ServiceCode: %s, NetworkCode: %s, Phone: %s, CurrentMenu: %s, Input: %s",
+		sessionID, serviceCode, networkCode, redactPhone(phoneNumber), session.CurrentMenu, safeInput(session.CurrentMenu, input))
 
 	// Handle empty input (first request)
 	if input == "" {
@@ -70,13 +155,15 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 		return response, nil
 	}
 
-	// User registered, associate with session and show main menu
-	// Extract user ID (assuming user has an ID field)
+	// User registered, associate with session and show main menu.
+	// Always reset to main menu to prevent stale CurrentMenu from a
+	// previous session with the same ID (AT retries, etc.).
 	if userMap, ok := user.(map[string]interface{}); ok {
 		if id, ok := userMap["id"].(string); ok {
 			session.UserID = id
 		}
 	}
+	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
@@ -89,19 +176,66 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 	input = strings.TrimSpace(input)
 
 	switch session.CurrentMenu {
+	// Core navigation
 	case "main":
 		return h.handleMainMenu(ctx, session, input)
 	case "language_select":
 		return h.handleLanguageSelect(ctx, session, input)
+	case "my_account":
+		return h.handleMyAccount(ctx, session, input)
+
+	// Registration flow
 	case "register":
 		return h.handleRegistration(ctx, session, input)
 	case "register_national_id":
 		return h.handleRegistrationNationalID(ctx, session, input)
-	case "check_balance":
-		return h.handleCheckBalance(ctx, session)
-	case "request_loan":
-		return h.handleLoanAmount(ctx, session, input)
-	case "loan_amount":
+
+	// PIN creation (during registration)
+	case "pin_create":
+		return h.handlePINCreate(ctx, session, input)
+	case "pin_confirm":
+		return h.handlePINConfirm(ctx, session, input)
+
+	// Security questions setup (during registration or PIN manager)
+	case "security_q1_select":
+		return h.handleSecurityQ1Select(ctx, session, input)
+	case "security_q1_answer":
+		return h.handleSecurityQ1Answer(ctx, session, input)
+	case "security_q2_select":
+		return h.handleSecurityQ2Select(ctx, session, input)
+	case "security_q2_answer":
+		return h.handleSecurityQ2Answer(ctx, session, input)
+
+	// PIN verification gates
+	case "pin_verify_loan":
+		return h.handlePINVerifyLoan(ctx, session, input)
+	case "pin_verify_repay":
+		return h.handlePINVerifyRepay(ctx, session, input)
+
+	// PIN manager
+	case "pin_manager":
+		return h.handlePINManager(ctx, session, input)
+	case "pin_change_old":
+		return h.handlePINChangeOld(ctx, session, input)
+	case "pin_change_new":
+		return h.handlePINChangeNew(ctx, session, input)
+	case "pin_change_confirm":
+		return h.handlePINChangeConfirm(ctx, session, input)
+
+	// PIN recovery
+	case "pin_recovery_national_id":
+		return h.handlePINRecoveryNationalID(ctx, session, input)
+	case "pin_recovery_q1":
+		return h.handlePINRecoveryQ1(ctx, session, input)
+	case "pin_recovery_q2":
+		return h.handlePINRecoveryQ2(ctx, session, input)
+	case "pin_recovery_new":
+		return h.handlePINRecoveryNew(ctx, session, input)
+	case "pin_recovery_confirm":
+		return h.handlePINRecoveryConfirm(ctx, session, input)
+
+	// Loan flow
+	case "request_loan", "loan_amount":
 		return h.handleLoanAmount(ctx, session, input)
 	case "loan_duration":
 		return h.handleLoanDuration(ctx, session, input)
@@ -113,54 +247,46 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 		return h.handleMyLoans(ctx, session)
 	case "repay_loan":
 		return h.handleRepayLoan(ctx, session, input)
-	case "my_account":
-		return h.handleMyAccount(ctx, session, input)
-	case "credit_score":
-		return h.handleCreditScore(ctx, session)
+
 	default:
 		return h.showMainMenu(session)
 	}
 }
 
-// handleMainMenu handles main menu selection
+// handleMainMenu handles main menu selection (4-option menu).
 func (h *USSDHandler) handleMainMenu(ctx context.Context, session *Session, input string) (string, error) {
 	switch input {
-	case "1": // Check Balance
-		session.CurrentMenu = "check_balance"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
-		}
-		return h.handleCheckBalance(ctx, session)
-	case "2": // Request Loan
+	case "1": // Request Loan
 		session.CurrentMenu = "request_loan"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
 		return h.showLoanAmountMenu(session)
+	case "2": // Repay Loan — requires PIN
+		if h.pinService != nil {
+			session.CurrentMenu = "pin_verify_repay"
+			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+				return "", fmt.Errorf("failed to save session: %w", err)
+			}
+			return h.showMenu(session, "pin_verify_repay")
+		}
+		session.CurrentMenu = "repay_loan"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.handleRepayLoan(ctx, session, "")
 	case "3": // My Loans
 		session.CurrentMenu = "my_loans"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
 		return h.handleMyLoans(ctx, session)
-	case "4": // Repay Loan
-		session.CurrentMenu = "repay_loan"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
-		}
-		return h.handleRepayLoan(ctx, session, "")
-	case "5": // My Account
+	case "4": // My Account
 		session.CurrentMenu = "my_account"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
 		return h.showAccountMenu(session)
-	case "9": // Change Language
-		session.CurrentMenu = "language_select"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
-		}
-		return h.showLanguageMenu(session)
 	default:
 		mainMenu, err := h.showMainMenu(session)
 		if err != nil {
@@ -181,6 +307,10 @@ func (h *USSDHandler) handleLanguageSelect(ctx context.Context, session *Session
 	case "3":
 		language = "fr"
 	case "0":
+		session.CurrentMenu = "main"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
 		return h.showMainMenu(session)
 	default:
 		return h.showLanguageMenu(session)
@@ -197,7 +327,7 @@ func (h *USSDHandler) handleLanguageSelect(ctx context.Context, session *Session
 
 // handleRegistration handles user registration
 func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, input string) (string, error) {
-	log.Printf("handleRegistration called - Input: %q, SessionID: %s", input, session.SessionID)
+	log.Printf("handleRegistration called - SessionID: %s", session.SessionID)
 
 	// Store name
 	session.Data["full_name"] = input
@@ -208,12 +338,13 @@ func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, 
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
 
-	log.Printf("Registration - stored full_name: %q, updated CurrentMenu to: register_national_id", input)
+	log.Printf("Registration - stored full_name, updated CurrentMenu to: register_national_id")
 
 	return h.formatResponse(session.Language, "CON", "Enter your national ID:"), nil
 }
 
-// handleRegistrationNationalID completes registration
+// handleRegistrationNationalID registers the user and chains into PIN creation
+// if the PIN service is available, otherwise ends with success.
 func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session *Session, input string) (string, error) {
 	if h.userService == nil {
 		return h.formatError(session.Language, "error"), nil
@@ -221,7 +352,7 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 
 	fullName, _ := session.Data["full_name"].(string)
 
-	// Register user
+	// Register user.
 	user, _, err := h.userService.RegisterUser(ctx, &RegisterUserRequest{
 		MobileNumber:      session.PhoneNumber,
 		NetworkCode:       session.NetworkCode,
@@ -231,56 +362,36 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 	})
 
 	if err != nil {
+		_ = h.accountNotifier.NotifyRegistrationFailed(ctx, contracts.AccountNotification{
+			PhoneNumber: session.PhoneNumber,
+			Reason:      "Account creation failed. Please try again.",
+		})
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	// Associate user with session
+	// Associate user with session.
 	if userMap, ok := user.(map[string]interface{}); ok {
 		if id, ok := userMap["id"].(string); ok {
 			session.UserID = id
 		}
 	}
+
+	// If PIN service is available, chain into PIN creation flow.
+	if h.pinService != nil {
+		session.CurrentMenu = "pin_create"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showMenu(session, "pin_create")
+	}
+
+	// No PIN service — finish registration immediately.
 	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
 
 	return h.formatResponse(session.Language, "END", "registration_success"), nil
-}
-
-// handleCheckBalance shows account balance
-func (h *USSDHandler) handleCheckBalance(ctx context.Context, session *Session) (string, error) {
-	if h.userService == nil {
-		return h.formatError(session.Language, "error"), nil
-	}
-
-	_, accounts, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
-	if err != nil || len(accounts) == 0 {
-		return h.formatError(session.Language, "error"), nil
-	}
-
-	var response strings.Builder
-	response.WriteString(GetLocalizedMessage(session.Language, "balance"))
-	response.WriteString("\n\n")
-
-	for i, account := range accounts {
-		// Try to extract balance from account (assuming it's a map or struct)
-		var balance float64
-		var asset = "USD"
-
-		if accMap, ok := account.(map[string]interface{}); ok {
-			if bal, ok := accMap["balance"].(int64); ok {
-				balance = float64(bal) / 1000000 // Convert from stroops
-			}
-			if assetStr, ok := accMap["asset"].(string); ok {
-				asset = assetStr
-			}
-		}
-
-		response.WriteString(fmt.Sprintf("Account %d: %.2f %s\n", i+1, balance, asset))
-	}
-
-	return h.formatResponse(session.Language, "END", response.String()), nil
 }
 
 // handleLoanAmount handles loan amount input in KES
@@ -314,6 +425,10 @@ func (h *USSDHandler) handleLoanDuration(ctx context.Context, session *Session, 
 	case "4":
 		days = 90
 	case "0":
+		session.CurrentMenu = "main"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
 		return h.showMainMenu(session)
 	default:
 		return h.showLoanDurationMenu(session)
@@ -359,19 +474,39 @@ func (h *USSDHandler) handleRepaymentSchedule(ctx context.Context, session *Sess
 	return h.showLoanConfirmation(ctx, session)
 }
 
-// handleLoanConfirm handles loan confirmation
+// handleLoanConfirm handles loan confirmation. When PIN service is available,
+// pressing "1" routes to PIN verification before submitting the loan.
 func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, input string) (string, error) {
 	if input != "1" {
+		session.CurrentMenu = "main"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
 		return h.showMainMenu(session)
 	}
 
+	// Gate loan submission behind PIN verification.
+	if h.pinService != nil {
+		session.CurrentMenu = "pin_verify_loan"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showMenu(session, "pin_verify_loan")
+	}
+
+	return h.submitLoan(ctx, session)
+}
+
+// submitLoan executes the actual loan request after all gates (PIN, eligibility)
+// have passed.
+func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string, error) {
 	if h.userService == nil || h.loanService == nil {
 		return h.formatError(session.Language, "error"), nil
 	}
 
 	// Get loan details from session
-	amount, _ := session.Data["loan_amount"].(int64)
-	duration, _ := session.Data["loan_duration"].(int)
+	amount := toInt64(session.Data["loan_amount"])
+	duration := toInt(session.Data["loan_duration"])
 	schedule, _ := session.Data["repayment_schedule"].(string)
 
 	// Get user and first account
@@ -409,7 +544,7 @@ func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, i
 	}
 
 	// Extract local currency data from session
-	localAmount, _ := session.Data["loan_amount_local"].(int64)
+	localAmount := toInt64(session.Data["loan_amount_local"])
 	localCurrency, _ := session.Data["local_currency"].(string)
 	conversionRate, _ := session.Data["conversion_rate"].(float64)
 
@@ -551,100 +686,30 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, inp
 	return h.formatResponse(session.Language, "END", response.String()), nil
 }
 
-// handleMyAccount handles account menu
+// handleMyAccount handles the account submenu (PIN Manager, Change Language).
 func (h *USSDHandler) handleMyAccount(ctx context.Context, session *Session, input string) (string, error) {
 	switch input {
-	case "1": // View Profile
-		return h.handleViewProfile(ctx, session)
-	case "2": // Credit Score
-		return h.handleCreditScore(ctx, session)
+	case "1": // PIN Manager
+		session.CurrentMenu = "pin_manager"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showMenu(session, "pin_manager")
+	case "2": // Change Language
+		session.CurrentMenu = "language_select"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showLanguageMenu(session)
 	case "0": // Main Menu
+		session.CurrentMenu = "main"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
 		return h.showMainMenu(session)
 	default:
 		return h.showAccountMenu(session)
 	}
-}
-
-// handleViewProfile shows user profile
-func (h *USSDHandler) handleViewProfile(ctx context.Context, session *Session) (string, error) {
-	if h.userService == nil {
-		return h.formatError(session.Language, "error"), nil
-	}
-
-	user, _, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
-	if err != nil {
-		return h.formatError(session.Language, "error"), nil
-	}
-
-	var response strings.Builder
-	response.WriteString("Profile:\n")
-
-	// Extract user details
-	if userMap, ok := user.(map[string]interface{}); ok {
-		if name, ok := userMap["full_name"].(string); ok {
-			response.WriteString(fmt.Sprintf("Name: %s\n", name))
-		}
-		if phone, ok := userMap["mobile_number"].(string); ok {
-			response.WriteString(fmt.Sprintf("Phone: %s\n", phone))
-		}
-		if kyc, ok := userMap["kyc_status"].(string); ok {
-			response.WriteString(fmt.Sprintf("KYC: %s\n", kyc))
-		}
-		if status, ok := userMap["status"].(string); ok {
-			response.WriteString(fmt.Sprintf("Status: %s", status))
-		}
-	}
-
-	return h.formatResponse(session.Language, "END", response.String()), nil
-}
-
-// handleCreditScore shows credit score
-func (h *USSDHandler) handleCreditScore(ctx context.Context, session *Session) (string, error) {
-	if h.userService == nil || h.loanService == nil {
-		return h.formatError(session.Language, "error"), nil
-	}
-
-	user, _, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
-	if err != nil {
-		return h.formatError(session.Language, "error"), nil
-	}
-
-	var response strings.Builder
-	response.WriteString("Credit Info:\n")
-
-	// Extract KYC status
-	if userMap, ok := user.(map[string]interface{}); ok {
-		if kyc, ok := userMap["kyc_status"].(string); ok {
-			response.WriteString(fmt.Sprintf("KYC Status: %s\n", kyc))
-		}
-	}
-
-	// Get loan history summary
-	loans, err := h.loanService.GetUserLoans(ctx, session.UserID)
-	if err == nil {
-		totalLoans := len(loans)
-		repaidCount := 0
-
-		for _, loan := range loans {
-			if loanMap, ok := loan.(map[string]interface{}); ok {
-				if status, ok := loanMap["status"].(string); ok {
-					if status == "repaid" {
-						repaidCount++
-					}
-				}
-			}
-		}
-
-		response.WriteString(fmt.Sprintf("Total Loans: %d\n", totalLoans))
-		response.WriteString(fmt.Sprintf("Repaid: %d\n", repaidCount))
-
-		if totalLoans > 0 {
-			repaymentRate := float64(repaidCount) / float64(totalLoans) * 100
-			response.WriteString(fmt.Sprintf("Repayment Rate: %.1f%%", repaymentRate))
-		}
-	}
-
-	return h.formatResponse(session.Language, "END", response.String()), nil
 }
 
 // Menu display helpers
@@ -690,8 +755,8 @@ func (h *USSDHandler) showLoanConfirmation(ctx context.Context, session *Session
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	localAmountCents, _ := session.Data["loan_amount_local"].(int64)
-	duration, _ := session.Data["loan_duration"].(int)
+	localAmountCents := toInt64(session.Data["loan_amount_local"])
+	duration := toInt(session.Data["loan_duration"])
 
 	// Fetch exchange rate
 	var buyRate float64
@@ -743,6 +808,541 @@ func (h *USSDHandler) showLoanConfirmation(ctx context.Context, session *Session
 	}
 
 	return h.formatResponse(session.Language, "CON", response.String()), nil
+}
+
+// ============================================================================
+// PIN Creation Handlers (Registration Flow)
+// ============================================================================
+
+// handlePINCreate validates and temporarily stores a new PIN during registration.
+func (h *USSDHandler) handlePINCreate(ctx context.Context, session *Session, input string) (string, error) {
+	if h.pinService == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	// Validate PIN format/strength before confirming.
+	if err := pinPkg.ValidatePIN(input); err != nil {
+		return h.formatResponse(session.Language, "CON", "pin_invalid"), nil
+	}
+
+	session.Data["new_pin"] = input
+	session.CurrentMenu = "pin_confirm"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.showMenu(session, "pin_confirm")
+}
+
+// handlePINConfirm compares the confirmed PIN with the stored value, sets it
+// via the PIN service, and chains into security question setup.
+func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, input string) (string, error) {
+	if h.pinService == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	newPIN, _ := session.Data["new_pin"].(string)
+	if input != newPIN {
+		// Mismatch — go back to creation.
+		delete(session.Data, "new_pin")
+		session.CurrentMenu = "pin_create"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.formatResponse(session.Language, "CON", "pin_mismatch"), nil
+	}
+
+	// Set PIN.
+	if err := h.pinService.SetPIN(ctx, session.UserID, newPIN); err != nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	delete(session.Data, "new_pin")
+
+	// Chain into security question setup.
+	session.CurrentMenu = "security_q1_select"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.showMenu(session, "security_q1_select")
+}
+
+// ============================================================================
+// Security Question Handlers
+// ============================================================================
+
+// handleSecurityQ1Select stores the selected question ID and prompts for answer.
+func (h *USSDHandler) handleSecurityQ1Select(ctx context.Context, session *Session, input string) (string, error) {
+	qID, err := strconv.Atoi(input)
+	if err != nil || qID < 1 || qID > 5 {
+		return h.showMenu(session, "security_q1_select")
+	}
+
+	session.Data["sq1_id"] = qID
+	session.CurrentMenu = "security_q1_answer"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.showMenu(session, "security_q1_answer")
+}
+
+// handleSecurityQ1Answer stores the first answer and shows question 2 selection.
+func (h *USSDHandler) handleSecurityQ1Answer(ctx context.Context, session *Session, input string) (string, error) {
+	if strings.TrimSpace(input) == "" {
+		return h.showMenu(session, "security_q1_answer")
+	}
+
+	session.Data["sq1_answer"] = input
+	session.CurrentMenu = "security_q2_select"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.showMenu(session, "security_q2_select")
+}
+
+// handleSecurityQ2Select stores the second question ID (must differ from Q1).
+func (h *USSDHandler) handleSecurityQ2Select(ctx context.Context, session *Session, input string) (string, error) {
+	qID, err := strconv.Atoi(input)
+	if err != nil || qID < 1 || qID > 5 {
+		return h.showMenu(session, "security_q2_select")
+	}
+
+	// Must differ from Q1.
+	q1ID := toInt(session.Data["sq1_id"])
+	if qID == q1ID {
+		return h.showMenu(session, "security_q2_select")
+	}
+
+	session.Data["sq2_id"] = qID
+	session.CurrentMenu = "security_q2_answer"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.showMenu(session, "security_q2_answer")
+}
+
+// handleSecurityQ2Answer stores both security questions and completes
+// registration (or security question update from PIN manager).
+func (h *USSDHandler) handleSecurityQ2Answer(ctx context.Context, session *Session, input string) (string, error) {
+	if strings.TrimSpace(input) == "" {
+		return h.showMenu(session, "security_q2_answer")
+	}
+
+	if h.pinService == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	q1ID := toInt(session.Data["sq1_id"])
+	q1Answer, _ := session.Data["sq1_answer"].(string)
+	q2ID := toInt(session.Data["sq2_id"])
+
+	err := h.pinService.SetSecurityQuestions(ctx, session.UserID, []pinPkg.QuestionAnswer{
+		{QuestionID: q1ID, Answer: q1Answer},
+		{QuestionID: q2ID, Answer: input},
+	})
+	if err != nil {
+		log.Printf("handleSecurityQ2Answer: failed to save security questions: %v", err)
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	// Clean up transient data.
+	delete(session.Data, "sq1_id")
+	delete(session.Data, "sq1_answer")
+	delete(session.Data, "sq2_id")
+
+	// Determine if this is registration completion or PIN manager update.
+	fromPINManager, _ := session.Data["from_pin_manager"].(bool)
+	if fromPINManager {
+		delete(session.Data, "from_pin_manager")
+		session.CurrentMenu = "pin_manager"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.formatResponse(session.Language, "END", "security_q_success"), nil
+	}
+
+	// Registration complete — send welcome SMS.
+	fullName, _ := session.Data["full_name"].(string)
+	_ = h.accountNotifier.NotifyRegistrationSuccess(ctx, contracts.AccountNotification{
+		PhoneNumber: session.PhoneNumber,
+		FullName:    fullName,
+	})
+
+	return h.formatResponse(session.Language, "END", "registration_complete"), nil
+}
+
+// ============================================================================
+// PIN Verification Gate Handlers
+// ============================================================================
+
+// handlePINVerifyLoan verifies the user's PIN before submitting a loan request.
+func (h *USSDHandler) handlePINVerifyLoan(ctx context.Context, session *Session, input string) (string, error) {
+	if h.pinService == nil {
+		return h.submitLoan(ctx, session)
+	}
+
+	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
+	if err != nil {
+		if strings.Contains(err.Error(), "locked") {
+			return h.formatLockedMessage(ctx, session), nil
+		}
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	if !ok {
+		// Wrong PIN — let user retry (service already sent SMS + incremented attempts).
+		remaining := h.getRemainingAttempts(ctx, session.UserID)
+		if remaining <= 0 {
+			return h.formatLockedMessage(ctx, session), nil
+		}
+		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
+		return "CON " + msg, nil
+	}
+
+	return h.submitLoan(ctx, session)
+}
+
+// handlePINVerifyRepay verifies the user's PIN before showing repayment info.
+func (h *USSDHandler) handlePINVerifyRepay(ctx context.Context, session *Session, input string) (string, error) {
+	if h.pinService == nil {
+		return h.handleRepayLoan(ctx, session, "")
+	}
+
+	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
+	if err != nil {
+		if strings.Contains(err.Error(), "locked") {
+			return h.formatLockedMessage(ctx, session), nil
+		}
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	if !ok {
+		remaining := h.getRemainingAttempts(ctx, session.UserID)
+		if remaining <= 0 {
+			return h.formatLockedMessage(ctx, session), nil
+		}
+		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
+		return "CON " + msg, nil
+	}
+
+	session.CurrentMenu = "repay_loan"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.handleRepayLoan(ctx, session, "")
+}
+
+// ============================================================================
+// PIN Manager Handlers
+// ============================================================================
+
+// handlePINManager routes PIN Manager submenu selections.
+func (h *USSDHandler) handlePINManager(ctx context.Context, session *Session, input string) (string, error) {
+	// Check if account is locked — redirect to recovery.
+	if h.pinService != nil {
+		locked, _, err := h.pinService.IsLocked(ctx, session.UserID)
+		if err == nil && locked {
+			session.CurrentMenu = "pin_recovery_national_id"
+			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+				return "", fmt.Errorf("failed to save session: %w", err)
+			}
+			return h.showMenu(session, "pin_recovery_national_id")
+		}
+	}
+
+	switch input {
+	case "1": // Change PIN
+		session.CurrentMenu = "pin_change_old"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showMenu(session, "pin_change_old")
+	case "2": // Security Questions
+		session.Data["from_pin_manager"] = true
+		session.CurrentMenu = "security_q1_select"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showMenu(session, "security_q1_select")
+	case "0": // Back
+		session.CurrentMenu = "my_account"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showAccountMenu(session)
+	default:
+		return h.showMenu(session, "pin_manager")
+	}
+}
+
+// handlePINChangeOld verifies the current PIN before allowing a change.
+func (h *USSDHandler) handlePINChangeOld(ctx context.Context, session *Session, input string) (string, error) {
+	if h.pinService == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
+	if err != nil {
+		if strings.Contains(err.Error(), "locked") {
+			return h.formatLockedMessage(ctx, session), nil
+		}
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	if !ok {
+		remaining := h.getRemainingAttempts(ctx, session.UserID)
+		if remaining <= 0 {
+			return h.formatLockedMessage(ctx, session), nil
+		}
+		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
+		return "CON " + msg, nil
+	}
+
+	session.Data["old_pin"] = input
+	session.CurrentMenu = "pin_change_new"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.showMenu(session, "pin_change_new")
+}
+
+// handlePINChangeNew validates the new PIN and prompts for confirmation.
+func (h *USSDHandler) handlePINChangeNew(ctx context.Context, session *Session, input string) (string, error) {
+	if err := pinPkg.ValidatePIN(input); err != nil {
+		return h.formatResponse(session.Language, "CON", "pin_invalid"), nil
+	}
+
+	session.Data["new_pin"] = input
+	session.CurrentMenu = "pin_change_confirm"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.showMenu(session, "pin_change_confirm")
+}
+
+// handlePINChangeConfirm confirms the new PIN and executes the change.
+func (h *USSDHandler) handlePINChangeConfirm(ctx context.Context, session *Session, input string) (string, error) {
+	if h.pinService == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	newPIN, _ := session.Data["new_pin"].(string)
+	if input != newPIN {
+		delete(session.Data, "new_pin")
+		session.CurrentMenu = "pin_change_new"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.formatResponse(session.Language, "CON", "pin_mismatch"), nil
+	}
+
+	oldPIN, _ := session.Data["old_pin"].(string)
+	if err := h.pinService.ChangePIN(ctx, session.UserID, oldPIN, newPIN); err != nil {
+		log.Printf("handlePINChangeConfirm: ChangePIN failed: %v", err)
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	delete(session.Data, "old_pin")
+	delete(session.Data, "new_pin")
+
+	return h.formatResponse(session.Language, "END", "pin_changed"), nil
+}
+
+// ============================================================================
+// PIN Recovery Handlers
+// ============================================================================
+
+// handlePINRecoveryNationalID verifies the user's national ID to begin recovery.
+func (h *USSDHandler) handlePINRecoveryNationalID(ctx context.Context, session *Session, input string) (string, error) {
+	if h.userService == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	// Look up user and check national ID matches.
+	user, _, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
+	if err != nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	var storedNationalID string
+	if userMap, ok := user.(map[string]interface{}); ok {
+		if v, ok := userMap["national_id"].(string); ok {
+			storedNationalID = v
+		}
+	}
+
+	if storedNationalID == "" || storedNationalID != input {
+		return h.formatResponse(session.Language, "END", "recovery_id_wrong"), nil
+	}
+
+	// Get user's security question IDs for prompting.
+	if h.pinService != nil {
+		qIDs, err := h.pinService.GetUserQuestionIDs(ctx, session.UserID)
+		if err == nil && len(qIDs) >= 2 {
+			session.Data["recovery_q1_id"] = qIDs[0]
+			session.Data["recovery_q2_id"] = qIDs[1]
+		}
+	}
+
+	// Bail out if no security questions were stored.
+	if session.Data["recovery_q1_id"] == nil || session.Data["recovery_q2_id"] == nil {
+		return h.formatResponse(session.Language, "END", "recovery_no_questions"), nil
+	}
+
+	session.CurrentMenu = "pin_recovery_q1"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	// Show the specific question text.
+	q1ID := toInt(session.Data["recovery_q1_id"])
+	qKey := fmt.Sprintf("sq_%d", q1ID)
+	qText := GetLocalizedMessage(session.Language, qKey)
+	return fmt.Sprintf("CON %s", qText), nil
+}
+
+// handlePINRecoveryQ1 verifies the answer to the first security question.
+func (h *USSDHandler) handlePINRecoveryQ1(ctx context.Context, session *Session, input string) (string, error) {
+	session.Data["recovery_a1"] = input
+	session.CurrentMenu = "pin_recovery_q2"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	q2ID := toInt(session.Data["recovery_q2_id"])
+	qKey := fmt.Sprintf("sq_%d", q2ID)
+	qText := GetLocalizedMessage(session.Language, qKey)
+	return fmt.Sprintf("CON %s", qText), nil
+}
+
+// handlePINRecoveryQ2 verifies both security answers and proceeds to new PIN.
+func (h *USSDHandler) handlePINRecoveryQ2(ctx context.Context, session *Session, input string) (string, error) {
+	if h.pinService == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	q1ID := toInt(session.Data["recovery_q1_id"])
+	a1, _ := session.Data["recovery_a1"].(string)
+	q2ID := toInt(session.Data["recovery_q2_id"])
+
+	ok, err := h.pinService.VerifySecurityAnswers(ctx, session.UserID, []pinPkg.QuestionAnswer{
+		{QuestionID: q1ID, Answer: a1},
+		{QuestionID: q2ID, Answer: input},
+	})
+	if err != nil || !ok {
+		return h.formatResponse(session.Language, "END", "recovery_answers_wrong"), nil
+	}
+
+	// Answers verified — proceed to new PIN.
+	delete(session.Data, "recovery_a1")
+	session.CurrentMenu = "pin_recovery_new"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.showMenu(session, "pin_recovery_new")
+}
+
+// handlePINRecoveryNew validates the new PIN during recovery.
+func (h *USSDHandler) handlePINRecoveryNew(ctx context.Context, session *Session, input string) (string, error) {
+	if err := pinPkg.ValidatePIN(input); err != nil {
+		return h.formatResponse(session.Language, "CON", "pin_invalid"), nil
+	}
+
+	session.Data["recovery_new_pin"] = input
+	session.CurrentMenu = "pin_recovery_confirm"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.showMenu(session, "pin_recovery_confirm")
+}
+
+// handlePINRecoveryConfirm confirms and resets the PIN.
+func (h *USSDHandler) handlePINRecoveryConfirm(ctx context.Context, session *Session, input string) (string, error) {
+	if h.pinService == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	newPIN, _ := session.Data["recovery_new_pin"].(string)
+	if input != newPIN {
+		delete(session.Data, "recovery_new_pin")
+		session.CurrentMenu = "pin_recovery_new"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.formatResponse(session.Language, "CON", "pin_mismatch"), nil
+	}
+
+	if err := h.pinService.ResetPIN(ctx, session.UserID, newPIN); err != nil {
+		log.Printf("handlePINRecoveryConfirm: ResetPIN failed: %v", err)
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	// Clean up recovery data.
+	delete(session.Data, "recovery_new_pin")
+	delete(session.Data, "recovery_q1_id")
+	delete(session.Data, "recovery_q2_id")
+
+	return h.formatResponse(session.Language, "END", "recovery_success"), nil
+}
+
+// ============================================================================
+// Helper Methods
+// ============================================================================
+
+// showMenu is a generic helper that renders a registered menu by ID.
+func (h *USSDHandler) showMenu(session *Session, menuID string) (string, error) {
+	menu, err := h.menuRegistry.Get(menuID)
+	if err != nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+	return "CON " + menu.Render(session.Language), nil
+}
+
+// getRemainingAttempts returns how many PIN attempts the user has left. If the
+// PIN service is unavailable or the lookup fails, it returns 0 as a safe
+// fallback.
+func (h *USSDHandler) getRemainingAttempts(ctx context.Context, userID string) int {
+	if h.pinService == nil {
+		return 0
+	}
+	remaining, err := h.pinService.GetRemainingAttempts(ctx, userID)
+	if err != nil {
+		return 0
+	}
+	return remaining
+}
+
+// formatLockedMessage formats the pin_locked message with the actual lockout expiry time.
+func (h *USSDHandler) formatLockedMessage(ctx context.Context, session *Session) string {
+	lockedUntil := "a few minutes"
+	if h.pinService != nil {
+		if locked, until, err := h.pinService.IsLocked(ctx, session.UserID); err == nil && locked {
+			remaining := time.Until(until).Round(time.Minute)
+			if remaining <= 0 {
+				lockedUntil = "less than a minute"
+			} else if remaining < time.Hour {
+				mins := int(remaining.Minutes())
+				if mins == 1 {
+					lockedUntil = "1 minute"
+				} else {
+					lockedUntil = fmt.Sprintf("%d minutes", mins)
+				}
+			} else {
+				lockedUntil = fmt.Sprintf("%d minutes", int(remaining.Minutes()))
+			}
+		}
+	}
+	msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_locked"), lockedUntil)
+	return "END " + msg
 }
 
 // formatResponse formats a response with type prefix

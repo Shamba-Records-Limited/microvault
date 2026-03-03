@@ -6,8 +6,13 @@ import {
   type xdr,
   rpc,
 } from "@stellar/stellar-sdk";
-import { WAD_SCALE, USDC_SCALE, DEFAULT_RPC_URL, DEFAULT_NETWORK_PASSPHRASE } from "./constants";
-import type { VaultStats, VaultAddresses } from "@/types/vault";
+import {
+  WAD_SCALE,
+  USDC_SCALE,
+  DEFAULT_RPC_URL,
+  DEFAULT_NETWORK_PASSPHRASE,
+} from "./constants";
+import type { VaultStats, VaultAddresses, VaultMetadata } from "@/types/vault";
 
 const rpcUrl = import.meta.env.VITE_SOROBAN_RPC_URL || DEFAULT_RPC_URL;
 const networkPassphrase =
@@ -42,7 +47,9 @@ async function callViewFunction(
   const simResponse = await server.simulateTransaction(tx);
 
   if (rpc.Api.isSimulationError(simResponse)) {
-    throw new Error(`Simulation error for ${functionName}: ${simResponse.error}`);
+    throw new Error(
+      `Simulation error for ${functionName}: ${simResponse.error}`,
+    );
   }
 
   if (!rpc.Api.isSimulationSuccess(simResponse)) {
@@ -69,17 +76,23 @@ function wadToPercent(scVal: xdr.ScVal): number {
   return (Number(raw) / Number(WAD_SCALE)) * 100;
 }
 
-/** Fetch all numeric vault metrics (TVL, borrowed, utilization, APR, paused) in a single batch. */
+/** Fetch all numeric vault metrics (Name, TVL, borrowed, utilization, APR, paused) in a single batch. */
 export async function fetchVaultStats(): Promise<VaultStats> {
-  const [totalManaged, totalBorrowed, availableLiquidity, utilizationRate, borrowApr, paused] =
-    await Promise.all([
-      callViewFunction("total_managed_assets"),
-      callViewFunction("total_borrowed"),
-      callViewFunction("available_liquidity"),
-      callViewFunction("utilization_rate"),
-      callViewFunction("borrow_apr"),
-      callViewFunction("paused"),
-    ]);
+  const [
+    totalManaged,
+    totalBorrowed,
+    availableLiquidity,
+    utilizationRate,
+    borrowApr,
+    paused,
+  ] = await Promise.all([
+    callViewFunction("total_managed_assets"),
+    callViewFunction("total_borrowed"),
+    callViewFunction("available_liquidity"),
+    callViewFunction("utilization_rate"),
+    callViewFunction("borrow_apr"),
+    callViewFunction("paused"),
+  ]);
 
   return {
     totalManagedAssets: i128ToNumber(totalManaged, USDC_SCALE),
@@ -88,6 +101,22 @@ export async function fetchVaultStats(): Promise<VaultStats> {
     utilizationRate: wadToPercent(utilizationRate),
     borrowApr: wadToPercent(borrowApr),
     isPaused: scValToNative(paused) as boolean,
+  };
+}
+
+/** Fetch vault name and asset symbol from on-chain view functions. */
+export async function fetchVaultMetadata(): Promise<VaultMetadata> {
+  const [name, symbol] = await Promise.all([
+    callViewFunction("name"),
+    callViewFunction("symbol"),
+  ]);
+
+  const vaultName = scValToNative(name) as string;
+  const assetSymbol = scValToNative(symbol) as string;
+
+  return {
+    name: `${vaultName} Pool`,
+    symbol: assetSymbol,
   };
 }
 

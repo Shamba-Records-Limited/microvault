@@ -46,9 +46,7 @@ services:
     restart: "no"
 
   core:
-    build:
-      context: ./core
-      dockerfile: Dockerfile
+    image: ghcr.io/shamba-records-limited/microvault/backend:prod-latest
     container_name: microvault-core
     env_file: .env
     ports:
@@ -68,6 +66,15 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
+  web:
+    image: ghcr.io/shamba-records-limited/microvault/web:prod-latest
+    container_name: microvault-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      core:
+        condition: service_healthy
 
 volumes:
   postgres_data:

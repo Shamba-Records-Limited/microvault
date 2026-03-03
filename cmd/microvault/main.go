@@ -17,18 +17,19 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/Shamba-Records-Limited/microvault/pkg/controllers"
-	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
-	"github.com/Shamba-Records-Limited/microvault/pkg/user"
-	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 	"github.com/Shamba-Records-Limited/microvault/pkg/health"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
 	smsAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms/providers/africastalking"
-	mvnotifications "github.com/Shamba-Records-Limited/microvault/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	ussdadapters "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
 	ussdAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/providers/africastalking"
+	mvnotifications "github.com/Shamba-Records-Limited/microvault/pkg/notifications"
+	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
+	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
+	"github.com/Shamba-Records-Limited/microvault/pkg/user"
+	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 	"github.com/Shamba-Records-Limited/microvault/platform/cache"
 	"github.com/Shamba-Records-Limited/microvault/platform/database"
 	"github.com/gofiber/fiber/v2"
@@ -216,21 +217,6 @@ func main() {
 	}
 	log.Println("USSD user service adapter initialized")
 
-	// Initialize USSD handler with real services
-	// Note: loanService is nil for now - will be implemented later
-	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil, nil)
-	ussdService := ussd.NewUSSDService(handler)
-
-	// Register USSD providers
-	AfricasTalkingUSSDProvider := ussdAfrica.NewAfricasTalkingUSSDAdapter(
-		cfg.Mobile.AfricasTalking.Username,
-		cfg.Mobile.AfricasTalking.APIKey,
-	)
-	ussdService.RegisterProvider("africastalking", AfricasTalkingUSSDProvider)
-
-	// Initialize USSD controller
-	ussdController := controllers.NewUSSDController(ussdService)
-
 	// Initialize SMS providers
 	AfricasTalkingSMSProvider := smsAfrica.NewAfricasTalkingSMSAdapter(
 		cfg.Mobile.AfricasTalking.Username,
@@ -247,13 +233,36 @@ func main() {
 	var notifier mvnotifications.Notifier
 	atProvider, providerErr := smsService.GetProvider("africastalking")
 	if providerErr == nil {
-		notifier = mvnotifications.NewSMSNotifier(atProvider, "microvault")
+		notifier = mvnotifications.NewSMSNotifier(atProvider, cfg.Mobile.AfricasTalking.ResolveSenderID())
 	} else {
 		notifier = &mvnotifications.NoOpNotifier{}
 	}
 	loanNotifier := mvnotifications.NewSMSLoanNotifier(notifier, nil)
 	_ = loanNotifier // will be wired to adapters when loan disbursement is integrated
+
+	// Initialize account notifier for registration and PIN lifecycle SMS
+	accountNotifier := mvnotifications.NewSMSAccountNotifier(notifier, nil)
 	log.Println("Notification service initialized")
+
+	// ---- Initialize PIN Service ----
+	pinRepo := pin.NewSecurityQuestionRepository(db)
+	pinService := pin.NewService(repos.User, pinRepo, accountNotifier, cfg.Auth.PINLockoutDuration)
+	log.Println("PIN service initialized")
+
+	// Initialize USSD handler with real services
+	// Note: loanService and disbursementService are nil - will be implemented later
+	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil, nil, pinService, accountNotifier)
+	ussdService := ussd.NewUSSDService(handler)
+
+	// Register USSD providers
+	AfricasTalkingUSSDProvider := ussdAfrica.NewAfricasTalkingUSSDAdapter(
+		cfg.Mobile.AfricasTalking.Username,
+		cfg.Mobile.AfricasTalking.APIKey,
+	)
+	ussdService.RegisterProvider("africastalking", AfricasTalkingUSSDProvider)
+
+	// Initialize USSD controller
+	ussdController := controllers.NewUSSDController(ussdService)
 
 	// ---- Initialize Application ----
 	// Create a new fiber app
@@ -284,7 +293,11 @@ func main() {
 	// Initialize webhook controller (event handler will be wired when disbursement service is ready)
 	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.WebhookSecret)
 
-	routes.PublicRoutes(app, authController, ussdController, webhookController) // Register public routes
+	// Initialize SMS delivery report callback controller
+	smsCallbackHandler := sms.NewDeliveryReportHandler()
+	smsCallbackController := controllers.NewSMSCallbackController(smsCallbackHandler)
+
+	routes.PublicRoutes(app, authController, ussdController, webhookController, smsCallbackController) // Register public routes
 
 	// Create a channel to listen for OS signals
 	sigChan := make(chan os.Signal, 1)

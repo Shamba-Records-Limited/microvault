@@ -104,6 +104,69 @@
                 }
             }
         },
+        "/api/v1/mobile/sms/{provider}/delivery": {
+            "post": {
+                "description": "Handle incoming SMS delivery report callbacks from Africa's Talking",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "Mobile"
+                ],
+                "summary": "Process SMS Delivery Report",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "AT message ID",
+                        "name": "id",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Delivery status",
+                        "name": "status",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Recipient phone number",
+                        "name": "phoneNumber",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Network code",
+                        "name": "networkCode",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Failure reason (if applicable)",
+                        "name": "failureReason",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid callback payload",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/mobile/ussd/{provider}": {
             "post": {
                 "description": "Handle USSD callback requests from the USSD gateway. The provider is specified in the URL path.",

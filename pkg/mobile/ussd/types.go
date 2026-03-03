@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
+	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -92,13 +94,15 @@ type MenuBuilder struct {
 // Handler Types
 // ============================================================================
 
-// USSDHandler handles USSD requests
+// USSDHandler handles USSD requests.
 type USSDHandler struct {
-	sessionManager *SessionManager
-	menuRegistry   *MenuRegistry
-	userService    UserService
-	loanService    LoanService
-	rateService    RateService
+	sessionManager  *SessionManager
+	menuRegistry    *MenuRegistry
+	userService     UserService
+	loanService     LoanService
+	rateService     RateService
+	pinService      PINService
+	accountNotifier contracts.AccountNotifier
 }
 
 // ============================================================================
@@ -164,6 +168,41 @@ type LoanService interface {
 	CheckLoanEligibility(ctx context.Context, userID string, amount int64, duration int) (*LoanApproval, error)
 }
 
+// PINService defines the interface for PIN management operations used by the
+// USSD handler. It is satisfied by [pin.Service].
+type PINService interface {
+	// SetPIN creates a new PIN for a user (during registration).
+	SetPIN(ctx context.Context, userID, pin string) error
+
+	// VerifyPIN checks the supplied PIN against the stored hash.
+	// Returns (true, nil) on success, (false, nil) on wrong PIN.
+	VerifyPIN(ctx context.Context, userID, pin string) (bool, error)
+
+	// ChangePIN verifies the old PIN and sets a new one.
+	ChangePIN(ctx context.Context, userID, oldPin, newPin string) error
+
+	// ResetPIN sets a new PIN after identity verification (security questions).
+	ResetPIN(ctx context.Context, userID, newPin string) error
+
+	// IsLocked reports whether the account is locked and when the lockout expires.
+	IsLocked(ctx context.Context, userID string) (bool, time.Time, error)
+
+	// HasPIN reports whether the user has a PIN set.
+	HasPIN(ctx context.Context, userID string) (bool, error)
+
+	// SetSecurityQuestions stores hashed answers for the given questions.
+	SetSecurityQuestions(ctx context.Context, userID string, questions []pin.QuestionAnswer) error
+
+	// VerifySecurityAnswers checks the supplied answers against stored hashes.
+	VerifySecurityAnswers(ctx context.Context, userID string, answers []pin.QuestionAnswer) (bool, error)
+
+	// GetUserQuestionIDs returns the predefined question IDs the user has configured.
+	GetUserQuestionIDs(ctx context.Context, userID string) ([]int, error)
+
+	// GetRemainingAttempts returns the number of PIN attempts left before lockout.
+	GetRemainingAttempts(ctx context.Context, userID string) (int, error)
+}
+
 // RegisterUserRequest represents a user registration request
 type RegisterUserRequest struct {
 	MobileNumber      string
@@ -184,7 +223,7 @@ type LoanRequest struct {
 	CountryCode     string
 	NetworkCode     string
 	NetworkName     string
-	PrincipalAmount int64   // USDC amount in stroops
+	PrincipalAmount int64 // USDC amount in stroops
 	PrincipalAsset  string
 	DurationDays    int
 	RepaymentSched  string

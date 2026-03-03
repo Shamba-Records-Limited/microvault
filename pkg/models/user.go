@@ -20,6 +20,11 @@ type User struct {
 	NationalID        *string    `json:"national_id,omitempty" gorm:"type:varchar(50);uniqueIndex"`
 	KYCStatus         string     `json:"kyc_status" gorm:"type:varchar(20);not null;default:'pending'"`
 	KYCVerifiedAt     *time.Time `json:"kyc_verified_at,omitempty" gorm:"type:timestamp"`
+	PinHash        *string    `json:"-" gorm:"type:varchar(72)"`
+	PinAttempts    int        `json:"-" gorm:"not null;default:0"`
+	PinLockedUntil *time.Time `json:"-" gorm:"type:timestamp"`
+	PinSetAt       *time.Time `json:"-" gorm:"type:timestamp"`
+
 	PreferredLanguage string     `json:"preferred_language" gorm:"type:varchar(10);not null;default:'en'"`
 	Status            string     `json:"status" gorm:"type:varchar(20);not null;default:'active'"`
 	Role              string     `json:"role" gorm:"type:varchar(20);not null;default:'user'"`
