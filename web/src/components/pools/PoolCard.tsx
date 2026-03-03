@@ -30,54 +30,56 @@ export function PoolCard({ pool }: PoolCardProps) {
         className="cursor-pointer"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Coins className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-base">{pool.name}</h3>
-                <div
-                  className={cn(
-                    "h-2.5 w-2.5 rounded-full",
-                    pool.status === "active" &&
-                      "bg-green-500 ring-2 ring-green-500/50 animate-caret-blink",
-                    pool.status === "frozen" && "bg-gray-400",
-                  )}
-                />
+        <div className="space-y-3">
+          {/* Top row: icon, name, chevron */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Coins className="h-5 w-5 text-primary" />
               </div>
-              <a
-                href={`${explorerUrl}/contract/${pool.address}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="text-xs text-muted-foreground font-mono hover:text-foreground transition-colors"
-              >
-                {pool.address.slice(0, 8)}...{pool.address.slice(-6)}
-              </a>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <div className="hidden md:flex items-center gap-8">
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">TVL</p>
-                <p className="font-semibold">{formatCurrency(pool.tvl)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">APY</p>
-                <p className="font-semibold text-primary">
-                  {formatPercent(pool.apy)}
-                </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-base">{pool.name}</h3>
+                  <div
+                    className={cn(
+                      "h-2.5 w-2.5 rounded-full",
+                      pool.status === "active" &&
+                        "bg-green-500 ring-2 ring-green-500/50 animate-caret-blink",
+                      pool.status === "frozen" && "bg-gray-400",
+                    )}
+                  />
+                </div>
+                <a
+                  href={`${explorerUrl}/contract/${pool.address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs text-muted-foreground font-mono hover:text-foreground transition-colors"
+                >
+                  {pool.address.slice(0, 8)}...{pool.address.slice(-6)}
+                </a>
               </div>
             </div>
 
             {isExpanded ? (
-              <ChevronUp className="h-5 w-5 text-muted-foreground" />
+              <ChevronUp className="h-5 w-5 text-muted-foreground shrink-0" />
             ) : (
-              <ChevronDown className="h-5 w-5 text-muted-foreground" />
+              <ChevronDown className="h-5 w-5 text-muted-foreground shrink-0" />
             )}
+          </div>
+
+          {/* Stats row */}
+          <div className="flex items-center gap-6 pl-[52px]">
+            <div>
+              <p className="text-xs text-muted-foreground">TVL</p>
+              <p className="font-semibold">{formatCurrency(pool.tvl)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">APY</p>
+              <p className="font-semibold text-primary">
+                {formatPercent(pool.apy)}
+              </p>
+            </div>
           </div>
         </div>
       </CardHeader>
