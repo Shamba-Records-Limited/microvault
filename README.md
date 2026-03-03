@@ -1,8 +1,8 @@
-<img width="1536" height="360" alt="micro-banner-1-cropped" src="https://github.com/user-attachments/assets/ca329f67-5857-4a46-9cea-9d38235551df" />
+<img width="2048" height="420" alt="microvault-banner-cropped" src="https://github.com/user-attachments/assets/a80fa586-4f26-4bec-8cca-b364575e6a07" />
 
 [![built-with openzeppelin](https://img.shields.io/badge/built%20with-OpenZeppelin-3677FF)](https://docs.openzeppelin.com/)
-# MicroVault
-A headless [SEP-56/ERC-4626](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0056.md) tokenized vault standard engine for micro-lending built on the Stellar network.
+# Microvault
+A headless [SEP-0056](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0056.md) tokenized vault standard engine for microlending built on the Stellar network.
 
 Vault Contract Address: [CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR](https://stellar.expert/explorer/testnet/contract/CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR)
 
@@ -10,7 +10,7 @@ Governance Contract Address: [CC3QFA2NBGHWO4QHUCVERFVRAKVHVSM623LCLMUVRGRCMLAHZG
 
 ## Technical Architecture
 A high-level technical architecture of the engine implementation:
-![ERC4626-Stellar](https://github.com/user-attachments/assets/15df2664-5089-4b9b-a14e-e6e0b16da69d)
+![SEP-0056](https://github.com/user-attachments/assets/15df2664-5089-4b9b-a14e-e6e0b16da69d)
 
 ## Micro-lending Journey
 A successful microlending journey:
