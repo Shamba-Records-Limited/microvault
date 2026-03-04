@@ -7,6 +7,12 @@ export const USDC_DECIMALS = 7;
 /** USDC scaling factor (10^7) for converting on-chain i128 amounts to human-readable values. */
 export const USDC_SCALE = 10_000_000n;
 
+/** Vault share token decimals (USDC 7 decimals + 6 virtual offset). */
+export const SHARE_DECIMALS = 13;
+
+/** Share token scaling factor (10^13) for converting on-chain share amounts to human-readable values. */
+export const SHARE_SCALE = 10_000_000_000_000n;
+
 /** Testnet when Vite mode is not "production". */
 const isTestnet = import.meta.env.MODE !== "production";
 
