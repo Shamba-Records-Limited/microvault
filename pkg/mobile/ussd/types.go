@@ -198,6 +198,9 @@ type PINService interface {
 
 	// GetUserQuestionIDs returns the predefined question IDs the user has configured.
 	GetUserQuestionIDs(ctx context.Context, userID string) ([]int, error)
+
+	// GetRemainingAttempts returns the number of PIN attempts left before lockout.
+	GetRemainingAttempts(ctx context.Context, userID string) (int, error)
 }
 
 // RegisterUserRequest represents a user registration request
@@ -220,7 +223,7 @@ type LoanRequest struct {
 	CountryCode     string
 	NetworkCode     string
 	NetworkName     string
-	PrincipalAmount int64   // USDC amount in stroops
+	PrincipalAmount int64 // USDC amount in stroops
 	PrincipalAsset  string
 	DurationDays    int
 	RepaymentSched  string

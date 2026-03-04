@@ -166,6 +166,7 @@ type AuthConfig struct {
 	JWTExpiration       time.Duration
 	JWTRefreshWindow    time.Duration
 	ChallengeExpiration time.Duration
+	PINLockoutDuration  time.Duration // from PIN_LOCKOUT_SECONDS (default 900 = 15min)
 }
 
 // New loads and returns a new Config struct populated from environment variables.
@@ -404,6 +405,16 @@ func New() (*Config, error) {
 			JWTExpiration:       time.Hour * 24,
 			JWTRefreshWindow:    time.Hour * 1,
 			ChallengeExpiration: time.Hour * 5,
+			PINLockoutDuration:  parsePINLockout(),
 		},
 	}, nil
+}
+
+// parsePINLockout reads PIN_LOCKOUT_SECONDS from the environment.
+// Defaults to 900 (15 minutes) if unset or invalid.
+func parsePINLockout() time.Duration {
+	if s, err := strconv.Atoi(os.Getenv("PIN_LOCKOUT_SECONDS")); err == nil && s > 0 {
+		return time.Duration(s) * time.Second
+	}
+	return 15 * time.Minute
 }

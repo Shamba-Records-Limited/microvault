@@ -78,21 +78,26 @@ type Service struct {
 }
 
 // NewService creates a new PIN management service. If notifier is nil, a
-// [notifications.NoOpAccountNotifier] is used.
+// [notifications.NoOpAccountNotifier] is used. If lockout is 0, the default
+// [LockoutDuration] is applied.
 func NewService(
 	userRepo repository.UserRepository,
 	sqRepo *SecurityQuestionRepository,
 	notifier contracts.AccountNotifier,
+	lockout time.Duration,
 ) *Service {
 	if notifier == nil {
 		notifier = &notifications.NoOpAccountNotifier{}
+	}
+	if lockout == 0 {
+		lockout = LockoutDuration
 	}
 	return &Service{
 		userRepo:    userRepo,
 		sqRepo:      sqRepo,
 		notifier:    notifier,
 		maxAttempts: MaxPINAttempts,
-		lockout:     LockoutDuration,
+		lockout:     lockout,
 	}
 }
 
@@ -148,7 +153,7 @@ func (s *Service) VerifyPIN(ctx context.Context, userID, pin string) (bool, erro
 	// Check lockout.
 	if user.PinLockedUntil != nil && time.Now().Before(*user.PinLockedUntil) {
 		return false, fmt.Errorf("%w: try again after %s",
-			ErrAccountLocked, user.PinLockedUntil.Format("15:04"))
+			ErrAccountLocked, formatLockDuration(*user.PinLockedUntil))
 	}
 
 	// Compare PIN.
@@ -366,6 +371,37 @@ func (s *Service) GetUserQuestionIDs(ctx context.Context, userID string) ([]int,
 	return ids, nil
 }
 
+// GetRemainingAttempts returns how many PIN attempts the user has left before
+// lockout. Returns 0 if the account is locked.
+func (s *Service) GetRemainingAttempts(ctx context.Context, userID string) (int, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return 0, fmt.Errorf("get user %s: %w", userID, err)
+	}
+
+	if user.PinLockedUntil != nil && time.Now().Before(*user.PinLockedUntil) {
+		return 0, nil
+	}
+
+	remaining := s.maxAttempts - user.PinAttempts
+	if remaining < 0 {
+		remaining = 0
+	}
+	return remaining, nil
+}
+
+// formatLockDuration returns a human-readable relative duration string
+// (e.g. "15 minutes", "1 minute") from a lock expiry time. This avoids
+// sending absolute timestamps that depend on the user's timezone.
+func formatLockDuration(until time.Time) string {
+	remaining := time.Until(until).Round(time.Minute)
+	mins := int(remaining.Minutes())
+	if mins <= 1 {
+		return "1 minute"
+	}
+	return fmt.Sprintf("%d minutes", mins)
+}
+
 // handleFailedAttempt increments the attempt counter, optionally locks the
 // account, persists the change, and sends the appropriate SMS notification.
 func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (bool, error) {
@@ -382,10 +418,11 @@ func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (b
 		_ = s.notifier.NotifyAccountLocked(ctx, contracts.AccountNotification{
 			UserID:      user.ID,
 			PhoneNumber: user.MobileNumber,
-			LockedUntil: lockUntil.Format("15:04"),
+			LockedUntil: formatLockDuration(lockUntil),
 		})
 
-		return false, nil
+		return false, fmt.Errorf("%w: try again after %s",
+			ErrAccountLocked, formatLockDuration(lockUntil))
 	}
 
 	if err := s.userRepo.Update(ctx, user); err != nil {

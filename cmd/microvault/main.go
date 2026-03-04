@@ -246,7 +246,7 @@ func main() {
 
 	// ---- Initialize PIN Service ----
 	pinRepo := pin.NewSecurityQuestionRepository(db)
-	pinService := pin.NewService(repos.User, pinRepo, accountNotifier)
+	pinService := pin.NewService(repos.User, pinRepo, accountNotifier, cfg.Auth.PINLockoutDuration)
 	log.Println("PIN service initialized")
 
 	// Initialize USSD handler with real services
