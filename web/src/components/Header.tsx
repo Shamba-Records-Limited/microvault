@@ -1,7 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { Github } from "lucide-react";
+import { Github, Wallet, LogOut } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useWallet } from "@/hooks/use-wallet";
 
 export function Header() {
+  const { address, isConnected, connect, disconnect } = useWallet();
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
       <div className="container flex h-16 items-center justify-between">
@@ -55,7 +59,28 @@ export function Header() {
           </nav>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {isConnected ? (
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="font-mono text-xs">
+                <Wallet className="h-3.5 w-3.5" />
+                {address!.slice(0, 4)}...{address!.slice(-4)}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={disconnect}
+                title="Disconnect wallet"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <Button variant="outline" size="sm" onClick={connect}>
+              <Wallet className="h-4 w-4" />
+              Connect Wallet
+            </Button>
+          )}
           <a
             href="https://github.com/Shamba-Records-Limited/microvault/"
             target="_blank"

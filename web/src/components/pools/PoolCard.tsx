@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   ChevronDown,
   ChevronUp,
@@ -7,14 +8,29 @@ import {
   Users,
   Landmark,
   Shield,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { formatCurrency, formatPercent } from "@/lib/format";
-import { DEFAULT_EXPLORER_URL } from "@/lib/constants";
+import {
+  formatCurrency,
+  formatPercent,
+  formatNumber,
+  formatInputValue,
+} from "@/lib/format";
+import { DEFAULT_EXPLORER_URL, USDC_SCALE, SHARE_SCALE } from "@/lib/constants";
+import { fetchPreviewDeposit, fetchPreviewWithdraw } from "@/lib/soroban";
+import { parseContractError } from "@/lib/errors";
+import { useWallet } from "@/hooks/use-wallet";
+import { useUserPosition } from "@/hooks/use-user-position";
+import { useDeposit } from "@/hooks/use-deposit";
+import { useWithdraw } from "@/hooks/use-withdraw";
 import type { Pool } from "@/types/vault";
 
 const explorerUrl =
   import.meta.env.VITE_STELLAR_EXPLORER_URL || DEFAULT_EXPLORER_URL;
+
+type ActiveTab = "deposit" | "withdraw";
 
 interface PoolCardProps {
   pool: Pool;
@@ -23,6 +39,101 @@ interface PoolCardProps {
 /** Expandable card displaying pool metrics, governance addresses, and asset breakdown. */
 export function PoolCard({ pool }: PoolCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<ActiveTab>("deposit");
+  const [displayAmount, setDisplayAmount] = useState("");
+  const [rawAmount, setRawAmount] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const { address, isConnected, connect } = useWallet();
+  const position = useUserPosition(address);
+  const deposit = useDeposit(address);
+  const withdraw = useWithdraw(address);
+
+  const parsedAmount = parseFloat(rawAmount);
+  const isValidAmount = !isNaN(parsedAmount) && parsedAmount > 0;
+  const isPending = deposit.isPending || withdraw.isPending;
+
+  async function handleAmountChange(value: string) {
+    const { display, raw } = formatInputValue(value);
+    setDisplayAmount(display);
+    setRawAmount(raw);
+    setPreview(null);
+
+    const num = parseFloat(raw);
+    if (isNaN(num) || num <= 0) return;
+
+    setPreviewLoading(true);
+    try {
+      const scaled = BigInt(Math.round(num * Number(USDC_SCALE)));
+      const sharesRaw =
+        activeTab === "deposit"
+          ? await fetchPreviewDeposit(scaled)
+          : await fetchPreviewWithdraw(scaled);
+      const sharesFormatted = formatNumber(
+        Number(sharesRaw) / Number(SHARE_SCALE),
+      );
+      setPreview(`~${sharesFormatted} ${pool.assets[0].symbol} shares`);
+    } catch (error) {
+      setPreview(null);
+      toast.warning("Preview failed", {
+        description: parseContractError(error),
+      });
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function handleTabSwitch(tab: ActiveTab) {
+    setActiveTab(tab);
+    setDisplayAmount("");
+    setRawAmount("");
+    setPreview(null);
+    deposit.reset();
+    withdraw.reset();
+  }
+
+  async function handleSubmit() {
+    if (!isValidAmount) return;
+
+    // Client-side validation
+    if (position.data) {
+      if (activeTab === "deposit") {
+        if (parsedAmount > position.data.walletBalance) {
+          toast.warning("Insufficient balance", {
+            description: `You only have ${formatNumber(position.data.walletBalance, 2)} USDC in your wallet`,
+          });
+          return;
+        }
+        if (parsedAmount > position.data.maxDeposit) {
+          toast.warning("Exceeds max deposit", {
+            description: `Maximum deposit is ${formatNumber(position.data.maxDeposit, 2)} USDC`,
+          });
+          return;
+        }
+      } else {
+        if (parsedAmount > position.data.maxWithdraw) {
+          toast.warning("Exceeds max withdraw", {
+            description: `Maximum withdrawal is ${formatNumber(position.data.maxWithdraw, 2)} USDC`,
+          });
+          return;
+        }
+      }
+    }
+
+    try {
+      if (activeTab === "deposit") {
+        await deposit.mutateAsync(parsedAmount);
+      } else {
+        await withdraw.mutateAsync(parsedAmount);
+      }
+      setDisplayAmount("");
+      setRawAmount("");
+      setPreview(null);
+    } catch {
+      // Handled by mutation onError toast
+    }
+  }
 
   return (
     <Card className="overflow-hidden transition-all duration-200 hover:shadow-md">
@@ -60,7 +171,9 @@ export function PoolCard({ pool }: PoolCardProps) {
               <div className="flex items-center gap-4 mt-2 md:hidden">
                 <div>
                   <p className="text-xs text-muted-foreground">TVL</p>
-                  <p className="font-semibold text-sm">{formatCurrency(pool.tvl)}</p>
+                  <p className="font-semibold text-sm">
+                    {formatCurrency(pool.tvl)}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">APY</p>
@@ -176,15 +289,23 @@ export function PoolCard({ pool }: PoolCardProps) {
                     </p>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                       <span className="text-muted-foreground">Supplied</span>
-                      <span className="text-right">{formatCurrency(asset.supplied)}</span>
+                      <span className="text-right">
+                        {formatCurrency(asset.supplied)}
+                      </span>
                       <span className="text-muted-foreground">Borrowed</span>
-                      <span className="text-right">{formatCurrency(asset.borrowed)}</span>
+                      <span className="text-right">
+                        {formatCurrency(asset.borrowed)}
+                      </span>
                       <span className="text-muted-foreground">Liquidity</span>
-                      <span className="text-right">{formatCurrency(asset.supplied - asset.borrowed)}</span>
+                      <span className="text-right">
+                        {formatCurrency(asset.supplied - asset.borrowed)}
+                      </span>
                       <span className="text-muted-foreground">Utilization</span>
                       <span className="text-right">
                         {asset.supplied > 0
-                          ? formatPercent((asset.borrowed / asset.supplied) * 100)
+                          ? formatPercent(
+                              (asset.borrowed / asset.supplied) * 100,
+                            )
                           : "0.00%"}
                       </span>
                     </div>
@@ -254,6 +375,163 @@ export function PoolCard({ pool }: PoolCardProps) {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            {/* Deposit / Withdraw */}
+            <div className="rounded-lg border border-border/50 p-4">
+              {/* User position (when connected) */}
+              {isConnected && position.data && (
+                <div className="flex flex-wrap gap-6 mb-4 pb-4 border-b border-border/50">
+                  <div>
+                    <p className="text-xs text-muted-foreground">
+                      Wallet Balance
+                    </p>
+                    <p className="font-semibold text-sm">
+                      {formatNumber(position.data.walletBalance, 7)} USDC
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">
+                      Your Position
+                    </p>
+                    <p className="font-semibold text-sm">
+                      {formatNumber(position.data.assetsValue, 7)} USDC
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Shares</p>
+                    <p className="font-semibold text-sm">
+                      {formatNumber(position.data.shares)}{" "}
+                      {pool.assets[0].symbol}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">
+                      Max Withdraw
+                    </p>
+                    <p className="font-semibold text-sm">
+                      {formatNumber(position.data.maxWithdraw, 7)} USDC
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab toggle */}
+              <div className="flex gap-1 mb-4 rounded-md bg-muted p-1">
+                <button
+                  type="button"
+                  className={cn(
+                    "flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+                    activeTab === "deposit"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => handleTabSwitch("deposit")}
+                >
+                  Deposit
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+                    activeTab === "withdraw"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => handleTabSwitch("withdraw")}
+                >
+                  Withdraw
+                </button>
+              </div>
+
+              {/* Amount input */}
+              <div className="space-y-3">
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder={
+                      activeTab === "deposit" ? "0.00 USDC" : "0.00 USDC"
+                    }
+                    value={displayAmount}
+                    onChange={(e) => handleAmountChange(e.target.value)}
+                    disabled={isPending}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 pr-16 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                  />
+                  {isConnected &&
+                    position.data &&
+                    activeTab === "deposit" &&
+                    position.data.walletBalance > 0 && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+                        onClick={() => {
+                          const max =
+                            Math.floor(
+                              Math.min(
+                                position.data!.walletBalance,
+                                position.data!.maxDeposit,
+                              ) * 100,
+                            ) / 100;
+                          handleAmountChange(max.toString());
+                        }}
+                      >
+                        MAX
+                      </button>
+                    )}
+                  {isConnected &&
+                    position.data &&
+                    activeTab === "withdraw" &&
+                    position.data.maxWithdraw > 0 && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+                        onClick={() => {
+                          const max =
+                            Math.floor(position.data!.maxWithdraw * 100) / 100;
+                          handleAmountChange(max.toString());
+                        }}
+                      >
+                        MAX
+                      </button>
+                    )}
+                </div>
+
+                {/* Preview */}
+                {previewLoading && (
+                  <p className="text-xs text-muted-foreground">
+                    Calculating preview...
+                  </p>
+                )}
+                {preview && !previewLoading && (
+                  <p className="text-xs text-muted-foreground">
+                    {activeTab === "deposit"
+                      ? "You will receive"
+                      : "This will burn"}{" "}
+                    {preview}
+                  </p>
+                )}
+
+                {/* Submit button */}
+                {isConnected ? (
+                  <Button
+                    className="w-full"
+                    disabled={!isValidAmount || isPending}
+                    onClick={handleSubmit}
+                  >
+                    {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {isPending
+                      ? "Confirming..."
+                      : activeTab === "deposit"
+                        ? "Deposit"
+                        : "Withdraw"}
+                  </Button>
+                ) : (
+                  <Button className="w-full" onClick={connect}>
+                    Connect Wallet
+                  </Button>
+                )}
               </div>
             </div>
           </div>
