@@ -9,7 +9,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
       <div className="container flex h-16 items-center justify-between">
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-4 sm:gap-8">
           <Link to="/" className="flex items-center gap-2">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -61,7 +61,7 @@ export function Header() {
 
         <div className="flex items-center gap-3">
           {isConnected ? (
-            <div className="flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-2">
               <Button variant="outline" size="sm" className="font-mono text-xs">
                 <Wallet className="h-3.5 w-3.5" />
                 {address!.slice(0, 4)}...{address!.slice(-4)}
@@ -76,7 +76,7 @@ export function Header() {
               </Button>
             </div>
           ) : (
-            <Button variant="outline" size="sm" onClick={connect}>
+            <Button variant="outline" size="sm" onClick={connect} className="hidden sm:flex">
               <Wallet className="h-4 w-4" />
               Connect Wallet
             </Button>
