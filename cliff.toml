@@ -39,22 +39,18 @@ commit_preprocessors = [
 ]
 # regex for parsing and grouping commits
 commit_parsers = [
-    { message = "^.*:sparkles:", group = "✨ Features" },
-    { message = "^.*:bug:", group = "🐛 Bug Fixes" },
-    { message = "^.*:recycle:", group = "♻️ Refactoring" },
-    { message = "^.*:zap:", group = "⚡ Performance" },
-    { message = "^.*:memo:", group = "📝 Documentation" },
-    { message = "^.*:heavy_plus_sign:", group = "➕ Dependencies" },
-    { message = "^.*:lock:", group = "🔒 Security" },
-    { message = "^.*:art:", group = "🎨 Code Style" },
-    { message = "^.*:rocket:", group = "🚀 Deployment" },
-    { message = "^.*:wrench:", group = "🔧 Configuration" },
-    { message = "^.*:white_check_mark:", group = "✅ Tests" },
-    { message = "^.*:fire:", group = "🔥 Removals" },
-    { message = "^.*:arrow_up:", group = "⬆️ Upgrades" },
-    { message = "^.*:construction:", group = "🚧 Work in Progress" },
+    { message = "^.*feat:", group = "Features" },
+    { message = "^.*fix:", group = "Bug Fixes" },
+    { message = "^.*update:", group = "Refactoring" },
+    { message = "^.*doc:", group = "Documentation" },
+    { message = "^.*:heavy_plus_sign:", group = "Dependencies" },
+    { message = "^.*security:", group = "Security" },
+    { message = "^.*:white_check_mark:", group = "Tests" },
+    { message = "^.*:arrow_up:", group = "Upgrades" },
+    { message = "^.*WIP:", group = "Work in Progress" },
     { message = "^.*Merge pull request", skip = true },
     { message = "^.*chore\\(deps\\):", group = "➕ Dependencies" },
+    { message = "^.*", group = "Other" },
 ]
 # protect breaking changes from being skipped due to matching a skipping commit_parser
 protect_breaking_commits = false

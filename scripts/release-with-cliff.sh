@@ -24,10 +24,10 @@ PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 # Generate changelog for this release only (since last tag)
 if [ -z "$PREVIOUS_TAG" ]; then
     # First release - include all commits
-    RELEASE_NOTES=$(git-cliff --unreleased --strip all)
+    RELEASE_NOTES=$(git-cliff --unreleased --tag "$VERSION" --strip all)
 else
     # Generate notes between previous tag and HEAD
-    RELEASE_NOTES=$(git-cliff $PREVIOUS_TAG..HEAD --strip all)
+    RELEASE_NOTES=$(git-cliff $PREVIOUS_TAG..HEAD --tag "$VERSION" --strip all)
 fi
 
 echo "Creating GitHub release for $VERSION..."
@@ -38,7 +38,10 @@ echo ""
 
 # Determine if this is a prerelease
 PRERELEASE_FLAG=""
-if [[ $VERSION == *"beta"* ]] || [[ $VERSION == *"alpha"* ]] || [[ $VERSION == *"rc"* ]]; then
+# if [[ $VERSION == *"beta"* ]] || [[ $VERSION == *"alpha"* ]] || [[ $VERSION == *"rc"* ]]; then
+#     PRERELEASE_FLAG="--prerelease"
+# fi
+if [[ $VERSION == *"alpha"* ]] || [[ $VERSION == *"rc"* ]]; then
     PRERELEASE_FLAG="--prerelease"
 fi
 
