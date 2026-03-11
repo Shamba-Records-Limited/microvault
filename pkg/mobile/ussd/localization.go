@@ -1,3 +1,4 @@
+// Package ussd provides multi-language string localization and formatting.
 package ussd
 
 import "fmt"
@@ -273,7 +274,7 @@ func GetLocalizedMessage(language, key string) string {
 }
 
 // Format provides string formatting with localization
-func Format(language, key string, args ...interface{}) string {
+func Format(language, key string, args ...any) string {
 	message := GetLocalizedMessage(language, key)
 	return fmt.Sprintf(message, args...)
 }

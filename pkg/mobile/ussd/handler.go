@@ -1,3 +1,4 @@
+// Package ussd provides the core USSD gateway handler and request routing.
 package ussd
 
 import (
@@ -50,7 +51,7 @@ func redactPhone(phone string) string {
 
 // toInt extracts an int from a session data value. JSON (Redis) round-trips
 // decode numbers as float64, so this handles both int and float64.
-func toInt(v interface{}) int {
+func toInt(v any) int {
 	switch n := v.(type) {
 	case int:
 		return n
@@ -63,7 +64,7 @@ func toInt(v interface{}) int {
 
 // toInt64 extracts an int64 from a session data value, handling the same
 // JSON float64 round-trip issue as toInt.
-func toInt64(v interface{}) int64 {
+func toInt64(v any) int64 {
 	switch n := v.(type) {
 	case int64:
 		return n
@@ -158,7 +159,7 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 	// User registered, associate with session and show main menu.
 	// Always reset to main menu to prevent stale CurrentMenu from a
 	// previous session with the same ID (AT retries, etc.).
-	if userMap, ok := user.(map[string]interface{}); ok {
+	if userMap, ok := user.(map[string]any); ok {
 		if id, ok := userMap["id"].(string); ok {
 			session.UserID = id
 		}
@@ -237,10 +238,6 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 	// Loan flow
 	case "request_loan", "loan_amount":
 		return h.handleLoanAmount(ctx, session, input)
-	case "loan_duration":
-		return h.handleLoanDuration(ctx, session, input)
-	case "repayment_schedule":
-		return h.handleRepaymentSchedule(ctx, session, input)
 	case "loan_confirm":
 		return h.handleLoanConfirm(ctx, session, input)
 	case "my_loans":
@@ -370,7 +367,7 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 	}
 
 	// Associate user with session.
-	if userMap, ok := user.(map[string]interface{}); ok {
+	if userMap, ok := user.(map[string]any); ok {
 		if id, ok := userMap["id"].(string); ok {
 			session.UserID = id
 		}
@@ -394,78 +391,35 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 	return h.formatResponse(session.Language, "END", "registration_success"), nil
 }
 
-// handleLoanAmount handles loan amount input in KES
+// handleLoanAmount validates the requested amount against the active loan
+// product's fiat limits, stores product defaults (duration, schedule), and
+// skips directly to the confirmation screen.
 func (h *USSDHandler) handleLoanAmount(ctx context.Context, session *Session, input string) (string, error) {
+	cfg := h.loanService.GetProductConfig()
+	if cfg == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
 	amount, err := strconv.ParseFloat(input, 64)
-	if err != nil || amount < 500 || amount > 500000 {
+	if err != nil || amount <= 0 {
 		return h.showLoanAmountMenu(session)
 	}
+	amountCents := int64(amount * 100)
 
-	// Store local currency amount in cents
-	session.Data["loan_amount_local"] = int64(amount * 100) // KES cents
-	session.Data["local_currency"] = "KES"
-	session.CurrentMenu = "loan_duration"
-	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+	if amountCents < cfg.MinAmountCents {
+		return fmt.Sprintf("END Minimum loan amount is %s %.0f",
+			cfg.Currency, float64(cfg.MinAmountCents)/100), nil
+	}
+	if amountCents > cfg.MaxAmountCents {
+		return fmt.Sprintf("END The amount requested exceeds the auto-approved limit of %s %.0f",
+			cfg.Currency, float64(cfg.MaxAmountCents)/100), nil
 	}
 
-	return h.showLoanDurationMenu(session)
-}
-
-// handleLoanDuration handles loan duration selection
-func (h *USSDHandler) handleLoanDuration(ctx context.Context, session *Session, input string) (string, error) {
-	var days int
-	switch input {
-	case "1":
-		days = 7
-	case "2":
-		days = 14
-	case "3":
-		days = 30
-	case "4":
-		days = 90
-	case "0":
-		session.CurrentMenu = "main"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
-		}
-		return h.showMainMenu(session)
-	default:
-		return h.showLoanDurationMenu(session)
-	}
-
-	session.Data["loan_duration"] = days
-	session.CurrentMenu = "repayment_schedule"
-	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
-	}
-
-	return h.showRepaymentScheduleMenu(session)
-}
-
-// handleRepaymentSchedule handles repayment schedule selection
-func (h *USSDHandler) handleRepaymentSchedule(ctx context.Context, session *Session, input string) (string, error) {
-	var schedule string
-	switch input {
-	case "1":
-		schedule = "lump_sum"
-	case "2":
-		schedule = "weekly"
-	case "3":
-		schedule = "bi_weekly"
-	case "4":
-		schedule = "monthly"
-	case "0":
-		session.CurrentMenu = "loan_duration"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
-		}
-		return h.showLoanDurationMenu(session)
-	default:
-		return h.showRepaymentScheduleMenu(session)
-	}
-
-	session.Data["repayment_schedule"] = schedule
+	session.Data["loan_amount_local"] = amountCents
+	session.Data["local_currency"] = cfg.Currency
+	session.Data["loan_duration"] = cfg.DurationDays
+	session.Data["repayment_schedule"] = cfg.RepaymentSchedule
+	session.Data["product_id"] = cfg.ProductID
 	session.CurrentMenu = "loan_confirm"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
@@ -498,34 +452,57 @@ func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, i
 }
 
 // submitLoan executes the actual loan request after all gates (PIN, eligibility)
-// have passed.
+// have passed. KES→USDC conversion happens in the adapter's RequestLoan method,
+// so this function passes the fiat amount and lets the adapter handle conversion.
 func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string, error) {
 	if h.userService == nil || h.loanService == nil {
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	// Get loan details from session
-	amount := toInt64(session.Data["loan_amount"])
+	// Get loan details from session.
 	duration := toInt(session.Data["loan_duration"])
 	schedule, _ := session.Data["repayment_schedule"].(string)
+	productID, _ := session.Data["product_id"].(string)
 
-	// Get user and first account
+	// Fetch exchange rate for KES → USDC conversion.
+	localAmount := toInt64(session.Data["loan_amount_local"])
+	localCurrency, _ := session.Data["local_currency"].(string)
+
+	var buyRate float64
+	if h.rateService != nil {
+		rate, err := h.rateService.GetExchangeRate(ctx, localCurrency)
+		if err != nil {
+			log.Printf("submitLoan: failed to get exchange rate: %v", err)
+			return h.formatError(session.Language, "error"), nil
+		}
+		buyRate = rate
+	} else {
+		buyRate = 153.50 // fallback
+	}
+
+	// Convert local currency to USDC stroops: (fiat / rate) * 1e7
+	fiatAmount := float64(localAmount) / 100.0
+	usdcStroops := int64(fiatAmount / buyRate * 1e7)
+
+	// Get user and first account.
 	userData, accounts, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
 	if err != nil || len(accounts) == 0 {
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	// Extract account ID
-	var accountID string
-	if accMap, ok := accounts[0].(map[string]interface{}); ok {
+	var accountID, stellarAddress string
+	if accMap, ok := accounts[0].(map[string]any); ok {
 		if id, ok := accMap["id"].(string); ok {
 			accountID = id
 		}
+		if pk, ok := accMap["public_key"].(string); ok {
+			stellarAddress = pk
+		}
 	}
 
-	// Extract user disbursement details for off-ramp
+	// Extract user disbursement details for off-ramp.
 	var recipientName, nationalID, countryCode, networkCode, networkName string
-	if userMap, ok := userData.(map[string]interface{}); ok {
+	if userMap, ok := userData.(map[string]any); ok {
 		if v, ok := userMap["full_name"].(*string); ok && v != nil {
 			recipientName = *v
 		}
@@ -543,38 +520,39 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		}
 	}
 
-	// Extract local currency data from session
-	localAmount := toInt64(session.Data["loan_amount_local"])
-	localCurrency, _ := session.Data["local_currency"].(string)
-	conversionRate, _ := session.Data["conversion_rate"].(float64)
-
-	// Submit loan request
-	_, err = h.loanService.RequestLoan(ctx, &LoanRequest{
+	// Fire off the disbursement pipeline asynchronously so the USSD session
+	// ends immediately. The user is notified via SMS on success or failure.
+	loanReq := &LoanRequest{
 		UserID:          session.UserID,
 		AccountID:       accountID,
+		StellarAddress:  stellarAddress,
+		ProductID:       productID,
 		PhoneNumber:     session.PhoneNumber,
 		RecipientName:   recipientName,
 		NationalID:      nationalID,
 		CountryCode:     countryCode,
 		NetworkCode:     networkCode,
 		NetworkName:     networkName,
-		PrincipalAmount: amount,
+		PrincipalAmount: usdcStroops,
 		PrincipalAsset:  "USDC",
 		DurationDays:    duration,
 		RepaymentSched:  schedule,
 		LocalAmount:     localAmount,
 		LocalCurrency:   localCurrency,
-		ConversionRate:  conversionRate,
-	})
-
-	if err != nil {
-		if strings.Contains(err.Error(), "credit score") {
-			return h.formatResponse(session.Language, "END", "insufficient_credit"), nil
-		}
-		return h.formatError(session.Language, "error"), nil
+		ConversionRate:  buyRate,
 	}
+	go func() {
+		// Use a detached context so the pipeline isn't cancelled when the
+		// USSD request context expires.
+		bgCtx := context.Background()
+		if _, err := h.loanService.RequestLoan(bgCtx, loanReq); err != nil {
+			log.Printf("async loan disbursement failed: user=%s error=%v", loanReq.UserID, err)
+		}
+	}()
 
-	return h.formatResponse(session.Language, "END", "loan_request_submitted"), nil
+	localKES := float64(localAmount) / 100
+	return fmt.Sprintf("END Your loan of %s %.0f is being processed. You will receive a notification when disbursement is successful.",
+		localCurrency, localKES), nil
 }
 
 // handleMyLoans shows user's loans
@@ -604,7 +582,7 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 		var status = "Unknown"
 		var displayAmount string
 
-		if loanMap, ok := loan.(map[string]interface{}); ok {
+		if loanMap, ok := loan.(map[string]any); ok {
 			if ref, ok := loanMap["loan_number"].(string); ok {
 				loanRef = ref
 			}
@@ -638,9 +616,9 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, inp
 	}
 
 	// Filter for active/disbursed loans only
-	var activeLoans []interface{}
+	var activeLoans []any
 	for _, loan := range loans {
-		if loanMap, ok := loan.(map[string]interface{}); ok {
+		if loanMap, ok := loan.(map[string]any); ok {
 			if status, ok := loanMap["status"].(string); ok {
 				if status == "disbursed" || status == "defaulted" {
 					activeLoans = append(activeLoans, loan)
@@ -668,7 +646,7 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, inp
 		var loanRef = "N/A"
 		var displayAmount string
 
-		if loanMap, ok := loan.(map[string]interface{}); ok {
+		if loanMap, ok := loan.(map[string]any); ok {
 			if ref, ok := loanMap["loan_number"].(string); ok {
 				loanRef = ref
 			}
@@ -731,18 +709,14 @@ func (h *USSDHandler) showRegistrationMenu(session *Session) (string, error) {
 }
 
 func (h *USSDHandler) showLoanAmountMenu(session *Session) (string, error) {
-	menu, _ := h.menuRegistry.Get("loan_amount")
-	return "CON " + menu.Render(session.Language), nil
-}
-
-func (h *USSDHandler) showLoanDurationMenu(session *Session) (string, error) {
-	menu, _ := h.menuRegistry.Get("loan_duration")
-	return "CON " + menu.Render(session.Language), nil
-}
-
-func (h *USSDHandler) showRepaymentScheduleMenu(session *Session) (string, error) {
-	menu, _ := h.menuRegistry.Get("repayment_schedule")
-	return "CON " + menu.Render(session.Language), nil
+	cfg := h.loanService.GetProductConfig()
+	if cfg == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+	minFiat := float64(cfg.MinAmountCents) / 100
+	maxFiat := float64(cfg.MaxAmountCents) / 100
+	return fmt.Sprintf("CON Enter amount to borrow in %s (min %.0f, max %.0f):",
+		cfg.Currency, minFiat, maxFiat), nil
 }
 
 func (h *USSDHandler) showAccountMenu(session *Session) (string, error) {
@@ -750,69 +724,27 @@ func (h *USSDHandler) showAccountMenu(session *Session) (string, error) {
 	return "CON " + menu.Render(session.Language), nil
 }
 
-func (h *USSDHandler) showLoanConfirmation(ctx context.Context, session *Session) (string, error) {
-	if h.loanService == nil {
+// showLoanConfirmation displays a summary with principal amount and duration
+// only. APR, estimated total, and exchange rate are intentionally omitted —
+// the repayment total is computed later and the APR is dynamic.
+func (h *USSDHandler) showLoanConfirmation(_ context.Context, session *Session) (string, error) {
+	cfg := h.loanService.GetProductConfig()
+	if cfg == nil {
 		return h.formatError(session.Language, "error"), nil
 	}
 
 	localAmountCents := toInt64(session.Data["loan_amount_local"])
-	duration := toInt(session.Data["loan_duration"])
+	localAmount := float64(localAmountCents) / 100
+	duration := cfg.DurationDays
 
-	// Fetch exchange rate
-	var buyRate float64
-	if h.rateService != nil {
-		rate, err := h.rateService.GetExchangeRate(ctx, "KES")
-		if err != nil {
-			log.Printf("showLoanConfirmation: failed to get exchange rate: %v", err)
-			return h.formatError(session.Language, "error"), nil
-		}
-		buyRate = rate
-	} else {
-		buyRate = 153.50 // fallback
-	}
-
-	// Convert KES to USDC stroops: (KES / rate) * 1e7
-	localAmount := float64(localAmountCents) / 100.0
-	usdcStroops := int64(localAmount / buyRate * 1e7)
-
-	// Store converted amount and rate in session
-	session.Data["loan_amount"] = usdcStroops
-	session.Data["conversion_rate"] = buyRate
-
-	// Check eligibility with USDC amount
-	approval, err := h.loanService.CheckLoanEligibility(ctx, session.UserID, usdcStroops, duration)
-	if err != nil || !approval.Approved {
-		reason := "Unknown error"
-		if approval != nil {
-			reason = approval.Reason
-		}
-		return h.formatResponse(session.Language, "END", fmt.Sprintf("Loan not approved: %s", reason)), nil
-	}
-
-	// Calculate estimated interest in KES
-	interestRate := approval.InterestRate * 100
-	interestAmountKES := localAmount * approval.InterestRate * float64(duration) / 365.0
-	totalKES := localAmount + interestAmountKES
-
-	var response strings.Builder
-	response.WriteString("Loan Summary:\n")
-	response.WriteString(fmt.Sprintf("Amount: KES %.0f\n", localAmount))
-	response.WriteString(fmt.Sprintf("Duration: %d days\n", duration))
-	response.WriteString(fmt.Sprintf("Interest: ~%.1f%%\n", interestRate))
-	response.WriteString(fmt.Sprintf("Est. Total: ~KES %.0f\n", totalKES))
-	response.WriteString(fmt.Sprintf("Rate: 1 USD = %.2f KES\n\n", buyRate))
-	response.WriteString("1. Confirm\n0. Cancel")
-
-	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
-	}
-
-	return h.formatResponse(session.Language, "CON", response.String()), nil
+	summary := fmt.Sprintf("Loan of %s %.0f for %d days\n\n1. Confirm\n0. Cancel",
+		cfg.Currency, localAmount, duration)
+	return "CON " + summary, nil
 }
 
-// ============================================================================
-// PIN Creation Handlers (Registration Flow)
-// ============================================================================
+//
+// # PIN Creation Handlers (Registration Flow)
+//
 
 // handlePINCreate validates and temporarily stores a new PIN during registration.
 func (h *USSDHandler) handlePINCreate(ctx context.Context, session *Session, input string) (string, error) {
@@ -868,9 +800,9 @@ func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, in
 	return h.showMenu(session, "security_q1_select")
 }
 
-// ============================================================================
-// Security Question Handlers
-// ============================================================================
+//
+// # Security Question Handlers
+//
 
 // handleSecurityQ1Select stores the selected question ID and prompts for answer.
 func (h *USSDHandler) handleSecurityQ1Select(ctx context.Context, session *Session, input string) (string, error) {
@@ -975,9 +907,9 @@ func (h *USSDHandler) handleSecurityQ2Answer(ctx context.Context, session *Sessi
 	return h.formatResponse(session.Language, "END", "registration_complete"), nil
 }
 
-// ============================================================================
-// PIN Verification Gate Handlers
-// ============================================================================
+//
+// # PIN Verification Gate Handlers
+//
 
 // handlePINVerifyLoan verifies the user's PIN before submitting a loan request.
 func (h *USSDHandler) handlePINVerifyLoan(ctx context.Context, session *Session, input string) (string, error) {
@@ -1037,9 +969,9 @@ func (h *USSDHandler) handlePINVerifyRepay(ctx context.Context, session *Session
 	return h.handleRepayLoan(ctx, session, "")
 }
 
-// ============================================================================
-// PIN Manager Handlers
-// ============================================================================
+//
+// # PIN Manager Handlers
+//
 
 // handlePINManager routes PIN Manager submenu selections.
 func (h *USSDHandler) handlePINManager(ctx context.Context, session *Session, input string) (string, error) {
@@ -1155,9 +1087,9 @@ func (h *USSDHandler) handlePINChangeConfirm(ctx context.Context, session *Sessi
 	return h.formatResponse(session.Language, "END", "pin_changed"), nil
 }
 
-// ============================================================================
-// PIN Recovery Handlers
-// ============================================================================
+//
+// # PIN Recovery Handlers
+//
 
 // handlePINRecoveryNationalID verifies the user's national ID to begin recovery.
 func (h *USSDHandler) handlePINRecoveryNationalID(ctx context.Context, session *Session, input string) (string, error) {
@@ -1172,7 +1104,7 @@ func (h *USSDHandler) handlePINRecoveryNationalID(ctx context.Context, session *
 	}
 
 	var storedNationalID string
-	if userMap, ok := user.(map[string]interface{}); ok {
+	if userMap, ok := user.(map[string]any); ok {
 		if v, ok := userMap["national_id"].(string); ok {
 			storedNationalID = v
 		}
@@ -1294,9 +1226,9 @@ func (h *USSDHandler) handlePINRecoveryConfirm(ctx context.Context, session *Ses
 	return h.formatResponse(session.Language, "END", "recovery_success"), nil
 }
 
-// ============================================================================
-// Helper Methods
-// ============================================================================
+//
+// # Helper Methods
+//
 
 // showMenu is a generic helper that renders a registered menu by ID.
 func (h *USSDHandler) showMenu(session *Session, menuID string) (string, error) {

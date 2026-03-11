@@ -27,12 +27,10 @@ type yellowcardTransport struct {
 
 // RoundTrip signs the request and passes it to the base transport.
 func (t *yellowcardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	date := time.Now().UTC().Format(time.RFC3339)
+	date := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 
+	// Sign path only — query string is excluded per YellowCard docs.
 	path := req.URL.Path
-	if req.URL.RawQuery != "" {
-		path = fmt.Sprintf("%s?%s", path, req.URL.RawQuery)
-	}
 
 	h := hmac.New(sha256.New, []byte(t.secretKey))
 	h.Write([]byte(date))
@@ -166,12 +164,12 @@ func (y *YellowcardAdapter) GetChannels(ctx context.Context, country string) ([]
 		return nil, y.parseError(resp)
 	}
 
-	var channels []Channel
-	if err := json.NewDecoder(resp.Body).Decode(&channels); err != nil {
+	var channelsResp ChannelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&channelsResp); err != nil {
 		return nil, fmt.Errorf("yellowcard: failed to decode response: %w", err)
 	}
 
-	return channels, nil
+	return channelsResp.Channels, nil
 }
 
 // GetNetworks retrieves available banks and mobile money operators for a country.
@@ -196,12 +194,12 @@ func (y *YellowcardAdapter) GetNetworks(ctx context.Context, country string) ([]
 		return nil, y.parseError(resp)
 	}
 
-	var networks []Network
-	if err := json.NewDecoder(resp.Body).Decode(&networks); err != nil {
+	var networksResp NetworksResponse
+	if err := json.NewDecoder(resp.Body).Decode(&networksResp); err != nil {
 		return nil, fmt.Errorf("yellowcard: failed to decode response: %w", err)
 	}
 
-	return networks, nil
+	return networksResp.Networks, nil
 }
 
 // GetAccount retrieves account balances.

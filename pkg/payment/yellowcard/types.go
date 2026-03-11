@@ -1,6 +1,8 @@
 // Package yellowcard provides types and client for the YellowCard payment API.
 package yellowcard
 
+import "encoding/json"
+
 // Channel represents a YellowCard payment channel such as bank transfer or mobile money.
 type Channel struct {
 	ID                      string                 `json:"id"`
@@ -27,17 +29,34 @@ type Channel struct {
 }
 
 // Network represents a bank or mobile money operator in the YellowCard system.
+// The Code field is polymorphic: a plain string for MoMo networks (e.g. "M PESA")
+// or a JSON object (branch-code map) for bank networks. Use CodeString() to safely
+// extract the string form.
 type Network struct {
-	ID                       string   `json:"id"`
-	Name                     string   `json:"name"`
-	Code                     string   `json:"code"`
-	Country                  string   `json:"country"`
-	Status                   string   `json:"status"`
-	AccountNumberType        string   `json:"accountNumberType"`
-	CountryAccountNumberType string   `json:"countryAccountNumberType"`
-	ChannelIDs               []string `json:"channelIds"`
-	CreatedAt                string   `json:"createdAt"`
-	UpdatedAt                string   `json:"updatedAt"`
+	ID                       string          `json:"id"`
+	Name                     string          `json:"name"`
+	Code                     json.RawMessage `json:"code"`
+	Country                  string          `json:"country"`
+	Status                   string          `json:"status"`
+	AccountNumberType        string          `json:"accountNumberType"`
+	CountryAccountNumberType string          `json:"countryAccountNumberType"`
+	ChannelIDs               []string        `json:"channelIds"`
+	CreatedAt                string          `json:"createdAt"`
+	UpdatedAt                string          `json:"updatedAt"`
+}
+
+// CodeString returns the network code as a string.
+// For MoMo networks, this is the plain code (e.g. "M PESA").
+// For bank networks where code is an object, it returns an empty string.
+func (n *Network) CodeString() string {
+	if len(n.Code) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(n.Code, &s) == nil {
+		return s
+	}
+	return ""
 }
 
 // Rate represents exchange rate information between USD and a local currency.
@@ -53,6 +72,16 @@ type Rate struct {
 // RatesResponse wraps the rates array returned from the YellowCard rates endpoint.
 type RatesResponse struct {
 	Rates []Rate `json:"rates"`
+}
+
+// ChannelsResponse wraps the channels array returned from the YellowCard channels endpoint.
+type ChannelsResponse struct {
+	Channels []Channel `json:"channels"`
+}
+
+// NetworksResponse wraps the networks array returned from the YellowCard networks endpoint.
+type NetworksResponse struct {
+	Networks []Network `json:"networks"`
 }
 
 // Sender contains KYC details for the payment sender.

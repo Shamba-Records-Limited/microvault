@@ -1,3 +1,4 @@
+// Package ussd provides the core USSD gateway, session management, and menu routing logic.
 package ussd
 
 import (
@@ -55,7 +56,7 @@ func (s *USSDService) DeleteAllProviders() error {
 }
 
 // HandleRequest processes a USSD request using the specified provider.
-func (s *USSDService) HandleRequest(ctx context.Context, providerName string, data map[string]string) (interface{}, error) {
+func (s *USSDService) HandleRequest(ctx context.Context, providerName string, data map[string]string) (any, error) {
 	// Get the provider
 	provider, err := s.GetProvider(providerName)
 	if err != nil {

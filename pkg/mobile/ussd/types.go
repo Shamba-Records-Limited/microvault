@@ -1,3 +1,4 @@
+// Package ussd provides the types and interfaces for the USSD application flow.
 package ussd
 
 import (
@@ -9,11 +10,11 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ============================================================================
-// Session Types
-// ============================================================================
+//
+// # Session Types
+//
 
-// Session represents a USSD session
+// Session represents a single interactive USSD session with a mobile user.
 type Session struct {
 	SessionID     string                 `json:"session_id"`
 	PhoneNumber   string                 `json:"phone_number"`
@@ -23,30 +24,32 @@ type Session struct {
 	CurrentMenu   string                 `json:"current_menu"`
 	PreviousMenus []string               `json:"previous_menus"`
 	Language      string                 `json:"language"`
-	Data          map[string]interface{} `json:"data"`
+	Data          map[string]any `json:"data"`
 	CreatedAt     time.Time              `json:"created_at"`
 	UpdatedAt     time.Time              `json:"updated_at"`
 }
 
-// SessionManager manages USSD sessions
+// SessionManager handles the storage, retrieval, and lifecycle of USSD sessions.
 type SessionManager struct {
 	cache           *redis.Client
 	sessionDuration time.Duration
 }
 
-// ============================================================================
-// Menu Types
-// ============================================================================
+//
+// # Menu Types
+//
 
-// MenuType represents the type of menu response
+// MenuType defines the action to be taken by the USSD gateway after a response.
 type MenuType string
 
 const (
-	MenuTypeContinue MenuType = "CON" // Continue session
-	MenuTypeEnd      MenuType = "END" // End session
+	// MenuTypeContinue instructs the gateway to keep the session open for further input.
+	MenuTypeContinue MenuType = "CON"
+	// MenuTypeEnd instructs the gateway to terminate the session after displaying the message.
+	MenuTypeEnd MenuType = "END"
 )
 
-// Menu represents a USSD menu
+// Menu defines a single screen or interaction point within a USSD application.
 type Menu struct {
 	ID           string
 	Title        map[string]string // Language -> Title
@@ -56,7 +59,7 @@ type Menu struct {
 	RequiresAuth bool
 }
 
-// MenuOption represents a menu option
+// MenuOption represents a user-selectable choice within a Menu.
 type MenuOption struct {
 	Key        string
 	Label      map[string]string // Language -> Label
@@ -64,37 +67,37 @@ type MenuOption struct {
 	Handler    MenuHandler
 }
 
-// MenuHandler is a function that handles menu logic
+// MenuHandler defines the signature for functions that process user input and return the next menu response.
 type MenuHandler func(ctx *MenuContext) (*MenuResponse, error)
 
-// MenuContext provides context for menu handlers
+// MenuContext encapsulates the state and dependencies required by a MenuHandler during execution.
 type MenuContext struct {
 	Session *Session
 	Input   string
 	Manager *SessionManager
 }
 
-// MenuResponse represents a menu response
+// MenuResponse contains the data sent back to the USSD gateway to be displayed to the user.
 type MenuResponse struct {
 	Type    MenuType
 	Message string
 }
 
-// MenuRegistry manages all USSD menus
+// MenuRegistry stores and provides access to all configured menus in the USSD application.
 type MenuRegistry struct {
 	menus map[string]*Menu
 }
 
-// MenuBuilder helps build menus programmatically
+// MenuBuilder provides a fluent interface for programmatically constructing Menu instances.
 type MenuBuilder struct {
 	menu *Menu
 }
 
-// ============================================================================
-// Handler Types
-// ============================================================================
+//
+// # Handler Types
+//
 
-// USSDHandler handles USSD requests.
+// USSDHandler orchestrates the processing of incoming USSD requests, managing sessions and routing to appropriate menus.
 type USSDHandler struct {
 	sessionManager  *SessionManager
 	menuRegistry    *MenuRegistry
@@ -105,11 +108,11 @@ type USSDHandler struct {
 	accountNotifier contracts.AccountNotifier
 }
 
-// ============================================================================
-// Provider Types
-// ============================================================================
+//
+// # Provider Types
+//
 
-// USSDRequest represents a USSD request from the provider
+// USSDRequest encapsulates the normalized data received from a USSD gateway provider.
 type USSDRequest struct {
 	SessionID    string
 	PhoneNumber  string
@@ -119,53 +122,79 @@ type USSDRequest struct {
 	ProviderData map[string]string // For provider-specific data
 }
 
-// USSDResponse represents a USSD response to be sent back
+// USSDResponse contains the formatted data to be returned to the USSD gateway provider.
 type USSDResponse struct {
 	Type    string // "CON" for continue, "END" for terminate
 	Message string
 }
 
-// USSDProvider is an interface for handling USSD requests from different providers
+// USSDProvider defines the contract for integrating with different telecommunication USSD gateways.
 type USSDProvider interface {
-	// ParseRequest parses the provider-specific HTTP request into a standardized USSDRequest
+	// ParseRequest parses the provider-specific HTTP request into a standardized USSDRequest.
 	ParseRequest(ctx context.Context, data map[string]string) (*USSDRequest, error)
 
-	// FormatResponse formats the USSDResponse into the provider-specific response format
-	FormatResponse(ctx context.Context, response *USSDResponse) (interface{}, error)
+	// FormatResponse formats the USSDResponse into the provider-specific response format.
+	FormatResponse(ctx context.Context, response *USSDResponse) (any, error)
 
-	// GetProviderName returns the name of the USSD provider
+	// GetProviderName returns the name of the USSD provider.
 	GetProviderName() string
 
-	// ValidateRequest validates the incoming request from the provider
+	// ValidateRequest validates the incoming request from the provider.
 	ValidateRequest(ctx context.Context, data map[string]string) error
 }
 
-// USSDService manages USSD providers and routes requests
+// USSDService manages multiple USSD providers and routes incoming requests to the appropriate handler.
 type USSDService struct {
 	providers map[string]USSDProvider
 	handler   *USSDHandler
 }
 
-// ============================================================================
-// Service Interface Types
-// ============================================================================
+//
+// # Service Interface Types
+//
 
-// UserService defines the interface for user-related operations
+// UserService defines the contract for user identity and account management operations required by the USSD flow.
 type UserService interface {
-	GetUserWithAccounts(ctx context.Context, userIDOrPhone string) (interface{}, []interface{}, error)
-	RegisterUser(ctx context.Context, req *RegisterUserRequest) (interface{}, []interface{}, error)
+	// GetUserWithAccounts retrieves a user and their associated accounts.
+	GetUserWithAccounts(ctx context.Context, userIDOrPhone string) (any, []any, error)
+	// RegisterUser creates a new user account based on the provided registration request.
+	RegisterUser(ctx context.Context, req *RegisterUserRequest) (any, []any, error)
 }
 
 // RateService provides exchange rate lookups for local currency conversion.
 type RateService interface {
+	// GetExchangeRate returns the current buying rate for the specified currency.
 	GetExchangeRate(ctx context.Context, currency string) (buyRate float64, err error)
 }
 
-// LoanService defines the interface for loan-related operations
+// LoanService defines the interface for loan-related operations.
+// Implementations live in microvault-credit; the USSD handler depends only on
+// this consumer-defined interface.
 type LoanService interface {
-	GetUserLoans(ctx context.Context, userID string) ([]interface{}, error)
-	RequestLoan(ctx context.Context, req *LoanRequest) (interface{}, error)
+	// GetUserLoans returns all loans for the given user, formatted for USSD display.
+	GetUserLoans(ctx context.Context, userID string) ([]any, error)
+
+	// RequestLoan orchestrates the full loan disbursement cycle.
+	RequestLoan(ctx context.Context, req *LoanRequest) (any, error)
+
+	// CheckLoanEligibility checks whether the user qualifies for the requested amount.
 	CheckLoanEligibility(ctx context.Context, userID string, amount int64, duration int) (*LoanApproval, error)
+
+	// GetProductConfig returns the active loan product parameters used by the
+	// USSD flow (limits, duration, schedule). Returns nil when no product is configured.
+	GetProductConfig() *LoanProductConfig
+}
+
+// LoanProductConfig provides loan product parameters for the USSD flow.
+// It is loaded once at startup from the highest-priority active loan product.
+type LoanProductConfig struct {
+	ProductID         string // UUID of the loan product record.
+	MinAmountCents    int64  // Minimum loan in fiat cents (e.g. 50000 = KES 500).
+	MaxAmountCents    int64  // Maximum auto-approved loan in fiat cents (e.g. 300000 = KES 3,000).
+	Currency          string // ISO 4217 currency code (e.g. "KES").
+	DurationDays      int    // Fixed loan term in days (e.g. 30).
+	RepaymentSchedule string // Repayment cadence (e.g. "lump_sum").
+	InterestRateBps   int32  // Fallback annual rate in basis points; vault APR takes precedence.
 }
 
 // PINService defines the interface for PIN management operations used by the
@@ -203,7 +232,7 @@ type PINService interface {
 	GetRemainingAttempts(ctx context.Context, userID string) (int, error)
 }
 
-// RegisterUserRequest represents a user registration request
+// RegisterUserRequest contains the necessary information to register a new user via USSD.
 type RegisterUserRequest struct {
 	MobileNumber      string
 	MobileCountryCode string
@@ -213,83 +242,85 @@ type RegisterUserRequest struct {
 	PreferredLanguage string
 }
 
-// LoanRequest represents a loan request
+// LoanRequest represents a loan request from the USSD flow.
 type LoanRequest struct {
 	UserID          string
-	AccountID       string
+	AccountID       string // Database UUID of the user's account record.
+	StellarAddress  string // Stellar public key for vault borrow recipient.
+	ProductID       string // Loan product ID from LoanProductConfig.
 	PhoneNumber     string
 	RecipientName   string
 	NationalID      string
 	CountryCode     string
 	NetworkCode     string
 	NetworkName     string
-	PrincipalAmount int64 // USDC amount in stroops
+	PrincipalAmount int64 // USDC amount in stroops (converted from local currency).
 	PrincipalAsset  string
 	DurationDays    int
 	RepaymentSched  string
-	LocalAmount     int64   // Local currency amount in cents (e.g. KES cents)
-	LocalCurrency   string  // Local currency code (e.g. "KES")
-	ConversionRate  float64 // YC buy rate at quote time (e.g. 153.50)
+	LocalAmount     int64   // Local currency amount in cents (e.g. KES cents).
+	LocalCurrency   string  // ISO 4217 currency code (e.g. "KES").
+	ConversionRate  float64 // YellowCard buy rate at quote time (e.g. 153.50).
 }
 
-// LoanApproval represents a loan approval decision
+// LoanApproval contains the result of a loan eligibility check, including approval status and terms.
 type LoanApproval struct {
 	Approved     bool
 	Reason       string
 	InterestRate float64
 }
 
-// ============================================================================
-// Menu Preset Types
-// ============================================================================
+//
+// # Menu Preset Types
+//
 
-// MenuPreset defines a set of menus for a specific use case or provider
+// MenuPreset defines a reusable collection of menus for a specific workflow or use case.
 type MenuPreset interface {
-	// Initialize loads menus into the registry
+	// Initialize loads menus into the registry.
 	Initialize(registry *MenuRegistry)
 
-	// GetName returns the preset name
+	// GetName returns the preset name.
 	GetName() string
 }
 
-// StandardLoanMenuPreset provides standard loan application menus
+// StandardLoanMenuPreset provides the standard set of menus for the default loan application flow.
 type StandardLoanMenuPreset struct{}
 
-// SimplifiedMenuPreset provides a simplified menu structure
+// SimplifiedMenuPreset provides a streamlined set of menus with fewer steps.
 type SimplifiedMenuPreset struct{}
 
-// CustomMenuPreset allows for completely custom menu structures
+// CustomMenuPreset allows for the definition of arbitrary menu flows.
 type CustomMenuPreset struct {
 	name  string
 	menus []*Menu
 }
 
-// ============================================================================
-// Localizer Types
-// ============================================================================
+//
+// # Localizer Types
+//
 
-// Localizer provides localization services
+// Localizer defines the contract for retrieving translated strings based on language preferences.
 type Localizer interface {
-	// Get retrieves a localized message
+	// Get retrieves a localized message.
 	Get(language, key string) string
 
-	// GetWithDefault retrieves a localized message with a default fallback
+	// GetWithDefault retrieves a localized message with a default fallback.
 	GetWithDefault(language, key, defaultMsg string) string
 
-	// HasKey checks if a key exists
+	// HasKey checks if a key exists.
 	HasKey(key string) bool
 
-	// AddTranslation adds a translation
+	// AddTranslation adds a translation.
 	AddTranslation(key, language, message string)
 }
 
-// InMemoryLocalizer stores translations in memory
+// InMemoryLocalizer implements Localizer using an in-memory map for fast translation lookups.
 type InMemoryLocalizer struct {
 	translations map[string]map[string]string // key -> language -> message
 	defaultLang  string
 }
 
-// TranslationBuilder helps build translations
+// TranslationBuilder provides a fluent interface for populating an InMemoryLocalizer.
 type TranslationBuilder struct {
 	localizer *InMemoryLocalizer
 }

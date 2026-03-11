@@ -101,18 +101,32 @@ func scValToU64(val xdr.ScVal) (uint64, error) {
 // extracts the recipient address from the Borrowed contract event.
 // The Borrowed event has topics [symbol("Borrowed")] and data containing
 // {treasury, recipient, amount, total_borrowed} as a struct/map.
+// Supports both V3 (events in SorobanMeta) and V4 (events at top level) metadata.
 func extractBorrowedRecipient(resultMetaXDR string, contractID string) (string, error) {
 	var meta xdr.TransactionMeta
 	if err := xdr.SafeUnmarshalBase64(resultMetaXDR, &meta); err != nil {
 		return "", fmt.Errorf("failed to decode result meta: %w", err)
 	}
 
-	sorobanMeta := meta.MustV3().SorobanMeta
-	if sorobanMeta == nil {
-		return "", fmt.Errorf("no soroban metadata in transaction")
+	// Extract contract events from the appropriate metadata version.
+	var events []xdr.ContractEvent
+	switch meta.V {
+	case 3:
+		v3 := meta.MustV3()
+		if v3.SorobanMeta == nil {
+			return "", fmt.Errorf("no soroban metadata in V3 transaction")
+		}
+		events = v3.SorobanMeta.Events
+	case 4:
+		v4 := meta.MustV4()
+		for _, txEvent := range v4.Events {
+			events = append(events, txEvent.Event)
+		}
+	default:
+		return "", fmt.Errorf("unsupported transaction meta version: %d", meta.V)
 	}
 
-	// Decode the expected contract address for matching
+	// Decode the expected contract address for matching.
 	contractBytes, err := strkey.Decode(strkey.VersionByteContract, contractID)
 	if err != nil {
 		return "", fmt.Errorf("invalid contract ID: %w", err)
@@ -120,8 +134,8 @@ func extractBorrowedRecipient(resultMetaXDR string, contractID string) (string, 
 	var expectedContractID xdr.ContractId
 	copy(expectedContractID[:], contractBytes)
 
-	for _, event := range sorobanMeta.Events {
-		// Only match events from our vault contract
+	for _, event := range events {
+		// Only match events from our vault contract.
 		if event.ContractId == nil || *event.ContractId != expectedContractID {
 			continue
 		}
@@ -129,7 +143,7 @@ func extractBorrowedRecipient(resultMetaXDR string, contractID string) (string, 
 			continue
 		}
 
-		// Check topic[0] == Symbol("Borrowed")
+		// Check topic[0] == Symbol("Borrowed").
 		topics := event.Body.MustV0().Topics
 		if len(topics) == 0 {
 			continue
@@ -138,7 +152,7 @@ func extractBorrowedRecipient(resultMetaXDR string, contractID string) (string, 
 			continue
 		}
 
-		// The event data is a Map with keys: treasury, recipient, amount, total_borrowed
+		// The event data is a Map with keys: treasury, recipient, amount, total_borrowed.
 		data := event.Body.MustV0().Data
 		if data.Type != xdr.ScValTypeScvMap {
 			continue
