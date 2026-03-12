@@ -106,7 +106,7 @@ func (y *YellowcardAdapter) InitializePayment(ctx context.Context, req payment.I
 		return "", fmt.Errorf("yellowcard: invalid provider options type")
 	}
 
-	amountUSD := int(req.Amount / 10_000_000)
+	amountUSD := float64(req.Amount) / 10_000_000
 
 	paymentReq := PaymentRequest{
 		ChannelID:    opts.ChannelID,

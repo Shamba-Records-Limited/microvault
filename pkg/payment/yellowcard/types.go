@@ -153,8 +153,8 @@ type PaymentRequest struct {
 	CustomerUID      string          `json:"customerUID"`
 	CustomerType     string          `json:"customerType"`
 	ForceAccept      bool            `json:"forceAccept"`
-	Amount           int             `json:"amount,omitempty"`
-	LocalAmount      int             `json:"localAmount,omitempty"`
+	Amount           float64         `json:"amount,omitempty"`
+	LocalAmount      float64         `json:"localAmount,omitempty"`
 	Currency         string          `json:"currency,omitempty"`
 	Country          string          `json:"country,omitempty"`
 	DirectSettlement bool            `json:"directSettlement,omitempty"`
@@ -168,8 +168,8 @@ type PaymentResponse struct {
 	SequenceID            string          `json:"sequenceId"`
 	Currency              string          `json:"currency"`
 	Country               string          `json:"country"`
-	Amount                int             `json:"amount"`
-	ConvertedAmount       int             `json:"convertedAmount"`
+	Amount                float64         `json:"amount"`
+	ConvertedAmount       float64         `json:"convertedAmount"`
 	Rate                  float64         `json:"rate"`
 	Reason                string          `json:"reason"`
 	Status                string          `json:"status"`
@@ -203,8 +203,8 @@ type PaymentDetails struct {
 	SessionID        string          `json:"sessionId,omitempty"`
 	Currency         string          `json:"currency"`
 	Country          string          `json:"country"`
-	Amount           int             `json:"amount"`
-	ConvertedAmount  int             `json:"convertedAmount"`
+	Amount           float64         `json:"amount"`
+	ConvertedAmount  float64         `json:"convertedAmount"`
 	Rate             float64         `json:"rate"`
 	Reason           string          `json:"reason"`
 	Status           string          `json:"status"`
@@ -229,8 +229,8 @@ type WebhookPayload struct {
 	PaymentID        string          `json:"id"`
 	SequenceID       string          `json:"sequenceId"`
 	Status           string          `json:"status"`
-	Amount           int             `json:"amount"`
-	ConvertedAmount  int             `json:"convertedAmount"`
+	Amount           float64         `json:"amount"`
+	ConvertedAmount  float64         `json:"convertedAmount"`
 	Currency         string          `json:"currency"`
 	Country          string          `json:"country"`
 	Rate             float64         `json:"rate"`

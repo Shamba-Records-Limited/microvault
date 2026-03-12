@@ -424,16 +424,19 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 
 // buildPaymentRequest constructs the base YellowCard PaymentRequest from resolved params.
 // Name fields are sanitized to letters and spaces only (YellowCard validation requirement).
+// Phone numbers are normalized to international format with '+' prefix.
 func (a *YellowCardOffRampAdapter) buildPaymentRequest(p *disbursementParams) yellowcard.PaymentRequest {
 	recipientName := sanitizeYCName(p.req.RecipientName)
 	if recipientName == "" {
 		recipientName = "Customer"
 	}
 
+	phone := normalizePhone(p.req.DestinationPhone)
+
 	return yellowcard.PaymentRequest{
 		ChannelID:    p.momoChannel.ID,
 		SequenceID:   p.idempotencyKey,
-		Amount:       int(p.req.AmountUSD),
+		Amount:       p.req.AmountUSD,
 		Reason:       "other",
 		CustomerUID:  p.req.UserID,
 		CustomerType: yellowcard.CustomerTypeInstitution,
@@ -443,7 +446,7 @@ func (a *YellowCardOffRampAdapter) buildPaymentRequest(p *disbursementParams) ye
 			BusinessName: sanitizeYCName(a.businessName),
 		},
 		Destination: yellowcard.Destination{
-			AccountNumber: p.req.DestinationPhone,
+			AccountNumber: phone,
 			AccountName:   recipientName,
 			AccountType:   yellowcard.ChannelTypeMomo,
 			NetworkID:     p.networkID,
@@ -457,6 +460,19 @@ func (a *YellowCardOffRampAdapter) buildPaymentRequest(p *disbursementParams) ye
 // to satisfy YellowCard's validation: "must be only characters and spaces".
 func sanitizeYCName(name string) string {
 	return strings.TrimSpace(ycNameRegexp.ReplaceAllString(name, ""))
+}
+
+// normalizePhone ensures the phone number is in international format with a '+' prefix.
+// YellowCard requires "+254..." not "254...".
+func normalizePhone(phone string) string {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return phone
+	}
+	if !strings.HasPrefix(phone, "+") {
+		phone = "+" + phone
+	}
+	return phone
 }
 
 // GetOffRampStatus retrieves the status of a disbursement from YellowCard.
