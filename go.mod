@@ -14,7 +14,7 @@ require (
 	github.com/hibiken/asynq v0.26.0
 	github.com/joho/godotenv v1.5.1
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
-	github.com/minio/minio-go/v7 v7.0.98
+	github.com/minio/minio-go/v7 v7.0.99
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/stellar/go-stellar-sdk v0.1.0
