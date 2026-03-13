@@ -233,7 +233,9 @@ impl MicroVaultContract {
             .set(&DataKey::BorrowIndex, &WAD_SCALE);
     }
 
-    // —— View functions ——————————————————————————————————————————————————
+    // ─────────────────────────────────────────────────────────────────────
+    // View Functions
+    // ─────────────────────────────────────────────────────────────────────
 
     /// Returns the treasury address.
     pub fn treasury(e: &Env) -> Result<Address, MicroVaultError> {
@@ -386,7 +388,9 @@ impl MicroVaultContract {
         }
     }
 
-    // —— Admin functions —————————————————————————————————————————————————
+    // ─────────────────────────────────────────────────────────────────────
+    // Admin Functions
+    // ─────────────────────────────────────────────────────────────────────
 
     /// Set the per-transaction maximum deposit limit. Owner only.
     #[only_owner]
@@ -470,7 +474,9 @@ impl MicroVaultContract {
         e.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
-    // —— Lock management (internal) —————————————————————————————————————
+    // ─────────────────────────────────────────────────────────────────────
+    // Lock Management (Internal)
+    // ─────────────────────────────────────────────────────────────────────
 
     /// Compute a weighted-average unlock time when a user deposits additional
     /// shares on top of existing ones.
@@ -519,7 +525,9 @@ impl MicroVaultContract {
         .publish(e);
     }
 
-    // —— Treasury management —————————————————————————————————————————————
+    // ─────────────────────────────────────────────────────────────────────
+    // Treasury Management
+    // ─────────────────────────────────────────────────────────────────────
 
     /// Update the treasury address. Owner only.
     ///
@@ -543,7 +551,9 @@ impl MicroVaultContract {
         .publish(e);
     }
 
-    // —— Emergency functions —————————————————————————————————————————————
+    // ─────────────────────────────────────────────────────────────────────
+    // Emergency Functions
+    // ─────────────────────────────────────────────────────────────────────
 
     /// Recover foreign tokens mistakenly sent to the vault. Treasury only.
     ///
@@ -587,7 +597,9 @@ impl MicroVaultContract {
         Ok(())
     }
 
-    // —— Credit delegation ———————————————————————————————————————————————
+    // ─────────────────────────────────────────────────────────────────────
+    // Credit Delegation
+    // ─────────────────────────────────────────────────────────────────────
 
     /// Accrue compound interest on the outstanding borrow using per-second
     /// compounding via `Wad::pow`.
