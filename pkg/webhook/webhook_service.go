@@ -27,6 +27,10 @@ type DisbursementUpdater interface {
 
 	// NotifyDisbursementFailed sends a notification (SMS) to the user that their disbursement failed.
 	NotifyDisbursementFailed(sequenceID string) error
+
+	// RepayVault returns borrowed USDC from treasury to the vault pool for the
+	// loan identified by sequenceID. No-op if already repaid.
+	RepayVault(sequenceID string) error
 }
 
 // AlertService is the interface for sending operational alerts.
