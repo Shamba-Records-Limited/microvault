@@ -1,7 +1,5 @@
-import { createRouter, createRoute, createRootRoute } from "@tanstack/react-router";
+import { createRouter, createRoute, createRootRoute, lazyRouteComponent } from "@tanstack/react-router";
 import RootLayout from "./routes/__root";
-import IndexPage from "./routes/index";
-import OurApproachPage from "./routes/our-approach";
 import NotFoundPage from "./routes/not-found";
 
 const rootRoute = createRootRoute({
@@ -12,13 +10,13 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: IndexPage,
+  component: lazyRouteComponent(() => import("./routes/index")),
 });
 
 const ourApproachRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/our-approach",
-  component: OurApproachPage,
+  component: lazyRouteComponent(() => import("./routes/our-approach")),
 });
 
 const routeTree = rootRoute.addChildren([indexRoute, ourApproachRoute]);
