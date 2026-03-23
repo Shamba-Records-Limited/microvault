@@ -102,7 +102,9 @@ fn setup_vault_with_user<'a>(
     )
 }
 
-// --- Initialization ---
+// ─────────────────────────────────────────────────────────────────────
+// Initialization
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_initialization() {
@@ -118,7 +120,9 @@ fn test_initialization() {
     assert!(!client.paused());
 }
 
-// --- Deposits ---
+// ─────────────────────────────────────────────────────────────────────
+// Deposits
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_deposit() {
@@ -159,7 +163,9 @@ fn test_deposit_exceeds_max_limit() {
     client.deposit(&huge_amount, &user, &user, &user);
 }
 
-// --- Withdrawals ---
+// ─────────────────────────────────────────────────────────────────────
+// Withdrawals
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_withdraw() {
@@ -201,7 +207,9 @@ fn test_redeem() {
     assert_eq!(client.balance(&user), 0);
 }
 
-// --- Pause / Unpause ---
+// ─────────────────────────────────────────────────────────────────────
+// Pause / Unpause
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_pause_and_unpause() {
@@ -228,7 +236,9 @@ fn test_pause_and_unpause() {
     assert!(shares > 0);
 }
 
-// --- Treasury Management ---
+// ─────────────────────────────────────────────────────────────────────
+// Treasury Management
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_set_treasury() {
@@ -245,7 +255,9 @@ fn test_set_treasury() {
     assert_eq!(client.treasury(), new_treasury);
 }
 
-// --- Admin Limits ---
+// ─────────────────────────────────────────────────────────────────────
+// Admin Limits
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_set_max_deposit() {
@@ -276,7 +288,9 @@ fn test_set_max_withdraw() {
     assert_eq!(client.get_max_withdraw(), new_limit);
 }
 
-// --- Sweep Foreign Assets ---
+// ─────────────────────────────────────────────────────────────────────
+// Sweep Foreign Assets
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_sweep_foreign_asset() {
@@ -384,7 +398,9 @@ fn test_sweep_invalid_amount() {
     assert_eq!(result, Err(Ok(MicroVaultError::InvalidAmount)));
 }
 
-// --- Multi-User Scenarios ---
+// ─────────────────────────────────────────────────────────────────────
+// Multi-User Scenarios
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_multiple_depositors() {
@@ -409,7 +425,9 @@ fn test_multiple_depositors() {
     assert_eq!(client.balance(&user_b), shares_b);
 }
 
-// --- SEP-56 / ERC-4626 Preview Functions ---
+// ─────────────────────────────────────────────────────────────────────
+// SEP-56 / ERC-4626 Preview Functions
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_preview_functions() {
@@ -429,7 +447,9 @@ fn test_preview_functions() {
     assert_eq!(preview_assets, client.convert_to_assets(&shares));
 }
 
-// --- Operator Pattern ---
+// ─────────────────────────────────────────────────────────────────────
+// Operator Pattern
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_operator_deposit() {
@@ -458,7 +478,9 @@ fn test_operator_deposit() {
     assert_eq!(token_client.balance(&user), 500_000);
 }
 
-// --- Full Lifecycle Integration ---
+// ─────────────────────────────────────────────────────────────────────
+// Full Lifecycle Integration
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_full_vault_lifecycle() {
@@ -502,7 +524,9 @@ fn test_full_vault_lifecycle() {
     assert_eq!(client.balance(&user), 0);
 }
 
-// --- Credit Delegation ---
+// ─────────────────────────────────────────────────────────────────────
+// Credit Delegation
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_credit_delegation_initial_state() {
@@ -1024,7 +1048,9 @@ fn test_full_credit_delegation_lifecycle() {
     assert!(assets_b >= 4_000_000); // Should have earned interest
 }
 
-// --- Lock Period ---
+// ─────────────────────────────────────────────────────────────────────
+// Lock Period
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_lock_period_default_zero() {
@@ -1404,7 +1430,9 @@ fn test_mint_also_applies_lock() {
     assert_eq!(client.get_unlock_time(&user), 1000 + seven_days);
 }
 
-// --- Borrow Index ---
+// ─────────────────────────────────────────────────────────────────────
+// Borrow Index
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_borrow_index_initial_value() {
@@ -1592,7 +1620,9 @@ fn test_borrow_index_stable_without_borrows() {
     );
 }
 
-// --- Upgrade ---
+// ─────────────────────────────────────────────────────────────────────
+// Upgrade
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_upgrade_function_exists() {

@@ -60,9 +60,11 @@ type SendUSDCResponse struct {
 
 // Soroban Vault DTOs
 
-// BorrowRequest represents a request to borrow funds from the vault
+// BorrowRequest represents a request to borrow funds from the vault.
+// The vault contract transfers USDC to the treasury, not the recipient.
+// RecipientAddress is recorded in the on-chain Borrowed event for audit tracking.
 type BorrowRequest struct {
-	RecipientAddress string // Child account to receive funds
+	RecipientAddress string // Child account recorded in Borrowed event (USDC goes to treasury)
 	Amount           int64  // Amount in smallest unit (stroops)
 }
 

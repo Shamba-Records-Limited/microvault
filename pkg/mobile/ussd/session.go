@@ -1,3 +1,4 @@
+// Package ussd provides session state management for the USSD application.
 package ussd
 
 import (
@@ -58,7 +59,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, sessionID, phoneNum
 		CurrentMenu:   "main",
 		PreviousMenus: []string{},
 		Language:      "en",
-		Data:          make(map[string]interface{}),
+		Data:          make(map[string]any),
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}
@@ -121,14 +122,14 @@ func (sm *SessionManager) GoBack(ctx context.Context, sessionID string) error {
 }
 
 // SetData sets a data value in the session
-func (sm *SessionManager) SetData(ctx context.Context, sessionID, key string, value interface{}) error {
+func (sm *SessionManager) SetData(ctx context.Context, sessionID, key string, value any) error {
 	return sm.UpdateSession(ctx, sessionID, func(s *Session) {
 		s.Data[key] = value
 	})
 }
 
 // GetData retrieves a data value from the session
-func (sm *SessionManager) GetData(ctx context.Context, sessionID, key string) (interface{}, error) {
+func (sm *SessionManager) GetData(ctx context.Context, sessionID, key string) (any, error) {
 	session, err := sm.GetSession(ctx, sessionID)
 	if err != nil {
 		return nil, err

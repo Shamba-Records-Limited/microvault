@@ -255,7 +255,7 @@ func New() (*Config, error) {
 
 	ycBaseURL := os.Getenv("YELLOWCARD_BASE_URL")
 	if ycBaseURL == "" {
-		ycBaseURL = "https://sandbox.api.yellowcard.io"
+		ycBaseURL = "https://sandbox.api.yellowcard.io/business"
 	}
 
 	fonbnkBaseURL := os.Getenv("FONBNK_BASE_URL")

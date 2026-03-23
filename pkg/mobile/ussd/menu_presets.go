@@ -1,3 +1,4 @@
+// Package ussd provides predefined menu flows, layouts, and registration sequences.
 package ussd
 
 // NewStandardLoanMenuPreset creates a new instance of StandardLoanMenuPreset.
@@ -14,7 +15,7 @@ func (p *StandardLoanMenuPreset) GetName() string {
 // restructured main menu (4 items), PIN management menus, and security
 // question setup menus.
 func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
-	// ── Main Menu (4 options) ───────────────────────────────────────────
+	// Main Menu (4 options)
 	mainMenu := NewMenuBuilder("main").
 		WithTitle("en", "Welcome to Shamba Records").
 		WithTitle("sw", "Karibu Shamba Records").
@@ -43,7 +44,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(mainMenu)
 
-	// ── Language Selection ───────────────────────────────────────────────
+	// Language Selection
 	langMenu := NewMenuBuilder("language_select").
 		WithTitle("en", "Select Language / Chagua Lugha / Choisir Langue").
 		WithOption("1", map[string]string{"en": "English"}, "main").
@@ -54,7 +55,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(langMenu)
 
-	// ── Registration ────────────────────────────────────────────────────
+	// Registration
 	registerMenu := NewMenuBuilder("register").
 		WithTitle("en", "Register for Shamba Records\nEnter your full name:").
 		WithTitle("sw", "Jisajili kwa Shamba Records\nWeka jina lako kamili:").
@@ -63,70 +64,19 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(registerMenu)
 
-	// ── Loan Flow ───────────────────────────────────────────────────────
+	// Loan Flow
+	// The loan_amount prompt is rendered dynamically by showLoanAmountMenu
+	// using the active loan product's fiat limits. This static registration
+	// serves as a fallback only.
 	loanAmountMenu := NewMenuBuilder("loan_amount").
-		WithTitle("en", "Enter loan amount in KES (min 500, max 500000):").
-		WithTitle("sw", "Weka kiasi cha mkopo kwa KES (chini 500, juu 500000):").
-		WithTitle("fr", "Entrez montant du prêt en KES (min 500, max 500000):").
+		WithTitle("en", "Enter loan amount:").
+		WithTitle("sw", "Weka kiasi cha mkopo:").
+		WithTitle("fr", "Entrez montant du prêt:").
 		WithAuth(true).
 		Build()
 	registry.Register(loanAmountMenu)
 
-	loanDurationMenu := NewMenuBuilder("loan_duration").
-		WithTitle("en", "Select loan duration:").
-		WithTitle("sw", "Chagua muda wa mkopo:").
-		WithTitle("fr", "Sélectionnez durée du prêt:").
-		WithOption("1", map[string]string{
-			"en": "7 days", "sw": "Siku 7", "fr": "7 jours",
-		}, "").
-		WithOption("2", map[string]string{
-			"en": "14 days", "sw": "Siku 14", "fr": "14 jours",
-		}, "").
-		WithOption("3", map[string]string{
-			"en": "30 days", "sw": "Siku 30", "fr": "30 jours",
-		}, "").
-		WithOption("4", map[string]string{
-			"en": "90 days", "sw": "Siku 90", "fr": "90 jours",
-		}, "").
-		WithOption("0", map[string]string{
-			"en": "Back", "sw": "Rudi", "fr": "Retour",
-		}, "main").
-		WithAuth(true).
-		Build()
-	registry.Register(loanDurationMenu)
-
-	repaymentScheduleMenu := NewMenuBuilder("repayment_schedule").
-		WithTitle("en", "Select repayment schedule:").
-		WithTitle("sw", "Chagua ratiba ya malipo:").
-		WithTitle("fr", "Sélectionnez calendrier de remboursement:").
-		WithOption("1", map[string]string{
-			"en": "Lump sum (pay at end)",
-			"sw": "Jumla moja (lipa mwisho)",
-			"fr": "Somme globale (payer à la fin)",
-		}, "").
-		WithOption("2", map[string]string{
-			"en": "Weekly installments",
-			"sw": "Malipo ya kila wiki",
-			"fr": "Versements hebdomadaires",
-		}, "").
-		WithOption("3", map[string]string{
-			"en": "Bi-weekly installments",
-			"sw": "Malipo ya wiki mbili",
-			"fr": "Versements bihebdomadaires",
-		}, "").
-		WithOption("4", map[string]string{
-			"en": "Monthly installments",
-			"sw": "Malipo ya kila mwezi",
-			"fr": "Versements mensuels",
-		}, "").
-		WithOption("0", map[string]string{
-			"en": "Back", "sw": "Rudi", "fr": "Retour",
-		}, "loan_duration").
-		WithAuth(true).
-		Build()
-	registry.Register(repaymentScheduleMenu)
-
-	// ── My Account (PIN Manager + Change Language) ──────────────────────
+	// My Account (PIN Manager + Change Language)
 	accountMenu := NewMenuBuilder("my_account").
 		WithTitle("en", "My Account").
 		WithTitle("sw", "Akaunti Yangu").
@@ -150,7 +100,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(accountMenu)
 
-	// ── PIN Manager ─────────────────────────────────────────────────────
+	// PIN Manager
 	pinManagerMenu := NewMenuBuilder("pin_manager").
 		WithTitle("en", "PIN Manager").
 		WithTitle("sw", "Dhibiti PIN").
@@ -172,7 +122,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(pinManagerMenu)
 
-	// ── PIN Creation (during registration) ──────────────────────────────
+	// PIN Creation (during registration)
 	pinCreateMenu := NewMenuBuilder("pin_create").
 		WithTitle("en", "Create a 4-digit PIN:").
 		WithTitle("sw", "Tengeneza PIN ya tarakimu 4:").
@@ -189,7 +139,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(pinConfirmMenu)
 
-	// ── PIN Change ──────────────────────────────────────────────────────
+	// PIN Change
 	pinChangeOldMenu := NewMenuBuilder("pin_change_old").
 		WithTitle("en", "Enter current PIN:").
 		WithTitle("sw", "Weka PIN ya sasa:").
@@ -214,7 +164,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(pinChangeConfirmMenu)
 
-	// ── PIN Verification Gates ──────────────────────────────────────────
+	// PIN Verification Gates
 	pinVerifyLoanMenu := NewMenuBuilder("pin_verify_loan").
 		WithTitle("en", "Enter your 4-digit PIN to confirm loan:").
 		WithTitle("sw", "Weka PIN yako ya tarakimu 4 kuthibitisha mkopo:").
@@ -231,7 +181,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(pinVerifyRepayMenu)
 
-	// ── Security Questions Setup ────────────────────────────────────────
+	// Security Questions Setup
 	secQ1SelectMenu := NewMenuBuilder("security_q1_select").
 		WithTitle("en", "Select security question 1:").
 		WithTitle("sw", "Chagua swali la usalama la 1:").
@@ -315,7 +265,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(secQ2AnswerMenu)
 
-	// ── PIN Recovery ────────────────────────────────────────────────────
+	// PIN Recovery
 	pinRecoveryIDMenu := NewMenuBuilder("pin_recovery_national_id").
 		WithTitle("en", "Enter your national ID to verify:").
 		WithTitle("sw", "Weka kitambulisho chako kuthibitisha:").
@@ -357,7 +307,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 	registry.Register(pinRecoveryConfirmMenu)
 }
 
-// Initialize initializes the menu preset.
+// NewSimplifiedMenuPreset creates a new instance of SimplifiedMenuPreset.
 func NewSimplifiedMenuPreset() *SimplifiedMenuPreset {
 	return &SimplifiedMenuPreset{}
 }
@@ -367,7 +317,7 @@ func (p *SimplifiedMenuPreset) GetName() string {
 	return "simplified"
 }
 
-// Initialize initializes the simplified menu preset.
+// Initialize registers the simplified menu preset.
 func (p *SimplifiedMenuPreset) Initialize(registry *MenuRegistry) {
 	// Simplified main menu with fewer options
 	mainMenu := NewMenuBuilder("main").
@@ -392,7 +342,7 @@ func (p *SimplifiedMenuPreset) Initialize(registry *MenuRegistry) {
 	// Add other simplified menus...
 }
 
-// Initialize initializes the custom menu preset.
+// NewCustomMenuPreset creates a new instance of CustomMenuPreset.
 func NewCustomMenuPreset(name string) *CustomMenuPreset {
 	return &CustomMenuPreset{
 		name:  name,
@@ -411,7 +361,7 @@ func (p *CustomMenuPreset) AddMenu(menu *Menu) *CustomMenuPreset {
 	return p
 }
 
-// Initialize initializes the custom menu preset.
+// NewCustomMenuPreset creates a new instance of CustomMenuPreset.
 func (p *CustomMenuPreset) Initialize(registry *MenuRegistry) {
 	for _, menu := range p.menus {
 		registry.Register(menu)

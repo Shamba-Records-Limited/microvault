@@ -1,3 +1,4 @@
+// Package adapters implements USSD integration for user and account services.
 package adapters
 
 import (
@@ -7,9 +8,9 @@ import (
 	"log/slog"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
+	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
 	"github.com/Shamba-Records-Limited/microvault/pkg/user"
-	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	"github.com/google/uuid"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/tyler-smith/go-bip32"
@@ -83,7 +84,7 @@ func NewUserServiceAdapter(
 }
 
 // GetUserWithAccounts retrieves a user and their accounts by ID or phone number
-func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPhone string) (interface{}, []interface{}, error) {
+func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPhone string) (any, []any, error) {
 	var userResp *user.UserResponse
 	var err error
 
@@ -107,7 +108,7 @@ func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPh
 	}
 
 	// Convert UserResponse to map for generic interface
-	userMap := map[string]interface{}{
+	userMap := map[string]any{
 		"id":                  userResp.ID,
 		"mobile_number":       userResp.MobileNumber,
 		"country_code":        userResp.CountryCode,
@@ -132,11 +133,11 @@ func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPh
 	// Get user's account
 	accountResp, err := a.accountService.GetByUserID(ctx, userResp.ID)
 	if err != nil {
-		return userMap, []interface{}{}, nil
+		return userMap, []any{}, nil
 	}
 
 	// Convert AccountResponse to map
-	accountMap := map[string]interface{}{
+	accountMap := map[string]any{
 		"id":            accountResp.ID,
 		"user_id":       accountResp.UserID,
 		"public_key":    accountResp.PublicKey,
@@ -146,14 +147,14 @@ func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPh
 		"updated_at":    accountResp.UpdatedAt,
 	}
 
-	accounts := []interface{}{accountMap}
+	accounts := []any{accountMap}
 
 	return userMap, accounts, nil
 }
 
 // RegisterUser registers a new user and auto-creates a Stellar account
-func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.RegisterUserRequest) (interface{}, []interface{}, error) {
-	// 1. Map Africa's Talking network code to MoMo network info
+func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.RegisterUserRequest) (any, []any, error) {
+	// Map Africa's Talking network code to MoMo network info
 	var momoNetworkCode, momoNetworkName, telcoName string
 	var countryCode string
 
@@ -294,7 +295,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 		userResp.ID, childKP.Address(), accountIndex)
 
 	// Convert UserResponse to map
-	userMap := map[string]interface{}{
+	userMap := map[string]any{
 		"id":                  userResp.ID,
 		"mobile_number":       userResp.MobileNumber,
 		"country_code":        userResp.CountryCode,
@@ -313,7 +314,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	}
 
 	// Convert account to map
-	accountMap := map[string]interface{}{
+	accountMap := map[string]any{
 		"id":            accountResp.ID,
 		"user_id":       accountResp.UserID,
 		"public_key":    accountResp.PublicKey,
@@ -323,7 +324,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 		"updated_at":    accountResp.UpdatedAt,
 	}
 
-	return userMap, []interface{}{accountMap}, nil
+	return userMap, []any{accountMap}, nil
 }
 
 // deriveChildKeypair derives a child keypair using BIP44 path: m/44'/148'/accountIndex'

@@ -1,3 +1,4 @@
+// Package africastalking implements the USSD provider adapter for AfricasTalking.
 package africastalking
 
 import (
@@ -64,7 +65,7 @@ func (a *AfricasTalkingUSSDAdapter) ParseRequest(ctx context.Context, data map[s
 
 // FormatResponse formats the response for Africa's Talking.
 // Africa's Talking expects: "CON message" or "END message"
-func (a *AfricasTalkingUSSDAdapter) FormatResponse(ctx context.Context, response *ussd.USSDResponse) (interface{}, error) {
+func (a *AfricasTalkingUSSDAdapter) FormatResponse(ctx context.Context, response *ussd.USSDResponse) (any, error) {
 	if response == nil {
 		return nil, fmt.Errorf("response cannot be nil")
 	}

@@ -49,7 +49,9 @@ fn random_salt(env: &Env) -> BytesN<32> {
     BytesN::from_array(env, &[1u8; 32])
 }
 
-// --- Constructor ---
+// ─────────────────────────────────────────────────────────────────────
+// Constructor
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_constructor_sets_min_delay() {
@@ -107,7 +109,9 @@ fn test_constructor_self_admin() {
     assert_eq!(admin.unwrap(), client.address);
 }
 
-// --- Schedule / Execute / Cancel ---
+// ─────────────────────────────────────────────────────────────────────
+// Schedule / Execute / Cancel
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_schedule_and_execute_operation() {
@@ -363,7 +367,9 @@ fn test_schedule_same_op_different_salts() {
     assert!(client.is_operation_pending(&id2));
 }
 
-// --- Role Enforcement ---
+// ─────────────────────────────────────────────────────────────────────
+// Role Enforcement
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_non_proposer_cannot_schedule() {
@@ -420,7 +426,9 @@ fn test_non_canceler_cannot_cancel() {
     assert!(result.is_err());
 }
 
-// --- View Functions ---
+// ─────────────────────────────────────────────────────────────────────
+// View Functions
+// ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_get_min_delay() {
