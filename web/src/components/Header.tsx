@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { Github, Wallet, LogOut } from "lucide-react";
+import { Wallet, LogOut } from "lucide-react";
+import { siGithub } from "simple-icons";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/hooks/use-wallet";
 
@@ -87,7 +88,7 @@ export function Header() {
             rel="noopener noreferrer"
             className="h-9 w-9 rounded-xl bg-foreground flex items-center justify-center hover:opacity-80 transition-opacity"
           >
-            <Github className="h-5 w-5 text-background" />
+            <svg role="img" viewBox="0 0 24 24" className="h-5 w-5 fill-current text-background"><path d={siGithub.path} /></svg>
           </a>
         </div>
       </div>
