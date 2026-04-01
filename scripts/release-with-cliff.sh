@@ -2,6 +2,8 @@
 
 # Usage: ./scripts/release-with-cliff.sh v0.1.0-beta.1
 
+cd "$(dirname "$0")/.." || exit 1
+
 VERSION=$1
 
 if [ -z "$VERSION" ]; then

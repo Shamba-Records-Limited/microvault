@@ -1,3 +1,4 @@
+// Package webhook provides services for polling for refund pending loans.
 package webhook
 
 import (
@@ -6,8 +7,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 )
 
 // RefundPendingFetcher retrieves loans that are awaiting crypto refund from YellowCard.
@@ -190,6 +191,11 @@ func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendin
 
 		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, yellowcard.DisbursementFailed); err != nil {
 			log.Printf("refund_poller: failed to mark %s as failed: %v", rec.SequenceID, err)
+		}
+
+		// USDC is back in treasury after refund, all attempts exhausted — repay vault.
+		if repayErr := p.disbursement.RepayVault(rec.SequenceID); repayErr != nil {
+			log.Printf("refund_poller: failed to repay vault for %s: %v", rec.SequenceID, repayErr)
 		}
 		return
 	}

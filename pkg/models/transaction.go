@@ -67,4 +67,5 @@ const (
 	TxTypeVaultBorrow  = "vault_borrow"  // USDC borrowed from Stellar vault to user account
 	TxTypeOffRamp      = "off_ramp"      // Off-ramp initiated (crypto-to-fiat via YellowCard)
 	TxTypeFiatFailover = "fiat_failover" // Fiat failover after direct settlement refund
+	TxTypeVaultRepay   = "vault_repay"   // USDC repaid from treasury back to Stellar vault
 )
