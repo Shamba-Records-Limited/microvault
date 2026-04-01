@@ -10,11 +10,11 @@ Governance Contract Address: [CC3QFA2NBGHWO4QHUCVERFVRAKVHVSM623LCLMUVRGRCMLAHZG
 
 ## Technical Architecture
 A high-level technical architecture of the engine implementation:
-<img width="2378" height="1694" alt="SEP-0056-Stellar" src="https://github.com/user-attachments/assets/68f31124-f9f9-4779-b1e2-1e15b1918408" />
+<img width="2201" height="1501" alt="SEP-0056-Stellar" src="https://github.com/user-attachments/assets/e5bcef4a-daf1-4b48-9d29-ba4cff663ae9" />
 
 ## Micro-lending Journey
 A successful microlending journey:
-<img width="1785" height="2344" alt="pool-off-ramp" src="https://github.com/user-attachments/assets/e8c02815-a736-408d-9dd3-b05b6f67f490" />
+<img width="1198" height="1748" alt="diagram-export-3-31-2026-5_32_39-PM" src="https://github.com/user-attachments/assets/e1c10677-6dd3-46a9-9e94-31453a4f5223" />
 
 ## Proposal
 https://drive.google.com/file/d/1vPvQThVGg2bDMLYC4Yd_cYwavyDlSrsj/view?usp=sharing
