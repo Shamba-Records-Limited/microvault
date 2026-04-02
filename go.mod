@@ -17,7 +17,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.100
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/redis/go-redis/v9 v9.18.0
-	github.com/stellar/go-stellar-sdk v0.3.0
+	github.com/stellar/go-stellar-sdk v0.4.0
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/swag v1.16.6
 	github.com/tyler-smith/go-bip32 v1.0.0
