@@ -146,11 +146,11 @@ fn test_schedule_and_execute_operation() {
     let computed_id = client.hash_operation(&target, &function, &args, &predecessor, &salt);
     assert_eq!(op_id, computed_id);
 
-    // Advance time past delay
+    // Advance ledger sequence past delay
     env.ledger().set(LedgerInfo {
-        timestamp: 101,
-        protocol_version: 23,
-        sequence_number: 100,
+        timestamp: 1000,
+        protocol_version: 25,
+        sequence_number: 101,
         network_id: Default::default(),
         base_reserve: 10,
         min_temp_entry_ttl: 1000,
@@ -236,11 +236,11 @@ fn test_operation_state_transitions() {
     assert!(!client.is_operation_ready(&op_id));
     assert!(!client.is_operation_done(&op_id));
 
-    // Advance time -> Ready
+    // Advance ledger sequence past delay -> Ready
     env.ledger().set(LedgerInfo {
-        timestamp: 51,
-        protocol_version: 23,
-        sequence_number: 100,
+        timestamp: 1000,
+        protocol_version: 25,
+        sequence_number: 51,
         network_id: Default::default(),
         base_reserve: 10,
         min_temp_entry_ttl: 1000,
@@ -279,11 +279,11 @@ fn test_schedule_with_larger_delay_than_min() {
         &proposer,
     );
 
-    // At time 101 (past min_delay but not custom delay), should still be Waiting
+    // At sequence 101 (past min_delay but not custom delay), should still be Waiting
     env.ledger().set(LedgerInfo {
-        timestamp: 101,
-        protocol_version: 23,
-        sequence_number: 100,
+        timestamp: 1000,
+        protocol_version: 25,
+        sequence_number: 101,
         network_id: Default::default(),
         base_reserve: 10,
         min_temp_entry_ttl: 1000,
@@ -292,11 +292,11 @@ fn test_schedule_with_larger_delay_than_min() {
     });
     assert_eq!(client.get_operation_state(&op_id), OperationState::Waiting);
 
-    // At time 501 (past custom delay), should be Ready
+    // At sequence 501 (past custom delay), should be Ready
     env.ledger().set(LedgerInfo {
-        timestamp: 501,
-        protocol_version: 23,
-        sequence_number: 200,
+        timestamp: 2000,
+        protocol_version: 25,
+        sequence_number: 501,
         network_id: Default::default(),
         base_reserve: 10,
         min_temp_entry_ttl: 1000,
