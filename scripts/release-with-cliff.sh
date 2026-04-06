@@ -20,6 +20,9 @@ if ! command -v git-cliff &> /dev/null; then
     exit 1
 fi
 
+# Fetch tags from remote so we can determine the previous release
+git fetch --tags --quiet
+
 # Get the previous tag
 PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
