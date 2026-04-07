@@ -27,7 +27,8 @@ export interface VaultAddresses {
   contractId: string;
   /** Governance/owner contract address, null if Ownable trait is absent. */
   owner: string | null;
-  treasury: string;
+  /** Treasury address, null if the on-chain view traps (e.g. post-migration). */
+  treasury: string | null;
   /** Guardian address, null if not configured. */
   guardian: string | null;
 }
@@ -44,7 +45,7 @@ export interface Pool {
   totalBorrowed: number;
   assets: PoolAsset[];
   admin: string | null;
-  treasury: string;
+  treasury: string | null;
   guardian: string | null;
   status: "active" | "frozen";
 }
