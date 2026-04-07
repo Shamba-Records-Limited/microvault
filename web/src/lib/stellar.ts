@@ -23,14 +23,6 @@ const horizonServer = new Horizon.Server(horizonUrl);
 const sorobanRpcUrl = import.meta.env.VITE_SOROBAN_RPC_URL || DEFAULT_RPC_URL;
 const sorobanServer = new rpc.Server(sorobanRpcUrl);
 
-/**
- * How far back to look when no cursor is supplied. Soroban RPC retains only a
- * rolling window of events (~7 days on testnet, ~24h on mainnet), so this is a
- * "best effort" historical lookback. For full history, link users out to
- * Stellar Expert.
- */
-const EVENT_LOOKBACK_LEDGERS = 100_000;
-
 // ---------------------------------------------------------------------------
 // Shared Horizon operation helpers
 // ---------------------------------------------------------------------------
@@ -230,17 +222,23 @@ export async function fetchContractEvents(
     limit: EVENTS_PAGE_SIZE,
   };
 
-  // RPC requires either `startLedger` or `cursor`, never both.
-  const request: rpc.Server.GetEventsRequest = cursor
-    ? { ...baseRequest, cursor }
-    : {
-        ...baseRequest,
-        startLedger: Math.max(
-          (await sorobanServer.getLatestLedger()).sequence -
-            EVENT_LOOKBACK_LEDGERS,
-          1,
-        ),
-      };
+  // RPC requires either `startLedger` or `cursor`, never both. Soroban RPC
+  // caps `getEvents` at ~10k ledgers per call, so we can't ask it to scan the
+  // whole retention window in one shot — if we started at `oldestLedger`, RPC
+  // would only return events from the *oldest* 10k ledgers and stop, missing
+  // anything recent. Since this UI is for realtime metrics, start the scan
+  // close to `latestLedger` instead.
+  const RPC_MAX_LEDGER_SPAN = 10_000;
+  let request: rpc.Server.GetEventsRequest;
+  if (cursor) {
+    request = { ...baseRequest, cursor };
+  } else {
+    const latest = await sorobanServer.getLatestLedger();
+    request = {
+      ...baseRequest,
+      startLedger: Math.max(latest.sequence - RPC_MAX_LEDGER_SPAN + 1, 1),
+    };
+  }
 
   const response = await sorobanServer.getEvents(request);
   // RPC returns oldest-first; the table renders newest-first.

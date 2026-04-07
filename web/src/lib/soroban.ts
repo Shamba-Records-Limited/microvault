@@ -107,7 +107,9 @@ export async function fetchVaultStats(): Promise<VaultStats> {
   ]);
 
   return {
-    totalManagedAssets: totalManaged ? i128ToNumber(totalManaged, USDC_SCALE) : 0,
+    totalManagedAssets: totalManaged
+      ? i128ToNumber(totalManaged, USDC_SCALE)
+      : 0,
     totalBorrowed: totalBorrowed ? i128ToNumber(totalBorrowed, USDC_SCALE) : 0,
     availableLiquidity: availableLiquidity
       ? i128ToNumber(availableLiquidity, USDC_SCALE)
@@ -132,8 +134,8 @@ export async function fetchVaultMetadata(): Promise<VaultMetadata> {
     callViewFunction("symbol").catch(() => null),
   ]);
 
-  const vaultName = name ? (scValToNative(name) as string) : "Microvault";
-  const assetSymbol = symbol ? (scValToNative(symbol) as string) : "mvUSDC";
+  const vaultName = name ? (scValToNative(name) as string) : "Stellar";
+  const assetSymbol = symbol ? (scValToNative(symbol) as string) : "USDC";
 
   return {
     name: `${vaultName} Pool`,
