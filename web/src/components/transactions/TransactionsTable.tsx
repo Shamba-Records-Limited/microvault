@@ -301,16 +301,6 @@ function EventTableRow({ event, isNew }: { event: ContractEventEntry; isNew: boo
           {formatEventName(event.eventName)}
         </Badge>
       </td>
-      <td className="py-3 pr-4 text-sm font-mono text-muted-foreground whitespace-nowrap align-top">
-        <a
-          href={accountExplorerUrl(event.initiator)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-400 hover:underline"
-        >
-          {truncateHash(event.initiator)}
-        </a>
-      </td>
       <td className="py-3 text-sm align-top max-w-0 w-full">
         <a
           href={opExplorerUrl(event.id)}
@@ -342,15 +332,6 @@ function EventCard({ event, isNew }: { event: ContractEventEntry; isNew: boolean
         <Badge variant="secondary" className="w-fit capitalize">
           {formatEventName(event.eventName)}
         </Badge>
-        <span className="text-muted-foreground">Initiator</span>
-        <a
-          href={accountExplorerUrl(event.initiator)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-mono text-blue-400 hover:underline"
-        >
-          {truncateHash(event.initiator)}
-        </a>
         <span className="text-muted-foreground">Details</span>
         <a
           href={opExplorerUrl(event.id)}
@@ -449,9 +430,6 @@ export function TransactionsTable({
                       </th>
                       <th className="text-left py-2 pr-4 font-medium text-muted-foreground">
                         Event
-                      </th>
-                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground">
-                        Initiator
                       </th>
                       <th className="text-left py-2 font-medium text-muted-foreground">
                         Details

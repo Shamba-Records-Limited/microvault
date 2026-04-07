@@ -36,7 +36,6 @@ export interface ContractEventEntry {
   /** ISO-8601 timestamp. */
   createdAt: string;
   contract: string;
-  initiator: string;
   /** Decoded topic names (e.g. ["operation_scheduled", "CBA65...", "CC3QF..."]). */
   topics: string[];
   /**

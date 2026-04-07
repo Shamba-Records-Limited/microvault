@@ -4,7 +4,7 @@
 # Microvault
 A headless [SEP-0056](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0056.md) tokenized vault standard engine for microlending built on the Stellar network.
 
-Vault Contract Address: [CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR](https://stellar.expert/explorer/testnet/contract/CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR)
+Vault Contract Address: [CDZVKARLUCAYYIV2TPSR6PLWLETPS4TYE2QXVXSQT27QNFYE3GEE5IS5](https://stellar.expert/explorer/testnet/contract/CDZVKARLUCAYYIV2TPSR6PLWLETPS4TYE2QXVXSQT27QNFYE3GEE5IS5)
 
 Governance Contract Address: [CAL3RYRW6MJ2BMKP2J7G47BPBFWKZ7K2BMRG2EXZWQI5ZZAHFPM7NO7B](https://stellar.expert/explorer/testnet/contract/CAL3RYRW6MJ2BMKP2J7G47BPBFWKZ7K2BMRG2EXZWQI5ZZAHFPM7NO7B)
 
