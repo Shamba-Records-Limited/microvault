@@ -6,7 +6,7 @@ A headless [SEP-0056](https://github.com/stellar/stellar-protocol/blob/master/ec
 
 Vault Contract Address: [CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR](https://stellar.expert/explorer/testnet/contract/CCRTA3447R4SCRA5YBTXZ3PXTIFRRYAPZQUCGV7NQ4WWMJCDFTPDVAUR)
 
-Governance Contract Address: [CC3QFA2NBGHWO4QHUCVERFVRAKVHVSM623LCLMUVRGRCMLAHZGFDNSUW](https://stellar.expert/explorer/testnet/contract/CC3QFA2NBGHWO4QHUCVERFVRAKVHVSM623LCLMUVRGRCMLAHZGFDNSUW)
+Governance Contract Address: [CAL3RYRW6MJ2BMKP2J7G47BPBFWKZ7K2BMRG2EXZWQI5ZZAHFPM7NO7B](https://stellar.expert/explorer/testnet/contract/CAL3RYRW6MJ2BMKP2J7G47BPBFWKZ7K2BMRG2EXZWQI5ZZAHFPM7NO7B)
 
 ## Technical Architecture
 A high-level technical architecture of the engine implementation:
