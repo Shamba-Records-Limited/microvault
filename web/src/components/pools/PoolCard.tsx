@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,12 +19,12 @@ import {
   formatInputValue,
 } from "@/lib/format";
 import { DEFAULT_EXPLORER_URL, USDC_SCALE, SHARE_SCALE } from "@/lib/constants";
-import { fetchPreviewDeposit, fetchPreviewWithdraw } from "@/lib/soroban";
-import { parseContractError } from "@/lib/errors";
 import { useWallet } from "@/hooks/use-wallet";
 import { useUserPosition } from "@/hooks/use-user-position";
 import { useDeposit } from "@/hooks/use-deposit";
 import { useWithdraw } from "@/hooks/use-withdraw";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { usePreviewShares } from "@/hooks/use-preview-shares";
 import type { Pool } from "@/types/vault";
 
 const explorerUrl =
@@ -42,8 +42,6 @@ export function PoolCard({ pool }: PoolCardProps) {
   const [activeTab, setActiveTab] = useState<ActiveTab>("deposit");
   const [displayAmount, setDisplayAmount] = useState("");
   const [rawAmount, setRawAmount] = useState("");
-  const [preview, setPreview] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
 
   const { address, isConnected, connect } = useWallet();
   const position = useUserPosition(address);
@@ -54,41 +52,40 @@ export function PoolCard({ pool }: PoolCardProps) {
   const isValidAmount = !isNaN(parsedAmount) && parsedAmount > 0;
   const isPending = deposit.isPending || withdraw.isPending;
 
-  async function handleAmountChange(value: string) {
+  // Debounce the typed value before firing the preview RPC. 200ms feels
+  // instant but coalesces a burst of keystrokes into a single call.
+  const debouncedRaw = useDebouncedValue(rawAmount, 200);
+  const debouncedScaled = useMemo<bigint | null>(() => {
+    const num = parseFloat(debouncedRaw);
+    if (isNaN(num) || num <= 0) return null;
+    return BigInt(Math.round(num * Number(USDC_SCALE)));
+  }, [debouncedRaw]);
+
+  const previewQuery = usePreviewShares(activeTab, debouncedScaled);
+
+  // Only render a preview that matches the *current* input. While the user
+  // is mid-typing (rawAmount changed but debounced hasn't caught up yet),
+  // suppress the previous result so we never show a stale number.
+  const isPreviewStale = rawAmount !== debouncedRaw;
+  // Gate on `isValidAmount` so clearing the input immediately wipes the
+  // preview — `keepPreviousData` would otherwise keep the last result around.
+  const preview =
+    isValidAmount && previewQuery.data && !isPreviewStale
+      ? `~${formatNumber(Number(previewQuery.data) / Number(SHARE_SCALE))} ${pool.assets[0].symbol} shares`
+      : null;
+  const previewLoading =
+    isValidAmount && (isPreviewStale || previewQuery.isFetching);
+
+  function handleAmountChange(value: string) {
     const { display, raw } = formatInputValue(value);
     setDisplayAmount(display);
     setRawAmount(raw);
-    setPreview(null);
-
-    const num = parseFloat(raw);
-    if (isNaN(num) || num <= 0) return;
-
-    setPreviewLoading(true);
-    try {
-      const scaled = BigInt(Math.round(num * Number(USDC_SCALE)));
-      const sharesRaw =
-        activeTab === "deposit"
-          ? await fetchPreviewDeposit(scaled)
-          : await fetchPreviewWithdraw(scaled);
-      const sharesFormatted = formatNumber(
-        Number(sharesRaw) / Number(SHARE_SCALE),
-      );
-      setPreview(`~${sharesFormatted} ${pool.assets[0].symbol} shares`);
-    } catch (error) {
-      setPreview(null);
-      toast.warning("Preview failed", {
-        description: parseContractError(error),
-      });
-    } finally {
-      setPreviewLoading(false);
-    }
   }
 
   function handleTabSwitch(tab: ActiveTab) {
     setActiveTab(tab);
     setDisplayAmount("");
     setRawAmount("");
-    setPreview(null);
     deposit.reset();
     withdraw.reset();
   }
@@ -129,7 +126,6 @@ export function PoolCard({ pool }: PoolCardProps) {
       }
       setDisplayAmount("");
       setRawAmount("");
-      setPreview(null);
     } catch {
       // Handled by mutation onError toast
     }
@@ -230,20 +226,22 @@ export function PoolCard({ pool }: PoolCardProps) {
                   </div>
                 </div>
               )}
-              <div className="flex items-center gap-2">
-                <Landmark className="h-4 w-4 text-muted-foreground shrink-0" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Treasury</p>
-                  <a
-                    href={`${explorerUrl}/account/${pool.treasury}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium font-mono text-xs hover:underline"
-                  >
-                    {pool.treasury.slice(0, 8)}...{pool.treasury.slice(-6)}
-                  </a>
+              {pool.treasury && (
+                <div className="flex items-center gap-2">
+                  <Landmark className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Treasury</p>
+                    <a
+                      href={`${explorerUrl}/account/${pool.treasury}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium font-mono text-xs hover:underline"
+                    >
+                      {pool.treasury.slice(0, 8)}...{pool.treasury.slice(-6)}
+                    </a>
+                  </div>
                 </div>
-              </div>
+              )}
               {pool.guardian && (
                 <div className="flex items-center gap-2">
                   <Shield className="h-4 w-4 text-muted-foreground shrink-0" />

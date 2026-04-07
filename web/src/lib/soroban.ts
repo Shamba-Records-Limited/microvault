@@ -80,7 +80,15 @@ function wadToPercent(scVal: xdr.ScVal): number {
   return (Number(raw) / Number(WAD_SCALE)) * 100;
 }
 
-/** Fetch all numeric vault metrics (Name, TVL, borrowed, utilization, APR, paused) in a single batch. */
+/**
+ * Fetch all numeric vault metrics (TVL, borrowed, utilization, APR, paused) in a single batch.
+ *
+ * Each view is tolerated to fail individually so a single trapping function
+ * (e.g. after an OZ storage-layout migration that strands one entry) cannot
+ * blank the entire pool card. Failing fields fall back to 0 / false. See
+ * docs/soroban-contract-upgrade-procedure.md for the failure mode this guards
+ * against.
+ */
 export async function fetchVaultStats(): Promise<VaultStats> {
   const [
     totalManaged,
@@ -90,21 +98,25 @@ export async function fetchVaultStats(): Promise<VaultStats> {
     borrowApr,
     paused,
   ] = await Promise.all([
-    callViewFunction("total_managed_assets"),
-    callViewFunction("total_borrowed"),
-    callViewFunction("available_liquidity"),
-    callViewFunction("utilization_rate"),
-    callViewFunction("borrow_apr"),
-    callViewFunction("paused"),
+    callViewFunction("total_managed_assets").catch(() => null),
+    callViewFunction("total_borrowed").catch(() => null),
+    callViewFunction("available_liquidity").catch(() => null),
+    callViewFunction("utilization_rate").catch(() => null),
+    callViewFunction("borrow_apr").catch(() => null),
+    callViewFunction("paused").catch(() => null),
   ]);
 
   return {
-    totalManagedAssets: i128ToNumber(totalManaged, USDC_SCALE),
-    totalBorrowed: i128ToNumber(totalBorrowed, USDC_SCALE),
-    availableLiquidity: i128ToNumber(availableLiquidity, USDC_SCALE),
-    utilizationRate: wadToPercent(utilizationRate),
-    borrowApr: wadToPercent(borrowApr),
-    isPaused: scValToNative(paused) as boolean,
+    totalManagedAssets: totalManaged
+      ? i128ToNumber(totalManaged, USDC_SCALE)
+      : 0,
+    totalBorrowed: totalBorrowed ? i128ToNumber(totalBorrowed, USDC_SCALE) : 0,
+    availableLiquidity: availableLiquidity
+      ? i128ToNumber(availableLiquidity, USDC_SCALE)
+      : 0,
+    utilizationRate: utilizationRate ? wadToPercent(utilizationRate) : 0,
+    borrowApr: borrowApr ? wadToPercent(borrowApr) : 0,
+    isPaused: paused ? (scValToNative(paused) as boolean) : false,
   };
 }
 
@@ -122,8 +134,8 @@ export async function fetchVaultMetadata(): Promise<VaultMetadata> {
     callViewFunction("symbol").catch(() => null),
   ]);
 
-  const vaultName = name ? (scValToNative(name) as string) : "Microvault";
-  const assetSymbol = symbol ? (scValToNative(symbol) as string) : "mvUSDC";
+  const vaultName = name ? (scValToNative(name) as string) : "Stellar";
+  const assetSymbol = symbol ? (scValToNative(symbol) as string) : "USDC";
 
   return {
     name: `${vaultName} Pool`,
@@ -131,17 +143,24 @@ export async function fetchVaultMetadata(): Promise<VaultMetadata> {
   };
 }
 
-/** Fetch vault governance addresses (owner, treasury, guardian). Guardian/owner may be null. */
+/**
+ * Fetch vault governance addresses (treasury, owner, guardian).
+ *
+ * All three calls are tolerated to fail individually. Any field that traps —
+ * the most likely cause being an OZ storage-layout migration that stranded
+ * the entry — falls back to `null` so the pool card still renders. See
+ * docs/soroban-contract-upgrade-procedure.md.
+ */
 export async function fetchVaultAddresses(): Promise<VaultAddresses> {
   const [treasury, owner, guardian] = await Promise.all([
-    callViewFunction("treasury"),
+    callViewFunction("treasury").catch(() => null),
     callViewFunction("get_owner").catch(() => null),
     callViewFunction("guardian").catch(() => null),
   ]);
 
   return {
     contractId,
-    treasury: scValToNative(treasury) as string,
+    treasury: treasury ? (scValToNative(treasury) as string) : null,
     owner: owner ? (scValToNative(owner) as string | null) : null,
     guardian: guardian ? (scValToNative(guardian) as string | null) : null,
   };
