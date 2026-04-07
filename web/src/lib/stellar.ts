@@ -1,4 +1,4 @@
-import { Horizon } from "@stellar/stellar-sdk";
+import { Horizon, scValToNative, xdr } from "@stellar/stellar-sdk";
 import {
   DEFAULT_HORIZON_URL,
   DEFAULT_EXPLORER_URL,
@@ -170,7 +170,28 @@ interface StellarExpertEvent {
   contract: string;
   initiator: string;
   topics: string[];
+  /**
+   * Base64-encoded XDR `ScVal` of the event body. Most contract events
+   * (`borrowed`, `interest_accrued`, `ownership_transferred`, …) stash their
+   * fields here rather than in additional topics, so we have to decode this
+   * client-side to get a useful detail string.
+   */
+  bodyXdr?: string;
   paging_token: string;
+}
+
+/**
+ * Decode a base64 `ScVal` body into a native JS value (object / bigint /
+ * string). Returns `undefined` on any decoding error so the table can fall
+ * back to topic args without crashing the page.
+ */
+function decodeEventBody(bodyXdr: string | undefined): unknown {
+  if (!bodyXdr) return undefined;
+  try {
+    return scValToNative(xdr.ScVal.fromXDR(bodyXdr, "base64"));
+  } catch {
+    return undefined;
+  }
 }
 
 interface StellarExpertEventsResponse {
@@ -192,6 +213,7 @@ function mapExpertEvent(
     contract: record.contract,
     initiator: record.initiator,
     topics: record.topics,
+    value: decodeEventBody(record.bodyXdr),
     eventName: record.topics[0] ?? "unknown",
     pagingToken: record.paging_token,
     source,

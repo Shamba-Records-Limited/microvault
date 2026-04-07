@@ -59,13 +59,87 @@ function formatTopicArg(t: string): string {
   return t.length > 24 ? `${t.slice(0, 10)}…${t.slice(-8)}` : t;
 }
 
-/** Decode a contract event's argument topics into a readable, comma-separated
- *  list. The first topic (event name) is dropped — it's already shown as the
- *  Event badge in its own column. */
-function formatEventArgs(topics: string[]): string {
-  const args = topics.slice(1);
-  if (args.length === 0) return "—";
-  return args.map(formatTopicArg).join(", ");
+/** Recursively render an event `value` payload as `key=val, key=val`,
+ *  truncating address-shaped strings the same way as topics. */
+/** Event-value field names that hold USDC stroop amounts (i128, 7 decimals). */
+const USDC_AMOUNT_KEYS = new Set([
+  "amount",
+  "assets",
+  "total_borrowed",
+  "new_total_borrowed",
+  "interest_amount",
+]);
+/** Event-value field names that hold vault share amounts (i128, 13 decimals = USDC 7 + 6 virtual offset). */
+const SHARE_AMOUNT_KEYS = new Set(["shares"]);
+/** Decimal places for vault share token amounts. Mirrors `SHARE_DECIMALS` in web/src/lib/constants.ts. */
+const SHARE_DECIMALS = 13;
+/** Event-value field names that hold WAD (1e18) fixed-point rates rendered as percentages. */
+const WAD_PERCENT_KEYS = new Set(["utilization_rate", "borrow_apr"]);
+
+/** WAD precision (1e18) used by the vault for rate fields. */
+const WAD = 1_000_000_000_000_000_000n;
+
+/** Convert a WAD-scaled bigint into a percentage string with 2 decimals. */
+function formatWadPercent(value: bigint): string {
+  // Carry 4 fractional digits of precision then trim to 2 for display.
+  const scaled = (value * 10_000n) / WAD;
+  const whole = scaled / 100n;
+  const frac = (scaled % 100n).toString().padStart(2, "0");
+  return `${whole}.${frac}%`;
+}
+
+/** Format an i128 stroop value as a fixed-decimal string (no trailing zeros). */
+function formatStroops(value: bigint, decimals = 7): string {
+  const negative = value < 0n;
+  const abs = negative ? -value : value;
+  const base = 10n ** BigInt(decimals);
+  const whole = abs / base;
+  const frac = (abs % base).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole}${frac ? `.${frac}` : ""}`;
+}
+
+function formatEventValue(value: unknown, key?: string): string {
+  if (value == null) return "";
+  if (typeof value === "string") return formatTopicArg(value);
+  if (typeof value === "bigint") {
+    if (key && USDC_AMOUNT_KEYS.has(key)) return `${formatStroops(value)} USDC`;
+    if (key && SHARE_AMOUNT_KEYS.has(key)) return `${formatStroops(value, SHARE_DECIMALS)} mvUSDC`;
+    if (key && WAD_PERCENT_KEYS.has(key)) return formatWadPercent(value);
+    return value.toString();
+  }
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  // ScvBytes decodes to Uint8Array (and Buffer in some envs). Render as a
+  // truncated hex string instead of walking the indexed byte entries — that's
+  // what produced the `0=71, 1=243, …` noise on governance events.
+  if (value instanceof Uint8Array) {
+    const hex = Array.from(value)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    return hex.length > 20 ? `0x${hex.slice(0, 8)}…${hex.slice(-8)}` : `0x${hex}`;
+  }
+  if (Array.isArray(value)) return value.map((v) => formatEventValue(v)).join(", ");
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => `${k}=${formatEventValue(v, k)}`)
+      .join(", ");
+  }
+  return String(value);
+}
+
+/** Decode a contract event into a readable, comma-separated detail string.
+ *
+ *  Two sources are combined:
+ *  - Topic args (everything after the event name) — usually indexed addresses.
+ *  - The decoded `value` payload — where most events stash their real fields
+ *    (e.g. `borrowed` → `amount=…, recipient=…, total_borrowed=…`).
+ *
+ *  Either may be empty depending on the event; combining both means we never
+ *  render a blank `—` when there's actually data on the wire. */
+function formatEventArgs(topics: string[], value: unknown): string {
+  const argParts = topics.slice(1).map(formatTopicArg);
+  const valuePart = formatEventValue(value);
+  const combined = [argParts.join(", "), valuePart].filter(Boolean).join(", ");
+  return combined || "—";
 }
 
 // ---------------------------------------------------------------------------
@@ -219,15 +293,15 @@ function EventTableRow({ event, isNew }: { event: ContractEventEntry; isNew: boo
     <tr
       className={`border-b border-border/50 ${isNew ? "animate-in fade-in duration-500 bg-green-500/5" : ""}`}
     >
-      <td className="py-3 text-sm text-muted-foreground whitespace-nowrap">
+      <td className="py-3 pr-4 text-sm text-muted-foreground whitespace-nowrap align-top">
         {formatTime(event.createdAt)}
       </td>
-      <td className="py-3">
+      <td className="py-3 pr-4 align-top">
         <Badge variant="secondary" className="capitalize">
           {formatEventName(event.eventName)}
         </Badge>
       </td>
-      <td className="py-3 text-sm font-mono text-muted-foreground">
+      <td className="py-3 pr-4 text-sm font-mono text-muted-foreground whitespace-nowrap align-top">
         <a
           href={accountExplorerUrl(event.initiator)}
           target="_blank"
@@ -237,15 +311,15 @@ function EventTableRow({ event, isNew }: { event: ContractEventEntry; isNew: boo
           {truncateHash(event.initiator)}
         </a>
       </td>
-      <td className="py-3 text-sm">
+      <td className="py-3 text-sm align-top max-w-0 w-full">
         <a
           href={opExplorerUrl(event.id)}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 font-mono text-xs text-blue-400 hover:underline"
+          className="font-mono text-xs text-blue-400 hover:underline break-all"
         >
-          {formatEventArgs(event.topics)}
-          <ExternalLink className="h-3 w-3 shrink-0" />
+          {formatEventArgs(event.topics, event.value)}
+          <ExternalLink className="inline h-3 w-3 shrink-0 ml-1 align-text-bottom" />
         </a>
       </td>
     </tr>
@@ -284,7 +358,7 @@ function EventCard({ event, isNew }: { event: ContractEventEntry; isNew: boolean
           rel="noopener noreferrer"
           className="inline-flex items-start gap-1 font-mono text-xs text-blue-400 hover:underline break-all"
         >
-          {formatEventArgs(event.topics)}
+          {formatEventArgs(event.topics, event.value)}
           <ExternalLink className="h-3 w-3 shrink-0 mt-0.5" />
         </a>
       </CardContent>
@@ -370,13 +444,13 @@ export function TransactionsTable({
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">
-                      <th className="text-left py-2 font-medium text-muted-foreground">
+                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground">
                         Time
                       </th>
-                      <th className="text-left py-2 font-medium text-muted-foreground">
+                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground">
                         Event
                       </th>
-                      <th className="text-left py-2 font-medium text-muted-foreground">
+                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground">
                         Initiator
                       </th>
                       <th className="text-left py-2 font-medium text-muted-foreground">
