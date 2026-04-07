@@ -8,8 +8,18 @@ import type { Pool } from "@/types/vault";
 
 export default function IndexPage() {
   const { data: stats, isLoading: statsLoading, error: statsError } = useVaultStats();
-  const { data: addresses, isLoading: addressesLoading } = useVaultAddresses();
-  const { data: metadata, isLoading: metadataLoading } = useVaultMetadata();
+  const {
+    data: addresses,
+    isLoading: addressesLoading,
+    error: addressesError,
+  } = useVaultAddresses();
+  const {
+    data: metadata,
+    isLoading: metadataLoading,
+    error: metadataError,
+  } = useVaultMetadata();
+
+  const loadError = statsError ?? addressesError ?? metadataError;
 
   const isLoading = statsLoading || addressesLoading || metadataLoading;
   const pool: Pool | null =
@@ -66,14 +76,17 @@ export default function IndexPage() {
       </section>
 
       {/* Error State */}
-      {statsError && (
+      {loadError && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 mb-8">
           <h3 className="font-semibold text-destructive mb-2">
             Failed to load vault data
+            {statsError
+              ? " (stats)"
+              : addressesError
+                ? " (addresses)"
+                : " (metadata)"}
           </h3>
-          <p className="text-sm text-muted-foreground">
-            {statsError.message}
-          </p>
+          <p className="text-sm text-muted-foreground">{loadError.message}</p>
           <p className="text-sm text-muted-foreground mt-2">
             Check that VITE_VAULT_CONTRACT_ID is set to a valid Soroban contract
             address and the RPC endpoint is reachable.
