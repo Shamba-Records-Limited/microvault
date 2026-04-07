@@ -68,7 +68,7 @@ async function callViewFunction(
   return retval;
 }
 
-/** Convert an on-chain i128 ScVal to a JS number, dividing by the given scale. */
+/** Convert an on-chain i128 ScVal to a JS number, dividing by the given WAD scale. */
 function i128ToNumber(scVal: xdr.ScVal, scale: bigint): number {
   const raw = scValToNative(scVal) as bigint;
   return Number(raw) / Number(scale);
