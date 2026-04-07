@@ -35,6 +35,8 @@ export function useTransactions(
         ["transactions", source, undefined],
         (old) => {
           if (!old) return { transactions: [tx], cursor: undefined };
+          // Dedupe by op id — Horizon may replay the cursor edge on reconnect.
+          if (old.transactions.some((t) => t.id === tx.id)) return old;
           return {
             ...old,
             transactions: [tx, ...old.transactions],

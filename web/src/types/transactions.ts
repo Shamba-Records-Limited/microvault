@@ -1,15 +1,25 @@
 /** Source of a transaction entry. */
 export type EntrySource = "vault" | "timelock" | "treasury";
 
-/** A transaction from the Horizon API, tagged with its source. */
+/**
+ * A single Horizon operation, tagged with its source.
+ *
+ * The Treasury tab renders one row per operation (not per transaction), so
+ * users can see exactly what was executed (payment, invoke, change_trust, …)
+ * rather than just an op count.
+ */
 export interface TransactionEntry {
+  /** Operation id (unique, monotonic — used as React key and stream dedupe). */
+  id: string;
   txHash: string;
   ledger: number;
   /** ISO-8601 timestamp. */
   createdAt: string;
-  sourceAccount: string;
-  memo: string;
-  operationCount: number;
+  /** Horizon operation type (e.g. "payment", "invoke_host_function"). */
+  type: string;
+  /** Human-readable one-line description of what the op did. */
+  summary: string;
+  /** Status of the parent transaction. */
   successful: boolean;
   source: EntrySource;
 }

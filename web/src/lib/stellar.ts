@@ -21,34 +21,99 @@ const explorerUrl =
 const horizonServer = new Horizon.Server(horizonUrl);
 
 // ---------------------------------------------------------------------------
-// Shared Horizon transaction helpers
+// Shared Horizon operation helpers
 // ---------------------------------------------------------------------------
 
-/** Map a Horizon transaction record to our TransactionEntry type. */
-function mapHorizonTx(
-  record: Horizon.ServerApi.TransactionRecord,
-  source: EntrySource,
-): TransactionEntry {
+function shortAddr(addr: string | undefined): string {
+  if (!addr) return "—";
+  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
+}
+
+function assetLabel(
+  type: string | undefined,
+  code: string | undefined,
+): string {
+  if (!type || type === "native") return "XLM";
+  return code ?? type;
+}
+
+/**
+ * One-line, human-readable description of a Horizon operation.
+ *
+ * Covers the operation types we expect to see on a vault treasury: payments,
+ * account lifecycle, trustlines, offers, contract invocations. Falls back to
+ * the (humanized) type name for anything we don't special-case.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: Horizon op records are a wide discriminated union; switching by `type` is the canonical way to read them.
+function formatOpSummary(op: any): string {
+  switch (op.type) {
+    case "payment":
+      return `${op.amount} ${assetLabel(op.asset_type, op.asset_code)} → ${shortAddr(op.to)}`;
+    case "create_account":
+      return `create ${shortAddr(op.account)} (${op.starting_balance} XLM)`;
+    case "path_payment_strict_send":
+    case "path_payment_strict_receive":
+      return `${op.amount} ${assetLabel(op.asset_type, op.asset_code)} → ${shortAddr(op.to)}`;
+    case "account_merge":
+      return `merge → ${shortAddr(op.into)}`;
+    case "change_trust": {
+      const asset = assetLabel(op.asset_type, op.asset_code);
+      return op.limit === "0.0000000" ? `remove trust ${asset}` : `trust ${asset}`;
+    }
+    case "manage_sell_offer":
+    case "manage_buy_offer":
+    case "create_passive_sell_offer":
+      return `offer ${op.amount ?? ""} ${assetLabel(op.selling_asset_type, op.selling_asset_code)}/${assetLabel(op.buying_asset_type, op.buying_asset_code)}`.trim();
+    case "set_options":
+      return "set options";
+    case "manage_data":
+      return op.name ? `data ${op.name}` : "manage data";
+    case "bump_sequence":
+      return `bump → ${op.bump_to}`;
+    case "invoke_host_function":
+      return op.function ? `invoke ${String(op.function).replace(/^HostFunctionType/, "")}` : "invoke contract";
+    case "extend_footprint_ttl":
+      return "extend footprint TTL";
+    case "restore_footprint":
+      return "restore footprint";
+    default:
+      return String(op.type).replace(/_/g, " ");
+  }
+}
+
+/** Derive ledger sequence from a Horizon operation `id` (toid format). */
+function ledgerFromOpId(id: string): number {
+  try {
+    return Number(BigInt(id) >> 32n);
+  } catch {
+    return 0;
+  }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: see formatOpSummary
+function mapHorizonOp(record: any, source: EntrySource): TransactionEntry {
   return {
-    txHash: record.hash,
-    ledger: record.ledger_attr,
+    id: record.id,
+    txHash: record.transaction_hash,
+    ledger: ledgerFromOpId(record.id),
     createdAt: record.created_at,
-    sourceAccount: record.source_account,
-    memo: record.memo ?? "",
-    operationCount: record.operation_count,
-    successful: record.successful,
+    type: record.type,
+    summary: formatOpSummary(record),
+    successful: record.transaction_successful ?? true,
     source,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Fetch transactions (works for contracts and accounts)
+// Fetch operations (works for contracts and accounts)
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch a page of transactions for any Stellar account or contract.
- * Uses Horizon's `/accounts/{id}/transactions` endpoint which provides
- * full history with server-side filtering.
+ * Fetch a page of operations for any Stellar account or contract.
+ *
+ * Uses Horizon's `/accounts/{id}/operations` endpoint so each row in the UI
+ * corresponds to a concrete executed operation (payment, invoke, …) rather
+ * than a transaction wrapper.
  */
 export async function fetchTransactions(
   accountId: string,
@@ -56,7 +121,7 @@ export async function fetchTransactions(
   cursor?: string,
 ): Promise<TransactionsPage> {
   let builder = horizonServer
-    .transactions()
+    .operations()
     .forAccount(accountId)
     .order("desc")
     .limit(EVENTS_PAGE_SIZE);
@@ -68,7 +133,7 @@ export async function fetchTransactions(
   const response = await builder.call();
   const records = response.records;
 
-  const transactions = records.map((r) => mapHorizonTx(r, source));
+  const transactions = records.map((r) => mapHorizonOp(r, source));
   const nextCursor =
     records.length > 0 ? records[records.length - 1].paging_token : undefined;
 
@@ -76,7 +141,7 @@ export async function fetchTransactions(
 }
 
 /**
- * Open an SSE stream for new transactions on any Stellar account or contract.
+ * Open an SSE stream of new operations on any Stellar account or contract.
  * Returns a close function to stop the stream.
  */
 export function streamTransactions(
@@ -86,11 +151,11 @@ export function streamTransactions(
   onError?: (err: MessageEvent) => void,
 ): () => void {
   return horizonServer
-    .transactions()
+    .operations()
     .forAccount(accountId)
     .cursor("now")
     .stream({
-      onmessage: (record) => onMessage(mapHorizonTx(record, source)),
+      onmessage: (record) => onMessage(mapHorizonOp(record, source)),
       onerror: onError,
     });
 }
@@ -180,4 +245,15 @@ export function contractExplorerUrl(contractId: string): string {
 
 export function accountExplorerUrl(address: string): string {
   return `${explorerUrl}/account/${address}`;
+}
+
+/**
+ * Build an explorer URL for a single operation.
+ *
+ * Stellar Expert event ids are formatted as `<op_toid>-<event_index>`; the
+ * leading toid is the same id used by `/op/<id>` on the explorer.
+ */
+export function opExplorerUrl(eventOrOpId: string): string {
+  const opId = eventOrOpId.split("-")[0];
+  return `${explorerUrl}/op/${opId}`;
 }

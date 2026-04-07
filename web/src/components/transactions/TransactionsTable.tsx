@@ -3,7 +3,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { txExplorerUrl, contractExplorerUrl, accountExplorerUrl } from "@/lib/stellar";
+import {
+  txExplorerUrl,
+  contractExplorerUrl,
+  accountExplorerUrl,
+  opExplorerUrl,
+} from "@/lib/stellar";
 import type { TransactionEntry, ContractEventEntry } from "@/types/transactions";
 
 // ---------------------------------------------------------------------------
@@ -19,7 +24,7 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: "vault", label: "Vault" },
-  { id: "timelock", label: "Timelock" },
+  { id: "timelock", label: "Governance" },
   { id: "treasury", label: "Treasury" },
 ];
 
@@ -44,6 +49,23 @@ function formatTime(iso: string): string {
 
 function formatEventName(name: string): string {
   return name.replace(/_/g, " ");
+}
+
+/** Render a single event topic argument compactly. Stellar addresses get the
+ *  same short form we use for tx hashes; other strings are truncated only if
+ *  they would visually dominate the row. */
+function formatTopicArg(t: string): string {
+  if (/^[GC][A-Z0-9]{55}$/.test(t)) return truncateHash(t);
+  return t.length > 24 ? `${t.slice(0, 10)}…${t.slice(-8)}` : t;
+}
+
+/** Decode a contract event's argument topics into a readable, comma-separated
+ *  list. The first topic (event name) is dropped — it's already shown as the
+ *  Event badge in its own column. */
+function formatEventArgs(topics: string[]): string {
+  const args = topics.slice(1);
+  if (args.length === 0) return "—";
+  return args.map(formatTopicArg).join(", ");
 }
 
 // ---------------------------------------------------------------------------
@@ -132,9 +154,15 @@ function TxTableRow({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
         </a>
       </td>
       <td className="py-3 text-sm text-muted-foreground">{tx.ledger}</td>
-      <td className="py-3 text-sm text-muted-foreground">
-        {tx.operationCount} op{tx.operationCount !== 1 ? "s" : ""}
-        {tx.memo ? ` — ${tx.memo}` : ""}
+      <td className="py-3 text-sm">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="capitalize font-normal">
+            {formatEventName(tx.type)}
+          </Badge>
+          <span className="text-muted-foreground font-mono text-xs">
+            {tx.summary}
+          </span>
+        </div>
       </td>
     </tr>
   );
@@ -171,11 +199,12 @@ function TxCard({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
         </a>
         <span className="text-muted-foreground">Ledger</span>
         <span>{tx.ledger}</span>
+        <span className="text-muted-foreground">Operation</span>
+        <Badge variant="outline" className="w-fit capitalize font-normal">
+          {formatEventName(tx.type)}
+        </Badge>
         <span className="text-muted-foreground">Details</span>
-        <span>
-          {tx.operationCount} op{tx.operationCount !== 1 ? "s" : ""}
-          {tx.memo ? ` — ${tx.memo}` : ""}
-        </span>
+        <span className="font-mono text-xs break-all">{tx.summary}</span>
       </CardContent>
     </Card>
   );
@@ -208,10 +237,16 @@ function EventTableRow({ event, isNew }: { event: ContractEventEntry; isNew: boo
           {truncateHash(event.initiator)}
         </a>
       </td>
-      <td className="py-3 text-sm text-muted-foreground">
-        {event.topics.length > 1
-          ? event.topics.slice(1).map((t) => truncateHash(t)).join(", ")
-          : "—"}
+      <td className="py-3 text-sm">
+        <a
+          href={opExplorerUrl(event.id)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 font-mono text-xs text-blue-400 hover:underline"
+        >
+          {formatEventArgs(event.topics)}
+          <ExternalLink className="h-3 w-3 shrink-0" />
+        </a>
       </td>
     </tr>
   );
@@ -242,12 +277,16 @@ function EventCard({ event, isNew }: { event: ContractEventEntry; isNew: boolean
         >
           {truncateHash(event.initiator)}
         </a>
-        <span className="text-muted-foreground">Topics</span>
-        <span className="font-mono text-xs break-all">
-          {event.topics.length > 1
-            ? event.topics.slice(1).map((t) => truncateHash(t)).join(", ")
-            : "—"}
-        </span>
+        <span className="text-muted-foreground">Details</span>
+        <a
+          href={opExplorerUrl(event.id)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-start gap-1 font-mono text-xs text-blue-400 hover:underline break-all"
+        >
+          {formatEventArgs(event.topics)}
+          <ExternalLink className="h-3 w-3 shrink-0 mt-0.5" />
+        </a>
       </CardContent>
     </Card>
   );
@@ -395,9 +434,9 @@ export function TransactionsTable({
                   <tbody>
                     {transactions.map((tx) => (
                       <TxTableRow
-                        key={tx.txHash}
+                        key={tx.id}
                         tx={tx}
-                        isNew={newItemIds.has(tx.txHash)}
+                        isNew={newItemIds.has(tx.id)}
                       />
                     ))}
                   </tbody>
@@ -408,9 +447,9 @@ export function TransactionsTable({
               <div className="md:hidden space-y-3">
                 {transactions.map((tx) => (
                   <TxCard
-                    key={tx.txHash}
+                    key={tx.id}
                     tx={tx}
-                    isNew={newItemIds.has(tx.txHash)}
+                    isNew={newItemIds.has(tx.id)}
                   />
                 ))}
               </div>
