@@ -108,15 +108,22 @@ export async function fetchVaultStats(): Promise<VaultStats> {
   };
 }
 
-/** Fetch vault name and asset symbol from on-chain view functions. */
+/**
+ * Fetch vault name and asset symbol from on-chain view functions.
+ *
+ * Both calls are tolerated to fail individually: a contract upgraded across
+ * an OZ storage-layout change can trap with `UnsetMetadata` (error 105) on
+ * `name`/`symbol` even though every other view still works. We fall back to
+ * a generic label so the pool card renders instead of vanishing.
+ */
 export async function fetchVaultMetadata(): Promise<VaultMetadata> {
   const [name, symbol] = await Promise.all([
-    callViewFunction("name"),
-    callViewFunction("symbol"),
+    callViewFunction("name").catch(() => null),
+    callViewFunction("symbol").catch(() => null),
   ]);
 
-  const vaultName = scValToNative(name) as string;
-  const assetSymbol = scValToNative(symbol) as string;
+  const vaultName = name ? (scValToNative(name) as string) : "Microvault";
+  const assetSymbol = symbol ? (scValToNative(symbol) as string) : "mvUSDC";
 
   return {
     name: `${vaultName} Pool`,
