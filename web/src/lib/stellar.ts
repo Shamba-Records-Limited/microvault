@@ -198,7 +198,7 @@ function mapRpcEvent(
     topics,
     value: scValToNative(record.value),
     eventName: topics[0] ?? "unknown",
-    pagingToken: record.pagingToken,
+    pagingToken: record.id,
     source,
   };
 }
