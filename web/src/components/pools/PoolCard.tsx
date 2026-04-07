@@ -230,20 +230,22 @@ export function PoolCard({ pool }: PoolCardProps) {
                   </div>
                 </div>
               )}
-              <div className="flex items-center gap-2">
-                <Landmark className="h-4 w-4 text-muted-foreground shrink-0" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Treasury</p>
-                  <a
-                    href={`${explorerUrl}/account/${pool.treasury}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium font-mono text-xs hover:underline"
-                  >
-                    {pool.treasury.slice(0, 8)}...{pool.treasury.slice(-6)}
-                  </a>
+              {pool.treasury && (
+                <div className="flex items-center gap-2">
+                  <Landmark className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Treasury</p>
+                    <a
+                      href={`${explorerUrl}/account/${pool.treasury}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium font-mono text-xs hover:underline"
+                    >
+                      {pool.treasury.slice(0, 8)}...{pool.treasury.slice(-6)}
+                    </a>
+                  </div>
                 </div>
-              </div>
+              )}
               {pool.guardian && (
                 <div className="flex items-center gap-2">
                   <Shield className="h-4 w-4 text-muted-foreground shrink-0" />
