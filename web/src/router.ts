@@ -19,7 +19,13 @@ const ourApproachRoute = createRoute({
   component: lazyRouteComponent(() => import("./routes/our-approach")),
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, ourApproachRoute]);
+const transactionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/transactions",
+  component: lazyRouteComponent(() => import("./routes/transactions")),
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, ourApproachRoute, transactionsRoute]);
 
 export const router = createRouter({ routeTree });
 

@@ -52,6 +52,12 @@ export function Header() {
 
           <nav className="flex items-center gap-6">
             <Link
+              to="/transactions"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Transactions
+            </Link>
+            <Link
               to="/our-approach"
               className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >

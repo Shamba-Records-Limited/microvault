@@ -66,9 +66,9 @@ definitions:
   github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.WebhookPayload:
     properties:
       amount:
-        type: integer
+        type: number
       convertedAmount:
-        type: integer
+        type: number
       country:
         type: string
       createdAt:

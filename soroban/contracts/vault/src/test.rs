@@ -830,7 +830,7 @@ fn test_interest_accrual() {
     // Advance time by 1 year (for significant interest accrual)
     env.ledger().set(LedgerInfo {
         timestamp: 31_536_000, // 1 year in seconds
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1015,7 +1015,7 @@ fn test_full_credit_delegation_lifecycle() {
     // 3. Time passes, interest accrues
     env.ledger().set(LedgerInfo {
         timestamp: 2_592_000, // 30 days
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1110,7 +1110,7 @@ fn test_lock_applied_on_deposit() {
     // Set initial timestamp
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1143,7 +1143,7 @@ fn test_withdraw_blocked_when_locked() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1173,7 +1173,7 @@ fn test_redeem_blocked_when_locked() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1202,7 +1202,7 @@ fn test_withdraw_allowed_after_lock_expires() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1224,7 +1224,7 @@ fn test_withdraw_allowed_after_lock_expires() {
     // Advance time past lock period
     env.ledger().set(LedgerInfo {
         timestamp: 1000 + seven_days + 1,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1250,7 +1250,7 @@ fn test_weighted_lock_calculation() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 0,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1274,7 +1274,7 @@ fn test_weighted_lock_calculation() {
     let six_days: u64 = 518400;
     env.ledger().set(LedgerInfo {
         timestamp: six_days,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1306,7 +1306,7 @@ fn test_weighted_lock_with_large_new_deposit() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 0,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1328,7 +1328,7 @@ fn test_weighted_lock_with_large_new_deposit() {
     // Advance 6 days (1 day remaining)
     env.ledger().set(LedgerInfo {
         timestamp: 518400, // 6 days
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1353,7 +1353,7 @@ fn test_lock_after_expiry_creates_new_lock() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 0,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1375,7 +1375,7 @@ fn test_lock_after_expiry_creates_new_lock() {
     // Advance past lock expiry (10 days)
     env.ledger().set(LedgerInfo {
         timestamp: 864000, // 10 days
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1405,7 +1405,7 @@ fn test_mint_also_applies_lock() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1493,7 +1493,7 @@ fn test_borrow_index_increases_with_interest() {
     // Advance 30 days
     env.ledger().set(LedgerInfo {
         timestamp: 2_592_000,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1533,7 +1533,7 @@ fn test_borrow_index_monotonically_increases() {
     // Advance 30 days, get index
     env.ledger().set(LedgerInfo {
         timestamp: 2_592_000,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1546,7 +1546,7 @@ fn test_borrow_index_monotonically_increases() {
     // Advance to 60 days, get index
     env.ledger().set(LedgerInfo {
         timestamp: 5_184_000,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1559,7 +1559,7 @@ fn test_borrow_index_monotonically_increases() {
     // Advance to 365 days, get index
     env.ledger().set(LedgerInfo {
         timestamp: 31_536_000,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 300,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1602,7 +1602,7 @@ fn test_borrow_index_stable_without_borrows() {
     // Advance 1 year
     env.ledger().set(LedgerInfo {
         timestamp: 31_536_000,
-        protocol_version: 23,
+        protocol_version: 25,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,

@@ -406,10 +406,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "amount": {
-                    "type": "integer"
+                    "type": "number"
                 },
                 "convertedAmount": {
-                    "type": "integer"
+                    "type": "number"
                 },
                 "country": {
                     "type": "string"

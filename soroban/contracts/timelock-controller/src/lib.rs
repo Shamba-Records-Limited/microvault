@@ -7,7 +7,7 @@
 //! Built on the OpenZeppelin Stellar Contracts library:
 //! <https://docs.openzeppelin.com/stellar-contracts>
 //!
-//! # Author
+//! # Authors
 //!
 //! Samuel Mugane <smugane@shambarecords.com>
 
@@ -123,7 +123,7 @@ impl TimelockController {
     ///
     /// # Arguments
     ///
-    /// * `min_delay` - Minimum delay (in ledger timestamps) before a scheduled
+    /// * `min_delay` - Minimum delay (in ledger sequence counts) before a scheduled
     ///   operation becomes executable.
     /// * `proposers` - Addresses granted the proposer role (and canceler role
     ///   automatically).
@@ -157,7 +157,7 @@ impl TimelockController {
     ///
     /// Returns the operation ID (`BytesN<32>`) computed as the keccak256 hash
     /// of the operation parameters. The operation enters the `Waiting` state
-    /// and becomes `Ready` after `delay` ledger timestamps have passed.
+    /// and becomes `Ready` after `delay` ledger sequence counts have passed.
     ///
     /// # Panics
     ///
@@ -240,7 +240,17 @@ impl TimelockController {
         timelock_set_min_delay(e, new_delay);
     }
 
-    /// Returns the minimum delay (in ledger timestamps) for new operations.
+    /// Upgrade the contract WASM. Admin only.
+    ///
+    /// When self-administered, upgrading must go through the timelock:
+    /// schedule an operation targeting this contract's `upgrade`, wait for
+    /// the delay, then execute it (validated by `__check_auth`).
+    #[only_admin]
+    pub fn upgrade(e: &Env, new_wasm_hash: BytesN<32>) {
+        e.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
+    /// Returns the minimum delay (in ledger sequence counts) for new operations.
     pub fn get_min_delay(e: &Env) -> u32 {
         timelock_get_min_delay(e)
     }

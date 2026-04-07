@@ -27,3 +27,15 @@ export const DEFAULT_NETWORK_PASSPHRASE = isTestnet
 export const DEFAULT_EXPLORER_URL = isTestnet
   ? "https://stellar.expert/explorer/testnet"
   : "https://stellar.expert/explorer/public";
+
+export const DEFAULT_HORIZON_URL = isTestnet
+  ? "https://horizon-testnet.stellar.org"
+  : "https://horizon.stellar.org";
+
+/** Number of events per page when fetching contract events. */
+export const EVENTS_PAGE_SIZE = 20;
+
+/** Stellar Expert API base URL for contract event queries. */
+export const STELLAR_EXPERT_API_URL = isTestnet
+  ? "https://api.stellar.expert/explorer/testnet"
+  : "https://api.stellar.expert/explorer/public";
