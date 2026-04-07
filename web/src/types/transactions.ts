@@ -39,6 +39,12 @@ export interface ContractEventEntry {
   initiator: string;
   /** Decoded topic names (e.g. ["operation_scheduled", "CBA65...", "CC3QF..."]). */
   topics: string[];
+  /**
+   * Decoded event data payload. Many events (`borrowed`, `interest_accrued`,
+   * `ownership_transferred`, …) carry their fields here rather than as extra
+   * topics. Shape varies per event; the table renders it generically.
+   */
+  value?: unknown;
   /** First topic — the event name. */
   eventName: string;
   pagingToken: string;
