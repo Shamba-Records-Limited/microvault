@@ -1,9 +1,9 @@
-import { Horizon, scValToNative, xdr } from "@stellar/stellar-sdk";
+import { Horizon, rpc, scValToNative } from "@stellar/stellar-sdk";
 import {
   DEFAULT_HORIZON_URL,
   DEFAULT_EXPLORER_URL,
+  DEFAULT_RPC_URL,
   EVENTS_PAGE_SIZE,
-  STELLAR_EXPERT_API_URL,
 } from "./constants";
 import type {
   EntrySource,
@@ -19,6 +19,17 @@ const explorerUrl =
   import.meta.env.VITE_STELLAR_EXPLORER_URL || DEFAULT_EXPLORER_URL;
 
 const horizonServer = new Horizon.Server(horizonUrl);
+
+const sorobanRpcUrl = import.meta.env.VITE_SOROBAN_RPC_URL || DEFAULT_RPC_URL;
+const sorobanServer = new rpc.Server(sorobanRpcUrl);
+
+/**
+ * How far back to look when no cursor is supplied. Soroban RPC retains only a
+ * rolling window of events (~7 days on testnet, ~24h on mainnet), so this is a
+ * "best effort" historical lookback. For full history, link users out to
+ * Stellar Expert.
+ */
+const EVENT_LOOKBACK_LEDGERS = 100_000;
 
 // ---------------------------------------------------------------------------
 // Shared Horizon operation helpers
@@ -161,94 +172,82 @@ export function streamTransactions(
 }
 
 // ---------------------------------------------------------------------------
-// Contract events via Stellar Expert API
+// Contract events via Soroban RPC
 // ---------------------------------------------------------------------------
 
-interface StellarExpertEvent {
-  id: string;
-  ts: number;
-  contract: string;
-  initiator: string;
-  topics: string[];
-  /**
-   * Base64-encoded XDR `ScVal` of the event body. Most contract events
-   * (`borrowed`, `interest_accrued`, `ownership_transferred`, …) stash their
-   * fields here rather than in additional topics, so we have to decode this
-   * client-side to get a useful detail string.
-   */
-  bodyXdr?: string;
-  paging_token: string;
-}
-
 /**
- * Decode a base64 `ScVal` body into a native JS value (object / bigint /
- * string). Returns `undefined` on any decoding error so the table can fall
- * back to topic args without crashing the page.
+ * Best-effort decode of an event topic ScVal into a printable string. Symbol
+ * topics (the common case — event names, addresses) come back as strings;
+ * everything else gets JSON-serialized so the table can still render it.
  */
-function decodeEventBody(bodyXdr: string | undefined): unknown {
-  if (!bodyXdr) return undefined;
+function topicToString(topic: ReturnType<typeof scValToNative>): string {
+  if (topic == null) return "";
+  if (typeof topic === "string") return topic;
+  if (typeof topic === "bigint") return topic.toString();
+  if (typeof topic === "number" || typeof topic === "boolean") {
+    return String(topic);
+  }
   try {
-    return scValToNative(xdr.ScVal.fromXDR(bodyXdr, "base64"));
+    return JSON.stringify(topic);
   } catch {
-    return undefined;
+    return String(topic);
   }
 }
 
-interface StellarExpertEventsResponse {
-  _links: {
-    next?: { href: string };
-  };
-  _embedded: {
-    records: StellarExpertEvent[];
-  };
-}
-
-function mapExpertEvent(
-  record: StellarExpertEvent,
+function mapRpcEvent(
+  record: rpc.Api.EventResponse,
   source: EntrySource,
 ): ContractEventEntry {
+  const topics = record.topic.map((t) => topicToString(scValToNative(t)));
   return {
     id: record.id,
-    createdAt: new Date(record.ts * 1000).toISOString(),
-    contract: record.contract,
-    initiator: record.initiator,
-    topics: record.topics,
-    value: decodeEventBody(record.bodyXdr),
-    eventName: record.topics[0] ?? "unknown",
-    pagingToken: record.paging_token,
+    createdAt: new Date(record.ledgerClosedAt).toISOString(),
+    contract: record.contractId?.toString() ?? "",
+    topics,
+    value: scValToNative(record.value),
+    eventName: topics[0] ?? "unknown",
+    pagingToken: record.pagingToken,
     source,
   };
 }
 
 /**
- * Fetch contract events from the Stellar Expert API.
- * Works for both C... contract addresses and provides full history.
+ * Fetch contract events via Soroban RPC `getEvents`.
+ *
+ * RPC only retains a rolling window of events (~7 days on testnet, ~24h on
+ * mainnet), which is fine for the realtime metrics this UI surfaces. For full
+ * history, users can follow the explorer link to Stellar Expert.
  */
 export async function fetchContractEvents(
   contractId: string,
   source: EntrySource,
   cursor?: string,
 ): Promise<ContractEventsPage> {
-  const url = new URL(
-    `${STELLAR_EXPERT_API_URL}/contract/${contractId}/events`,
-  );
-  url.searchParams.set("order", "desc");
-  url.searchParams.set("limit", String(EVENTS_PAGE_SIZE));
-  if (cursor) {
-    url.searchParams.set("cursor", cursor);
-  }
+  const baseRequest = {
+    filters: [
+      { type: "contract" as const, contractIds: [contractId] },
+    ],
+    limit: EVENTS_PAGE_SIZE,
+  };
 
-  const response = await fetch(url.toString());
-  if (!response.ok) {
-    throw new Error(`Stellar Expert API error: ${response.status}`);
-  }
+  // RPC requires either `startLedger` or `cursor`, never both.
+  const request: rpc.Server.GetEventsRequest = cursor
+    ? { ...baseRequest, cursor }
+    : {
+        ...baseRequest,
+        startLedger: Math.max(
+          (await sorobanServer.getLatestLedger()).sequence -
+            EVENT_LOOKBACK_LEDGERS,
+          1,
+        ),
+      };
 
-  const data: StellarExpertEventsResponse = await response.json();
-  const records = data._embedded.records;
+  const response = await sorobanServer.getEvents(request);
+  // RPC returns oldest-first; the table renders newest-first.
+  const records = [...response.events].reverse();
 
-  const events = records.map((r) => mapExpertEvent(r, source));
-  const nextCursor =
-    records.length > 0 ? records[records.length - 1].paging_token : undefined;
+  const events = records.map((r) => mapRpcEvent(r, source));
+  const nextCursor = response.cursor;
 
   return { events, cursor: nextCursor };
 }

@@ -34,13 +34,3 @@ export const DEFAULT_HORIZON_URL = isTestnet
 
 /** Number of events per page when fetching contract events. */
 export const EVENTS_PAGE_SIZE = 20;
-
-/** Stellar Expert API base URL for contract event queries. */
-// We're still in the testnet phase, so don't branch on isTestnet — always use
-// the URL from the environment (falling back to the testnet endpoint).
-// export const STELLAR_EXPERT_API_URL = isTestnet
-//   ? "https://api.stellar.expert/explorer/testnet"
-//   : "https://api.stellar.expert/explorer/public";
-export const STELLAR_EXPERT_API_URL =
-  import.meta.env.VITE_STELLAR_EXPERT_API_URL ||
-  "https://api.stellar.expert/explorer/testnet";
