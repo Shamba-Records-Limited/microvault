@@ -19,7 +19,11 @@ import type { Pool } from "@/types/vault";
  * OZ storage entry while leaving everything else healthy.
  */
 export default function IndexPage() {
-  const { data: stats, isLoading: statsLoading, error: statsError } = useVaultStats();
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    error: statsError,
+  } = useVaultStats();
   const {
     data: addresses,
     isLoading: addressesLoading,
@@ -110,9 +114,6 @@ export default function IndexPage() {
       <section>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold">Pools</h2>
-          <span className="text-sm text-muted-foreground">
-            {pool ? "1 pool" : "—"}
-          </span>
         </div>
         <div className="grid gap-4">
           {isLoading ? (
