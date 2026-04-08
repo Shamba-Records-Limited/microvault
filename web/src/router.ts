@@ -1,3 +1,11 @@
+/**
+ * TanStack Router configuration: root layout plus three lazy-loaded pages.
+ * @module router
+ * @remarks Child routes use `lazyRouteComponent` so each page's JS is
+ * code-split into its own chunk, keeping the initial landing-page payload
+ * small. The `declare module` block registers the router type globally so
+ * `<Link to="/…" />` gets type-safe path completion everywhere.
+ */
 import { createRouter, createRoute, createRootRoute, lazyRouteComponent } from "@tanstack/react-router";
 import RootLayout from "./routes/__root";
 import NotFoundPage from "./routes/not-found";

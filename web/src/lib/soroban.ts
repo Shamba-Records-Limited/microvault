@@ -1,3 +1,14 @@
+/**
+ * Soroban RPC client for the Microvault contract: read-only view calls,
+ * deposit/withdraw transaction builders, share/asset preview helpers, and
+ * user position queries.
+ * @module lib/soroban
+ * @remarks All view functions go through `simulateTransaction` against a
+ * zero-balance source account so they require no signing. Each public fetcher
+ * tolerates individual view traps so a single broken entry (e.g. after an OZ
+ * storage-layout migration) cannot blank the entire pool card — see
+ * `docs/soroban-contract-upgrade-procedure.md`.
+ */
 import {
   Contract,
   TransactionBuilder,
@@ -33,8 +44,13 @@ const SOURCE_ACCOUNT = new Account(
 );
 
 /**
- * Invoke a Soroban contract view function via `simulateTransaction`.
- * No signing or fees are required — the call is read-only.
+ * Invokes a Soroban contract view function via `simulateTransaction`.
+ * @param functionName - Contract function symbol to call
+ * @param args - Pre-built ScVal arguments
+ * @returns The function's raw return ScVal, ready for `scValToNative`
+ * @remarks No signing or fees — the call is read-only. Throws on simulation
+ * error or empty retval; callers wrap in `.catch(() => null)` when they want
+ * to swallow individual failures rather than blanking the whole UI.
  */
 async function callViewFunction(
   functionName: string,
@@ -68,26 +84,37 @@ async function callViewFunction(
   return retval;
 }
 
-/** Convert an on-chain i128 ScVal to a JS number, dividing by the given WAD scale. */
+/**
+ * Converts an on-chain i128 ScVal to a JS number using the given scale.
+ * @param scVal - i128 value returned from a contract call
+ * @param scale - Scaling factor in stroops (`USDC_SCALE`, `SHARE_SCALE`, …)
+ * @returns Human-readable number in major units
+ * @remarks Lossy for amounts above `Number.MAX_SAFE_INTEGER * scale`. Fine for
+ * UI display where TVL is bounded; do not use for chain-side math.
+ */
 function i128ToNumber(scVal: xdr.ScVal, scale: bigint): number {
   const raw = scValToNative(scVal) as bigint;
   return Number(raw) / Number(scale);
 }
 
-/** Convert a WAD-scaled (1e18) ScVal to a human-readable percentage. */
+/**
+ * Converts a WAD-scaled (1e18) ScVal to a 0–100 percentage.
+ * @param scVal - WAD-scaled rate (utilization, APR, …) returned from chain
+ * @returns Percentage in 0–100 range
+ */
 function wadToPercent(scVal: xdr.ScVal): number {
   const raw = scValToNative(scVal) as bigint;
   return (Number(raw) / Number(WAD_SCALE)) * 100;
 }
 
 /**
- * Fetch all numeric vault metrics (TVL, borrowed, utilization, APR, paused) in a single batch.
- *
- * Each view is tolerated to fail individually so a single trapping function
- * (e.g. after an OZ storage-layout migration that strands one entry) cannot
- * blank the entire pool card. Failing fields fall back to 0 / false. See
- * docs/soroban-contract-upgrade-procedure.md for the failure mode this guards
- * against.
+ * Fetches all numeric vault metrics (TVL, borrowed, utilization, APR, paused)
+ * in one parallel batch.
+ * @returns A fully-populated `VaultStats` object; failing fields fall back to
+ * `0` / `false` rather than throwing
+ * @remarks Each view is tolerated to fail individually so a single trapping
+ * function (e.g. after an OZ storage-layout migration that strands one entry)
+ * cannot blank the entire pool card. See `docs/soroban-contract-upgrade-procedure.md`.
  */
 export async function fetchVaultStats(): Promise<VaultStats> {
   const [
@@ -121,12 +148,12 @@ export async function fetchVaultStats(): Promise<VaultStats> {
 }
 
 /**
- * Fetch vault name and asset symbol from on-chain view functions.
- *
- * Both calls are tolerated to fail individually: a contract upgraded across
- * an OZ storage-layout change can trap with `UnsetMetadata` (error 105) on
- * `name`/`symbol` even though every other view still works. We fall back to
- * a generic label so the pool card renders instead of vanishing.
+ * Fetches the vault display name and underlying asset symbol.
+ * @returns `{ name, symbol }`; either falls back to a generic label on failure
+ * @remarks A contract upgraded across an OZ storage-layout change can trap
+ * with `UnsetMetadata` (error 105) on `name`/`symbol` even though every other
+ * view still works. We fall back to "Microvault" / "mvUSDC" so the pool card
+ * renders instead of vanishing.
  */
 export async function fetchVaultMetadata(): Promise<VaultMetadata> {
   const [name, symbol] = await Promise.all([
@@ -144,12 +171,10 @@ export async function fetchVaultMetadata(): Promise<VaultMetadata> {
 }
 
 /**
- * Fetch vault governance addresses (treasury, owner, guardian).
- *
- * All three calls are tolerated to fail individually. Any field that traps —
- * the most likely cause being an OZ storage-layout migration that stranded
- * the entry — falls back to `null` so the pool card still renders. See
- * docs/soroban-contract-upgrade-procedure.md.
+ * Fetches vault governance addresses (treasury, owner, guardian) in parallel.
+ * @returns A `VaultAddresses` object; trapping fields fall back to `null`
+ * @remarks Most common cause of `null` is a stranded entry after an OZ
+ * storage-layout migration. See `docs/soroban-contract-upgrade-procedure.md`.
  */
 export async function fetchVaultAddresses(): Promise<VaultAddresses> {
   const [treasury, owner, guardian] = await Promise.all([
@@ -170,7 +195,15 @@ export async function fetchVaultAddresses(): Promise<VaultAddresses> {
 // Transaction builders (deposit / withdraw)
 // ---------------------------------------------------------------------------
 
-/** Build and simulate a contract call transaction using the user's real account. */
+/**
+ * Builds, simulates, and assembles a contract-call transaction for the user.
+ * @param senderAddress - User's G-account; sourced via `getAccount` for the seqnum
+ * @param functionName - Vault contract function symbol
+ * @param args - Pre-built ScVal arguments matching the function signature
+ * @returns A simulation-assembled transaction ready to sign and submit
+ * @remarks Throws on simulation failure with a contextualised error message
+ * so callers can surface a useful toast via `parseContractError`.
+ */
 async function buildContractTx(
   senderAddress: string,
   functionName: string,
@@ -210,7 +243,14 @@ function i128ScVal(amount: bigint): xdr.ScVal {
   return nativeToScVal(amount, { type: "i128" });
 }
 
-/** Build a deposit transaction: deposit(assets, receiver, from, operator). */
+/**
+ * Builds a `deposit(assets, receiver, from, operator)` transaction.
+ * @param senderAddress - User's G-account used for all four address arguments
+ * @param amount - Asset amount in stroops (USDC 10^7)
+ * @returns Assembled transaction ready for signing
+ * @remarks `receiver`, `from`, and `operator` are intentionally all the sender —
+ * the UI only supports self-deposits. Revisit if we add delegated flows.
+ */
 export async function buildDepositTx(
   senderAddress: string,
   amount: bigint,
@@ -224,7 +264,12 @@ export async function buildDepositTx(
   ]);
 }
 
-/** Build a withdraw transaction: withdraw(assets, receiver, owner, operator). */
+/**
+ * Builds a `withdraw(assets, receiver, owner, operator)` transaction.
+ * @param senderAddress - User's G-account used for all four address arguments
+ * @param amount - Asset amount in stroops (USDC 10^7)
+ * @returns Assembled transaction ready for signing
+ */
 export async function buildWithdrawTx(
   senderAddress: string,
   amount: bigint,
@@ -238,7 +283,15 @@ export async function buildWithdrawTx(
   ]);
 }
 
-/** Submit a signed transaction XDR and poll until it resolves. */
+/**
+ * Submits a signed transaction XDR and polls until it resolves.
+ * @param signedXdr - Base64-encoded signed transaction envelope
+ * @returns The final `getTransaction` response (only on success)
+ * @remarks Polls every 1s while the transaction is `NOT_FOUND`. Throws on
+ * `ERROR` send status or `FAILED` post-inclusion, which `parseContractError`
+ * then translates into a user-facing message. There is no cancellation — if
+ * the network stalls, the promise will pend indefinitely.
+ */
 export async function submitSignedTx(
   signedXdr: string,
 ): Promise<rpc.Api.GetTransactionResponse> {
@@ -268,13 +321,23 @@ export async function submitSignedTx(
 // User position queries
 // ---------------------------------------------------------------------------
 
-/** Fetch the user's vault share token balance (raw i128 → number scaled by SHARE_SCALE 10^13). */
+/**
+ * Fetches the user's vault share token balance.
+ * @param address - G-account to query
+ * @returns Share balance in major units (already divided by `SHARE_SCALE`)
+ */
 export async function fetchUserShares(address: string): Promise<number> {
   const result = await callViewFunction("balance", [addressScVal(address)]);
   return i128ToNumber(result, SHARE_SCALE);
 }
 
-/** Fetch the USDC-equivalent value of the user's shares via convert_to_assets. */
+/**
+ * Fetches the USDC-equivalent value of the user's vault shares.
+ * @param address - G-account to query
+ * @returns USDC value in major units, or 0 if the user holds no shares
+ * @remarks Short-circuits with 0 on an empty balance to avoid a second
+ * `convert_to_assets` RPC call when the answer is trivially zero.
+ */
 export async function fetchUserAssetsValue(address: string): Promise<number> {
   const sharesResult = await callViewFunction("balance", [
     addressScVal(address),
@@ -287,13 +350,21 @@ export async function fetchUserAssetsValue(address: string): Promise<number> {
   return i128ToNumber(assetsResult, USDC_SCALE);
 }
 
-/** Preview how many shares a deposit of `assets` would yield. */
+/**
+ * Previews how many shares a deposit of `assets` would mint.
+ * @param assets - Deposit amount in stroops
+ * @returns Minted shares in raw i128 stroops
+ */
 export async function fetchPreviewDeposit(assets: bigint): Promise<bigint> {
   const result = await callViewFunction("preview_deposit", [i128ScVal(assets)]);
   return scValToNative(result) as bigint;
 }
 
-/** Preview how many shares will be burned for a withdrawal of `assets`. */
+/**
+ * Previews how many shares will be burned for a withdrawal of `assets`.
+ * @param assets - Withdrawal amount in stroops
+ * @returns Burned shares in raw i128 stroops
+ */
 export async function fetchPreviewWithdraw(assets: bigint): Promise<bigint> {
   const result = await callViewFunction("preview_withdraw", [
     i128ScVal(assets),
@@ -301,7 +372,13 @@ export async function fetchPreviewWithdraw(assets: bigint): Promise<bigint> {
   return scValToNative(result) as bigint;
 }
 
-/** Get the maximum amount of assets the user can withdraw (based on their share balance). */
+/**
+ * Fetches the maximum assets the user can withdraw right now.
+ * @param address - G-account to query
+ * @returns Withdrawable amount in USDC major units
+ * @remarks Bounded by the user's share balance *and* current vault liquidity;
+ * the UI uses this for client-side validation before prompting for signing.
+ */
 export async function fetchMaxWithdraw(address: string): Promise<number> {
   const result = await callViewFunction("max_withdraw", [
     addressScVal(address),
@@ -309,13 +386,24 @@ export async function fetchMaxWithdraw(address: string): Promise<number> {
   return i128ToNumber(result, USDC_SCALE);
 }
 
-/** Get the maximum amount of assets the user can deposit into the vault. */
+/**
+ * Fetches the maximum assets the user can deposit into the vault.
+ * @param address - G-account to query
+ * @returns Depositable amount in USDC major units
+ */
 export async function fetchMaxDeposit(address: string): Promise<number> {
   const result = await callViewFunction("max_deposit", [addressScVal(address)]);
   return i128ToNumber(result, USDC_SCALE);
 }
 
-/** Fetch the user's underlying asset (USDC) balance by querying the vault's asset contract. */
+/**
+ * Fetches the user's underlying asset (USDC) wallet balance.
+ * @param address - G-account to query
+ * @returns USDC balance in major units; 0 on simulation failure
+ * @remarks Resolves the underlying asset contract dynamically via
+ * `query_asset` so the same code works if the vault is later pointed at a
+ * different asset. Cross-contract call — costs two simulations.
+ */
 export async function fetchUserAssetBalance(address: string): Promise<number> {
   // Get the underlying asset contract address from the vault
   const assetResult = await callViewFunction("query_asset");

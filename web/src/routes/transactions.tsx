@@ -1,3 +1,8 @@
+/**
+ * Transactions page: tabbed view of Vault / Governance contract events and
+ * Treasury account operations with per-tab cursor pagination.
+ * @module routes/transactions
+ */
 import { useState, useCallback, useRef } from "react";
 import {
   TransactionsTable,
@@ -17,12 +22,21 @@ const treasuryAddress = import.meta.env.VITE_TREASURY_ADDRESS as
   | string
   | undefined;
 
+/** Maps a tab id to the on-chain account or contract address it queries. */
 function getAccountId(tab: TabId): string | undefined {
   if (tab === "vault") return vaultContractId;
   if (tab === "timelock") return timelockContractId;
   return treasuryAddress;
 }
 
+/**
+ * Routed page that owns per-tab cursor state and delegates rendering to
+ * `TransactionsTable`.
+ * @remarks Cursors are tracked per tab in local state and a ref-based history
+ * stack powers "Previous" navigation without making an extra RPC call. The
+ * `newItemIds` set is cleared on every tab switch and pagination action so
+ * the fade-in animation only triggers for genuinely new streamed items.
+ */
 export default function TransactionsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("vault");
 

@@ -1,3 +1,7 @@
+/**
+ * Static marketing page describing Microvault's approach, partners, and use case.
+ * @module routes/our-approach
+ */
 import { Separator } from "@/components/ui/separator";
 import {
   Sprout,
@@ -46,6 +50,7 @@ const pillars = [
   },
 ];
 
+/** Static "Our Approach" page — no data fetching, content is hard-coded. */
 export default function UseCasePage() {
   return (
     <main className="container py-16 max-w-4xl">

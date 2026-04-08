@@ -1,3 +1,7 @@
+/**
+ * Deposit mutation: build → sign via wallet kit → submit → toast + invalidate.
+ * @module hooks/use-deposit
+ */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -10,6 +14,14 @@ import { StellarWalletsKit } from "@/lib/wallet-kit";
 import { parseContractError } from "@/lib/errors";
 import { formatNumber } from "@/lib/format";
 
+/**
+ * Deposit USDC into the vault from a connected wallet.
+ * @param address - Connected wallet G-address; mutation throws if undefined
+ * @returns React Query mutation whose input is the major-unit USDC amount
+ * @remarks Invalidates vault stats and user position on success so the UI
+ * re-renders against fresh on-chain data. Wallet-cancel errors are surfaced
+ * as an `info` toast instead of `error` so they don't look like failures.
+ */
 export function useDeposit(address: string | undefined) {
   const queryClient = useQueryClient();
 

@@ -1,3 +1,7 @@
+/**
+ * Landing page: hero, protocol-level stats, and the list of vault pools.
+ * @module routes/index
+ */
 import { PoolCard } from "@/components/pools/PoolCard";
 import { PoolStats } from "@/components/pools/PoolStats";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -6,6 +10,14 @@ import { useVaultAddresses } from "@/hooks/use-vault-addresses";
 import { useVaultMetadata } from "@/hooks/use-vault-metadata";
 import type { Pool } from "@/types/vault";
 
+/**
+ * Assembles a single `Pool` view model from three independent vault queries
+ * (stats, addresses, metadata) and renders the home dashboard.
+ * @remarks Each query's error is surfaced individually via the combined
+ * `loadError` banner so the user can tell which slice of the contract state
+ * is actually failing — important after upgrades that can strand just one
+ * OZ storage entry while leaving everything else healthy.
+ */
 export default function IndexPage() {
   const { data: stats, isLoading: statsLoading, error: statsError } = useVaultStats();
   const {
