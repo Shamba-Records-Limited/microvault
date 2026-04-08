@@ -1,3 +1,7 @@
+/**
+ * Protocol-level summary cards shown above the pool list.
+ * @module components/pools/PoolStats
+ */
 import { Card, CardContent } from "@/components/ui/card";
 import { LockKeyhole, Coins, FlaskRound } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
@@ -8,7 +12,12 @@ interface PoolStatsProps {
   totalBorrowed: number;
 }
 
-/** Protocol-level stats cards showing TVL, pool count, and total borrowed. */
+/**
+ * Renders the three protocol-level stat cards.
+ * @param props.totalTvl - Total value locked across all pools, in major units
+ * @param props.poolCount - Number of deployed vaults
+ * @param props.totalBorrowed - Outstanding loan principal across all pools
+ */
 export function PoolStats({ totalTvl, poolCount, totalBorrowed }: PoolStatsProps) {
   const stats = [
     {

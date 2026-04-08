@@ -1,6 +1,11 @@
+/**
+ * 404 page rendered by the router's notFoundComponent.
+ * @module routes/not-found
+ */
 import { Link } from "@tanstack/react-router";
 import { Separator } from "@/components/ui/separator";
 
+/** Simple, static 404 view with links back to the main routes. */
 export default function NotFoundPage() {
   return (
     <main className="container py-16 max-w-4xl">

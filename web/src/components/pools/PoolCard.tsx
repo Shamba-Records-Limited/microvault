@@ -1,3 +1,8 @@
+/**
+ * Expandable pool card: metrics, governance addresses, asset breakdown, and
+ * deposit/withdraw form wired to the vault contract.
+ * @module components/pools/PoolCard
+ */
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,7 +41,15 @@ interface PoolCardProps {
   pool: Pool;
 }
 
-/** Expandable card displaying pool metrics, governance addresses, and asset breakdown. */
+/**
+ * Expandable card displaying pool metrics, governance addresses, asset
+ * breakdown, and an integrated deposit/withdraw form.
+ * @param props.pool - Pool record assembled from vault metadata + stats
+ * @remarks The preview flow debounces typed input (200ms), queries a
+ * race-safe cache via `usePreviewShares`, and gates rendering on
+ * `isValidAmount` + fresh-data checks so the user never sees a stale or
+ * stranded preview after clearing the input.
+ */
 export function PoolCard({ pool }: PoolCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>("deposit");

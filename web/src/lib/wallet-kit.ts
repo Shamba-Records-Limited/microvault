@@ -1,3 +1,7 @@
+/**
+ * Stellar Wallets Kit initialisation and themed re-exports.
+ * @module lib/wallet-kit
+ */
 import {
   StellarWalletsKit,
   Networks,
@@ -27,6 +31,12 @@ const microvaultDarkTheme: SwkAppTheme = {
   "font-family": "sans-serif",
 };
 
+/**
+ * Initialises the Stellar Wallets Kit singleton with the project theme.
+ * @remarks Must run exactly once at app startup before any wallet UI mounts.
+ * `hideUnsupportedWallets` keeps the modal short and avoids surfacing wallets
+ * the user cannot actually connect on testnet.
+ */
 export function initWalletKit() {
   StellarWalletsKit.init({
     modules: defaultModules(),

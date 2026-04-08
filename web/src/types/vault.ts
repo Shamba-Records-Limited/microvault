@@ -1,4 +1,14 @@
-/** Numeric metrics returned by the vault contract view functions. */
+/**
+ * Domain types for the vault: on-chain stats, metadata, governance addresses,
+ * and the aggregated `Pool` shape consumed by the UI.
+ * @module types/vault
+ */
+
+/**
+ * Numeric metrics returned by the vault contract view functions.
+ * @remarks All amount fields are unscaled JS numbers (already converted from
+ * the contract's i128 stroops). Percentages are 0–100, not 0–1.
+ */
 export interface VaultStats {
   /** Total value locked (liquidity + borrowed), scaled from USDC. */
   totalManagedAssets: number;
@@ -22,18 +32,26 @@ export interface VaultMetadata {
   symbol: string;
 }
 
-/** Governance addresses associated with the vault contract. */
+/**
+ * Governance addresses associated with the vault contract.
+ * @remarks Any field can be `null` if its on-chain view traps — most commonly
+ * after an OZ storage-layout migration that strands the entry. Consumers must
+ * handle nulls gracefully so the pool card still renders.
+ */
 export interface VaultAddresses {
   contractId: string;
-  /** Governance/owner contract address, null if Ownable trait is absent. */
+  /** Governance/owner contract address. Null when the Ownable trait is absent. */
   owner: string | null;
-  /** Treasury address, null if the on-chain view traps (e.g. post-migration). */
+  /** Treasury address. Null when the on-chain view traps (e.g. post-migration). */
   treasury: string | null;
-  /** Guardian address, null if not configured. */
+  /** Guardian address. Null when not configured. */
   guardian: string | null;
 }
 
-/** Aggregated pool data constructed from vault stats and addresses. */
+/**
+ * Aggregated pool data assembled from vault stats, metadata, and addresses.
+ * @remarks This is the UI-facing shape; transforms happen in `routes/index.tsx`.
+ */
 export interface Pool {
   id: string;
   name: string;

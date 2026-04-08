@@ -1,8 +1,19 @@
+/**
+ * Root layout wrapping every route with the site header, footer, and a
+ * themed Sonner toaster.
+ * @module routes/__root
+ */
 import { Outlet } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 
+/**
+ * Persistent shell rendered around every routed page.
+ * @remarks Toast colours are tuned inline here (rather than via the Sonner
+ * theme prop) because we need variant-specific border tints and Tailwind
+ * classNames to override Sonner's default dark styles.
+ */
 export default function RootLayout() {
   return (
     <div className="flex min-h-screen flex-col bg-background">

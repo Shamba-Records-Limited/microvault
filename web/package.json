@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "lint:fix": "oxlint --fix",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@creit-tech/stellar-wallets-kit": "npm:@jsr/creit-tech__stellar-wallets-kit@^2.1.0",

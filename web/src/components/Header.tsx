@@ -1,9 +1,18 @@
+/**
+ * Top navigation bar: logo, primary nav links, wallet connect, GitHub.
+ * @module components/Header
+ */
 import { Link } from "@tanstack/react-router";
 import { Wallet, LogOut } from "lucide-react";
 import { siGithub } from "simple-icons";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/hooks/use-wallet";
 
+/**
+ * Sticky site header rendered on every route.
+ * @remarks The Microvault wordmark is hidden below the `sm` breakpoint so
+ * the GitHub icon and primary nav links don't overflow on small screens.
+ */
 export function Header() {
   const { address, isConnected, connect, disconnect } = useWallet();
 

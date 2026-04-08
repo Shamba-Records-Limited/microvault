@@ -1,3 +1,9 @@
+/**
+ * App-wide constants: scaling factors, default endpoint URLs, and pagination
+ * sizes. Endpoint defaults are read from `import.meta.env` at build time.
+ * @module lib/constants
+ */
+
 /** Soroban WAD precision (1e18) used for rates like utilization and APR. */
 export const WAD_SCALE = 1_000_000_000_000_000_000n;
 
@@ -37,17 +43,21 @@ export const SHARE_SCALE = 10_000_000_000_000n;
 //   ? "https://horizon-testnet.stellar.org"
 //   : "https://horizon.stellar.org";
 
+/** Soroban RPC endpoint. Falls back to public testnet RPC. */
 export const DEFAULT_RPC_URL =
   import.meta.env.VITE_RPC_URL || "https://soroban-testnet.stellar.org";
 
+/** Stellar network passphrase used to sign transactions. Defaults to testnet. */
 export const DEFAULT_NETWORK_PASSPHRASE =
   import.meta.env.VITE_NETWORK_PASSPHRASE ||
   "Test SDF Network ; September 2015";
 
+/** Stellar Expert explorer base URL used to build outbound deep links. */
 export const DEFAULT_EXPLORER_URL =
   import.meta.env.VITE_STELLAR_EXPLORER_URL ||
   "https://stellar.expert/explorer/testnet";
 
+/** Horizon REST endpoint used for treasury operation history and SSE streams. */
 export const DEFAULT_HORIZON_URL =
   import.meta.env.VITE_HORIZON_URL || "https://horizon-testnet.stellar.org";
 

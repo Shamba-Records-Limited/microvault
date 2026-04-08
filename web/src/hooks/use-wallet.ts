@@ -1,7 +1,19 @@
+/**
+ * Wallet connection state synchronised with Stellar Wallets Kit.
+ * @module hooks/use-wallet
+ */
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { StellarWalletsKit, KitEventType } from "@/lib/wallet-kit";
 
+/**
+ * Tracks the connected wallet address and exposes connect/disconnect actions.
+ * @returns `{ address, isConnected, connect, disconnect }`
+ * @remarks Subscribes to the wallet kit's `STATE_UPDATED` / `DISCONNECT`
+ * events on mount so reconnects in other tabs or deep-links that restore a
+ * session surface here automatically. `connect()` swallows modal-close
+ * rejections because cancelling is not an error worth toasting.
+ */
 export function useWallet() {
   const [address, setAddress] = useState<string | undefined>();
   const isConnected = !!address;

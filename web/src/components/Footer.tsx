@@ -1,3 +1,7 @@
+/**
+ * Site footer with Shamba branding, contact info, and social links.
+ * @module components/Footer
+ */
 import { MapPin, Mail, Phone } from "lucide-react";
 import { siFacebook, siX } from "simple-icons";
 
@@ -7,6 +11,7 @@ const siLinkedinPath =
 import { Separator } from "@/components/ui/separator";
 import shambaLogo from "@/assets/shamba-logo.svg";
 
+/** Site footer rendered on every route; copyright year is derived from the client clock. */
 export function Footer() {
   const year = new Date().getFullYear();
 

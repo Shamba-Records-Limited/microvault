@@ -1,3 +1,9 @@
+/**
+ * Tabbed table for the Transactions page: Treasury operations (Horizon) and
+ * Vault / Governance contract events (Soroban RPC), with desktop-table and
+ * mobile-card renderers plus live-update highlighting and pagination.
+ * @module components/transactions/TransactionsTable
+ */
 import { ExternalLink, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -372,6 +378,21 @@ interface TransactionsTableProps {
   hasNext: boolean;
 }
 
+/**
+ * Renders the full tabbed transactions view.
+ * @param props.activeTab - Currently selected tab id
+ * @param props.onTabChange - Tab switch handler
+ * @param props.transactions - Rows for the Treasury tab (Horizon ops)
+ * @param props.events - Rows for Vault / Governance tabs (Soroban RPC events)
+ * @param props.isLoading - Whether the current tab is waiting on its first page
+ * @param props.isLive - Whether an SSE stream is currently attached
+ * @param props.accountId - G-/C-address being queried, used by the info banner
+ * @param props.newItemIds - Ids to highlight with the fade-in "new row" animation
+ * @param props.onPrevious - Handler for the previous-page button
+ * @param props.onNext - Handler for the next-page button
+ * @param props.hasPrevious - Whether a previous page is available
+ * @param props.hasNext - Whether a next page is available
+ */
 export function TransactionsTable({
   activeTab,
   onTabChange,

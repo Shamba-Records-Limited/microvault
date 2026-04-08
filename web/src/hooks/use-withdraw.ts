@@ -1,3 +1,7 @@
+/**
+ * Withdraw mutation: build → sign via wallet kit → submit → toast + invalidate.
+ * @module hooks/use-withdraw
+ */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -10,6 +14,13 @@ import { StellarWalletsKit } from "@/lib/wallet-kit";
 import { parseContractError } from "@/lib/errors";
 import { formatNumber } from "@/lib/format";
 
+/**
+ * Withdraw USDC from the vault to a connected wallet.
+ * @param address - Connected wallet G-address; mutation throws if undefined
+ * @returns React Query mutation whose input is the major-unit USDC amount
+ * @remarks Invalidates vault stats and user position on success. Wallet-cancel
+ * errors are surfaced as an `info` toast so they don't look like failures.
+ */
 export function useWithdraw(address: string | undefined) {
   const queryClient = useQueryClient();
 

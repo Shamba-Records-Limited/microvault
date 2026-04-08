@@ -1,8 +1,13 @@
 /**
- * Contract error mapping for Soroban vault interactions.
- * Mirrors the Go backend's pkg/stellar/types/errors.go
+ * Contract error mapping and message normalisation for Soroban vault calls.
+ * @module lib/errors
+ * @remarks The numeric code table mirrors the Go backend's
+ * `pkg/stellar/types/errors.go`. Keep them in sync when contract errors are
+ * added or renumbered, otherwise the UI will fall back to "Contract error #N"
+ * which is much less helpful than a written explanation.
  */
 
+/** Mapped Soroban contract error with a user-facing message and source crate. */
 interface ContractError {
   code: number;
   name: string;
@@ -196,13 +201,25 @@ const CONTRACT_ERRORS: Record<number, ContractError> = {
   },
 };
 
-/** Extract a contract error code from a Soroban error string (e.g. "Error(Contract, #407)"). */
+/**
+ * Extracts a contract error code from a Soroban error string.
+ * @param errorMessage - Raw simulation/host error such as `Error(Contract, #407)`
+ * @returns The numeric code if present, otherwise `null`
+ */
 function extractErrorCode(errorMessage: string): number | null {
   const match = errorMessage.match(/#(\d+)/);
   return match ? parseInt(match[1], 10) : null;
 }
 
-/** Parse an error into a user-friendly message. Handles contract errors, signing rejections, and network failures. */
+/**
+ * Normalises any thrown error into a single user-facing string for toasts.
+ * @param error - Anything caught from a wallet/RPC/contract call
+ * @returns A short message suitable for direct display to the user
+ * @remarks Branches in priority order: wallet rejection → mapped contract code
+ * → known VM-level errors → known transaction-pipeline errors → cleaned-up
+ * fallback. The fallback strips simulation/host noise so users never see raw
+ * "HostError: …" or trailing event logs.
+ */
 export function parseContractError(error: unknown): string {
   let message: string;
   if (error instanceof Error) {
