@@ -166,7 +166,7 @@ function InfoBanner({ accountId, label }: { accountId: string; label: string }) 
     <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/30 px-4 py-3 mb-4">
       <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
       <p className="text-sm text-muted-foreground">
-        {label} {isContract ? "events" : "transactions"} for{" "}
+        {isContract ? `Recent ${label.toLowerCase()} events` : `${label} transactions`} for{" "}
         <a
           href={href}
           target="_blank"
@@ -274,7 +274,10 @@ function TxCard({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
         <span className="text-muted-foreground">Ledger</span>
         <span>{tx.ledger}</span>
         <span className="text-muted-foreground">Operation</span>
-        <Badge variant="outline" className="w-fit capitalize font-normal">
+        <Badge
+          variant="outline"
+          className="w-fit max-w-full capitalize font-normal whitespace-normal break-words text-left"
+        >
           {formatEventName(tx.type)}
         </Badge>
         <span className="text-muted-foreground">Details</span>
@@ -329,7 +332,10 @@ function EventCard({ event, isNew }: { event: ContractEventEntry; isNew: boolean
         <span className="text-muted-foreground">Time</span>
         <span>{formatTime(event.createdAt)}</span>
         <span className="text-muted-foreground">Event</span>
-        <Badge variant="secondary" className="w-fit capitalize">
+        <Badge
+          variant="secondary"
+          className="w-fit max-w-full capitalize whitespace-normal break-words text-left"
+        >
           {formatEventName(event.eventName)}
         </Badge>
         <span className="text-muted-foreground">Details</span>

@@ -9,8 +9,8 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
-      <div className="container flex h-16 items-center justify-between">
-        <div className="flex items-center gap-4 sm:gap-8">
+      <div className="container flex h-16 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-4 sm:gap-8">
           <Link to="/" className="flex items-center gap-2">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -47,26 +47,28 @@ export function Header() {
                 fill="currentColor"
               />
             </svg>
-            <span className="font-bold text-lg tracking-tight">Microvault</span>
+            <span className="hidden sm:inline font-bold text-lg tracking-tight">
+              Microvault
+            </span>
           </Link>
 
-          <nav className="flex items-center gap-6">
+          <nav className="flex items-center gap-4 sm:gap-6">
             <Link
               to="/transactions"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              className="whitespace-nowrap text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
               Transactions
             </Link>
             <Link
               to="/our-approach"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              className="whitespace-nowrap text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
               Our Approach
             </Link>
           </nav>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           {isConnected ? (
             <div className="hidden sm:flex items-center gap-2">
               <Button variant="outline" size="sm" className="font-mono text-xs">
