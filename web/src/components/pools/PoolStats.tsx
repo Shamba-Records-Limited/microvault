@@ -1,5 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { TrendingUp, Coins, Activity } from "lucide-react";
+import { TrendingUp, Coins, FlaskRound } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 
 interface PoolStatsProps {
@@ -20,7 +20,7 @@ export function PoolStats({ totalTvl, poolCount, totalBorrowed }: PoolStatsProps
     {
       label: "Pools",
       value: poolCount.toString(),
-      icon: Activity,
+      icon: FlaskRound,
       description: "Deployed vaults",
     },
     {

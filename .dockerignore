@@ -11,7 +11,7 @@ profile.cov
 vendor/
 go.work
 go.work.sum
-.env
+.env*
 go-mod-cache/
 .dockerignore
 .git/
