@@ -1,4 +1,4 @@
-import { Horizon, rpc, scValToNative } from "@stellar/stellar-sdk";
+import { Horizon, rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
 import {
   DEFAULT_HORIZON_URL,
   DEFAULT_EXPLORER_URL,
@@ -73,8 +73,33 @@ function formatOpSummary(op: any): string {
       return op.name ? `data ${op.name}` : "manage data";
     case "bump_sequence":
       return `bump → ${op.bump_to}`;
-    case "invoke_host_function":
-      return op.function ? `invoke ${String(op.function).replace(/^HostFunctionType/, "")}` : "invoke contract";
+    case "invoke_host_function": {
+      // Horizon exposes the host function as `parameters: [{type, value}]`
+      // where each `value` is a base64-encoded ScVal. For an InvokeContract
+      // host function, the conventional layout is:
+      //   params[0] = ScAddress (the contract being called)
+      //   params[1] = ScSymbol  (the function name)
+      //   params[2..] = function args
+      // Decode params[1] to surface the actual function name in the UI; fall
+      // back gracefully on any non-invoke variants (CreateContract, etc.).
+      const params = Array.isArray(op.parameters) ? op.parameters : [];
+      const fnParam = params[1];
+      if (fnParam?.value) {
+        try {
+          const decoded = scValToNative(
+            xdr.ScVal.fromXDR(fnParam.value, "base64"),
+          );
+          if (typeof decoded === "string" && decoded.length > 0) {
+            return `invoke ${decoded}`;
+          }
+        } catch {
+          // fall through to generic label
+        }
+      }
+      return op.function
+        ? `invoke ${String(op.function).replace(/^HostFunctionType/, "")}`
+        : "invoke contract";
+    }
     case "extend_footprint_ttl":
       return "extend footprint TTL";
     case "restore_footprint":
