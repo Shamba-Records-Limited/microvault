@@ -1,5 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { TrendingUp, Coins, FlaskRound } from "lucide-react";
+import { LockKeyhole, Coins, FlaskRound } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 
 interface PoolStatsProps {
@@ -14,7 +14,7 @@ export function PoolStats({ totalTvl, poolCount, totalBorrowed }: PoolStatsProps
     {
       label: "Total Value Locked",
       value: formatCurrency(totalTvl),
-      icon: TrendingUp,
+      icon: LockKeyhole,
       description: "Across all pools",
     },
     {
