@@ -15,7 +15,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/minio/minio-go/v7 v7.0.100
-	github.com/pdfcpu/pdfcpu v0.11.1
+	github.com/pdfcpu/pdfcpu v0.12.0
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/stellar/go-stellar-sdk v0.5.0
 	github.com/stretchr/testify v1.11.1
