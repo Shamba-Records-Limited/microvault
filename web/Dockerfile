@@ -13,7 +13,7 @@ ARG VITE_TREASURY_ADDRESS
 ARG VITE_HORIZON_URL
 RUN npm run build
 
-FROM nginx:1.29.5-alpine3.23-slim
+FROM nginx:1.30.0-alpine3.23-slim
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 3000
