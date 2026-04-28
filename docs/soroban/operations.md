@@ -1,0 +1,384 @@
+# Operations
+
+End-to-end CLI cookbook for building, deploying, and operating the Microvault contracts. Every flow uses the [Stellar CLI](https://developers.stellar.org/docs/tools/developer-tools/cli/stellar-cli); see the upstream docs for installation and identity management.
+
+For the contract APIs themselves, see [Vault](./vault.md) and [TimelockController](./timelock-controller.md).
+
+## Prerequisites
+
+Install the Stellar CLI and create a funded identity:
+
+```bash
+cargo install --locked stellar-cli --features opt
+stellar keys generate deployer --network-passphrase "$NETWORK" --rpc-url "$RPC_URL" --fund
+```
+
+Export the env vars referenced throughout this doc. Replace placeholders with values from your deployment:
+
+```bash
+# Network
+export NETWORK="Test SDF Network ; September 2015"
+export RPC_URL="https://soroban-testnet.stellar.org"
+
+# Identities (the deployer is the temporary owner / proposer / executor at bootstrap)
+export DEPLOYER=$(stellar keys address deployer)
+export GUARDIAN="G…"        # emergency-pause address
+export TREASURY="G…"        # credit-delegation wallet
+
+# Contract addresses (filled in after deploy)
+export VAULT_ID="C…"
+export TIMELOCK_ID="C…"
+export USDC_ID="CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"  # testnet USDC
+```
+
+> **`--source` takes an identity name, not an address.** Pass `--source deployer` (the name from `stellar keys generate`), not `--source $DEPLOYER` (the public key). The CLI cannot sign with a bare `G…` address and will fail with `Address cannot be used to sign G…`. The `$DEPLOYER` / `$TREASURY` / `$GUARDIAN` env vars are only used as **argument values** (e.g. `--proposer $DEPLOYER`, `--from $DEPOSITOR`), where addresses are required.
+
+## Build
+
+The contracts target `wasm32v1-none` (soroban-sdk v25). The simplest invocation lets the Stellar CLI handle the target:
+
+```bash
+cd soroban
+stellar contract build
+```
+
+This produces optimized WASMs at:
+
+- `target/wasm32v1-none/release/microvault_sep56.wasm`
+- `target/wasm32v1-none/release/microvault_timelock_controller.wasm`
+
+To build only one crate, pass `-p microvault-sep56` or `-p microvault-timelock-controller`.
+
+## Deploy from Scratch
+
+The deploy sequence transfers Vault ownership to the TimelockController so that all subsequent admin calls are timelocked. The deployer is the bootstrap owner / proposer / executor; harden the role assignments before going to production.
+
+### 1. Deploy the Vault
+
+```bash
+stellar contract deploy \
+  --wasm soroban/target/wasm32v1-none/release/microvault_sep56.wasm \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  --rpc-url "$RPC_URL" \
+  -- \
+  --owner "$DEPLOYER" \
+  --guardian "$GUARDIAN" \
+  --asset "$USDC_ID" \
+  --treasury "$TREASURY" \
+  --name "MicroVault USDC" \
+  --symbol "mvUSDC"
+# → returns the vault contract id
+export VAULT_ID="<RETURNED_CONTRACT_ID>"
+```
+
+### 2. Deploy the TimelockController
+
+`min_delay` is in **ledger sequence counts** (~5 s/ledger). 48 hours ≈ 34 560 ledgers; for testing, 120 (~10 minutes) is convenient.
+
+```bash
+stellar contract deploy \
+  --wasm soroban/target/wasm32v1-none/release/microvault_timelock_controller.wasm \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  --rpc-url "$RPC_URL" \
+  -- \
+  --min_delay 120 \
+  --proposers '["'$DEPLOYER'"]' \
+  --executors '["'$DEPLOYER'"]' \
+  --admin '"'$DEPLOYER'"'
+# → returns the timelock contract id
+export TIMELOCK_ID="<RETURNED_CONTRACT_ID>"
+```
+
+For self-administration (the controller is its own admin), pass `--admin null` instead of an address.
+
+### 3. Transfer Vault ownership to the TimelockController
+
+Ownership transfer is two-step: the current owner initiates with `transfer_ownership`, then the new owner (the controller) accepts via a scheduled `accept_ownership`.
+
+```bash
+# Step 1 - initiate from the current owner.
+stellar contract invoke \
+  --id $VAULT_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  transfer_ownership \
+  --new_owner '"'$TIMELOCK_ID'"'
+
+# Step 2 - schedule transfer_ownership through the timelock.
+SALT=$(openssl rand -hex 32)
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  schedule_op \
+  --target $VAULT_ID \
+  --function transfer_ownership \
+  --args '[{"address": "'$TIMELOCK_ID'"}, {"u32": 3500000}]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --delay 120 \
+  --proposer $DEPLOYER
+
+# Step 3 - wait for the delay, then execute
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  execute_op \
+  --target $VAULT_ID \
+  --function transfer_ownership \
+  --args '[{"address": "'$TIMELOCK_ID'"}, {"u32": 3500000}]' \
+  --salt $SALT \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --executor '"'$DEPLOYER'"'
+
+# Step 4 - schedule accept_ownership through the timelock.
+SALT=$(openssl rand -hex 32)
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  schedule_op \
+  --target $VAULT_ID \
+  --function accept_ownership \
+  --args '[]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --proposer $DEPLOYER
+
+# Step 5 - wait for the delay, then execute
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  execute_op \
+  --target $VAULT_ID \
+  --function accept_ownership \
+  --args '[]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --executor '"'$DEPLOYER'"'
+```
+
+
+After step 5 the vault's owner is the controller, and every `[only_owner]` call must flow through `schedule_op` → `execute_op`.
+
+## Schedule → Execute Pattern
+
+This is the canonical shape for every governance action against the vault. Substitute the function name and `--args` JSON for the specific operation; the scaffolding stays identical.
+
+```bash
+# 1. Generate a fresh salt and schedule the op.
+SALT=$(openssl rand -hex 32)
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  schedule_op \
+  --target $VAULT_ID \
+  --function <FUNCTION_NAME> \
+  --args '[<JSON_ENCODED_ARGS>]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --delay 120 \
+  --proposer $DEPLOYER
+# → returns the operation_id
+
+# 2. Wait for `delay` ledgers.
+
+# 3. Execute with the SAME target/function/args/predecessor/salt.
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  execute_op \
+  --target $VAULT_ID \
+  --function <FUNCTION_NAME> \
+  --args '[<JSON_ENCODED_ARGS>]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --executor '"'$DEPLOYER'"'
+```
+
+Argument JSON encoding for the most common types:
+
+| Rust type | JSON form | Example |
+|---|---|---|
+| `Address` | `{"address":"…"}` | `{"address":"GCUU…"}` |
+| `BytesN<32>` | `{"bytes":"<hex>"}` | `{"bytes":"a93efbf0…"}` |
+| `i128` | `{"i128":"…"}` | `{"i128":"50000000000000"}` |
+| `u32` / `u64` | `{"u32":N}` / `{"u64":"N"}` | `{"u64":"604800"}` |
+| `Symbol` | `{"symbol":"…"}` | `{"symbol":"executor"}` |
+| `String` | `"…"` | `"MicroVault USDC"` |
+| `Vec<T>` | `[…]` | `[{"address":"GCUU…"}]` |
+| empty args | `[]` | `[]` |
+
+Mismatched arg encoding fails at simulation time, not at execute, so the schedule call will surface the error before you commit to the delay.
+
+## Upgrade Flows
+
+Every contract upgrade is a two-call dance: `stellar contract upload` to put the new WASM on the ledger and get a hash, then a timelocked `upgrade` call.
+
+### Vault upgrade
+
+```bash
+# 1. Upload the new vault WASM and capture the returned hash.
+NEW_VAULT_WASM_HASH=$(stellar contract upload \
+  --wasm soroban/target/wasm32v1-none/release/microvault_sep56.wasm \
+  --source-account deployer \
+  --network-passphrase "$NETWORK")
+
+# 2. Schedule the upgrade through the timelock.
+SALT=$(openssl rand -hex 32)
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  schedule_op \
+  --target $VAULT_ID \
+  --function upgrade \
+  --args '[{"bytes":"'$NEW_VAULT_WASM_HASH'"}]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --delay 120 \
+  --proposer $DEPLOYER
+
+# 3. After the delay, execute.
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  execute_op \
+  --target $VAULT_ID \
+  --function upgrade \
+  --args '[{"bytes":"'$NEW_VAULT_WASM_HASH'"}]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --executor '"'$DEPLOYER'"'
+```
+
+### TimelockController self-upgrade
+
+The controller's own `upgrade` is `[only_admin]`. When the controller is its own admin, the upgrade must be scheduled against itself and then executed via the regular `execute_op` flow — Soroban routes the auth through `__check_auth`, which verifies the delay before letting the call through.
+
+```bash
+NEW_TIMELOCK_WASM_HASH=$(stellar contract upload \
+  --wasm soroban/target/wasm32v1-none/release/microvault_timelock_controller.wasm \
+  --source-account deployer \
+  --network-passphrase "$NETWORK")
+
+SALT=$(openssl rand -hex 32)
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  schedule_op \
+  --target $TIMELOCK_ID \
+  --function upgrade \
+  --args '[{"bytes":"'$NEW_TIMELOCK_WASM_HASH'"}]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --delay 34560 \
+  --proposer $DEPLOYER
+
+# After delay:
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  execute_op \
+  --target $TIMELOCK_ID \
+  --function upgrade \
+  --args '[{"bytes":"'$NEW_TIMELOCK_WASM_HASH'"}]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --executor '"'$DEPLOYER'"'
+```
+
+If the controller has an external admin instead of self-administration, the admin can call `upgrade` directly without going through `execute_op` — the `[only_admin]` check is the only gate.
+
+## Common Admin Operations
+
+Each row below shows just the `--target`, `--function`, and `--args` you slot into the [Schedule → Execute Pattern](#schedule--execute-pattern). Everything else (predecessor, salt, delay, proposer, executor) is unchanged.
+
+| Operation | Target | Function | Args |
+|---|---|---|---|
+| Replace the treasury | `$VAULT_ID` | `set_treasury` | `[{"address":"<NEW_TREASURY>"}]` |
+| Bump the per-tx deposit cap | `$VAULT_ID` | `set_max_deposit` | `[{"i128":"<NEW_LIMIT>"}]` |
+| Bump the per-tx withdraw cap | `$VAULT_ID` | `set_max_withdraw` | `[{"i128":"<NEW_LIMIT>"}]` |
+| Replace the guardian | `$VAULT_ID` | `set_guardian` | `[{"address":"<NEW_GUARDIAN>"}]` |
+| Set the deposit lock period (seconds) | `$VAULT_ID` | `set_lock_period` | `[{"u64":"<SECONDS>"}]` |
+| Resume after a pause | `$VAULT_ID` | `unpause` | `[{"address":"<TIMELOCK_ID>"}]` |
+| Update the timelock's min_delay | `$TIMELOCK_ID` | `update_delay` | `[{"u32":<NEW_DELAY>}]` |
+
+For the guardian's emergency `pause`, no scheduling is involved — the guardian calls the vault directly. See [Vault § Guardian emergency pause](./vault.md#guardian-emergency-pause).
+
+## Cancellation
+
+Any address with the `"canceler"` role (auto-granted to every proposer at construction) can move a `Waiting` or `Ready` operation back to `Unset`:
+
+```bash
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  -- \
+  cancel_op \
+  --operation_id <HEX_OPERATION_ID> \
+  --canceller $DEPLOYER
+```
+
+Cancelling a `Done` operation traps. Once an op has been executed, the slot is consumed permanently — re-doing the same change requires a fresh salt and a new schedule.
+
+## Verification
+
+After every governance action, verify on-chain:
+
+```bash
+# Confirm the operation is Done.
+stellar contract invoke --id $TIMELOCK_ID --source deployer --network-passphrase "$NETWORK" -- \
+  is_operation_done --operation_id <OP_ID>
+
+# Read the affected vault state to confirm the change took effect.
+stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" -- get_max_deposit
+stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" -- treasury
+stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" -- guardian
+```
+
+For deeper inspection, stream events:
+
+```bash
+stellar events \
+  --network-passphrase "$NETWORK" \
+  --id $VAULT_ID \
+  --start-ledger <RECENT_LEDGER> \
+  --output pretty
+```
+
+Watch for `TreasuryUpdated`, `MaxDepositUpdated`, `GuardianUpdated`, `VaultUnpaused`, etc., depending on the operation.
+
+## Critical Notes
+
+- **Delays are ledger sequence counts, not seconds.** Stellar produces roughly one ledger every 5 seconds. `min_delay = 34560` ≈ 48 hours; `min_delay = 120` ≈ 10 minutes. The Vault's `set_lock_period` is a separate axis and is in **seconds** — do not confuse the two.
+- **Always upload before scheduling an upgrade.** `schedule_op` for `upgrade` takes a 32-byte WASM hash, not a path. `stellar contract upload` puts the WASM on the ledger and prints the hash; without it there is nothing to point the schedule at.
+- **Argument encoding is checked at simulation.** A typo in `--args` (wrong type tag, malformed JSON) surfaces during `schedule_op`, not at `execute_op`. This is good — you find out before paying the delay.
+- **`--executor` requires double-quote shell wrapping.** The CLI treats it as a JSON-encoded string: `--executor '"GCUU…"'`. A bare `--executor $DEPLOYER` is rejected.
+- **Salts are single-use per `(target, function, args, predecessor)` tuple.** After `execute_op` marks the slot `Done`, scheduling the same tuple again with the same salt traps. Generate a fresh salt every time with `openssl rand -hex 32`.
+- **Predecessor `0x00…00` (32 zero bytes) means "no dependency".** Chain operations by passing a prior op id as `predecessor` if you want the timelock to enforce ordering across multiple queued ops.
+- **The Vault's `unpause` arg expects the caller (owner = timelock).** Pass `[{"address":"<TIMELOCK_ID>"}]`, not the deployer's address. The vault checks `caller.require_auth()` and the auth comes from the controller via `__check_auth` during `execute_op`.
+- **Storage-breaking changes silently strand state on upgrade.** Soroban derives ledger keys from the structural hash of `#[contracttype]` types. Renaming a `DataKey` variant, reordering enum variants, changing a struct field type, or switching storage tier (instance/persistent/temporary) all change the key — the new code can no longer read pre-upgrade state. Do not bump multiple `stellar-*` crates in a single PR. Pin exact versions (`= 0.7.1`, not `^0.7.1`) in `Cargo.toml`. Run a smoke test that invokes every metadata view and balance read after every upgrade — if any call traps, roll back immediately.
+- **Self-administered timelock has no escape hatch.** When the controller is its own admin, lowering `min_delay` or upgrading the controller itself requires a full timelocked round-trip. Plan delay values for the worst case you can tolerate during an incident.
+- **Cancellation cannot rescue a `Done` op.** `cancel_op` works on `Waiting` and `Ready` states; once executed, the change is on-chain. Mistakes are reversed by scheduling a corrective op, not by reverting the previous one.

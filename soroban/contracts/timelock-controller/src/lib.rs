@@ -1,4 +1,4 @@
-//! MicroVault TimelockController
+//! Microvault TimelockController
 //!
 //! Standalone governance contract that enforces time-delayed execution of
 //! privileged vault operations. Designed to be set as the vault owner so that
@@ -10,6 +10,7 @@
 //! # Authors
 //!
 //! Samuel Mugane <smugane@shambarecords.com>
+//! Peter Wesley <peter.wesley@shambarecords.com>
 
 #![no_std]
 

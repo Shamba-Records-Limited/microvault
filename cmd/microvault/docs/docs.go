@@ -468,7 +468,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "microvault API",
-	Description:      "A headless ERC-4626 tokenized vault engine for microlending built on the stellar network.",
+	Description:      "A headless SEP-56 tokenized vault engine for microlending built on the stellar network.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

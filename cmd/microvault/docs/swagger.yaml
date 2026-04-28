@@ -105,7 +105,7 @@ info:
   contact:
     email: smugane@shambarecords.com
     name: API Support
-  description: A headless ERC-4626 tokenized vault engine for microlending built on
+  description: A headless SEP-56 tokenized vault engine for microlending built on
     the stellar network.
   license:
     name: AGPL-3.0

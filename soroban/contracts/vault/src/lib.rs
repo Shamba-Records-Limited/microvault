@@ -1,6 +1,6 @@
-//! MicroVault ERC-4626 Vault
+//! Microvault SEP-56 Vault
 //!
-//! SEP-56 / ERC-4626 tokenized vault for USDC credit delegation on Stellar,
+//! SEP-56 tokenized vault for USDC credit delegation on Stellar,
 //! built on the OpenZeppelin Stellar Contracts library. Depositors receive
 //! share tokens representing their pro-rata claim on vault assets including
 //! accrued interest.
@@ -11,6 +11,7 @@
 //! # Author
 //!
 //! Samuel Mugane <smugane@shambarecords.com>
+//! Peter Wesley <peter.wesley@shambarecords.com>
 
 #![no_std]
 
@@ -155,11 +156,11 @@ pub enum DataKey {
     BorrowIndex, // Cumulative debt index
 }
 
-/// Default maximum deposit limit (1M USDC with 6 decimals).
-const DEFAULT_MAX_DEPOSIT: i128 = 1_000_000_000_000;
+/// Default maximum deposit limit (1M USDC with 7 decimals).
+const DEFAULT_MAX_DEPOSIT: i128 = 10_000_000_000_000;
 
-/// Default maximum withdrawal limit (1M USDC with 6 decimals).
-const DEFAULT_MAX_WITHDRAW: i128 = 1_000_000_000_000;
+/// Default maximum withdrawal limit (1M USDC with 7 decimals).
+const DEFAULT_MAX_WITHDRAW: i128 = 10_000_000_000_000;
 
 /// Decimals offset for share-inflation attack protection.
 const DECIMALS_OFFSET: u32 = 6;
@@ -187,7 +188,7 @@ const SLOPE2: i128 = 5_000_000_000_000_000_000;
 /// Seconds per year, used for APR-to-per-second rate conversion.
 const SECONDS_PER_YEAR: u64 = 31_536_000;
 
-/// MicroVault ERC-4626 tokenized vault contract.
+/// MicroVault SEP-56 tokenized vault contract.
 #[contract]
 pub struct MicroVaultContract;
 
