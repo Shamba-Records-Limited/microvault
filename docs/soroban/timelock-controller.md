@@ -1,4 +1,4 @@
-# TimelockController — `microvault-timelock-controller`
+# TimelockController
 
 OpenZeppelin-style governance contract that enforces a time delay between proposing and executing privileged operations. Designed to be set as the [Vault](./vault.md)'s owner so every admin call is publicly visible during the delay window before it takes effect. Built on the [`stellar-governance::timelock`](https://docs.openzeppelin.com/stellar-contracts) primitives with role-based access control and a `CustomAccountInterface` for self-administration.
 

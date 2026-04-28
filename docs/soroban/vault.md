@@ -1,4 +1,4 @@
-# Vault — `microvault-sep56`
+# Vault
 
 SEP-0056 tokenized vault for USDC credit delegation. Depositors transfer USDC and receive share tokens (`mvUSDC`); the share-to-asset ratio appreciates as interest accrues on outstanding borrows. A designated treasury can borrow up to 80 % of the vault's assets on behalf of child accounts. Built on the [OpenZeppelin Stellar Contracts](https://docs.openzeppelin.com/stellar-contracts) library.
 
