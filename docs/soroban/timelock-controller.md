@@ -28,7 +28,7 @@ Operations are identified by a 32-byte ID computed as `keccak256(target ‖ func
 
 ## Roles
 
-Roles are stored as `Symbol` constants and managed by the `stellar-access::access_control` module. Spelling matters — use the exact symbols below in CLI calls and trait checks.
+Roles are stored as `Symbol` constants and managed by the `stellar-access::access_control` module. Spelling matters: use the exact symbols below in CLI calls and trait checks.
 
 | Role | Symbol | Granted to | Permissions |
 |---|---|---|---|
@@ -51,9 +51,9 @@ pub fn __constructor(
 )
 ```
 
-`min_delay` is the floor enforced on every `schedule_op` call: any per-operation `delay` smaller than this value is rejected. **The unit is ledger sequence counts.** Stellar produces roughly one ledger every 5 seconds, so 48 hours ≈ 34 560 ledgers. This semantic changed in soroban-sdk v25 — earlier versions used seconds. Do not copy values from older docs without converting.
+`min_delay` is the floor enforced on every `schedule_op` call: any per-operation `delay` smaller than this value is rejected. **The unit is ledger sequence counts.** Stellar produces roughly one ledger every 5 seconds, so 48 hours ≈ 34 560 ledgers. This semantic changed in soroban-sdk v25; earlier versions used seconds. Do not copy values from older docs without converting.
 
-If `admin` is `None`, the contract sets itself as admin. From that point on, changing the delay or upgrading the WASM requires scheduling an operation against this contract and waiting for the delay — there is no instant escape hatch.
+If `admin` is `None`, the contract sets itself as admin. From that point on, changing the delay or upgrading the WASM requires scheduling an operation against this contract and waiting for the delay. There is no instant escape hatch.
 
 ## Functionality
 
@@ -63,7 +63,7 @@ If `admin` is `None`, the contract sets itself as admin. From that point on, cha
 |---|---|---|
 | `schedule_op(target, function, args, predecessor, salt, delay, proposer) -> BytesN<32>` | `[only_role(proposer)]`, `proposer` must sign | Queue an operation. Returns the operation ID. |
 
-`predecessor` is another operation ID that must be in the `Done` state before this one can execute. Pass `BytesN<32>` of all-zero bytes (`0x00…00`) when there is no dependency — this is the conventional "no predecessor" sentinel.
+`predecessor` is another operation ID that must be in the `Done` state before this one can execute. Pass `BytesN<32>` of all-zero bytes (`0x00…00`) when there is no dependency. This is the conventional "no predecessor" sentinel.
 
 `salt` must be unique for the `(target, function, args, predecessor)` tuple. Reusing a salt for an identical tuple computes the same operation ID, which collides with the existing `Done` slot and traps. Generate one with `openssl rand -hex 32` or any 32-byte cryptographically secure pseudorandom number generator (CSPRNG).
 
@@ -94,7 +94,7 @@ Both functions are `[only_admin]`. Under self-administration (the default), the 
 | Function | Description |
 |---|---|
 | `update_delay(new_delay)` | Update `min_delay`. New value applies to subsequent schedules; in-flight operations keep their original delay. |
-| `upgrade(new_wasm_hash)` | Swap the controller's WASM. Storage layout warnings apply identically to the vault — see [Operations § Critical notes](./operations.md#critical-notes). |
+| `upgrade(new_wasm_hash)` | Swap the controller's WASM. Storage layout warnings apply identically to the vault. See [Operations § Critical notes](./operations.md#critical-notes). |
 
 ### Views
 
@@ -143,7 +143,7 @@ stellar contract invoke \
 # 8c2f4c4e1aab3f0c2d3e7c5d6f9b1a2e7c8d4b3f5e1a0d9c8b7a6e5d4c3b2a1f
 ```
 
-Save the operation id and the salt — you will need both to execute later.
+Save the operation id and the salt; you will need both to execute later.
 
 ### Wait for the delay
 
@@ -207,11 +207,11 @@ stellar contract invoke --id $TIMELOCK_ID --source deployer --network-passphrase
 ## Critical Notes
 
 - **Delay is in ledger sequence counts, not seconds.** `min_delay` and per-op `delay` are u32 ledger counts. ~5 s/ledger means 1 hour ≈ 720, 24 h ≈ 17 280, 48 h ≈ 34 560. Misreading this as seconds is a real footgun introduced by the soroban-sdk v25 migration.
-- **Salts must be unique per operation.** The operation ID is `keccak256(target ‖ function ‖ args ‖ predecessor ‖ salt)`. Reusing a salt with the same other inputs collides with the previous `Done` slot and the next `schedule_op` traps. Always generate fresh randomness — `openssl rand -hex 32` is the recommended source.
-- **Predecessor `0x00…00` (32 zero bytes) means "no dependency".** Chain operations by passing a prior op ID as `predecessor` to enforce execution ordering — `execute_op` requires the predecessor to be `Done`.
+- **Salts must be unique per operation.** The operation ID is `keccak256(target ‖ function ‖ args ‖ predecessor ‖ salt)`. Reusing a salt with the same other inputs collides with the previous `Done` slot and the next `schedule_op` traps. Always generate fresh randomness; `openssl rand -hex 32` is the recommended source.
+- **Predecessor `0x00…00` (32 zero bytes) means "no dependency".** Chain operations by passing a prior op ID as `predecessor` to enforce execution ordering. `execute_op` requires the predecessor to be `Done`.
 - **`--executor` is a JSON-encoded string.** Wrap with double quotes inside single quotes in shell: `--executor '"GCUU…"'`. Without the inner double quotes the CLI rejects the value as a non-string.
 - **The role symbol is `canceler` (one `l`).** The English word has two; the on-chain symbol has one. Mismatching this in role-grant or role-check calls produces silent permission failures.
 - **No executors configured = open execution.** If you deploy with `executors: []`, anyone can call `execute_op` on a `Ready` operation. This is sometimes intentional (e.g. for fully decentralized execution after the delay), but combined with proposers-only-as-cancelers it means a single proposer compromise plus the configured delay is enough for an attacker to drain owner-gated functions. Default to a curated executor set for production.
-- **Self-administration leaves no instant escape hatch.** When `admin = None`, `update_delay` and `upgrade` on the controller itself can only run via a full timelocked round-trip. Plan deploys carefully — you cannot shorten the delay or upgrade in an emergency without first scheduling and waiting.
+- **Self-administration leaves no instant escape hatch.** When `admin = None`, `update_delay` and `upgrade` on the controller itself can only run via a full timelocked round-trip. Plan deploys carefully: you cannot shorten the delay or upgrade in an emergency without first scheduling and waiting.
 - **Same `(target, function, args, predecessor, salt)` is single-shot.** After `execute_op` marks the slot `Done`, the same tuple cannot be scheduled again. This is by design — it is what makes the operation ID a stable handle — but it means rerunning an operation requires a fresh salt.
 - **`__check_auth` only validates contexts that target this controller.** Any auth context routed elsewhere panics with `TimelockError::Unauthorized`. This is what prevents a scheduled op against the vault from also being usable as authorization for a different contract in the same transaction.

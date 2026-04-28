@@ -18,7 +18,7 @@ pub fn __constructor(
 )
 ```
 
-Initial state set on construction: `MaxDeposit` and `MaxWithdraw` default to 1 000 000 USDC (with 6 decimals), `TotalBorrowed` to 0, `BorrowIndex` to `1.0` (WAD-scaled), `LastAccrualTime` to the current ledger timestamp, lock period to 0 (disabled).
+Initial state set on construction: `MaxDeposit` and `MaxWithdraw` default to 1 000 000 USDC (with 7 decimals), `TotalBorrowed` to 0, `BorrowIndex` to `1.0` (WAD-scaled), `LastAccrualTime` to the current ledger timestamp, lock period to 0 (disabled).
 
 ## Functionality
 
@@ -65,7 +65,7 @@ The treasury identity is stored on-chain; `treasury_caller` must equal that stor
 | `borrow(treasury_caller, recipient, amount)` | `require_auth(treasury_caller)`, `[when_not_paused]` | Transfer `amount` of underlying from the vault to the **treasury wallet** (the treasury then forwards to `recipient` off-chain or in a follow-up call). Accrues interest, then enforces the 80 % utilization cap and the available-liquidity check. |
 | `repay(treasury_caller, amount)` | `require_auth(treasury_caller)`, `[when_not_paused]` | Pull `amount` of underlying from the treasury back into the vault. Accrues interest first. Errors with `RepayExceedsDebt` if `amount > total_borrowed`. |
 | `accrue()` | none | Force interest accrual immediately. Useful for indexers and for keepers that want to crystallize interest before a snapshot. |
-| `sweep_foreign_asset(current_treasury, token_to_recover, recipient, amount)` | `require_auth(current_treasury)` | Recover tokens accidentally sent to the vault. **Cannot sweep the underlying asset** — guarded by an explicit address check. |
+| `sweep_foreign_asset(current_treasury, token_to_recover, recipient, amount)` | `require_auth(current_treasury)` | Recover tokens accidentally sent to the vault. **Cannot sweep the underlying asset**, guarded by an explicit address check. |
 
 ### Admin Functions (Owner-Gated)
 
@@ -77,7 +77,7 @@ The owner is the TimelockController contract, so every call below is invoked ind
 | `set_max_withdraw(new_limit)` | Update the per-transaction withdrawal cap. |
 | `set_lock_period(new_period)` | Update the deposit lock duration in **seconds**. `0` disables locking. Existing user locks are not retroactively shortened or extended; only future deposits use the new value. |
 | `set_guardian(new_guardian)` | Replace the guardian address. |
-| `set_treasury(new_treasury)` | Replace the treasury address. Single call — there is no separate propose/execute/cancel because the timelock already provides that. |
+| `set_treasury(new_treasury)` | Replace the treasury address. Single call: there is no separate propose/execute/cancel because the timelock already provides that. |
 | `upgrade(new_wasm_hash)` | Swap the contract WASM. State is preserved; see the storage-layout warning in [Critical notes](#critical-notes). |
 | `unpause(caller)` | Resume operations after a pause. Only owner can unpause, even though guardian can pause. |
 
@@ -138,7 +138,7 @@ Codes 7 (`TimelockNotExpired`) and 8 (`NoPendingUpdate`) existed in earlier vers
 | `OPTIMAL_UTILIZATION` | `0.8e18` (WAD) | Kink point in the interest rate model. |
 | `BASE_RATE` | `0.02e18` (WAD) | 2 % APR floor. |
 | `SLOPE1` | `0.075e18` (WAD) | Per-100 %-utilization slope below the kink. |
-| `SLOPE2` | `5.0e18` (WAD) | Per-100 %-utilization slope above the kink — steep penalty curve. |
+| `SLOPE2` | `5.0e18` (WAD) | Per-100 %-utilization slope above the kink (steep penalty curve). |
 | `SECONDS_PER_YEAR` | `31_536_000` | Used to convert APR to a per-second rate for compounding. |
 
 The interest rate at utilization `u` (WAD-scaled) is:
@@ -258,7 +258,7 @@ stellar contract invoke \
   --caller $GUARDIAN
 ```
 
-`unpause` is owner-only and therefore must go through the TimelockController — see [Operations § Common admin operations](./operations.md#common-admin-operations).
+`unpause` is owner-only and therefore must go through the TimelockController. See [Operations § Common admin operations](./operations.md#common-admin-operations).
 
 ### Force interest accrual
 
@@ -270,10 +270,10 @@ stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$
 
 - **Owner is the TimelockController.** Every `[only_owner]` function (`set_max_deposit`, `set_max_withdraw`, `set_lock_period`, `set_guardian`, `set_treasury`, `upgrade`, `unpause`) must be invoked via `schedule_op` → `execute_op` on the timelock. A direct call signed by a deployer key will trap on the owner check.
 - **Lock period is in seconds, not ledgers.** `set_lock_period(604_800)` = 7 days. Do not confuse this with the TimelockController's `delay`, which is measured in ledger sequence counts.
-- **Decimals offset is 6.** Share-token amounts are scaled by `1e13` (USDC's 7 + offset 6). Trust the `preview_deposit`/`preview_redeem` helpers for conversion — do not multiply manually.
+- **Decimals offset is 6.** Share-token amounts are scaled by `1e13` (USDC's 7 + offset 6). Trust the `preview_deposit`/`preview_redeem` helpers for conversion. Do not multiply manually.
 - **Utilization cap is hard-enforced at 80 %.** A borrow that would push utilization above the cap reverts with `ExceedsUtilizationCap`. The rate curve above 80 % is intentionally steep (slope-2 = 500 %) to discourage probing the cap.
 - **`pause` is callable by owner OR guardian, but `unpause` is owner-only.** A compromised guardian can DoS the vault by pausing, but cannot unpause to re-enable theft. Resuming requires a timelocked governance round-trip.
 - **`sweep_foreign_asset` cannot drain the underlying asset.** The function compares `token_to_recover` against `Vault::query_asset(e)` and rejects the call. Foreign tokens (e.g. an SEP-41 sent by mistake) can be recovered by the treasury.
 - **Storage layout is fragile across upgrades.** Renaming `DataKey` variants, reordering them, or changing `#[contracttype]` field types will strand existing state on `upgrade`. Treat any change to `DataKey`, `MicroVaultError`, or any `#[contractevent]` struct as breaking. See [Operations § Upgrade flows](./operations.md#upgrade-flows) for the full upgrade procedure.
-- **Interest is only crystallized on touch.** `total_borrowed` only increases on read paths that call `accrue_interest` (`total_managed_assets`, `utilization_rate`, `get_borrow_index`, `borrow_apr`, `borrow`, `repay`). Off-chain indexers that snapshot `total_borrowed()` directly between transactions will see a stale value — call `accrue` first, or read `total_managed_assets` instead.
+- **Interest is only crystallized on touch.** `total_borrowed` only increases on read paths that call `accrue_interest` (`total_managed_assets`, `utilization_rate`, `get_borrow_index`, `borrow_apr`, `borrow`, `repay`). Off-chain indexers that snapshot `total_borrowed()` directly between transactions will see a stale value: call `accrue` first, or read `total_managed_assets` instead.
 - **`borrow` transfers to the treasury wallet, not directly to `recipient`.** The `recipient` field is recorded in the `Borrowed` event for off-chain accounting; the actual token transfer goes from the vault to the treasury, which is responsible for the second-leg transfer to the offramp provider wallet.

@@ -95,54 +95,38 @@ For self-administration (the controller is its own admin), pass `--admin null` i
 
 ### 3. Transfer Vault ownership to the TimelockController
 
-Ownership transfer is two-step: the current owner initiates with `transfer_ownership`, then the new owner (the controller) accepts via a scheduled `accept_ownership`.
+Ownership transfer follows the OpenZeppelin `Ownable` two-step pattern. Each leg has different auth requirements, which dictate whether it goes through the timelock:
+
+| Call | Who calls | Why direct vs timelocked |
+|---|---|---|
+| `transfer_ownership(new_owner, live_until_ledger)` | **Deployer** (current owner), direct | Requires the **current** owner's auth. The deployer is still the owner at this point, so the call is signed directly by the deployer; no `schedule_op` involved. |
+| `accept_ownership()` | **TimelockController** (pending owner), via `schedule_op` → `execute_op` | Requires the **pending** owner's auth. The pending owner is the controller, and a contract can only call other contracts via `execute_op`, so this leg must be timelocked. |
+
+`live_until_ledger` is the ledger number until which `accept_ownership` can be called. Set it far enough in the future to comfortably outlast the timelock's `delay`. A value of `0` cancels a pending transfer.
 
 ```bash
-# Step 1 - initiate from the current owner.
+# Step 3a — Deployer (current owner) initiates the transfer directly.
+# live_until_ledger should be current_ledger + a healthy buffer (here ≈ 100k ledgers ≈ 6 days).
+LIVE_UNTIL=$(($(stellar ledger latest --rpc-url "$RPC_URL" --network-passphrase "$NETWORK" --output json | grep -oE '"sequence":[0-9]+' | grep -oE '[0-9]+') + 100000))
+
 stellar contract invoke \
   --id $VAULT_ID \
   --source deployer \
   --network-passphrase "$NETWORK" \
+  --rpc-url "$RPC_URL" \
   -- \
   transfer_ownership \
-  --new_owner '"'$TIMELOCK_ID'"'
+  --new_owner "$TIMELOCK_ID" \
+  --live_until_ledger "$LIVE_UNTIL"
 
-# Step 2 - schedule transfer_ownership through the timelock.
+# Step 3b — Schedule accept_ownership through the timelock.
+# accept_ownership() takes no arguments, so --args is an empty list.
 SALT=$(openssl rand -hex 32)
 stellar contract invoke \
   --id $TIMELOCK_ID \
   --source deployer \
   --network-passphrase "$NETWORK" \
-  -- \
-  schedule_op \
-  --target $VAULT_ID \
-  --function transfer_ownership \
-  --args '[{"address": "'$TIMELOCK_ID'"}, {"u32": 3500000}]' \
-  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
-  --salt $SALT \
-  --delay 120 \
-  --proposer $DEPLOYER
-
-# Step 3 - wait for the delay, then execute
-stellar contract invoke \
-  --id $TIMELOCK_ID \
-  --source deployer \
-  --network-passphrase "$NETWORK" \
-  -- \
-  execute_op \
-  --target $VAULT_ID \
-  --function transfer_ownership \
-  --args '[{"address": "'$TIMELOCK_ID'"}, {"u32": 3500000}]' \
-  --salt $SALT \
-  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
-  --executor '"'$DEPLOYER'"'
-
-# Step 4 - schedule accept_ownership through the timelock.
-SALT=$(openssl rand -hex 32)
-stellar contract invoke \
-  --id $TIMELOCK_ID \
-  --source deployer \
-  --network-passphrase "$NETWORK" \
+  --rpc-url "$RPC_URL" \
   -- \
   schedule_op \
   --target $VAULT_ID \
@@ -150,13 +134,15 @@ stellar contract invoke \
   --args '[]' \
   --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
   --salt $SALT \
+  --delay 120 \
   --proposer $DEPLOYER
 
-# Step 5 - wait for the delay, then execute
+# Step 3c — Wait for the delay, then execute accept_ownership through the timelock.
 stellar contract invoke \
   --id $TIMELOCK_ID \
   --source deployer \
   --network-passphrase "$NETWORK" \
+  --rpc-url "$RPC_URL" \
   -- \
   execute_op \
   --target $VAULT_ID \
@@ -167,8 +153,81 @@ stellar contract invoke \
   --executor '"'$DEPLOYER'"'
 ```
 
+Verify the handover landed:
 
-After step 5 the vault's owner is the controller, and every `[only_owner]` call must flow through `schedule_op` → `execute_op`.
+```bash
+stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" --rpc-url "$RPC_URL" -- get_owner
+# → expected: "$TIMELOCK_ID"
+```
+
+After step 3c the vault's owner is the controller, and every `[only_owner]` call must flow through `schedule_op` → `execute_op`.
+
+> **Why not schedule `transfer_ownership` through the timelock too?** `transfer_ownership` is gated by the **current** owner's auth (`enforce_owner_auth`). Routing it via `execute_op` would make the timelock the auth source, but the timelock is not yet the owner during bootstrap, so the call would fail. Only the second leg (`accept_ownership`) needs to be timelocked, because that one requires the *pending* owner's auth, and the pending owner *is* the timelock.
+
+## Rotate Vault ownership (timelock → new owner)
+
+If you later need to move ownership away from the controller — say, to a multisig or a new governance contract — the auth roles invert and the directness of each leg flips with them:
+
+| Call | Who calls | Why direct vs timelocked |
+|---|---|---|
+| `transfer_ownership(new_owner, live_until_ledger)` | **TimelockController** (current owner), via `schedule_op` → `execute_op` | Requires the **current** owner's auth. The current owner is now the timelock, so the call must go through `schedule_op` → wait → `execute_op`. |
+| `accept_ownership()` | **New owner** (pending), direct (or via that owner's own governance) | Requires the **pending** owner's auth. If the new owner is an EOA or multisig signer, they call `accept_ownership` directly with their own key. |
+
+```bash
+# Set the destination and a generous live_until_ledger.
+export NEW_OWNER="G…"   # e.g. a multisig account or a new governance contract
+LIVE_UNTIL=$(($(stellar ledger latest --rpc-url "$RPC_URL" --network-passphrase "$NETWORK" --output json | grep -oE '"sequence":[0-9]+' | grep -oE '[0-9]+') + 100000))
+
+# Step R1 — Schedule transfer_ownership through the timelock.
+SALT=$(openssl rand -hex 32)
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  --rpc-url "$RPC_URL" \
+  -- \
+  schedule_op \
+  --target $VAULT_ID \
+  --function transfer_ownership \
+  --args '[{"address":"'$NEW_OWNER'"},{"u32":'$LIVE_UNTIL'}]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --delay 120 \
+  --proposer $DEPLOYER
+
+# Step R2 — Wait for the delay, then execute. After this, pending_owner = $NEW_OWNER.
+stellar contract invoke \
+  --id $TIMELOCK_ID \
+  --source deployer \
+  --network-passphrase "$NETWORK" \
+  --rpc-url "$RPC_URL" \
+  -- \
+  execute_op \
+  --target $VAULT_ID \
+  --function transfer_ownership \
+  --args '[{"address":"'$NEW_OWNER'"},{"u32":'$LIVE_UNTIL'}]' \
+  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
+  --salt $SALT \
+  --executor '"'$DEPLOYER'"'
+
+# Step R3 — New owner accepts directly with their own identity (no timelock needed).
+# Replace `new_owner_identity` with whatever stellar keys identity holds the new owner key.
+stellar contract invoke \
+  --id $VAULT_ID \
+  --source new_owner_identity \
+  --network-passphrase "$NETWORK" \
+  --rpc-url "$RPC_URL" \
+  -- \
+  accept_ownership
+
+# Verify.
+stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" --rpc-url "$RPC_URL" -- get_owner
+# → expected: "$NEW_OWNER"
+```
+
+If the new owner is itself a contract (e.g. another timelock or a multisig contract), step R3 is replaced by that contract's own mechanism for issuing a call to `accept_ownership()`. For a fresh timelock, that means another `schedule_op` → `execute_op` round, mirroring step 3b/3c of the bootstrap.
+
+To **abort** a pending transfer at any point before acceptance, the current owner calls `transfer_ownership(<anything>, 0)`. `live_until_ledger = 0` cancels the pending transfer per the OpenZeppelin spec. During bootstrap the deployer can do this directly; after rotation it must go through the timelock.
 
 ## Schedule → Execute Pattern
 
@@ -270,7 +329,7 @@ stellar contract invoke \
 
 ### TimelockController self-upgrade
 
-The controller's own `upgrade` is `[only_admin]`. When the controller is its own admin, the upgrade must be scheduled against itself and then executed via the regular `execute_op` flow — Soroban routes the auth through `__check_auth`, which verifies the delay before letting the call through.
+The controller's own `upgrade` is `[only_admin]`. When the controller is its own admin, the upgrade must be scheduled against itself and then executed via the regular `execute_op` flow. Soroban routes the auth through `__check_auth`, which verifies the delay before letting the call through.
 
 ```bash
 NEW_TIMELOCK_WASM_HASH=$(stellar contract upload \
@@ -308,7 +367,7 @@ stellar contract invoke \
   --executor '"'$DEPLOYER'"'
 ```
 
-If the controller has an external admin instead of self-administration, the admin can call `upgrade` directly without going through `execute_op` — the `[only_admin]` check is the only gate.
+If the controller has an external admin instead of self-administration, the admin can call `upgrade` directly without going through `execute_op`; the `[only_admin]` check is the only gate.
 
 ## Common Admin Operations
 
@@ -324,7 +383,7 @@ Each row below shows just the `--target`, `--function`, and `--args` you slot in
 | Resume after a pause | `$VAULT_ID` | `unpause` | `[{"address":"<TIMELOCK_ID>"}]` |
 | Update the timelock's min_delay | `$TIMELOCK_ID` | `update_delay` | `[{"u32":<NEW_DELAY>}]` |
 
-For the guardian's emergency `pause`, no scheduling is involved — the guardian calls the vault directly. See [Vault § Guardian emergency pause](./vault.md#guardian-emergency-pause).
+For the guardian's emergency `pause`, no scheduling is involved; the guardian calls the vault directly. See [Vault § Guardian emergency pause](./vault.md#guardian-emergency-pause).
 
 ## Cancellation
 
@@ -341,7 +400,7 @@ stellar contract invoke \
   --canceller $DEPLOYER
 ```
 
-Cancelling a `Done` operation traps. Once an op has been executed, the slot is consumed permanently — re-doing the same change requires a fresh salt and a new schedule.
+Cancelling a `Done` operation traps. Once an op has been executed, the slot is consumed permanently; re-doing the same change requires a fresh salt and a new schedule.
 
 ## Verification
 
@@ -372,13 +431,13 @@ Watch for `TreasuryUpdated`, `MaxDepositUpdated`, `GuardianUpdated`, `VaultUnpau
 
 ## Critical Notes
 
-- **Delays are ledger sequence counts, not seconds.** Stellar produces roughly one ledger every 5 seconds. `min_delay = 34560` ≈ 48 hours; `min_delay = 120` ≈ 10 minutes. The Vault's `set_lock_period` is a separate axis and is in **seconds** — do not confuse the two.
+- **Delays are ledger sequence counts, not seconds.** Stellar produces roughly one ledger every 5 seconds. `min_delay = 34560` ≈ 48 hours; `min_delay = 120` ≈ 10 minutes. The Vault's `set_lock_period` is a separate axis and is in **seconds**. Do not confuse the two.
 - **Always upload before scheduling an upgrade.** `schedule_op` for `upgrade` takes a 32-byte WASM hash, not a path. `stellar contract upload` puts the WASM on the ledger and prints the hash; without it there is nothing to point the schedule at.
-- **Argument encoding is checked at simulation.** A typo in `--args` (wrong type tag, malformed JSON) surfaces during `schedule_op`, not at `execute_op`. This is good — you find out before paying the delay.
+- **Argument encoding is checked at simulation.** A typo in `--args` (wrong type tag, malformed JSON) surfaces during `schedule_op`, not at `execute_op`. This is good: you find out before paying the delay.
 - **`--executor` requires double-quote shell wrapping.** The CLI treats it as a JSON-encoded string: `--executor '"GCUU…"'`. A bare `--executor $DEPLOYER` is rejected.
 - **Salts are single-use per `(target, function, args, predecessor)` tuple.** After `execute_op` marks the slot `Done`, scheduling the same tuple again with the same salt traps. Generate a fresh salt every time with `openssl rand -hex 32`.
 - **Predecessor `0x00…00` (32 zero bytes) means "no dependency".** Chain operations by passing a prior op id as `predecessor` if you want the timelock to enforce ordering across multiple queued ops.
 - **The Vault's `unpause` arg expects the caller (owner = timelock).** Pass `[{"address":"<TIMELOCK_ID>"}]`, not the deployer's address. The vault checks `caller.require_auth()` and the auth comes from the controller via `__check_auth` during `execute_op`.
-- **Storage-breaking changes silently strand state on upgrade.** Soroban derives ledger keys from the structural hash of `#[contracttype]` types. Renaming a `DataKey` variant, reordering enum variants, changing a struct field type, or switching storage tier (instance/persistent/temporary) all change the key — the new code can no longer read pre-upgrade state. Do not bump multiple `stellar-*` crates in a single PR. Pin exact versions (`= 0.7.1`, not `^0.7.1`) in `Cargo.toml`. Run a smoke test that invokes every metadata view and balance read after every upgrade — if any call traps, roll back immediately.
+- **Storage-breaking changes silently strand state on upgrade.** Soroban derives ledger keys from the structural hash of `#[contracttype]` types. Renaming a `DataKey` variant, reordering enum variants, changing a struct field type, or switching storage tier (instance/persistent/temporary) all change the key, and the new code can no longer read pre-upgrade state. Do not bump multiple `stellar-*` crates in a single PR. Pin exact versions (`= 0.7.1`, not `^0.7.1`) in `Cargo.toml`. Run a smoke test that invokes every metadata view and balance read after every upgrade; if any call traps, roll back immediately.
 - **Self-administered timelock has no escape hatch.** When the controller is its own admin, lowering `min_delay` or upgrading the controller itself requires a full timelocked round-trip. Plan delay values for the worst case you can tolerate during an incident.
 - **Cancellation cannot rescue a `Done` op.** `cancel_op` works on `Waiting` and `Ready` states; once executed, the change is on-chain. Mistakes are reversed by scheduling a corrective op, not by reverting the previous one.
