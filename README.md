@@ -21,7 +21,7 @@ https://drive.google.com/file/d/1vPvQThVGg2bDMLYC4Yd_cYwavyDlSrsj/view?usp=shari
 
 ## Documentation
 
-- **[Soroban Contracts](docs/soroban/README.md)** — developer reference for the on-chain contracts (Vault and TimelockController), including functionality, CLI operations, and critical operational notes.
+- **[Soroban Contracts](docs/soroban/README.md)**
 
 ## Contributing
 
