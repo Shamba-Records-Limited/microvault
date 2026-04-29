@@ -6,11 +6,10 @@ For the contract APIs themselves, see [Vault](./vault.md) and [TimelockControlle
 
 ## Prerequisites
 
-Install the Stellar CLI and create a funded identity:
+Install the Stellar CLI:
 
 ```bash
 cargo install --locked stellar-cli --features opt
-stellar keys generate deployer --network-passphrase "$NETWORK" --rpc-url "$RPC_URL" --fund
 ```
 
 Export the env vars referenced throughout this doc. Replace placeholders with values from your deployment:
@@ -20,15 +19,21 @@ Export the env vars referenced throughout this doc. Replace placeholders with va
 export NETWORK="Test SDF Network ; September 2015"
 export RPC_URL="https://soroban-testnet.stellar.org"
 
-# Identities (the deployer is the temporary owner / proposer / executor at bootstrap)
-export DEPLOYER=$(stellar keys address deployer)
-export GUARDIAN="G…"        # emergency-pause address
-export TREASURY="G…"        # credit-delegation wallet
-
 # Contract addresses (filled in after deploy)
 export VAULT_ID="C…"
 export TIMELOCK_ID="C…"
 export USDC_ID="CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"  # testnet USDC
+
+# Operator addresses (filled in once your identities exist)
+export GUARDIAN="G…"        # emergency-pause address
+export TREASURY="G…"        # credit-delegation wallet
+```
+
+Now create a funded deployer identity (the bootstrap owner / proposer / executor) and capture its public key:
+
+```bash
+stellar keys generate deployer --network-passphrase "$NETWORK" --rpc-url "$RPC_URL" --fund
+export DEPLOYER=$(stellar keys address deployer)
 ```
 
 > **`--source` takes an identity name, not an address.** Pass `--source deployer` (the name from `stellar keys generate`), not `--source $DEPLOYER` (the public key). The CLI cannot sign with a bare `G…` address and will fail with `Address cannot be used to sign G…`. The `$DEPLOYER` / `$TREASURY` / `$GUARDIAN` env vars are only used as **argument values** (e.g. `--proposer $DEPLOYER`, `--from $DEPOSITOR`), where addresses are required.
@@ -105,7 +110,7 @@ Ownership transfer follows the OpenZeppelin `Ownable` two-step pattern. Each leg
 `live_until_ledger` is the ledger number until which `accept_ownership` can be called. Set it far enough in the future to comfortably outlast the timelock's `delay`. A value of `0` cancels a pending transfer.
 
 ```bash
-# Step 3a — Deployer (current owner) initiates the transfer directly.
+# Step 3a: Deployer (current owner) initiates the transfer directly.
 # live_until_ledger should be current_ledger + a healthy buffer (here ≈ 100k ledgers ≈ 6 days).
 LIVE_UNTIL=$(($(stellar ledger latest --rpc-url "$RPC_URL" --network-passphrase "$NETWORK" --output json | grep -oE '"sequence":[0-9]+' | grep -oE '[0-9]+') + 100000))
 
@@ -119,7 +124,7 @@ stellar contract invoke \
   --new_owner "$TIMELOCK_ID" \
   --live_until_ledger "$LIVE_UNTIL"
 
-# Step 3b — Schedule accept_ownership through the timelock.
+# Step 3b: Schedule accept_ownership through the timelock.
 # accept_ownership() takes no arguments, so --args is an empty list.
 SALT=$(openssl rand -hex 32)
 stellar contract invoke \
@@ -137,7 +142,7 @@ stellar contract invoke \
   --delay 120 \
   --proposer $DEPLOYER
 
-# Step 3c — Wait for the delay, then execute accept_ownership through the timelock.
+# Step 3c: Wait for the delay, then execute accept_ownership through the timelock.
 stellar contract invoke \
   --id $TIMELOCK_ID \
   --source deployer \
@@ -178,7 +183,7 @@ If you later need to move ownership away from the controller — say, to a multi
 export NEW_OWNER="G…"   # e.g. a multisig account or a new governance contract
 LIVE_UNTIL=$(($(stellar ledger latest --rpc-url "$RPC_URL" --network-passphrase "$NETWORK" --output json | grep -oE '"sequence":[0-9]+' | grep -oE '[0-9]+') + 100000))
 
-# Step R1 — Schedule transfer_ownership through the timelock.
+# Step R1: Schedule transfer_ownership through the timelock.
 SALT=$(openssl rand -hex 32)
 stellar contract invoke \
   --id $TIMELOCK_ID \
@@ -195,7 +200,7 @@ stellar contract invoke \
   --delay 120 \
   --proposer $DEPLOYER
 
-# Step R2 — Wait for the delay, then execute. After this, pending_owner = $NEW_OWNER.
+# Step R2: Wait for the delay, then execute. After this, pending_owner = $NEW_OWNER.
 stellar contract invoke \
   --id $TIMELOCK_ID \
   --source deployer \
@@ -210,7 +215,7 @@ stellar contract invoke \
   --salt $SALT \
   --executor '"'$DEPLOYER'"'
 
-# Step R3 — New owner accepts directly with their own identity (no timelock needed).
+# Step R3: New owner accepts directly with their own identity (no timelock needed).
 # Replace `new_owner_identity` with whatever stellar keys identity holds the new owner key.
 stellar contract invoke \
   --id $VAULT_ID \
@@ -282,6 +287,41 @@ Argument JSON encoding for the most common types:
 | empty args | `[]` | `[]` |
 
 Mismatched arg encoding fails at simulation time, not at execute, so the schedule call will surface the error before you commit to the delay.
+
+### Shell quoting for `--args` (read this if you see "key must be a string")
+
+`--args` takes a JSON value. Because bash performs **quote removal** on every argument before the CLI sees it, the form you write at the shell determines what bytes actually reach `stellar`. The single most common mistake is wrapping the JSON in double quotes:
+
+```bash
+# ❌ BROKEN: bash strips the inner " characters during quote removal.
+--args "[{"i128":"10000000000"}]"
+# What stellar receives: [{i128:10000000000}]
+# Error: "Invalid JSON in argument 'args': key must be a string"
+```
+
+Bash sees `"[{"`, `i128`, `":"`, `10000000000`, `"}]"` as five adjacent words (three quoted + two unquoted) that concatenate to `[{i128:10000000000}]`. Every inner `"` is interpreted as a *closing* quote, never as a literal character.
+
+Three forms that work:
+
+```bash
+# ✅ Single quotes outside. Single quotes are literal — every character
+#    inside is preserved verbatim. Use this when no variables are
+#    interpolated.
+--args '[{"i128":"10000000000"}]'
+
+# ✅ Double quotes outside with every inner " escaped. Necessary when
+#    you must interpolate a shell variable inside the JSON.
+--args "[{\"i128\":\"$AMOUNT\"}]"
+
+# ✅ Concatenate single-quoted literal segments and unquoted variables.
+#    Bash glues adjacent words with no separator. Used elsewhere in this
+#    doc for the rotation flow.
+--args '[{"address":"'$NEW_OWNER'"},{"i128":"'$AMOUNT'"}]'
+```
+
+For complex args you can also use `--args-file-path <file.json>` and skip shell quoting altogether.
+
+The same rule applies to `--executor`, which expects a JSON-encoded string. `--executor '"'$DEPLOYER'"'` is form 3: a literal `"`, then `$DEPLOYER`, then another literal `"`. The result handed to the CLI is `"GCUU…"` (with quotes), which is valid JSON. A bare `--executor $DEPLOYER` passes `GCUU…` (no quotes) and is rejected.
 
 ## Upgrade Flows
 

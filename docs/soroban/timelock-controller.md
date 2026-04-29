@@ -137,8 +137,8 @@ stellar contract invoke \
   --args '[{"i128":"500000000000000"}]' \
   --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
   --salt $(openssl rand -hex 32) \
-  --delay 120 \ # 10 mins/600 secs
-  --proposer $DEPLOYER
+  --delay 120 \
+  --proposer $DEPLOYER  # delay 120 ledgers ≈ 10 min
 # → returns the 32-byte operation_id, e.g.
 # 8c2f4c4e1aab3f0c2d3e7c5d6f9b1a2e7c8d4b3f5e1a0d9c8b7a6e5d4c3b2a1f
 ```
