@@ -3,6 +3,7 @@ module github.com/Shamba-Records-Limited/microvault
 go 1.26.0
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/go-playground/validator/v10 v10.30.2
 	github.com/gofiber/fiber/v2 v2.52.13
 	github.com/gofiber/swagger v1.1.1
