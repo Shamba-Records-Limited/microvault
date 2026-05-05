@@ -261,6 +261,15 @@ type LoanRequest struct {
 	LocalAmount     int64   // Local currency amount in cents (e.g. KES cents).
 	LocalCurrency   string  // ISO 4217 currency code (e.g. "KES").
 	ConversionRate  float64 // YellowCard buy rate at quote time (e.g. 153.50).
+
+	// Off-ramp routing — selects the provider (mobile money vs cash pickup).
+	// Empty defaults to mobile money for back-compat with menus that don't
+	// expose the cash-pickup branch yet.
+	PayoutMethod string
+
+	// Cash-pickup-only KYC fields (MoneyGram). Ignored by mobile-money flows.
+	BirthDate         string // ISO-8601 (YYYY-MM-DD) — SEP-9 prefill
+	ChildAccountIndex uint32 // per-user Stellar derivation index for SEP-10 memo
 }
 
 // LoanApproval contains the result of a loan eligibility check, including approval status and terms.

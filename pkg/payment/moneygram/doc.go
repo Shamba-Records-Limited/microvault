@@ -1,5 +1,5 @@
 // Package moneygram is a Go SDK for MoneyGram Ramps — the cash-pickup and
-// cash-deposit anchor on the Stellar network — implementing the SEP-1, SEP-10,
+// cash-deposit anchor on the Stellar network — implementing the SEP-1, SEP-9, SEP-10,
 // and SEP-24 protocols plus MoneyGram's REST FX Rate API.
 //
 // The package is a pure client library: no database, no SMS delivery, no USSD

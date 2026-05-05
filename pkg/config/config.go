@@ -129,10 +129,36 @@ type FonbnkConfig struct {
 	BaseURL      string
 }
 
+// MoneyGramConfig holds all MoneyGram-related configuration.
+//
+// MoneyGram acts as both a Stellar SEP-1/9/10/24 anchor (for the cash-pickup
+// off-ramp flow) and a REST API provider (for FX rates). The two sets of
+// credentials are independent: HomeDomain + ServerSigningKey are derived
+// from MG's published TOML and used for SEP-10 auth; ClientID + ClientSecret
+// are issued through the MG developer portal for OAuth 2.0 client_credentials
+// against the REST API.
+type MoneyGramConfig struct {
+	Enabled bool
+
+	// SEP-1 / 9 / 10 / 24 — Stellar anchor protocol
+	HomeDomain        string // e.g. "stellar.moneygram.com"
+	ServerSigningKey  string // pinned from TOML, validated at boot
+	NetworkPassphrase string // matches StellarConfig.NetworkPassphrase
+	USDCIssuer        string // matches StellarConfig.USDCIssuer
+	TransferServerURL string // override, otherwise resolved from TOML
+
+	// REST API — OAuth 2.0 client_credentials (FX rates)
+	ClientID     string
+	ClientSecret string
+	OAuthURL     string // token endpoint
+	FXRateURL    string // GET /fx-rate/v1/rates
+}
+
 // PaymentsConfig bundles all payment provider configurations
 type PaymentsConfig struct {
 	YellowCard YellowCardConfig
 	Fonbnk     FonbnkConfig
+	MoneyGram  MoneyGramConfig
 }
 
 // AfricasTalkingConfig holds all SMS/USSD-related configuration for Africa's Talking
@@ -198,6 +224,17 @@ func New() (*Config, error) {
 
 	fonbnkClientID := os.Getenv("FONBNK_CLIENT_ID")
 	fonbnkClientSecret := os.Getenv("FONBNK_CLIENT_SECRET")
+
+	// MoneyGram is opt-in: only required when MONEYGRAM_ENABLED=true.
+	mgEnabled, _ := strconv.ParseBool(os.Getenv("MONEYGRAM_ENABLED"))
+	mgHomeDomain := os.Getenv("MONEYGRAM_HOME_DOMAIN")
+	mgServerSigningKey := os.Getenv("MONEYGRAM_SERVER_SIGNING_KEY")
+	mgUSDCIssuer := os.Getenv("MONEYGRAM_USDC_ISSUER")
+	mgTransferServerURL := os.Getenv("MONEYGRAM_TRANSFER_SERVER_URL")
+	mgClientID := os.Getenv("MONEYGRAM_CLIENT_ID")
+	mgClientSecret := os.Getenv("MONEYGRAM_CLIENT_SECRET")
+	mgOAuthURL := os.Getenv("MONEYGRAM_OAUTH_URL")
+	mgFXRateURL := os.Getenv("MONEYGRAM_FX_RATE_URL")
 
 	mobileUsername := os.Getenv("AT_USERNAME")
 	mobileAPIKey := os.Getenv("AT_API_KEY")
@@ -390,6 +427,18 @@ func New() (*Config, error) {
 				ClientSecret: fonbnkClientSecret,
 				BaseURL:      fonbnkBaseURL,
 			},
+			MoneyGram: MoneyGramConfig{
+				Enabled:           mgEnabled,
+				HomeDomain:        mgHomeDomain,
+				ServerSigningKey:  mgServerSigningKey,
+				NetworkPassphrase: networkPassphrase, // share with StellarConfig — must match anchor's TOML
+				USDCIssuer:        firstNonEmpty(mgUSDCIssuer, usdcIssuer),
+				TransferServerURL: mgTransferServerURL,
+				ClientID:          mgClientID,
+				ClientSecret:      mgClientSecret,
+				OAuthURL:          mgOAuthURL,
+				FXRateURL:         mgFXRateURL,
+			},
 		},
 		Mobile: MobileConfig{
 			AfricasTalking: AfricasTalkingConfig{
@@ -417,4 +466,50 @@ func parsePINLockout() time.Duration {
 		return time.Duration(s) * time.Second
 	}
 	return 15 * time.Minute
+}
+
+// firstNonEmpty returns the first non-empty argument, or "" if all are empty.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// Validate checks that all fields required to construct a working MoneyGram
+// client are set when the integration is enabled. Disabled configs always pass.
+//
+// Validate intentionally does not require REST API credentials (ClientID /
+// ClientSecret / OAuthURL / FXRateURL): the SEP-1/10/24 anchor flow can run
+// without them, and those credentials are gated on Open Q #6 confirming MG
+// issues REST API access to Ramps partners.
+func (c *MoneyGramConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	missing := []string{}
+	if c.HomeDomain == "" {
+		missing = append(missing, "MONEYGRAM_HOME_DOMAIN")
+	}
+	if c.ServerSigningKey == "" {
+		missing = append(missing, "MONEYGRAM_SERVER_SIGNING_KEY")
+	}
+	if c.NetworkPassphrase == "" {
+		missing = append(missing, "STELLAR network passphrase (set on StellarConfig)")
+	}
+	if c.USDCIssuer == "" {
+		missing = append(missing, "MONEYGRAM_USDC_ISSUER or USDC_ISSUER")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("moneygram enabled but missing: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// HasRESTCredentials reports whether the REST API credentials are populated.
+// Callers should fall back to YC for FX rates when this returns false.
+func (c *MoneyGramConfig) HasRESTCredentials() bool {
+	return c.ClientID != "" && c.ClientSecret != "" && c.OAuthURL != "" && c.FXRateURL != ""
 }

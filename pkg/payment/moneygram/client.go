@@ -169,6 +169,23 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, childMemo int64, req Wi
 	return resp, err
 }
 
+// NewFXOrchestrator returns an FX orchestrator with this client's FXRate
+// sub-client (if available) as the primary source. fallback may be nil when
+// MG REST credentials are configured and the consumer wants MG-only quoting.
+//
+// Returns an error if both sources are nil — callers should check
+// HasFXRate() first if they want to skip wiring entirely.
+func (c *Client) NewFXOrchestrator(fallback FallbackRateSource, cfg FXOrchestratorConfig) (*FXOrchestrator, error) {
+	return NewFXOrchestrator(c.FXRate, fallback, cfg, c.cfg.Logger)
+}
+
+// HasFXRate reports whether the Client has a usable FX Rate sub-client (i.e.
+// REST credentials were configured and the OAuth + FXRate clients constructed).
+// Mirrors HasRESTCredentials at the config layer.
+func (c *Client) HasFXRate() bool {
+	return c.FXRate != nil
+}
+
 // GetTransaction is a convenience wrapper around Anchor.GetTransaction with
 // the same JWT cache semantics as InitiateWithdrawal.
 func (c *Client) GetTransaction(ctx context.Context, childMemo int64, txID string) (*Transaction, error) {

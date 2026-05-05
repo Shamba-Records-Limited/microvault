@@ -10,8 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// productionTOML is the verbatim production stellar.toml captured in
-// internal-docs/moneygram-integration.md Appendix C, used as a parser fixture.
+// productionTOML is the verbatim production stellar.toml used as a parser fixture.
 const productionTOML = `
 ACCOUNTS = []
 VERSION = "0.1.0"

@@ -26,13 +26,13 @@ type TOML struct {
 
 // Currency is one entry from the SEP-1 [[CURRENCIES]] array.
 type Currency struct {
-	Code               string `toml:"code"`
-	Issuer             string `toml:"issuer"`
-	IsAssetAnchored    bool   `toml:"is_asset_anchored"`
-	AnchorAssetType    string `toml:"anchor_asset_type"`
-	AnchorAsset        string `toml:"anchor_asset"`
-	Name               string `toml:"name"`
-	Desc               string `toml:"desc"`
+	Code            string `toml:"code"`
+	Issuer          string `toml:"issuer"`
+	IsAssetAnchored bool   `toml:"is_asset_anchored"`
+	AnchorAssetType string `toml:"anchor_asset_type"`
+	AnchorAsset     string `toml:"anchor_asset"`
+	Name            string `toml:"name"`
+	Desc            string `toml:"desc"`
 }
 
 // FetchTOML retrieves and parses the SEP-1 stellar.toml served at

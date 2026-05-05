@@ -15,7 +15,7 @@ import (
 // Status is the SEP-24 transaction status.
 type Status string
 
-// SEP-24 transaction states. The set documented by MoneyGram and SEP-24.
+// SEP-24 transaction states. The set documented by [SEP-0024 protocol](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md).
 const (
 	StatusIncomplete                  Status = "incomplete"
 	StatusPendingUserTransferStart    Status = "pending_user_transfer_start"

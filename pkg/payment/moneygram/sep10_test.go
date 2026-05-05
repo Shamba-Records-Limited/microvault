@@ -18,7 +18,7 @@ import (
 
 const testNetworkPassphrase = "Test SDF Network ; September 2015"
 
-// fakeAuthServer mimics MoneyGram's SEP-10 endpoints. The server keypair is
+// fakeAuthServer mimics Anchor's SEP-10 endpoints. The server keypair is
 // generated per-test so the SDK's signature verification has a real key to
 // validate against.
 type fakeAuthServer struct {

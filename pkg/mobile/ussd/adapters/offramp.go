@@ -35,6 +35,19 @@ type TreasuryTransfer interface {
 	SendUSDC(ctx context.Context, destination string, memo string, amount int64) (txHash string, err error)
 }
 
+// PayoutMethod selects which off-ramp provider handles the request when
+// multiple are wired in via the routing OffRampService.
+//
+//   - PayoutMethodMobileMoney → YellowCard (default for back-compat)
+//   - PayoutMethodCashPickup  → MoneyGram
+//
+// Empty string is treated as PayoutMethodMobileMoney by the router so existing
+// USSD code paths that don't set the field continue to disburse via YC.
+const (
+	PayoutMethodMobileMoney = "mobile_money"
+	PayoutMethodCashPickup  = "cash_pickup"
+)
+
 // OffRampRequest contains all data needed to initiate an off-ramp.
 type OffRampRequest struct {
 	LoanID           string
@@ -47,10 +60,22 @@ type OffRampRequest struct {
 	IdempotencyKey   string
 	NetworkCode      string
 	NetworkName      string
-	SettlementMethod string // "direct" (default) or "fiat"
+	SettlementMethod string // "direct" (default) or "fiat" — provider-specific (YC)
+
+	// PayoutMethod selects the provider (see PayoutMethod* constants). Empty
+	// defaults to mobile money. Unknown values produce an error from the router.
+	PayoutMethod string
+
+	// Cash-pickup-only fields (MoneyGram). Ignored by mobile-money providers.
+	BirthDate    string // ISO-8601 (YYYY-MM-DD); used as a SEP-9 KYC prefill
+	ChildAccountIndex uint32 // per-user Stellar derivation index for SEP-10 memo
 }
 
 // OffRampResult contains the result of initiating an off-ramp.
+//
+// The Stellar* fields are YellowCard direct-settlement specific. The
+// CashPickup* fields are MoneyGram-specific. Cross-provider fields
+// (RequestID, AmountUSD, etc.) are populated by every adapter.
 type OffRampResult struct {
 	RequestID        string
 	SequenceID       string
@@ -63,10 +88,17 @@ type OffRampResult struct {
 	FeeLocal         float64 // Total fee in local currency
 	EstimatedTime    int
 	CreatedAt        time.Time
-	SettlementMethod string // "direct" or "fiat" — which mode was actually used
-	StellarAddress   string // Stellar address (direct settlement only)
-	StellarMemo      string // Stellar memo/walletTag (direct settlement only)
-	StellarTxHash    string // USDC transfer tx hash (direct settlement only)
+	SettlementMethod string // "direct"/"fiat" (YC) or "cash_pickup" (MG)
+
+	// YellowCard direct-settlement fields. Empty for MoneyGram.
+	StellarAddress string // Stellar address — payee for the USDC transfer
+	StellarMemo    string // Stellar memo/walletTag accompanying the USDC transfer
+	StellarTxHash  string // USDC transfer tx hash
+
+	// MoneyGram cash-pickup fields. Empty for YellowCard.
+	InteractiveURL    string // SEP-24 webview URL — SMS to the user to start KYC
+	ExternalReference string // Cash-pickup reference number (populated post-completion)
+	ChildAccountMemo  int64  // SEP-10 child memo for this withdrawal (drives the poller's JWT cache)
 }
 
 // OffRampStatus contains status information for an off-ramp.
