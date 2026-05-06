@@ -7,10 +7,18 @@ import (
 )
 
 // ChildAccountMemo derives a deterministic positive int64 memo from the
-// custodial treasury's public key and a user's child-account derivation index.
-// The result is used as the SEP-10 memo (and SEP-24 withdraw memo) so that a
-// single treasury Stellar account can host many users without their JWTs or
-// in-flight transactions cross-contaminating.
+// custodial treasury's public key and a user's BIP-44 Stellar derivation index
+// (`accounts.account_index` — assigned by the existing user-account allocator;
+// not minted here). The result is used as the SEP-10 memo so that a single
+// treasury Stellar account can host many users without their JWTs or in-flight
+// SEP-24 transactions cross-contaminating.
+//
+// This is NOT the SEP-24 withdraw memo. The withdraw memo is supplied by the
+// anchor on the SEP-24 transaction response (Transaction.WithdrawMemo) — that
+// value is what we pass as the Stellar payment memo when sending USDC to the
+// anchor, and what MG sends back on refund. The refund-ingest worker matches
+// inbound payments against `loans.ramp_withdraw_memo`, not against this hash.
+// See §13 of docs/moneygram-integration.md.
 //
 // Properties:
 //   - Deterministic across runs and processes.

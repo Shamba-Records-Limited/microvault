@@ -90,15 +90,19 @@ type AlertService interface {
 	AlertOps(subject, message string) error
 }
 
-// Disbursement status string values shared with the YC flow. They live in
-// pkg/payment/yellowcard/types.go today because YC was the first off-ramp;
-// a future refactor may move them to a neutral package. For now we
-// hardcode the values here so this package doesn't depend on yellowcard.
+// Disbursement status strings the poller writes. These match the canonical
+// constants in microvault-credit/internal/credit/app/models/loan.go
+// (DisbursementStatus*). We hardcode them here because this package can't
+// import from microvault-credit without a layering inversion.
+//
+// statusRefundPending is intentionally not in microvault-credit's enum yet
+// — added inline here to mirror what the existing YC flow writes; reconcile
+// in a follow-up that also fixes YC's "complete" vs the model's "completed".
 const (
-	statusProcessing     = "processing"
-	statusComplete       = "complete"
-	statusFailed         = "failed"
-	statusRefundPending  = "refund_pending"
+	statusProcessing    = "processing"
+	statusCompleted     = "completed"
+	statusFailed        = "failed"
+	statusRefundPending = "refund_pending"
 )
 
 // PollerConfig configures cadence and drift detection.
@@ -278,10 +282,43 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		moneygram.StatusError:
 		p.handleTerminalFailure(rec, tx)
 
+	case moneygram.StatusOnHold:
+		// MG paused the transaction for additional checks (compliance,
+		// fraud review). Not terminal, but it can sit here for a while —
+		// alert ops so a human can chase MG support if needed.
+		p.logger.Warn("MoneyGram transaction on hold",
+			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
+			"message", tx.Message)
+		p.alertOps("MoneyGram transaction on hold",
+			fmt.Sprintf("Loan %s: MG on_hold for additional checks. Message: %s",
+				rec.LoanID, tx.Message))
+
+	case moneygram.StatusPendingTrust:
+		// User-side trustline missing. In our custodial-wallet model the
+		// user never holds USDC directly, so this only arises on the MG
+		// side and likely indicates an anchor-config issue worth flagging.
+		p.logger.Warn("MoneyGram pending_trust — anchor missing trustline?",
+			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
+			"message", tx.Message)
+		p.alertOps("MoneyGram pending_trust",
+			fmt.Sprintf("Loan %s: MG reported pending_trust. Investigate anchor trustline. Message: %s",
+				rec.LoanID, tx.Message))
+
+	case moneygram.StatusPendingUser:
+		// MG is waiting on the user (additional KYC, action at the agent,
+		// etc.). Nothing automated to do — log for visibility and let
+		// the existing reminder SMS path handle nudges.
+		p.logger.Info("MoneyGram waiting on user action",
+			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
+			"message", tx.Message)
+
 	case moneygram.StatusIncomplete,
 		moneygram.StatusPendingAnchor,
-		moneygram.StatusPendingExternal:
-		// In-flight, no action needed this cycle.
+		moneygram.StatusPendingExternal,
+		moneygram.StatusPendingStellar:
+		// In-flight, no action needed this cycle. pending_stellar is
+		// the natural transient state right after our SendUSDC while
+		// the network confirms the payment to MG's anchor.
 
 	default:
 		p.logger.Warn("unexpected MoneyGram status",
@@ -361,7 +398,7 @@ func (p *Poller) handlePendingUserTransferComplete(_ context.Context, rec LoanRe
 
 // handleCompleted: MG confirmed the user picked up the cash.
 func (p *Poller) handleCompleted(rec LoanRecord, _ *moneygram.Transaction) {
-	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusComplete); err != nil {
+	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusCompleted); err != nil {
 		p.logger.Error("failed to mark disbursement complete",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
 		return

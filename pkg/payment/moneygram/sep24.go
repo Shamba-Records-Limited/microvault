@@ -15,13 +15,18 @@ import (
 // Status is the SEP-24 transaction status.
 type Status string
 
-// SEP-24 transaction states. The set documented by [SEP-0024 protocol](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md).
+// SEP-24 transaction states. The full set documented by [SEP-0024 protocol](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md)
+// in the "Shared fields for both deposits and withdrawals" section.
 const (
 	StatusIncomplete                  Status = "incomplete"
 	StatusPendingUserTransferStart    Status = "pending_user_transfer_start"
-	StatusPendingAnchor               Status = "pending_anchor"
-	StatusPendingExternal             Status = "pending_external"
 	StatusPendingUserTransferComplete Status = "pending_user_transfer_complete"
+	StatusPendingExternal             Status = "pending_external"
+	StatusPendingAnchor               Status = "pending_anchor"
+	StatusOnHold                      Status = "on_hold"
+	StatusPendingStellar              Status = "pending_stellar"
+	StatusPendingTrust                Status = "pending_trust"
+	StatusPendingUser                 Status = "pending_user"
 	StatusCompleted                   Status = "completed"
 	StatusRefunded                    Status = "refunded"
 	StatusExpired                     Status = "expired"

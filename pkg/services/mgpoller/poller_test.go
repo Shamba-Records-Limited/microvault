@@ -321,7 +321,7 @@ func TestPoller_Completed_NotifiesAndTransitions(t *testing.T) {
 	p.poll(context.Background())
 
 	require.Len(t, disb.statuses, 1)
-	assert.Equal(t, "L-1=complete", disb.statuses[0])
+	assert.Equal(t, "L-1=completed", disb.statuses[0])
 	assert.Equal(t, []string{"L-1"}, disb.completedNotified)
 }
 
@@ -377,17 +377,77 @@ func TestPoller_TerminalFailure_BeforeUSDCSent_NoRepay(t *testing.T) {
 }
 
 func TestPoller_NonTerminalState_NoOp(t *testing.T) {
-	p, srv, fetcher, _, disb, treas, _ := newTestPoller(t)
+	for _, status := range []string{
+		"incomplete",
+		"pending_anchor",
+		"pending_external",
+		"pending_stellar",
+	} {
+		t.Run(status, func(t *testing.T) {
+			p, srv, fetcher, _, disb, treas, alerts := newTestPoller(t)
+			srv.setTransactionJSON(fmt.Sprintf(
+				`{"transaction":{"id":"mg-1","kind":"withdrawal","status":%q}}`, status))
+
+			fetcher.loans = []LoanRecord{{
+				LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+			}}
+			p.poll(context.Background())
+			assert.Empty(t, disb.statuses)
+			assert.Empty(t, treas.calls)
+			assert.Empty(t, alerts.calls)
+		})
+	}
+}
+
+func TestPoller_OnHold_AlertsOpsNoTransition(t *testing.T) {
+	p, srv, fetcher, _, disb, treas, alerts := newTestPoller(t)
 	srv.setTransactionJSON(`{"transaction":{
-		"id":"mg-1","kind":"withdrawal","status":"pending_anchor"
+		"id":"mg-1","kind":"withdrawal","status":"on_hold",
+		"message":"compliance review in progress"
 	}}`)
 
 	fetcher.loans = []LoanRecord{{
 		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
 	}}
 	p.poll(context.Background())
+
+	assert.Empty(t, disb.statuses, "on_hold is not terminal — no disbursement transition")
+	assert.Empty(t, treas.calls)
+	assert.Contains(t, alerts.calls, "MoneyGram transaction on hold")
+}
+
+func TestPoller_PendingTrust_AlertsOpsNoTransition(t *testing.T) {
+	p, srv, fetcher, _, disb, treas, alerts := newTestPoller(t)
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"pending_trust",
+		"message":"anchor missing USDC trustline"
+	}}`)
+
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+	}}
+	p.poll(context.Background())
+
 	assert.Empty(t, disb.statuses)
 	assert.Empty(t, treas.calls)
+	assert.Contains(t, alerts.calls, "MoneyGram pending_trust")
+}
+
+func TestPoller_PendingUser_LogsOnly(t *testing.T) {
+	p, srv, fetcher, _, disb, treas, alerts := newTestPoller(t)
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"pending_user",
+		"message":"awaiting user action"
+	}}`)
+
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+	}}
+	p.poll(context.Background())
+
+	assert.Empty(t, disb.statuses, "pending_user is in-flight — no disbursement transition")
+	assert.Empty(t, treas.calls)
+	assert.Empty(t, alerts.calls, "user-driven waits should not page ops")
 }
 
 func TestPoller_RejectsBadConfig(t *testing.T) {
