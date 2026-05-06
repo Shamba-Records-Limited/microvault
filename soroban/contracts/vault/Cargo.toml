@@ -1,5 +1,5 @@
 [package]
-name = "microvault-erc4626"
+name = "microvault-sep56"
 version = "0.0.0"
 edition = "2021"
 publish = false

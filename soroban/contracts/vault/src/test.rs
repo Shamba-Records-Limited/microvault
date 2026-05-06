@@ -156,7 +156,7 @@ fn test_deposit_exceeds_max_limit() {
         setup_vault_with_user(&env, 0);
 
     // Mint more than default max deposit (1M USDC)
-    let huge_amount = 2_000_000_000_000i128;
+    let huge_amount = 20_000_000_000_000i128;
     token_admin.mint(&user, &huge_amount);
 
     // Should panic due to exceeding limit
@@ -426,7 +426,7 @@ fn test_multiple_depositors() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// SEP-56 / ERC-4626 Preview Functions
+// SEP-56 Preview Functions
 // ─────────────────────────────────────────────────────────────────────
 
 #[test]

@@ -16,7 +16,7 @@ require (
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/minio/minio-go/v7 v7.1.0
 	github.com/pdfcpu/pdfcpu v0.12.0
-	github.com/redis/go-redis/v9 v9.18.0
+	github.com/redis/go-redis/v9 v9.19.0
 	github.com/stellar/go-stellar-sdk v0.5.0
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/swag v1.16.6
@@ -37,7 +37,6 @@ require (
 	github.com/creachadair/jrpc2 v1.3.5 // indirect
 	github.com/creachadair/mds v0.27.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect

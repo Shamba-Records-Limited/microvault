@@ -19,6 +19,10 @@ A successful microlending journey:
 ## Proposal
 https://drive.google.com/file/d/1vPvQThVGg2bDMLYC4Yd_cYwavyDlSrsj/view?usp=sharing
 
+## Documentation
+
+- **[Soroban Contracts](docs/soroban/README.md)**
+
 ## Contributing
 
 Contributions are welcome! We are excited to see this project grow with help from the community.

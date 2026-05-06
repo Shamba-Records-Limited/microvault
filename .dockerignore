@@ -17,3 +17,4 @@ go-mod-cache/
 .git/
 tmp/
 *.log
+internal-docs/*.md

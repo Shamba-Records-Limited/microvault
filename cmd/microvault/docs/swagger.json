@@ -1,7 +1,7 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "A headless ERC-4626 tokenized vault engine for microlending built on the stellar network.",
+        "description": "A headless SEP-56 tokenized vault engine for microlending built on the stellar network.",
         "title": "microvault API",
         "termsOfService": "http://swagger.io/terms/",
         "contact": {

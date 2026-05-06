@@ -34,4 +34,4 @@ go.work.sum
 tmp/
 
 # Docs
-docs/*.md
+internal-docs/*.md

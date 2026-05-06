@@ -39,7 +39,7 @@ import (
 
 // @title microvault API
 // @version 1.0
-// @description A headless ERC-4626 tokenized vault engine for microlending built on the stellar network.
+// @description A headless SEP-56 tokenized vault engine for microlending built on the stellar network.
 // @termsOfService http://swagger.io/terms/
 // @contact.name API Support
 // @contact.email smugane@shambarecords.com
