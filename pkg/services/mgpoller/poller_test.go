@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
 const testNetworkPassphrase = "Test SDF Network ; September 2015"
@@ -132,12 +133,12 @@ func (f *fakeFetcher) GetActiveMoneyGramLoans(_ context.Context, _ int) ([]LoanR
 }
 
 type fakeRecorder struct {
-	updates  []*moneygram.Transaction
+	updates  []*stellaranchor.Transaction
 	sendHash string
 	mu       sync.Mutex
 }
 
-func (r *fakeRecorder) RecordTransactionUpdate(_ context.Context, _ string, tx *moneygram.Transaction) error {
+func (r *fakeRecorder) RecordTransactionUpdate(_ context.Context, _ string, tx *stellaranchor.Transaction) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.updates = append(r.updates, tx)

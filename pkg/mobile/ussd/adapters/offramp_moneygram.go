@@ -13,6 +13,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
 // MoneyGramOffRampAdapter implements OffRampService for MoneyGram Ramps
@@ -69,7 +70,7 @@ var (
 // MoneyGramRefChildMemoKey is the ProviderRef.Extra key the MG adapter
 // expects for Status lookups — the SEP-10 child memo that authenticates
 // the cached JWT. Callers reconstruct it from loans.ramp_child_account_index
-// via moneygram.ChildAccountMemo.
+// via stellaranchor.ChildAccountMemo.
 const MoneyGramRefChildMemoKey = "child_memo"
 
 // ID identifies this provider in the registry.
@@ -110,20 +111,20 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 		return nil, fmt.Errorf("moneygram off-ramp: recipient name is required for SEP-9 prefill")
 	}
 
-	childMemo := moneygram.ChildAccountMemo(a.treasuryPubkey, opts.ChildAccountIndex)
+	childMemo := stellaranchor.ChildAccountMemo(a.treasuryPubkey, opts.ChildAccountIndex)
 
-	first, last := moneygram.SplitFullName(req.RecipientName)
-	customer := moneygram.Customer{
+	first, last := stellaranchor.SplitFullName(req.RecipientName)
+	customer := stellaranchor.Customer{
 		FirstName:    first,
 		LastName:     last,
 		MobileNumber: req.DestinationPhone,
 		BirthDate:    opts.BirthDate,
 	}
-	if iso3 := moneygram.CountryISO3(req.CountryCode); iso3 != "" {
+	if iso3 := stellaranchor.CountryISO3(req.CountryCode); iso3 != "" {
 		customer.AddressCountryCode = iso3
 	}
 
-	withdrawReq := moneygram.WithdrawRequest{
+	withdrawReq := stellaranchor.WithdrawRequest{
 		AssetCode: "USDC",
 		Amount:    formatUSDAmount(req.AmountUSD),
 		Lang:      "en",
@@ -154,7 +155,7 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 	return &offramp.Result{
 		RequestID:        resp.ID,
 		SequenceID:       idempotencyKey,
-		Status:           string(moneygram.StatusIncomplete),
+		Status:           string(stellaranchor.StatusIncomplete),
 		AmountUSD:        req.AmountUSD,
 		LocalCurrency:    "", // unknown until pending_user_transfer_complete
 		EstimatedTime:    0,  // unknown — depends on user opening the webview
