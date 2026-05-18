@@ -13,8 +13,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/Shamba-Records-Limited/microvault/pkg/payment"
 )
 
 // yellowcardTransport is a custom http.RoundTripper that signs requests
@@ -58,7 +56,8 @@ func (t *yellowcardTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	return t.base.RoundTrip(req)
 }
 
-// YellowcardAdapter implements the payment.PaymentProvider interface for YellowCard.
+// YellowcardAdapter is the low-level HTTP client for the YellowCard API.
+// The OffRampService-side wrapper lives in pkg/mobile/ussd/adapters.
 type YellowcardAdapter struct {
 	httpClient *http.Client
 	baseURL    string
@@ -81,65 +80,6 @@ func NewYellowcardAdapter(publicKey, secretKey, baseURL string) *YellowcardAdapt
 		httpClient: client,
 		baseURL:    baseURL,
 	}
-}
-
-var _ payment.PaymentProvider = (*YellowcardAdapter)(nil)
-
-// GetRate returns the exchange rate for USD to the specified currency in stroops.
-func (y *YellowcardAdapter) GetRate(ctx context.Context, currency string) (int64, error) {
-	rates, err := y.GetRates(ctx, currency)
-	if err != nil {
-		return 0, err
-	}
-
-	if len(rates) == 0 {
-		return 0, fmt.Errorf("no rates found for currency: %s", currency)
-	}
-
-	return int64(rates[0].Sell * 10_000_000), nil
-}
-
-// InitializePayment creates a disbursement request with forceAccept enabled.
-func (y *YellowcardAdapter) InitializePayment(ctx context.Context, req payment.InitializePaymentRequest) (string, error) {
-	opts, ok := req.ProviderOptions.(*Options)
-	if !ok {
-		return "", fmt.Errorf("yellowcard: invalid provider options type")
-	}
-
-	amountUSD := float64(req.Amount) / 10_000_000
-
-	paymentReq := PaymentRequest{
-		ChannelID:    opts.ChannelID,
-		SequenceID:   opts.IdempotencyKey,
-		Amount:       amountUSD,
-		Reason:       opts.Reason,
-		Sender:       opts.Sender,
-		Destination:  opts.Destination,
-		CustomerUID:  opts.CustomerUID,
-		CustomerType: opts.CustomerType,
-		ForceAccept:  true,
-	}
-
-	resp, err := y.SubmitPayment(ctx, paymentReq)
-	if err != nil {
-		return "", err
-	}
-
-	return resp.ID, nil
-}
-
-// ProcessPayment retrieves the current status of a disbursement.
-func (y *YellowcardAdapter) ProcessPayment(ctx context.Context, transactionID string) (payment.PaymentStatus, error) {
-	return y.GetPaymentStatus(ctx, transactionID)
-}
-
-// GetPaymentStatus retrieves the current status of a disbursement.
-func (y *YellowcardAdapter) GetPaymentStatus(ctx context.Context, transactionID string) (payment.PaymentStatus, error) {
-	details, err := y.LookupPayment(ctx, transactionID)
-	if err != nil {
-		return payment.StatusFailed, err
-	}
-	return mapYellowCardStatus(details.Status), nil
 }
 
 // GetChannels retrieves available payment channels for a country.
@@ -353,29 +293,6 @@ func (y *YellowcardAdapter) parseError(resp *http.Response) error {
 	}
 
 	return fmt.Errorf("yellowcard: API error %d: %s", resp.StatusCode, string(body))
-}
-
-// mapYellowCardStatus converts a YellowCard payment status string to the
-// internal PaymentStatus enum. Refund states map to Failed since the original
-// payment did not succeed. Unknown statuses default to Pending.
-func mapYellowCardStatus(ycStatus string) payment.PaymentStatus {
-	switch ycStatus {
-	case StatusComplete:
-		return payment.StatusSucceeded
-	case StatusFailed, StatusExpired, StatusCancelled:
-		return payment.StatusFailed
-	case StatusCreated, StatusPendingApproval, StatusPendingSettlement,
-		StatusProcess, StatusProcessing, StatusPendingLiquidity, StatusPending:
-		return payment.StatusPending
-	case StatusPendingRefund, StatusRefundProcessing:
-		return payment.StatusPending
-	case StatusRefunded:
-		return payment.StatusFailed // Refunded means the original payment failed
-	case StatusRefundFailed:
-		return payment.StatusFailed
-	default:
-		return payment.StatusPending
-	}
 }
 
 // ParseStellarWalletAddress splits a YellowCard combined wallet address into

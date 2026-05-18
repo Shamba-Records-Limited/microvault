@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 )
 
 // MoneyGramOffRampAdapter implements OffRampService for MoneyGram Ramps
@@ -57,7 +58,7 @@ func NewMoneyGramOffRampAdapter(cfg MoneyGramOffRampConfig) (*MoneyGramOffRampAd
 	}, nil
 }
 
-var _ OffRampService = (*MoneyGramOffRampAdapter)(nil)
+var _ offramp.Service = (*MoneyGramOffRampAdapter)(nil)
 
 // InitiateOffRamp creates a SEP-24 interactive withdrawal on MoneyGram and
 // returns the webview URL plus the MG transaction ID. The caller (USSD layer)
@@ -73,7 +74,7 @@ var _ OffRampService = (*MoneyGramOffRampAdapter)(nil)
 //
 // ExternalReference and AmountLocal/LocalCurrency are populated later by the
 // poller once MG transitions the transaction to pending_user_transfer_complete.
-func (a *MoneyGramOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffRampRequest) (*OffRampResult, error) {
+func (a *MoneyGramOffRampAdapter) InitiateOffRamp(ctx context.Context, req offramp.Request) (*offramp.Result, error) {
 	a.logger.Info("moneygram off-ramp initiated",
 		"loan_id", req.LoanID,
 		"user_id", req.UserID,
@@ -130,7 +131,7 @@ func (a *MoneyGramOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffRa
 		idempotencyKey = req.LoanID
 	}
 
-	return &OffRampResult{
+	return &offramp.Result{
 		RequestID:        resp.ID,
 		SequenceID:       idempotencyKey,
 		Status:           string(moneygram.StatusIncomplete),
@@ -155,13 +156,13 @@ func (a *MoneyGramOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffRa
 // For long-lived process restarts, the poller in microvault-credit must
 // re-prime the cache by reading loans.ramp_child_account_index — outside the
 // scope of this interface.
-func (a *MoneyGramOffRampAdapter) GetOffRampStatus(ctx context.Context, requestID string) (*OffRampStatus, error) {
+func (a *MoneyGramOffRampAdapter) GetOffRampStatus(ctx context.Context, requestID string) (*offramp.Status, error) {
 	return nil, fmt.Errorf("moneygram: GetOffRampStatus by requestID alone is not supported — use the poller in microvault-credit which reads loans.ramp_child_account_index")
 }
 
 // GetSupportedProviders advertises a single cash-pickup option.
-func (a *MoneyGramOffRampAdapter) GetSupportedProviders(ctx context.Context, countryCode string) ([]OffRampProvider, error) {
-	return []OffRampProvider{{
+func (a *MoneyGramOffRampAdapter) GetSupportedProviders(ctx context.Context, countryCode string) ([]offramp.ProviderInfo, error) {
+	return []offramp.ProviderInfo{{
 		ID:               "moneygram_cash_pickup",
 		Name:             "MoneyGram Cash Pickup",
 		SupportedMethods: []string{"cash_pickup"},
@@ -173,7 +174,7 @@ func (a *MoneyGramOffRampAdapter) GetSupportedProviders(ctx context.Context, cou
 // GetExchangeRate is delegated to the SDK's FX rate client when REST API
 // credentials are available. Returns an error otherwise — callers should
 // fall back to the YC rate adapter via the routing service.
-func (a *MoneyGramOffRampAdapter) GetExchangeRate(ctx context.Context, currency string) (*ExchangeRate, error) {
+func (a *MoneyGramOffRampAdapter) GetExchangeRate(ctx context.Context, currency string) (*offramp.ExchangeRate, error) {
 	if a.client.FXRate == nil {
 		return nil, errors.New("moneygram: FX rate API not configured (REST credentials missing)")
 	}
@@ -190,7 +191,7 @@ func (a *MoneyGramOffRampAdapter) GetExchangeRate(ctx context.Context, currency 
 		return nil, fmt.Errorf("moneygram fx rate: %w", err)
 	}
 
-	return &ExchangeRate{
+	return &offramp.ExchangeRate{
 		FromCurrency: "USD",
 		ToCurrency:   currency,
 		Rate:         got.Rate,
@@ -200,8 +201,8 @@ func (a *MoneyGramOffRampAdapter) GetExchangeRate(ctx context.Context, currency 
 }
 
 // GetMobileMoneyNetworks returns an empty list — MoneyGram is cash-pickup only.
-func (a *MoneyGramOffRampAdapter) GetMobileMoneyNetworks(ctx context.Context, countryCode string) ([]MobileMoneyNetwork, error) {
-	return []MobileMoneyNetwork{}, nil
+func (a *MoneyGramOffRampAdapter) GetMobileMoneyNetworks(ctx context.Context, countryCode string) ([]offramp.MobileMoneyNetwork, error) {
+	return []offramp.MobileMoneyNetwork{}, nil
 }
 
 // GetAvailableBalance returns 0 — MoneyGram off-ramp is funded per-transaction

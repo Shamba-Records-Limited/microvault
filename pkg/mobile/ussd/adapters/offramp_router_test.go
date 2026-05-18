@@ -7,56 +7,58 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 )
 
-// fakeOffRamp is a minimal OffRampService stub that records which methods
+// fakeOffRamp is a minimal offramp.Service stub that records which methods
 // were called and lets each test pre-set return values per call.
 type fakeOffRamp struct {
 	id string
 
 	initiateCalls int
-	initiateResp  *OffRampResult
+	initiateResp  *offramp.Result
 	initiateErr   error
 
 	statusCalls int
-	statusResp  *OffRampStatus
+	statusResp  *offramp.Status
 	statusErr   error
 
-	providersResp []OffRampProvider
+	providersResp []offramp.ProviderInfo
 	providersErr  error
 
-	exchangeRateResp *ExchangeRate
+	exchangeRateResp *offramp.ExchangeRate
 	exchangeRateErr  error
 
-	mobileMoneyNetworksResp []MobileMoneyNetwork
+	mobileMoneyNetworksResp []offramp.MobileMoneyNetwork
 	mobileMoneyNetworksErr  error
 
 	balanceResp float64
 	balanceErr  error
 }
 
-func (f *fakeOffRamp) InitiateOffRamp(_ context.Context, _ OffRampRequest) (*OffRampResult, error) {
+func (f *fakeOffRamp) InitiateOffRamp(_ context.Context, _ offramp.Request) (*offramp.Result, error) {
 	f.initiateCalls++
 	if f.initiateResp == nil && f.initiateErr == nil {
-		return &OffRampResult{RequestID: f.id}, nil
+		return &offramp.Result{RequestID: f.id}, nil
 	}
 	return f.initiateResp, f.initiateErr
 }
 
-func (f *fakeOffRamp) GetOffRampStatus(_ context.Context, _ string) (*OffRampStatus, error) {
+func (f *fakeOffRamp) GetOffRampStatus(_ context.Context, _ string) (*offramp.Status, error) {
 	f.statusCalls++
 	return f.statusResp, f.statusErr
 }
 
-func (f *fakeOffRamp) GetSupportedProviders(_ context.Context, _ string) ([]OffRampProvider, error) {
+func (f *fakeOffRamp) GetSupportedProviders(_ context.Context, _ string) ([]offramp.ProviderInfo, error) {
 	return f.providersResp, f.providersErr
 }
 
-func (f *fakeOffRamp) GetExchangeRate(_ context.Context, _ string) (*ExchangeRate, error) {
+func (f *fakeOffRamp) GetExchangeRate(_ context.Context, _ string) (*offramp.ExchangeRate, error) {
 	return f.exchangeRateResp, f.exchangeRateErr
 }
 
-func (f *fakeOffRamp) GetMobileMoneyNetworks(_ context.Context, _ string) ([]MobileMoneyNetwork, error) {
+func (f *fakeOffRamp) GetMobileMoneyNetworks(_ context.Context, _ string) ([]offramp.MobileMoneyNetwork, error) {
 	return f.mobileMoneyNetworksResp, f.mobileMoneyNetworksErr
 }
 
@@ -84,8 +86,8 @@ func TestRouter_DispatchesByPayoutMethod(t *testing.T) {
 		wantID         string
 	}{
 		{"empty defaults to mobile money", "", 1, 0, "yc-1"},
-		{"explicit mobile money", PayoutMethodMobileMoney, 1, 0, "yc-1"},
-		{"cash pickup", PayoutMethodCashPickup, 0, 1, "mg-1"},
+		{"explicit mobile money", offramp.PayoutMethodMobileMoney, 1, 0, "yc-1"},
+		{"cash pickup", offramp.PayoutMethodCashPickup, 0, 1, "mg-1"},
 	}
 
 	for _, tc := range tests {
@@ -93,7 +95,7 @@ func TestRouter_DispatchesByPayoutMethod(t *testing.T) {
 			mm.initiateCalls = 0
 			cp.initiateCalls = 0
 
-			res, err := r.InitiateOffRamp(context.Background(), OffRampRequest{
+			res, err := r.InitiateOffRamp(context.Background(), offramp.Request{
 				PayoutMethod: tc.method,
 				LoanID:       "L1",
 				AmountUSD:    50,
@@ -110,7 +112,7 @@ func TestRouter_RejectsUnknownPayoutMethod(t *testing.T) {
 	r, err := NewRoutingOffRampService(&fakeOffRamp{}, &fakeOffRamp{})
 	require.NoError(t, err)
 
-	_, err = r.InitiateOffRamp(context.Background(), OffRampRequest{
+	_, err = r.InitiateOffRamp(context.Background(), offramp.Request{
 		PayoutMethod: "skywriting",
 	})
 	require.Error(t, err)
@@ -122,22 +124,22 @@ func TestRouter_RejectsMethodWhenProviderMissing(t *testing.T) {
 	r, err := NewRoutingOffRampService(nil, &fakeOffRamp{})
 	require.NoError(t, err)
 
-	_, err = r.InitiateOffRamp(context.Background(), OffRampRequest{
-		PayoutMethod: PayoutMethodMobileMoney,
+	_, err = r.InitiateOffRamp(context.Background(), offramp.Request{
+		PayoutMethod: offramp.PayoutMethodMobileMoney,
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mobile money provider not configured")
 
-	_, err = r.InitiateOffRamp(context.Background(), OffRampRequest{}) // empty defaults to MM
+	_, err = r.InitiateOffRamp(context.Background(), offramp.Request{}) // empty defaults to MM
 	require.Error(t, err)
 }
 
 func TestRouter_GetSupportedProviders_ConcatenatesBoth(t *testing.T) {
 	mm := &fakeOffRamp{
-		providersResp: []OffRampProvider{{ID: "yc-momo"}},
+		providersResp: []offramp.ProviderInfo{{ID: "yc-momo"}},
 	}
 	cp := &fakeOffRamp{
-		providersResp: []OffRampProvider{{ID: "mg-cash"}},
+		providersResp: []offramp.ProviderInfo{{ID: "mg-cash"}},
 	}
 	r, err := NewRoutingOffRampService(mm, cp)
 	require.NoError(t, err)
@@ -151,7 +153,7 @@ func TestRouter_GetSupportedProviders_ConcatenatesBoth(t *testing.T) {
 
 func TestRouter_GetSupportedProviders_PropagatesError(t *testing.T) {
 	mm := &fakeOffRamp{providersErr: errors.New("boom")}
-	cp := &fakeOffRamp{providersResp: []OffRampProvider{{ID: "mg-cash"}}}
+	cp := &fakeOffRamp{providersResp: []offramp.ProviderInfo{{ID: "mg-cash"}}}
 	r, err := NewRoutingOffRampService(mm, cp)
 	require.NoError(t, err)
 
@@ -162,7 +164,7 @@ func TestRouter_GetSupportedProviders_PropagatesError(t *testing.T) {
 
 func TestRouter_MoMoNetworks_DelegatesToMobileMoney(t *testing.T) {
 	mm := &fakeOffRamp{
-		mobileMoneyNetworksResp: []MobileMoneyNetwork{{ID: "n1"}, {ID: "n2"}},
+		mobileMoneyNetworksResp: []offramp.MobileMoneyNetwork{{ID: "n1"}, {ID: "n2"}},
 	}
 	cp := &fakeOffRamp{} // never consulted
 	r, err := NewRoutingOffRampService(mm, cp)

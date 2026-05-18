@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
@@ -33,7 +34,7 @@ func NewStellarTreasuryTransfer(stellar StellarSendUSDC, logger *slog.Logger) *S
 	}
 }
 
-var _ TreasuryTransfer = (*StellarTreasuryTransfer)(nil)
+var _ offramp.TreasuryTransfer = (*StellarTreasuryTransfer)(nil)
 
 // SendUSDC sends USDC from the treasury wallet to a destination address with a memo.
 func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination string, memo string, amount int64) (string, error) {

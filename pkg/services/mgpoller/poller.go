@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 )
 
@@ -134,7 +134,7 @@ type Poller struct {
 	fetcher      LoanFetcher
 	recorder     LoanRecorder
 	disbursement DisbursementUpdater
-	treasury     adapters.TreasuryTransfer
+	treasury     offramp.TreasuryTransfer
 	alerts       AlertService
 	cfg          PollerConfig
 	logger       *slog.Logger
@@ -148,7 +148,7 @@ func NewPoller(
 	fetcher LoanFetcher,
 	recorder LoanRecorder,
 	disbursement DisbursementUpdater,
-	treasury adapters.TreasuryTransfer,
+	treasury offramp.TreasuryTransfer,
 	alerts AlertService,
 	cfg PollerConfig,
 	logger *slog.Logger,

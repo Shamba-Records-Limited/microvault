@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 )
 
 const mgTestNetworkPassphrase = "Test SDF Network ; September 2015"
@@ -188,7 +189,7 @@ func TestMGAdapter_InitiateOffRamp_BuildsCorrectSEP9(t *testing.T) {
 
 	a := newMGTestAdapter(t, srv)
 
-	res, err := a.InitiateOffRamp(context.Background(), OffRampRequest{
+	res, err := a.InitiateOffRamp(context.Background(), offramp.Request{
 		LoanID:            "L-1",
 		UserID:            "U-1",
 		RecipientName:     "Jane Doe",
@@ -197,7 +198,7 @@ func TestMGAdapter_InitiateOffRamp_BuildsCorrectSEP9(t *testing.T) {
 		CountryCode:       "KE",
 		BirthDate:         "1990-01-15",
 		ChildAccountIndex: 7,
-		PayoutMethod:      PayoutMethodCashPickup,
+		PayoutMethod:      offramp.PayoutMethodCashPickup,
 	})
 	require.NoError(t, err)
 
@@ -217,7 +218,7 @@ func TestMGAdapter_InitiateOffRamp_RejectsZeroAmount(t *testing.T) {
 	srv := newMGFakeServer(t)
 	a := newMGTestAdapter(t, srv)
 
-	_, err := a.InitiateOffRamp(context.Background(), OffRampRequest{
+	_, err := a.InitiateOffRamp(context.Background(), offramp.Request{
 		LoanID:        "L-2",
 		RecipientName: "Jane Doe",
 		AmountUSD:     0,
@@ -230,7 +231,7 @@ func TestMGAdapter_InitiateOffRamp_RejectsMissingRecipient(t *testing.T) {
 	srv := newMGFakeServer(t)
 	a := newMGTestAdapter(t, srv)
 
-	_, err := a.InitiateOffRamp(context.Background(), OffRampRequest{
+	_, err := a.InitiateOffRamp(context.Background(), offramp.Request{
 		LoanID:    "L-3",
 		AmountUSD: 50,
 	})
@@ -247,7 +248,7 @@ func TestMGAdapter_InitiateOffRamp_OmitsCountryWhenISO2Unknown(t *testing.T) {
 	}
 
 	a := newMGTestAdapter(t, srv)
-	_, err := a.InitiateOffRamp(context.Background(), OffRampRequest{
+	_, err := a.InitiateOffRamp(context.Background(), offramp.Request{
 		LoanID:            "L-4",
 		RecipientName:     "Jane Doe",
 		AmountUSD:         25,

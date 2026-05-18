@@ -5,6 +5,8 @@ package adapters
 import (
 	"context"
 	"fmt"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 )
 
 // RoutingOffRampService dispatches OffRampRequests to the underlying provider
@@ -24,13 +26,13 @@ import (
 // At least one of MobileMoney or CashPickup must be set. If both are nil,
 // constructor returns an error.
 type RoutingOffRampService struct {
-	MobileMoney OffRampService
-	CashPickup  OffRampService
+	MobileMoney offramp.Service
+	CashPickup  offramp.Service
 }
 
 // NewRoutingOffRampService validates and returns a routing wrapper.
 // At least one underlying provider must be non-nil.
-func NewRoutingOffRampService(mobileMoney, cashPickup OffRampService) (*RoutingOffRampService, error) {
+func NewRoutingOffRampService(mobileMoney, cashPickup offramp.Service) (*RoutingOffRampService, error) {
 	if mobileMoney == nil && cashPickup == nil {
 		return nil, fmt.Errorf("offramp router: at least one of MobileMoney or CashPickup must be set")
 	}
@@ -40,19 +42,19 @@ func NewRoutingOffRampService(mobileMoney, cashPickup OffRampService) (*RoutingO
 	}, nil
 }
 
-var _ OffRampService = (*RoutingOffRampService)(nil)
+var _ offramp.Service = (*RoutingOffRampService)(nil)
 
 // pickProvider resolves the provider for a given PayoutMethod. Empty string
 // is treated as PayoutMethodMobileMoney for back-compat with USSD code paths
 // that don't set the field. Unknown values are an error.
-func (r *RoutingOffRampService) pickProvider(method string) (OffRampService, error) {
+func (r *RoutingOffRampService) pickProvider(method string) (offramp.Service, error) {
 	switch method {
-	case "", PayoutMethodMobileMoney:
+	case "", offramp.PayoutMethodMobileMoney:
 		if r.MobileMoney == nil {
 			return nil, fmt.Errorf("offramp router: mobile money provider not configured")
 		}
 		return r.MobileMoney, nil
-	case PayoutMethodCashPickup:
+	case offramp.PayoutMethodCashPickup:
 		if r.CashPickup == nil {
 			return nil, fmt.Errorf("offramp router: cash pickup provider not configured")
 		}
@@ -65,7 +67,7 @@ func (r *RoutingOffRampService) pickProvider(method string) (OffRampService, err
 // queryProvider returns the provider for read-only queries that don't carry
 // a PayoutMethod (status, exchange rate, networks, balance). Prefers
 // MobileMoney; falls back to CashPickup if MobileMoney isn't configured.
-func (r *RoutingOffRampService) queryProvider() OffRampService {
+func (r *RoutingOffRampService) queryProvider() offramp.Service {
 	if r.MobileMoney != nil {
 		return r.MobileMoney
 	}
@@ -73,7 +75,7 @@ func (r *RoutingOffRampService) queryProvider() OffRampService {
 }
 
 // InitiateOffRamp dispatches based on req.PayoutMethod.
-func (r *RoutingOffRampService) InitiateOffRamp(ctx context.Context, req OffRampRequest) (*OffRampResult, error) {
+func (r *RoutingOffRampService) InitiateOffRamp(ctx context.Context, req offramp.Request) (*offramp.Result, error) {
 	provider, err := r.pickProvider(req.PayoutMethod)
 	if err != nil {
 		return nil, err
@@ -85,14 +87,14 @@ func (r *RoutingOffRampService) InitiateOffRamp(ctx context.Context, req OffRamp
 // requestID alone cannot route — the caller must hit the right provider
 // directly (or the poller in microvault-credit, which knows the provider
 // from loans.ramp_provider).
-func (r *RoutingOffRampService) GetOffRampStatus(ctx context.Context, requestID string) (*OffRampStatus, error) {
+func (r *RoutingOffRampService) GetOffRampStatus(ctx context.Context, requestID string) (*offramp.Status, error) {
 	return r.queryProvider().GetOffRampStatus(ctx, requestID)
 }
 
 // GetSupportedProviders concatenates results from both underlying providers.
 // Used by USSD to render the off-ramp menu.
-func (r *RoutingOffRampService) GetSupportedProviders(ctx context.Context, countryCode string) ([]OffRampProvider, error) {
-	var providers []OffRampProvider
+func (r *RoutingOffRampService) GetSupportedProviders(ctx context.Context, countryCode string) ([]offramp.ProviderInfo, error) {
+	var providers []offramp.ProviderInfo
 	if r.MobileMoney != nil {
 		mm, err := r.MobileMoney.GetSupportedProviders(ctx, countryCode)
 		if err != nil {
@@ -116,15 +118,15 @@ func (r *RoutingOffRampService) GetSupportedProviders(ctx context.Context, count
 // GetExchangeRate delegates to the query provider (mobile money preferred).
 // MoneyGram-specific FX rates should be fetched by consumers via the SDK
 // directly so they can compose the YC fallback per §7 of the integration plan.
-func (r *RoutingOffRampService) GetExchangeRate(ctx context.Context, currency string) (*ExchangeRate, error) {
+func (r *RoutingOffRampService) GetExchangeRate(ctx context.Context, currency string) (*offramp.ExchangeRate, error) {
 	return r.queryProvider().GetExchangeRate(ctx, currency)
 }
 
 // GetMobileMoneyNetworks delegates to the mobile money provider only —
 // cash pickup providers always return empty.
-func (r *RoutingOffRampService) GetMobileMoneyNetworks(ctx context.Context, countryCode string) ([]MobileMoneyNetwork, error) {
+func (r *RoutingOffRampService) GetMobileMoneyNetworks(ctx context.Context, countryCode string) ([]offramp.MobileMoneyNetwork, error) {
 	if r.MobileMoney == nil {
-		return []MobileMoneyNetwork{}, nil
+		return []offramp.MobileMoneyNetwork{}, nil
 	}
 	return r.MobileMoney.GetMobileMoneyNetworks(ctx, countryCode)
 }

@@ -258,17 +258,6 @@ type APIError struct {
 	Message string `json:"message"`
 }
 
-// Options contains YellowCard-specific payment options passed via InitializePaymentRequest.
-type Options struct {
-	ChannelID      string      `json:"channel_id"`
-	Destination    Destination `json:"destination"`
-	Sender         Sender      `json:"sender"`
-	Reason         string      `json:"reason"`
-	CustomerUID    string      `json:"customer_uid"`
-	CustomerType   string      `json:"customer_type"`
-	IdempotencyKey string      `json:"idempotency_key"`
-}
-
 // YellowCard payment event statuses (full lifecycle).
 // See: https://docs.yellowcard.engineering/docs/events-api
 const (
