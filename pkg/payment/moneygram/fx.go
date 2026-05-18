@@ -13,7 +13,7 @@ import (
 
 // Source labels for the rate ultimately returned by the FX orchestrator.
 // These exact strings are persisted on `loans.entry_rate_source` for audit
-// — do not rename without a migration.
+// Do not rename without a migration.
 const (
 	RateSourceMoneyGram     = "moneygram_fx_rate"
 	RateSourceFallback      = "yellowcard_fallback"
@@ -109,8 +109,8 @@ type FXOrchestrator struct {
 	cfg      FXOrchestratorConfig
 	logger   *slog.Logger
 
-	mu       sync.Mutex
-	cache    map[string]FXQuoteResult // key = "send:receive"
+	mu    sync.Mutex
+	cache map[string]FXQuoteResult // key = "send:receive"
 }
 
 // NewFXOrchestrator constructs an orchestrator. Either primary or fallback

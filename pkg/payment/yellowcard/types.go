@@ -1,4 +1,3 @@
-// Package yellowcard provides types and client for the YellowCard payment API.
 package yellowcard
 
 import "encoding/json"
