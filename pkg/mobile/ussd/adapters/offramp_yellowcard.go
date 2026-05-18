@@ -52,16 +52,26 @@ func NewYellowCardOffRampAdapter(cfg YellowCardOffRampConfig) *YellowCardOffRamp
 	}
 }
 
-var _ offramp.Service = (*YellowCardOffRampAdapter)(nil)
+var (
+	_ offramp.Provider             = (*YellowCardOffRampAdapter)(nil)
+	_ offramp.StatusReader         = (*YellowCardOffRampAdapter)(nil)
+	_ offramp.Quoter               = (*YellowCardOffRampAdapter)(nil)
+	_ offramp.Directory            = (*YellowCardOffRampAdapter)(nil)
+	_ offramp.MobileMoneyDirectory = (*YellowCardOffRampAdapter)(nil)
+	_ offramp.BalanceReporter      = (*YellowCardOffRampAdapter)(nil)
+)
 
-// InitiateOffRamp is the dual-mode orchestrator for loan disbursement.
+// ID identifies this provider in the registry.
+func (a *YellowCardOffRampAdapter) ID() offramp.ProviderID { return offramp.ProviderYellowCard }
+
+// Initiate is the dual-mode orchestrator for loan disbursement.
 //
 // Settlement flow:
 //   - "direct" (default): Submit with directSettlement=true → send USDC to YC wallet → YC disburses fiat
 //     Failover F1: If YC API call fails → fallback to fiat
 //     Failover F2: If Stellar USDC transfer fails → fallback to fiat (USDC still in treasury)
 //   - "fiat": Check YC balance → submit with forceAccept only → YC disburses from pre-funded balance
-func (a *YellowCardOffRampAdapter) InitiateOffRamp(ctx context.Context, req offramp.Request) (*offramp.Result, error) {
+func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Request) (*offramp.Result, error) {
 	a.logger.Info("off-ramp initiated",
 		"loan_id", req.LoanID,
 		"user_id", req.UserID,
@@ -476,9 +486,10 @@ func normalizePhone(phone string) string {
 	return phone
 }
 
-// GetOffRampStatus retrieves the status of a disbursement from YellowCard.
-func (a *YellowCardOffRampAdapter) GetOffRampStatus(ctx context.Context, requestID string) (*offramp.Status, error) {
-	details, err := a.ycAdapter.LookupPayment(ctx, requestID)
+// Status retrieves the status of a disbursement from YellowCard. ref.ID is
+// the YC payment ID; ref.Extra is unused.
+func (a *YellowCardOffRampAdapter) Status(ctx context.Context, ref offramp.ProviderRef) (*offramp.Status, error) {
+	details, err := a.ycAdapter.LookupPayment(ctx, ref.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -502,8 +513,8 @@ func (a *YellowCardOffRampAdapter) GetOffRampStatus(ctx context.Context, request
 	}, nil
 }
 
-// GetSupportedProviders returns available MoMo channels for disbursement.
-func (a *YellowCardOffRampAdapter) GetSupportedProviders(ctx context.Context, countryCode string) ([]offramp.ProviderInfo, error) {
+// SupportedProviders returns available MoMo channels for disbursement.
+func (a *YellowCardOffRampAdapter) SupportedProviders(ctx context.Context, countryCode string) ([]offramp.ProviderInfo, error) {
 	channels, err := a.ycAdapter.GetChannels(ctx, countryCode)
 	if err != nil {
 		return nil, err
@@ -538,15 +549,15 @@ func (a *YellowCardOffRampAdapter) GetSupportedProviders(ctx context.Context, co
 	return providers, nil
 }
 
-// GetExchangeRate returns the current USD to local currency rate.
-func (a *YellowCardOffRampAdapter) GetExchangeRate(ctx context.Context, currency string) (*offramp.ExchangeRate, error) {
-	rates, err := a.ycAdapter.GetRates(ctx, currency)
+// Quote returns the current USD to local currency rate.
+func (a *YellowCardOffRampAdapter) Quote(ctx context.Context, q offramp.QuoteRequest) (*offramp.ExchangeRate, error) {
+	rates, err := a.ycAdapter.GetRates(ctx, q.Currency)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(rates) == 0 {
-		return nil, fmt.Errorf("no rates found for currency: %s", currency)
+		return nil, fmt.Errorf("no rates found for currency: %s", q.Currency)
 	}
 
 	rate := rates[0]
@@ -567,8 +578,8 @@ func (a *YellowCardOffRampAdapter) GetExchangeRate(ctx context.Context, currency
 	}, nil
 }
 
-// GetMobileMoneyNetworks returns available MoMo operators for a country.
-func (a *YellowCardOffRampAdapter) GetMobileMoneyNetworks(ctx context.Context, countryCode string) ([]offramp.MobileMoneyNetwork, error) {
+// Networks returns available MoMo operators for a country.
+func (a *YellowCardOffRampAdapter) Networks(ctx context.Context, countryCode string) ([]offramp.MobileMoneyNetwork, error) {
 	channels, err := a.ycAdapter.GetChannels(ctx, countryCode)
 	if err != nil {
 		return nil, err
@@ -611,8 +622,8 @@ func (a *YellowCardOffRampAdapter) GetMobileMoneyNetworks(ctx context.Context, c
 	return result, nil
 }
 
-// GetAvailableBalance returns the available USD balance for disbursements.
-func (a *YellowCardOffRampAdapter) GetAvailableBalance(ctx context.Context) (float64, error) {
+// AvailableBalance returns the available USD balance for disbursements.
+func (a *YellowCardOffRampAdapter) AvailableBalance(ctx context.Context) (float64, error) {
 	return a.ycAdapter.GetAvailableBalance(ctx)
 }
 

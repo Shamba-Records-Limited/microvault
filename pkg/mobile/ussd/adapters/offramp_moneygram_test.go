@@ -189,7 +189,7 @@ func TestMGAdapter_InitiateOffRamp_BuildsCorrectSEP9(t *testing.T) {
 
 	a := newMGTestAdapter(t, srv)
 
-	res, err := a.InitiateOffRamp(context.Background(), offramp.Request{
+	res, err := a.Initiate(context.Background(), offramp.Request{
 		LoanID:            "L-1",
 		UserID:            "U-1",
 		RecipientName:     "Jane Doe",
@@ -218,7 +218,7 @@ func TestMGAdapter_InitiateOffRamp_RejectsZeroAmount(t *testing.T) {
 	srv := newMGFakeServer(t)
 	a := newMGTestAdapter(t, srv)
 
-	_, err := a.InitiateOffRamp(context.Background(), offramp.Request{
+	_, err := a.Initiate(context.Background(), offramp.Request{
 		LoanID:        "L-2",
 		RecipientName: "Jane Doe",
 		AmountUSD:     0,
@@ -231,7 +231,7 @@ func TestMGAdapter_InitiateOffRamp_RejectsMissingRecipient(t *testing.T) {
 	srv := newMGFakeServer(t)
 	a := newMGTestAdapter(t, srv)
 
-	_, err := a.InitiateOffRamp(context.Background(), offramp.Request{
+	_, err := a.Initiate(context.Background(), offramp.Request{
 		LoanID:    "L-3",
 		AmountUSD: 50,
 	})
@@ -248,7 +248,7 @@ func TestMGAdapter_InitiateOffRamp_OmitsCountryWhenISO2Unknown(t *testing.T) {
 	}
 
 	a := newMGTestAdapter(t, srv)
-	_, err := a.InitiateOffRamp(context.Background(), offramp.Request{
+	_, err := a.Initiate(context.Background(), offramp.Request{
 		LoanID:            "L-4",
 		RecipientName:     "Jane Doe",
 		AmountUSD:         25,
@@ -262,29 +262,40 @@ func TestMGAdapter_StaticBehaviour(t *testing.T) {
 	srv := newMGFakeServer(t)
 	a := newMGTestAdapter(t, srv)
 
-	// MoMo networks: cash pickup has none.
-	nets, err := a.GetMobileMoneyNetworks(context.Background(), "KE")
-	require.NoError(t, err)
-	assert.Empty(t, nets)
-
-	// Available balance: 0 — funded per-tx, not from a pre-funded balance.
-	bal, err := a.GetAvailableBalance(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, 0.0, bal)
+	assert.Equal(t, offramp.ProviderMoneyGram, a.ID())
 
 	// Supported providers: a single cash-pickup option.
-	providers, err := a.GetSupportedProviders(context.Background(), "KE")
+	providers, err := a.SupportedProviders(context.Background(), "KE")
 	require.NoError(t, err)
 	require.Len(t, providers, 1)
 	assert.Equal(t, "moneygram_cash_pickup", providers[0].ID)
 
 	// FX rate without REST credentials should error explicitly.
-	_, err = a.GetExchangeRate(context.Background(), "KES")
+	_, err = a.Quote(context.Background(), offramp.QuoteRequest{Currency: "KES"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "REST credentials missing")
+}
 
-	// Status lookup by requestID alone is unsupported.
-	_, err = a.GetOffRampStatus(context.Background(), "mg-tx-001")
+func TestMGAdapter_Status_RequiresChildMemo(t *testing.T) {
+	srv := newMGFakeServer(t)
+	a := newMGTestAdapter(t, srv)
+
+	_, err := a.Status(context.Background(), offramp.ProviderRef{ID: "mg-tx-001"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not supported")
+	assert.Contains(t, err.Error(), MoneyGramRefChildMemoKey)
+}
+
+func TestMGAdapter_Status_FetchesTransaction(t *testing.T) {
+	srv := newMGFakeServer(t)
+	a := newMGTestAdapter(t, srv)
+
+	status, err := a.Status(context.Background(), offramp.ProviderRef{
+		ID:    "mg-tx-001",
+		Extra: map[string]any{MoneyGramRefChildMemoKey: int64(123)},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "mg-tx-001", status.RequestID)
+	assert.Equal(t, "pending_user_transfer_complete", status.Status)
+	assert.Equal(t, "KES", status.LocalCurrency)
+	assert.Equal(t, 6420.0, status.AmountLocal)
 }

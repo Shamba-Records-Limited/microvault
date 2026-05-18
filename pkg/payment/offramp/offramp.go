@@ -6,29 +6,75 @@ import (
 )
 
 // PayoutMethod selects which provider handles a request when multiple are
-// wired in via the routing service.
-//
-//   - PayoutMethodMobileMoney → YellowCard (default for back-compat)
-//   - PayoutMethodCashPickup  → MoneyGram
-//
-// Empty string is treated as PayoutMethodMobileMoney by the router so
-// existing call paths that don't set the field continue to disburse via YC.
+// wired in via the registry. Empty string is treated as PayoutMethodMobileMoney.
 const (
 	PayoutMethodMobileMoney = "mobile_money"
 	PayoutMethodCashPickup  = "cash_pickup"
 )
 
-// Service is the composite off-ramp contract every provider satisfies today.
-// Phase 2 will split this into capability interfaces (Provider, Quoter,
-// StatusReader, Directory, MobileMoneyDirectory, BalanceReporter); for now
-// the fat interface keeps the relocation mechanical.
-type Service interface {
-	InitiateOffRamp(ctx context.Context, req Request) (*Result, error)
-	GetOffRampStatus(ctx context.Context, requestID string) (*Status, error)
-	GetSupportedProviders(ctx context.Context, countryCode string) ([]ProviderInfo, error)
-	GetExchangeRate(ctx context.Context, currency string) (*ExchangeRate, error)
-	GetMobileMoneyNetworks(ctx context.Context, countryCode string) ([]MobileMoneyNetwork, error)
-	GetAvailableBalance(ctx context.Context) (float64, error)
+// ProviderID identifies a concrete off-ramp implementation in the registry.
+type ProviderID string
+
+// Known provider IDs. New providers should add their constant here.
+const (
+	ProviderYellowCard ProviderID = "yellowcard"
+	ProviderMoneyGram  ProviderID = "moneygram"
+)
+
+// Provider is the single mandatory capability — every off-ramp must
+// register and initiate. Optional behaviour is split into the other
+// capability interfaces below; consumers type-assert for what they need.
+type Provider interface {
+	ID() ProviderID
+	Initiate(ctx context.Context, req Request) (*Result, error)
+}
+
+// StatusReader looks up an in-flight off-ramp by ProviderRef. ProviderRef
+// carries the transaction ID plus provider-scoped extras (e.g. MoneyGram
+// needs the child memo to authenticate the SEP-10 session).
+type StatusReader interface {
+	Status(ctx context.Context, ref ProviderRef) (*Status, error)
+}
+
+// Quoter exposes the provider's view of the FX rate for a corridor. The
+// quote response may be cached upstream; the orchestration of multi-source
+// quoting lives outside this interface.
+type Quoter interface {
+	Quote(ctx context.Context, q QuoteRequest) (*ExchangeRate, error)
+}
+
+// Directory advertises which provider configurations are available for a
+// given country (e.g. YC's per-channel info, MG's cash-pickup option).
+type Directory interface {
+	SupportedProviders(ctx context.Context, countryCode string) ([]ProviderInfo, error)
+}
+
+// MobileMoneyDirectory lists the MoMo operators available in a country.
+// Only implemented by providers that actually operate on mobile-money rails.
+type MobileMoneyDirectory interface {
+	Networks(ctx context.Context, countryCode string) ([]MobileMoneyNetwork, error)
+}
+
+// BalanceReporter reports a pre-funded balance held with the provider. Not
+// implemented by providers that settle per-transaction (e.g. MoneyGram).
+type BalanceReporter interface {
+	AvailableBalance(ctx context.Context) (float64, error)
+}
+
+// ProviderRef identifies an in-flight transaction enough to look it up.
+// Extra is provider-scoped; document the expected keys in each provider's
+// adapter so callers know what to pass.
+type ProviderRef struct {
+	ID       string
+	Provider ProviderID
+	Extra    map[string]any
+}
+
+// QuoteRequest carries the inputs a provider needs to quote a corridor.
+// Phase 2 keeps this minimal; future fields (amount, originating country,
+// service option) can be added without breaking the interface.
+type QuoteRequest struct {
+	Currency string
 }
 
 // TreasuryTransfer abstracts sending USDC from the custodial treasury to an
@@ -39,32 +85,32 @@ type TreasuryTransfer interface {
 }
 
 // Request contains all data needed to initiate an off-ramp. Provider-specific
-// extras live alongside the common fields for now (phase 3 will move them
-// into a typed Options payload).
+// extras share this struct in phase 2; phase 3 will move them into a typed
+// Options payload.
 type Request struct {
 	LoanID           string
 	UserID           string
 	RecipientName    string
 	AmountUSD        float64
-	AmountStroops    int64 // USDC in stroops (USDC * 10^7) for direct settlement
+	AmountStroops    int64
 	DestinationPhone string
 	CountryCode      string
 	IdempotencyKey   string
 	NetworkCode      string
 	NetworkName      string
-	SettlementMethod string // "direct" (default) or "fiat" — YC-specific
+	SettlementMethod string // YC: "direct" (default) or "fiat"
 
-	// PayoutMethod selects the provider (see PayoutMethod* constants). Empty
-	// defaults to mobile money. Unknown values produce an error from the router.
+	// PayoutMethod is consulted by the registry to pick a provider when
+	// the caller doesn't pin one directly. Empty defaults to mobile money.
 	PayoutMethod string
 
-	// Cash-pickup-only (MoneyGram). Ignored by mobile-money providers.
-	BirthDate         string // ISO-8601 (YYYY-MM-DD); SEP-9 KYC prefill
-	ChildAccountIndex uint32 // per-user Stellar derivation index for SEP-10 memo
+	// MoneyGram cash-pickup extras. Ignored by mobile-money providers.
+	BirthDate         string
+	ChildAccountIndex uint32
 }
 
-// Result is what InitiateOffRamp returns. Provider-specific fields stay on
-// this struct in phase 1; phase 3 moves them into a typed payload.
+// Result is what Provider.Initiate returns. Provider-specific fields share
+// this struct in phase 2; phase 3 will move them into a typed payload.
 type Result struct {
 	RequestID        string
 	SequenceID       string
@@ -73,11 +119,11 @@ type Result struct {
 	AmountLocal      float64
 	LocalCurrency    string
 	ExchangeRate     float64
-	Fee              float64 // Total fee in USD
-	FeeLocal         float64 // Total fee in local currency
+	Fee              float64
+	FeeLocal         float64
 	EstimatedTime    int
 	CreatedAt        time.Time
-	SettlementMethod string // "direct"/"fiat" (YC) or "cash_pickup" (MG)
+	SettlementMethod string
 
 	// YellowCard direct-settlement fields. Empty for MoneyGram.
 	StellarAddress string
@@ -90,7 +136,7 @@ type Result struct {
 	ChildAccountMemo  int64
 }
 
-// Status contains status information for an off-ramp.
+// Status contains status information for an in-flight off-ramp.
 type Status struct {
 	RequestID     string
 	SequenceID    string
@@ -115,7 +161,7 @@ type ProviderInfo struct {
 	EstimatedSettlementTime int
 }
 
-// ExchangeRate contains current exchange rate info.
+// ExchangeRate is the canonical quote shape returned by Quoter.
 type ExchangeRate struct {
 	FromCurrency string
 	ToCurrency   string

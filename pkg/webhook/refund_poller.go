@@ -59,7 +59,7 @@ func DefaultRefundPollerConfig() RefundPollerConfig {
 //  5. On "pending_refund" / "refund_processing" → skip, poll again next cycle
 type RefundPoller struct {
 	ycAdapter    *yellowcard.YellowcardAdapter
-	offRamp      offramp.Service
+	offRamp      offramp.Provider
 	fetcher      RefundPendingFetcher
 	disbursement DisbursementUpdater
 	alerts       AlertService
@@ -70,7 +70,7 @@ type RefundPoller struct {
 // NewRefundPoller creates a new RefundPoller.
 func NewRefundPoller(
 	ycAdapter *yellowcard.YellowcardAdapter,
-	offRamp offramp.Service,
+	offRamp offramp.Provider,
 	fetcher RefundPendingFetcher,
 	disbursement DisbursementUpdater,
 	alerts AlertService,
@@ -171,7 +171,7 @@ func (p *RefundPoller) checkRefund(ctx context.Context, rec RefundPendingRecord)
 // attemptFiatFailover triggers a fiat-mode disbursement for a refunded direct settlement.
 // This is a best-effort operation — if it fails, the ops team is alerted.
 func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendingRecord) {
-	fiatResult, err := p.offRamp.InitiateOffRamp(ctx, offramp.Request{
+	fiatResult, err := p.offRamp.Initiate(ctx, offramp.Request{
 		LoanID:           rec.LoanID,
 		UserID:           rec.UserID,
 		RecipientName:    rec.RecipientName,

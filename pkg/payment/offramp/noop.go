@@ -5,14 +5,18 @@ import (
 	"time"
 )
 
-// NoOpService is a placeholder implementation that returns mock data. Useful
-// for tests and bootstrap wiring before real providers are configured.
-type NoOpService struct{}
+// NoOpProvider is a minimal Provider stub for tests and bootstrap wiring.
+// It returns a mock Result and nothing else — callers that need richer
+// behaviour should depend on a real provider or a hand-rolled fake.
+type NoOpProvider struct{}
 
-var _ Service = (*NoOpService)(nil)
+var _ Provider = (*NoOpProvider)(nil)
 
-// InitiateOffRamp returns a mock off-ramp result.
-func (s *NoOpService) InitiateOffRamp(_ context.Context, req Request) (*Result, error) {
+// ID returns a sentinel provider ID.
+func (NoOpProvider) ID() ProviderID { return ProviderID("noop") }
+
+// Initiate returns a mock off-ramp result.
+func (NoOpProvider) Initiate(_ context.Context, req Request) (*Result, error) {
 	method := req.SettlementMethod
 	if method == "" {
 		method = "direct"
@@ -29,34 +33,4 @@ func (s *NoOpService) InitiateOffRamp(_ context.Context, req Request) (*Result, 
 		CreatedAt:        time.Now(),
 		SettlementMethod: method,
 	}, nil
-}
-
-// GetOffRampStatus returns a mock status.
-func (s *NoOpService) GetOffRampStatus(_ context.Context, requestID string) (*Status, error) {
-	return &Status{RequestID: requestID, Status: "pending"}, nil
-}
-
-// GetSupportedProviders returns an empty list.
-func (s *NoOpService) GetSupportedProviders(_ context.Context, _ string) ([]ProviderInfo, error) {
-	return []ProviderInfo{}, nil
-}
-
-// GetExchangeRate returns a mock rate.
-func (s *NoOpService) GetExchangeRate(_ context.Context, currency string) (*ExchangeRate, error) {
-	return &ExchangeRate{
-		FromCurrency: "USD",
-		ToCurrency:   currency,
-		Rate:         153.0,
-		UpdatedAt:    time.Now(),
-	}, nil
-}
-
-// GetMobileMoneyNetworks returns an empty list.
-func (s *NoOpService) GetMobileMoneyNetworks(_ context.Context, _ string) ([]MobileMoneyNetwork, error) {
-	return []MobileMoneyNetwork{}, nil
-}
-
-// GetAvailableBalance returns a mock balance.
-func (s *NoOpService) GetAvailableBalance(_ context.Context) (float64, error) {
-	return 1000000.0, nil
 }
