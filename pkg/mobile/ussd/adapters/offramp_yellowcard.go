@@ -72,6 +72,11 @@ func (a *YellowCardOffRampAdapter) ID() offramp.ProviderID { return offramp.Prov
 //     Failover F2: If Stellar USDC transfer fails → fallback to fiat (USDC still in treasury)
 //   - "fiat": Check YC balance → submit with forceAccept only → YC disburses from pre-funded balance
 func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Request) (*offramp.Result, error) {
+	opts, err := readYCOptions(req.Options)
+	if err != nil {
+		return nil, err
+	}
+
 	a.logger.Info("off-ramp initiated",
 		"loan_id", req.LoanID,
 		"user_id", req.UserID,
@@ -80,7 +85,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 		"destination_phone", req.DestinationPhone,
 		"country", req.CountryCode,
 		"network_code", req.NetworkCode,
-		"settlement_method", req.SettlementMethod,
+		"settlement_method", opts.SettlementMethod,
 	)
 
 	if req.NetworkCode == "" {
@@ -151,7 +156,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 		idempotencyKey = fmt.Sprintf("%s_%s", req.LoanID, uuid.New().String()[:8])
 	}
 
-	method := req.SettlementMethod
+	method := opts.SettlementMethod
 	if method == "" {
 		method = yellowcard.SettlementMethodDirect
 	}
@@ -185,7 +190,6 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 		a.logger.Info("direct settlement succeeded",
 			"loan_id", req.LoanID,
 			"request_id", result.RequestID,
-			"stellar_tx_hash", result.StellarTxHash,
 		)
 		return result, nil
 	}
@@ -350,9 +354,11 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		EstimatedTime:    p.momoChannel.EstimatedSettlementTime,
 		CreatedAt:        createdAt,
 		SettlementMethod: yellowcard.SettlementMethodDirect,
-		StellarAddress:   stellarAddr,
-		StellarMemo:      stellarMemo,
-		StellarTxHash:    txHash,
+		Provider: yellowcard.DirectSettlementPayload{
+			StellarAddress: stellarAddr,
+			StellarMemo:    stellarMemo,
+			StellarTxHash:  txHash,
+		},
 	}, nil
 }
 
@@ -430,7 +436,21 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 		EstimatedTime:    p.momoChannel.EstimatedSettlementTime,
 		CreatedAt:        createdAt,
 		SettlementMethod: yellowcard.SettlementMethodFiat,
+		Provider:         yellowcard.FiatPayload{},
 	}, nil
+}
+
+// readYCOptions extracts the typed yellowcard.Options from a Request. A nil
+// Options is acceptable (defaults to direct settlement). Wrong concrete type
+// is rejected with a clear error.
+func readYCOptions(opts offramp.ProviderOptions) (yellowcard.Options, error) {
+	if opts == nil {
+		return yellowcard.Options{}, nil
+	}
+	if v, ok := opts.(yellowcard.Options); ok {
+		return v, nil
+	}
+	return yellowcard.Options{}, fmt.Errorf("yellowcard off-ramp: Request.Options must be yellowcard.Options, got %T", opts)
 }
 
 // buildPaymentRequest constructs the base YellowCard PaymentRequest from resolved params.

@@ -190,28 +190,29 @@ func TestMGAdapter_InitiateOffRamp_BuildsCorrectSEP9(t *testing.T) {
 	a := newMGTestAdapter(t, srv)
 
 	res, err := a.Initiate(context.Background(), offramp.Request{
-		LoanID:            "L-1",
-		UserID:            "U-1",
-		RecipientName:     "Jane Doe",
-		AmountUSD:         50.0,
-		DestinationPhone:  "+254712345678",
-		CountryCode:       "KE",
-		BirthDate:         "1990-01-15",
-		ChildAccountIndex: 7,
-		PayoutMethod:      offramp.PayoutMethodCashPickup,
+		LoanID:           "L-1",
+		UserID:           "U-1",
+		RecipientName:    "Jane Doe",
+		AmountUSD:        50.0,
+		DestinationPhone: "+254712345678",
+		CountryCode:      "KE",
+		PayoutMethod:     offramp.PayoutMethodCashPickup,
+		Options: moneygram.Options{
+			BirthDate:         "1990-01-15",
+			ChildAccountIndex: 7,
+		},
 	})
 	require.NoError(t, err)
 
 	assert.Equal(t, "mg-tx-001", res.RequestID)
 	assert.Equal(t, "L-1", res.SequenceID)
 	assert.Equal(t, "cash_pickup", res.SettlementMethod)
-	assert.Equal(t, "https://stellar.moneygram.test/sep24?token=mg-tok", res.InteractiveURL)
-	assert.NotZero(t, res.ChildAccountMemo, "ChildAccountMemo should be derived from treasury+account_index")
 	assert.Equal(t, 50.0, res.AmountUSD)
-	// Cash pickup has no Stellar transfer at initiation — those fields stay empty.
-	assert.Empty(t, res.StellarAddress)
-	assert.Empty(t, res.StellarMemo)
-	assert.Empty(t, res.StellarTxHash)
+
+	payload, ok := res.Provider.(moneygram.CashPickupPayload)
+	require.True(t, ok, "Result.Provider must be moneygram.CashPickupPayload")
+	assert.Equal(t, "https://stellar.moneygram.test/sep24?token=mg-tok", payload.InteractiveURL)
+	assert.NotZero(t, payload.ChildAccountMemo, "ChildAccountMemo should be derived from treasury+account_index")
 }
 
 func TestMGAdapter_InitiateOffRamp_RejectsZeroAmount(t *testing.T) {
@@ -222,6 +223,7 @@ func TestMGAdapter_InitiateOffRamp_RejectsZeroAmount(t *testing.T) {
 		LoanID:        "L-2",
 		RecipientName: "Jane Doe",
 		AmountUSD:     0,
+		Options:       moneygram.Options{},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "amount")
@@ -234,6 +236,7 @@ func TestMGAdapter_InitiateOffRamp_RejectsMissingRecipient(t *testing.T) {
 	_, err := a.Initiate(context.Background(), offramp.Request{
 		LoanID:    "L-3",
 		AmountUSD: 50,
+		Options:   moneygram.Options{},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "recipient name")
@@ -249,11 +252,11 @@ func TestMGAdapter_InitiateOffRamp_OmitsCountryWhenISO2Unknown(t *testing.T) {
 
 	a := newMGTestAdapter(t, srv)
 	_, err := a.Initiate(context.Background(), offramp.Request{
-		LoanID:            "L-4",
-		RecipientName:     "Jane Doe",
-		AmountUSD:         25,
-		CountryCode:       "ZZ", // not in the ISO map
-		ChildAccountIndex: 1,
+		LoanID:        "L-4",
+		RecipientName: "Jane Doe",
+		AmountUSD:     25,
+		CountryCode:   "ZZ", // not in the ISO map
+		Options:       moneygram.Options{ChildAccountIndex: 1},
 	})
 	require.NoError(t, err)
 }

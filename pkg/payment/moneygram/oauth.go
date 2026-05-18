@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
 // OAuthConfig configures the REST OAuth 2.0 client_credentials flow that
@@ -44,7 +46,7 @@ type OAuthClient struct {
 // (http.DefaultClient is used). logger may be nil (slog.Default is used).
 func NewOAuthClient(cfg OAuthConfig, httpClient *http.Client, logger *slog.Logger) (*OAuthClient, error) {
 	if cfg.TokenURL == "" || cfg.ClientID == "" || cfg.ClientSecret == "" {
-		return nil, fmt.Errorf("moneygram: %w: OAuth requires TokenURL, ClientID, ClientSecret", ErrInvalidConfig)
+		return nil, fmt.Errorf("moneygram: %w: OAuth requires TokenURL, ClientID, ClientSecret", stellaranchor.ErrInvalidConfig)
 	}
 	if cfg.SafetyMargin <= 0 {
 		cfg.SafetyMargin = 30 * time.Second
@@ -121,7 +123,7 @@ func (c *OAuthClient) fetchToken(ctx context.Context) (string, time.Duration, er
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		return "", 0, fmt.Errorf("moneygram: %w: OAuth token endpoint rejected credentials (HTTP 401): %s",
-			ErrUnauthorized, truncate(string(body), 200))
+			stellaranchor.ErrUnauthorized, truncate(string(body), 200))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", 0, fmt.Errorf("moneygram: OAuth token endpoint HTTP %d: %s",

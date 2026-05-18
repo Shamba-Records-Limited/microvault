@@ -181,8 +181,10 @@ func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendin
 		CountryCode:      rec.CountryCode,
 		NetworkCode:      rec.NetworkCode,
 		NetworkName:      rec.NetworkName,
-		SettlementMethod: "fiat",
 		IdempotencyKey:   rec.SequenceID + "_fiat",
+		Options: yellowcard.Options{
+			SettlementMethod: yellowcard.SettlementMethodFiat,
+		},
 	})
 	if err != nil {
 		log.Printf("refund_poller: fiat failover failed for %s: %v", rec.PaymentID, err)

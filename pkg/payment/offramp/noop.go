@@ -17,10 +17,6 @@ func (NoOpProvider) ID() ProviderID { return ProviderID("noop") }
 
 // Initiate returns a mock off-ramp result.
 func (NoOpProvider) Initiate(_ context.Context, req Request) (*Result, error) {
-	method := req.SettlementMethod
-	if method == "" {
-		method = "direct"
-	}
 	return &Result{
 		RequestID:        "mock_" + req.LoanID,
 		SequenceID:       req.IdempotencyKey,
@@ -31,6 +27,6 @@ func (NoOpProvider) Initiate(_ context.Context, req Request) (*Result, error) {
 		ExchangeRate:     153.0,
 		EstimatedTime:    5,
 		CreatedAt:        time.Now(),
-		SettlementMethod: method,
+		SettlementMethod: "direct",
 	}, nil
 }

@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
 // Source labels for the rate ultimately returned by the FX orchestrator.
@@ -116,7 +118,7 @@ type FXOrchestrator struct {
 // terminal "reject the loan" condition.
 func NewFXOrchestrator(primary *FXRateClient, fallback FallbackRateSource, cfg FXOrchestratorConfig, logger *slog.Logger) (*FXOrchestrator, error) {
 	if primary == nil && fallback == nil {
-		return nil, fmt.Errorf("moneygram: %w: at least one of primary or fallback rate source must be configured", ErrInvalidConfig)
+		return nil, fmt.Errorf("moneygram: %w: at least one of primary or fallback rate source must be configured", stellaranchor.ErrInvalidConfig)
 	}
 	if cfg.EntryBufferPct == 0 {
 		cfg.EntryBufferPct = 0.01
@@ -156,7 +158,7 @@ func NewFXOrchestrator(primary *FXRateClient, fallback FallbackRateSource, cfg F
 // where the underlying rate came from, even when served from cache.
 func (o *FXOrchestrator) Quote(ctx context.Context, req FXQuoteRequest) (*FXQuoteResult, error) {
 	if req.SendCurrency == "" || req.ReceiveCurrency == "" {
-		return nil, fmt.Errorf("moneygram: %w: SendCurrency and ReceiveCurrency required", ErrInvalidConfig)
+		return nil, fmt.Errorf("moneygram: %w: SendCurrency and ReceiveCurrency required", stellaranchor.ErrInvalidConfig)
 	}
 
 	// 1) Primary — MoneyGram.

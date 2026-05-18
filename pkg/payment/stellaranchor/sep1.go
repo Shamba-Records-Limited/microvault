@@ -1,4 +1,4 @@
-package moneygram
+package stellaranchor
 
 import (
 	"context"
@@ -45,7 +45,7 @@ type Currency struct {
 // stellar.toml — to avoid pathological responses exhausting memory.
 func FetchTOML(ctx context.Context, httpClient *http.Client, homeDomain string) (*TOML, error) {
 	if homeDomain == "" {
-		return nil, fmt.Errorf("moneygram: %w: empty home domain", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: empty home domain", ErrInvalidConfig)
 	}
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -54,27 +54,27 @@ func FetchTOML(ctx context.Context, httpClient *http.Client, homeDomain string) 
 	url := "https://" + strings.TrimSuffix(homeDomain, "/") + "/.well-known/stellar.toml"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("moneygram: build TOML request: %w", err)
+		return nil, fmt.Errorf("stellaranchor: build TOML request: %w", err)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("moneygram: %w: %v", ErrTOMLFetch, err)
+		return nil, fmt.Errorf("stellaranchor: %w: %v", ErrTOMLFetch, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("moneygram: %w: HTTP %d from %s", ErrTOMLFetch, resp.StatusCode, url)
+		return nil, fmt.Errorf("stellaranchor: %w: HTTP %d from %s", ErrTOMLFetch, resp.StatusCode, url)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
-		return nil, fmt.Errorf("moneygram: read TOML body: %w", err)
+		return nil, fmt.Errorf("stellaranchor: read TOML body: %w", err)
 	}
 
 	var parsed TOML
 	if _, err := toml.Decode(string(body), &parsed); err != nil {
-		return nil, fmt.Errorf("moneygram: decode TOML: %w", err)
+		return nil, fmt.Errorf("stellaranchor: decode TOML: %w", err)
 	}
 	return &parsed, nil
 }
@@ -93,32 +93,32 @@ type ValidateOptions struct {
 // expectations supplied in opts.
 func (t *TOML) Validate(opts ValidateOptions) error {
 	if t.SigningKey == "" {
-		return fmt.Errorf("moneygram: %w: SIGNING_KEY missing", ErrTOMLValidation)
+		return fmt.Errorf("stellaranchor: %w: SIGNING_KEY missing", ErrTOMLValidation)
 	}
 	if t.WebAuthEndpoint == "" {
-		return fmt.Errorf("moneygram: %w: WEB_AUTH_ENDPOINT missing", ErrTOMLValidation)
+		return fmt.Errorf("stellaranchor: %w: WEB_AUTH_ENDPOINT missing", ErrTOMLValidation)
 	}
 	if t.TransferServerSEP24 == "" {
-		return fmt.Errorf("moneygram: %w: TRANSFER_SERVER_SEP0024 missing", ErrTOMLValidation)
+		return fmt.Errorf("stellaranchor: %w: TRANSFER_SERVER_SEP0024 missing", ErrTOMLValidation)
 	}
 	if t.NetworkPassphrase == "" {
-		return fmt.Errorf("moneygram: %w: NETWORK_PASSPHRASE missing", ErrTOMLValidation)
+		return fmt.Errorf("stellaranchor: %w: NETWORK_PASSPHRASE missing", ErrTOMLValidation)
 	}
 	if opts.ExpectedNetworkPassphrase != "" && t.NetworkPassphrase != opts.ExpectedNetworkPassphrase {
-		return fmt.Errorf("moneygram: %w: NETWORK_PASSPHRASE mismatch (got %q, want %q)",
+		return fmt.Errorf("stellaranchor: %w: NETWORK_PASSPHRASE mismatch (got %q, want %q)",
 			ErrTOMLValidation, t.NetworkPassphrase, opts.ExpectedNetworkPassphrase)
 	}
 	if opts.ExpectedSigningKey != "" && t.SigningKey != opts.ExpectedSigningKey {
-		return fmt.Errorf("moneygram: %w: SIGNING_KEY rotated (got %q, want %q)",
+		return fmt.Errorf("stellaranchor: %w: SIGNING_KEY rotated (got %q, want %q)",
 			ErrTOMLValidation, t.SigningKey, opts.ExpectedSigningKey)
 	}
 	if opts.ExpectedUSDCIssuer != "" {
 		issuer := t.AssetIssuer("USDC")
 		if issuer == "" {
-			return fmt.Errorf("moneygram: %w: USDC currency missing", ErrTOMLValidation)
+			return fmt.Errorf("stellaranchor: %w: USDC currency missing", ErrTOMLValidation)
 		}
 		if issuer != opts.ExpectedUSDCIssuer {
-			return fmt.Errorf("moneygram: %w: USDC issuer changed (got %q, want %q)",
+			return fmt.Errorf("stellaranchor: %w: USDC issuer changed (got %q, want %q)",
 				ErrTOMLValidation, issuer, opts.ExpectedUSDCIssuer)
 		}
 	}
@@ -146,7 +146,7 @@ func DefaultTOMLClient() *http.Client {
 			// SEP-1 TOMLs should not redirect off-host; reject to avoid
 			// being pointed at an attacker-controlled stellar.toml.
 			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
-				return fmt.Errorf("moneygram: cross-host redirect to %s blocked", req.URL.Host)
+				return fmt.Errorf("stellaranchor: cross-host redirect to %s blocked", req.URL.Host)
 			}
 			return nil
 		},

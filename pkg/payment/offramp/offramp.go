@@ -71,10 +71,26 @@ type ProviderRef struct {
 }
 
 // QuoteRequest carries the inputs a provider needs to quote a corridor.
-// Phase 2 keeps this minimal; future fields (amount, originating country,
-// service option) can be added without breaking the interface.
+// Future fields (amount, originating country, service option) can be added
+// without breaking the interface.
 type QuoteRequest struct {
 	Currency string
+}
+
+// ProviderOptions is the marker interface implemented by per-provider request
+// extras (e.g. yellowcard.Options.SettlementMethod, moneygram.Options.BirthDate).
+// Callers attach a concrete implementation to Request.Options; the receiving
+// adapter type-asserts to its own concrete type.
+type ProviderOptions interface {
+	ProviderID() ProviderID
+}
+
+// ProviderPayload is the marker interface implemented by per-provider result
+// extras (e.g. yellowcard.DirectSettlementPayload, moneygram.CashPickupPayload).
+// Adapters set Result.Provider to a concrete implementation; consumers type-
+// assert to read provider-specific output.
+type ProviderPayload interface {
+	ProviderID() ProviderID
 }
 
 // TreasuryTransfer abstracts sending USDC from the custodial treasury to an
@@ -84,9 +100,8 @@ type TreasuryTransfer interface {
 	SendUSDC(ctx context.Context, destination string, memo string, amount int64) (txHash string, err error)
 }
 
-// Request contains all data needed to initiate an off-ramp. Provider-specific
-// extras share this struct in phase 2; phase 3 will move them into a typed
-// Options payload.
+// Request contains the cross-provider data needed to initiate an off-ramp.
+// Provider-specific extras live on Options.
 type Request struct {
 	LoanID           string
 	UserID           string
@@ -98,19 +113,19 @@ type Request struct {
 	IdempotencyKey   string
 	NetworkCode      string
 	NetworkName      string
-	SettlementMethod string // YC: "direct" (default) or "fiat"
 
-	// PayoutMethod is consulted by the registry to pick a provider when
-	// the caller doesn't pin one directly. Empty defaults to mobile money.
+	// PayoutMethod is consulted by the registry to pick a provider when the
+	// caller doesn't pin one via Options. Empty defaults to mobile money.
 	PayoutMethod string
 
-	// MoneyGram cash-pickup extras. Ignored by mobile-money providers.
-	BirthDate         string
-	ChildAccountIndex uint32
+	// Options carries per-provider extras (yellowcard.Options,
+	// moneygram.Options). nil is acceptable; each adapter documents its
+	// expectations for missing/wrong types.
+	Options ProviderOptions
 }
 
-// Result is what Provider.Initiate returns. Provider-specific fields share
-// this struct in phase 2; phase 3 will move them into a typed payload.
+// Result is what Provider.Initiate returns. Cross-provider summary fields
+// stay on the struct; provider-specific output lives in Provider.
 type Result struct {
 	RequestID        string
 	SequenceID       string
@@ -123,17 +138,11 @@ type Result struct {
 	FeeLocal         float64
 	EstimatedTime    int
 	CreatedAt        time.Time
-	SettlementMethod string
+	SettlementMethod string // tag for downstream persistence: "direct"|"fiat"|"cash_pickup"
 
-	// YellowCard direct-settlement fields. Empty for MoneyGram.
-	StellarAddress string
-	StellarMemo    string
-	StellarTxHash  string
-
-	// MoneyGram cash-pickup fields. Empty for YellowCard.
-	InteractiveURL    string
-	ExternalReference string
-	ChildAccountMemo  int64
+	// Provider is the typed payload returned by the adapter. Consumers
+	// type-assert to the concrete payload type owned by the provider package.
+	Provider ProviderPayload
 }
 
 // Status contains status information for an in-flight off-ramp.

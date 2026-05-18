@@ -1,4 +1,4 @@
-package moneygram
+package stellaranchor
 
 // iso2to3 maps ISO-3166-1 alpha-2 country codes to alpha-3.
 // MoneyGram's SEP-9 address_country_code requires alpha-3.

@@ -90,12 +90,17 @@ func (a *MoneyGramOffRampAdapter) ID() offramp.ProviderID { return offramp.Provi
 // ExternalReference and AmountLocal/LocalCurrency are populated later by the
 // poller once MG transitions the transaction to pending_user_transfer_complete.
 func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Request) (*offramp.Result, error) {
+	opts, err := readMGOptions(req.Options)
+	if err != nil {
+		return nil, err
+	}
+
 	a.logger.Info("moneygram off-ramp initiated",
 		"loan_id", req.LoanID,
 		"user_id", req.UserID,
 		"amount_usd", req.AmountUSD,
 		"country", req.CountryCode,
-		"child_account_index", req.ChildAccountIndex,
+		"child_account_index", opts.ChildAccountIndex,
 	)
 
 	if req.AmountUSD <= 0 {
@@ -105,14 +110,14 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 		return nil, fmt.Errorf("moneygram off-ramp: recipient name is required for SEP-9 prefill")
 	}
 
-	childMemo := moneygram.ChildAccountMemo(a.treasuryPubkey, req.ChildAccountIndex)
+	childMemo := moneygram.ChildAccountMemo(a.treasuryPubkey, opts.ChildAccountIndex)
 
 	first, last := moneygram.SplitFullName(req.RecipientName)
 	customer := moneygram.Customer{
 		FirstName:    first,
 		LastName:     last,
 		MobileNumber: req.DestinationPhone,
-		BirthDate:    req.BirthDate,
+		BirthDate:    opts.BirthDate,
 	}
 	if iso3 := moneygram.CountryISO3(req.CountryCode); iso3 != "" {
 		customer.AddressCountryCode = iso3
@@ -155,9 +160,23 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 		EstimatedTime:    0,  // unknown — depends on user opening the webview
 		CreatedAt:        time.Now(),
 		SettlementMethod: "cash_pickup",
-		InteractiveURL:   resp.URL,
-		ChildAccountMemo: childMemo,
+		Provider: moneygram.CashPickupPayload{
+			InteractiveURL:   resp.URL,
+			ChildAccountMemo: childMemo,
+		},
 	}, nil
+}
+
+// readMGOptions extracts the typed moneygram.Options from a Request.
+// MoneyGram requires Options — nil or wrong concrete type is rejected.
+func readMGOptions(opts offramp.ProviderOptions) (moneygram.Options, error) {
+	if opts == nil {
+		return moneygram.Options{}, fmt.Errorf("moneygram off-ramp: Request.Options is required (moneygram.Options)")
+	}
+	if v, ok := opts.(moneygram.Options); ok {
+		return v, nil
+	}
+	return moneygram.Options{}, fmt.Errorf("moneygram off-ramp: Request.Options must be moneygram.Options, got %T", opts)
 }
 
 // Status retrieves the status of a MoneyGram withdrawal. ref.ID is MG's
