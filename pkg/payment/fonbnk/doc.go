@@ -1,6 +1,7 @@
-// Package fonbnk provides a low-level HTTP client for the Fonbnk on-ramp API.
+// Package fonbnk is a placeholder for the Fonbnk on-ramp client.
 //
-// Currently only request signing is wired; the off-ramp methods are pending
-// product confirmation on whether Fonbnk is in scope. The package exists so
-// that the auth transport can be reused once endpoints are integrated.
+// Only the request-signing transport in fonbnk.go is wired today. The
+// on/off-ramp methods are deferred until product confirms whether Fonbnk is
+// in scope; the auth transport lives here so it can be reused once the
+// endpoints are integrated.
 package fonbnk

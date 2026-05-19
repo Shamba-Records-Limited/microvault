@@ -1,11 +1,17 @@
-// Package offramp defines the channel-agnostic contract for off-ramping
-// funds from crypto to fiat across multiple providers (e.g. MoneyGram cash
-// pickup, YellowCard mobile money). It is consumed by USSD adapters,
-// background pollers, and future chat-bot channels alike — no channel
-// concerns leak into this package.
+// Package offramp defines the off-ramp Provider contract that every
+// provider in the platform satisfies.
 //
-// Provider implementations live in their respective sub-packages
-// (pkg/payment/moneygram, pkg/payment/yellowcard) and the thin glue that
-// wires a request shape into each provider lives in
-// pkg/mobile/ussd/adapters until phase 2 splits capabilities further.
+// Provider is the single mandatory interface (ID + Initiate). Optional
+// capabilities — StatusReader, Quoter, Directory, MobileMoneyDirectory,
+// BalanceReporter — are separate small interfaces; consumers type-assert
+// for what they need and providers implement only what they genuinely
+// support.
+//
+// Request and Result carry only cross-provider fields. Provider-specific
+// extras travel on typed payloads via the ProviderOptions / ProviderPayload
+// marker interfaces; the concrete types live in each provider's own package.
+//
+// Registry resolves a Request to a concrete Provider, first by inspecting
+// req.Options.ProviderID(), otherwise by aliasing req.PayoutMethod to a
+// registered ProviderID. NoOpProvider in noop.go is a stand-in for tests.
 package offramp

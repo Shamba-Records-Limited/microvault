@@ -54,6 +54,16 @@ func (s *SMSLoanNotifier) NotifyRepaymentReceived(ctx context.Context, n contrac
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
+func (s *SMSLoanNotifier) NotifyLoanCashPickupInitiated(ctx context.Context, n contracts.LoanNotification) error {
+	msg := fmt.Sprintf(s.templates.CashPickupInitiated, n.LoanNumber, n.InteractiveURL)
+	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+}
+
+func (s *SMSLoanNotifier) NotifyLoanCashPickupReady(ctx context.Context, n contracts.LoanNotification) error {
+	msg := fmt.Sprintf(s.templates.CashPickupReady, n.DisplayCurrency, n.DisplayAmount, n.CashPickupRef, n.LoanNumber)
+	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+}
+
 func (s *SMSLoanNotifier) NotifyRepaymentReminder(ctx context.Context, n contracts.LoanNotification) error {
 	if n.DueDate == nil {
 		return nil
@@ -99,5 +109,11 @@ func (*NoOpLoanNotifier) NotifyRepaymentReceived(context.Context, contracts.Loan
 	return nil
 }
 func (*NoOpLoanNotifier) NotifyRepaymentReminder(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+func (*NoOpLoanNotifier) NotifyLoanCashPickupInitiated(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+func (*NoOpLoanNotifier) NotifyLoanCashPickupReady(context.Context, contracts.LoanNotification) error {
 	return nil
 }

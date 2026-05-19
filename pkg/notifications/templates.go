@@ -20,6 +20,10 @@ type LoanTemplates struct {
 	RepaymentSoon string
 	// RepaymentUpcoming: args = (DisplayCurrency, DisplayAmount, dueDateFormatted, LoanNumber)
 	RepaymentUpcoming string
+	// CashPickupInitiated: args = (LoanNumber, InteractiveURL)
+	CashPickupInitiated string
+	// CashPickupReady: args = (DisplayCurrency, DisplayAmount, CashPickupRef, LoanNumber)
+	CashPickupReady string
 }
 
 // DefaultLoanTemplates returns templates matching the current microvault-credit
@@ -41,5 +45,9 @@ func DefaultLoanTemplates() *LoanTemplates {
 		RepaymentSoon: "Reminder: Your loan payment of %s %.2f is due in %d days (Ref: %s). " +
 			"Dial *384*1234# to pay.",
 		RepaymentUpcoming: "Reminder: Your loan payment of %s %.2f is due on %s (Ref: %s).",
+		CashPickupInitiated: "Your cash-pickup loan (Ref: %s) is ready to confirm. " +
+			"Open %s to verify your details. Final amount is confirmed when you open the link.",
+		CashPickupReady: "Your loan of %s %.2f is ready for pickup at any MoneyGram agent. " +
+			"Reference: %s (Loan: %s). Bring valid ID.",
 	}
 }

@@ -76,6 +76,37 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(loanAmountMenu)
 
+	// Payout method picker — shown after the user enters an amount. Mobile
+	// Money routes to YellowCard; Cash Pickup routes to MoneyGram and
+	// branches into the SEP-9 birth-date prompt.
+	payoutMethodMenu := NewMenuBuilder("payout_method").
+		WithTitle("en", "How would you like to receive your loan?").
+		WithTitle("sw", "Ungependa kupokea mkopo wako vipi?").
+		WithTitle("fr", "Comment souhaitez-vous recevoir votre prêt?").
+		WithOption("1", map[string]string{
+			"en": "Mobile Money",
+			"sw": "Pesa za Simu",
+			"fr": "Mobile Money",
+		}, "loan_confirm").
+		WithOption("2", map[string]string{
+			"en": "Cash Pickup (MoneyGram)",
+			"sw": "Kuchukua Pesa (MoneyGram)",
+			"fr": "Retrait en Espèces (MoneyGram)",
+		}, "loan_birthdate").
+		WithAuth(true).
+		Build()
+	registry.Register(payoutMethodMenu)
+
+	// Birth-date prompt — required for the MoneyGram SEP-9 customer prefill
+	// so the user doesn't have to retype it inside the webview.
+	loanBirthdateMenu := NewMenuBuilder("loan_birthdate").
+		WithTitle("en", "Enter your date of birth (YYYY-MM-DD):").
+		WithTitle("sw", "Weka tarehe yako ya kuzaliwa (YYYY-MM-DD):").
+		WithTitle("fr", "Entrez votre date de naissance (AAAA-MM-JJ):").
+		WithAuth(true).
+		Build()
+	registry.Register(loanBirthdateMenu)
+
 	// My Account (PIN Manager + Change Language)
 	accountMenu := NewMenuBuilder("my_account").
 		WithTitle("en", "My Account").
