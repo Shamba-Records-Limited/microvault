@@ -7,7 +7,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 )
 
@@ -59,7 +59,7 @@ func DefaultRefundPollerConfig() RefundPollerConfig {
 //  5. On "pending_refund" / "refund_processing" → skip, poll again next cycle
 type RefundPoller struct {
 	ycAdapter    *yellowcard.YellowcardAdapter
-	offRamp      adapters.OffRampService
+	offRamp      offramp.Provider
 	fetcher      RefundPendingFetcher
 	disbursement DisbursementUpdater
 	alerts       AlertService
@@ -70,7 +70,7 @@ type RefundPoller struct {
 // NewRefundPoller creates a new RefundPoller.
 func NewRefundPoller(
 	ycAdapter *yellowcard.YellowcardAdapter,
-	offRamp adapters.OffRampService,
+	offRamp offramp.Provider,
 	fetcher RefundPendingFetcher,
 	disbursement DisbursementUpdater,
 	alerts AlertService,
@@ -171,7 +171,7 @@ func (p *RefundPoller) checkRefund(ctx context.Context, rec RefundPendingRecord)
 // attemptFiatFailover triggers a fiat-mode disbursement for a refunded direct settlement.
 // This is a best-effort operation — if it fails, the ops team is alerted.
 func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendingRecord) {
-	fiatResult, err := p.offRamp.InitiateOffRamp(ctx, adapters.OffRampRequest{
+	fiatResult, err := p.offRamp.Initiate(ctx, offramp.Request{
 		LoanID:           rec.LoanID,
 		UserID:           rec.UserID,
 		RecipientName:    rec.RecipientName,
@@ -181,8 +181,10 @@ func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendin
 		CountryCode:      rec.CountryCode,
 		NetworkCode:      rec.NetworkCode,
 		NetworkName:      rec.NetworkName,
-		SettlementMethod: "fiat",
 		IdempotencyKey:   rec.SequenceID + "_fiat",
+		Options: yellowcard.Options{
+			SettlementMethod: yellowcard.SettlementMethodFiat,
+		},
 	})
 	if err != nil {
 		log.Printf("refund_poller: fiat failover failed for %s: %v", rec.PaymentID, err)

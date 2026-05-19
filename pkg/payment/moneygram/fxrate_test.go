@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
 func newTestFXClient(t *testing.T, handler http.HandlerFunc, ttl time.Duration) (*FXRateClient, *httptest.Server) {
@@ -102,7 +104,7 @@ func TestFXRateClient_PropagatesUnauthorized(t *testing.T) {
 		ServiceOption: ServiceOptionCashPickup,
 	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrUnauthorized)
+	assert.ErrorIs(t, err, stellaranchor.ErrUnauthorized)
 }
 
 func TestFXRateClient_RejectsBadRequest(t *testing.T) {
@@ -111,5 +113,5 @@ func TestFXRateClient_RejectsBadRequest(t *testing.T) {
 	}, 0)
 
 	_, err := fx.Get(context.Background(), FXRateRequest{ServiceOption: "x"})
-	require.ErrorIs(t, err, ErrInvalidConfig)
+	require.ErrorIs(t, err, stellaranchor.ErrInvalidConfig)
 }

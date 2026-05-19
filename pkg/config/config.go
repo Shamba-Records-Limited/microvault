@@ -137,9 +137,10 @@ type FonbnkConfig struct {
 // from MG's published TOML and used for SEP-10 auth; ClientID + ClientSecret
 // are issued through the MG developer portal for OAuth 2.0 client_credentials
 // against the REST API.
+//
+// MoneyGram is the platform's default cash-pickup anchor — there is no
+// enable flag; the credentials below are always required at boot.
 type MoneyGramConfig struct {
-	Enabled bool
-
 	// SEP-1 / 9 / 10 / 24 — Stellar anchor protocol
 	HomeDomain        string // e.g. "stellar.moneygram.com"
 	ServerSigningKey  string // pinned from TOML, validated at boot
@@ -225,8 +226,7 @@ func New() (*Config, error) {
 	fonbnkClientID := os.Getenv("FONBNK_CLIENT_ID")
 	fonbnkClientSecret := os.Getenv("FONBNK_CLIENT_SECRET")
 
-	// MoneyGram is opt-in: only required when MONEYGRAM_ENABLED=true.
-	mgEnabled, _ := strconv.ParseBool(os.Getenv("MONEYGRAM_ENABLED"))
+	// MoneyGram is the default cash-pickup anchor — always wired.
 	mgHomeDomain := os.Getenv("MONEYGRAM_HOME_DOMAIN")
 	mgServerSigningKey := os.Getenv("MONEYGRAM_SERVER_SIGNING_KEY")
 	mgUSDCIssuer := os.Getenv("MONEYGRAM_USDC_ISSUER")
@@ -428,7 +428,6 @@ func New() (*Config, error) {
 				BaseURL:      fonbnkBaseURL,
 			},
 			MoneyGram: MoneyGramConfig{
-				Enabled:           mgEnabled,
 				HomeDomain:        mgHomeDomain,
 				ServerSigningKey:  mgServerSigningKey,
 				NetworkPassphrase: networkPassphrase, // share with StellarConfig — must match anchor's TOML
@@ -479,16 +478,13 @@ func firstNonEmpty(vals ...string) string {
 }
 
 // Validate checks that all fields required to construct a working MoneyGram
-// client are set when the integration is enabled. Disabled configs always pass.
+// client are set.
 //
 // Validate intentionally does not require REST API credentials (ClientID /
 // ClientSecret / OAuthURL / FXRateURL): the SEP-1/10/24 anchor flow can run
 // without them, and those credentials are gated on Open Q #6 confirming MG
 // issues REST API access to Ramps partners.
 func (c *MoneyGramConfig) Validate() error {
-	if !c.Enabled {
-		return nil
-	}
 	missing := []string{}
 	if c.HomeDomain == "" {
 		missing = append(missing, "MONEYGRAM_HOME_DOMAIN")
@@ -503,7 +499,7 @@ func (c *MoneyGramConfig) Validate() error {
 		missing = append(missing, "MONEYGRAM_USDC_ISSUER or USDC_ISSUER")
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("moneygram enabled but missing: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("moneygram config missing required values: %s", strings.Join(missing, ", "))
 	}
 	return nil
 }

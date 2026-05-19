@@ -1,4 +1,4 @@
-package moneygram
+package stellaranchor
 
 import (
 	"context"
@@ -105,7 +105,7 @@ type AnchorClient struct {
 // NewAnchorClient validates configuration. httpClient may be nil; logger may be nil.
 func NewAnchorClient(cfg AnchorConfig, httpClient *http.Client, logger *slog.Logger) (*AnchorClient, error) {
 	if cfg.TransferServerURL == "" {
-		return nil, fmt.Errorf("moneygram: %w: TransferServerURL required", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: TransferServerURL required", ErrInvalidConfig)
 	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
@@ -121,7 +121,7 @@ func NewAnchorClient(cfg AnchorConfig, httpClient *http.Client, logger *slog.Log
 // SEP-9 customer fields. Returns the interactive URL and MG transaction ID.
 func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req WithdrawRequest) (*WithdrawResponse, error) {
 	if jwt == "" {
-		return nil, fmt.Errorf("moneygram: %w: JWT required", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: JWT required", ErrInvalidConfig)
 	}
 	if req.AssetCode == "" {
 		req.AssetCode = "USDC"
@@ -130,7 +130,7 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 		req.Lang = "en"
 	}
 	if req.Amount == "" {
-		return nil, fmt.Errorf("moneygram: %w: Amount required (custodial wallets must specify amount)", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: Amount required (custodial wallets must specify amount)", ErrInvalidConfig)
 	}
 
 	body, err := buildWithdrawBody(req)
@@ -141,7 +141,7 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 	endpoint := strings.TrimRight(c.cfg.TransferServerURL, "/") + "/transactions/withdraw/interactive"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
 	if err != nil {
-		return nil, fmt.Errorf("moneygram: build withdraw request: %w", err)
+		return nil, fmt.Errorf("stellaranchor: build withdraw request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
@@ -149,26 +149,26 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("moneygram: withdraw request: %w", err)
+		return nil, fmt.Errorf("stellaranchor: withdraw request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("moneygram: %w: SEP-24 withdraw HTTP 401", ErrUnauthorized)
+		return nil, fmt.Errorf("stellaranchor: %w: SEP-24 withdraw HTTP 401", ErrUnauthorized)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("moneygram: SEP-24 withdraw HTTP %d: %s",
+		return nil, fmt.Errorf("stellaranchor: SEP-24 withdraw HTTP %d: %s",
 			resp.StatusCode, truncate(string(respBody), 300))
 	}
 
 	var parsed WithdrawResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return nil, fmt.Errorf("moneygram: decode withdraw response: %w", err)
+		return nil, fmt.Errorf("stellaranchor: decode withdraw response: %w", err)
 	}
 	if parsed.URL == "" || parsed.ID == "" {
-		return nil, fmt.Errorf("moneygram: withdraw response missing url or id: %s", truncate(string(respBody), 200))
+		return nil, fmt.Errorf("stellaranchor: withdraw response missing url or id: %s", truncate(string(respBody), 200))
 	}
 	return &parsed, nil
 }
@@ -176,10 +176,10 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 // GetTransaction calls GET /transaction?id={txID} with the given JWT.
 func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*Transaction, error) {
 	if jwt == "" {
-		return nil, fmt.Errorf("moneygram: %w: JWT required", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: JWT required", ErrInvalidConfig)
 	}
 	if txID == "" {
-		return nil, fmt.Errorf("moneygram: %w: txID required", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: txID required", ErrInvalidConfig)
 	}
 
 	q := url.Values{}
@@ -188,27 +188,27 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("moneygram: build transaction request: %w", err)
+		return nil, fmt.Errorf("stellaranchor: build transaction request: %w", err)
 	}
 	httpReq.Header.Set("Accept", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+jwt)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("moneygram: transaction request: %w", err)
+		return nil, fmt.Errorf("stellaranchor: transaction request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("moneygram: %w: SEP-24 transaction HTTP 401", ErrUnauthorized)
+		return nil, fmt.Errorf("stellaranchor: %w: SEP-24 transaction HTTP 401", ErrUnauthorized)
 	}
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("moneygram: SEP-24 transaction not found: %s", txID)
+		return nil, fmt.Errorf("stellaranchor: SEP-24 transaction not found: %s", txID)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("moneygram: SEP-24 transaction HTTP %d: %s",
+		return nil, fmt.Errorf("stellaranchor: SEP-24 transaction HTTP %d: %s",
 			resp.StatusCode, truncate(string(respBody), 300))
 	}
 
@@ -216,10 +216,10 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 		Transaction Transaction `json:"transaction"`
 	}
 	if err := json.Unmarshal(respBody, &envelope); err != nil {
-		return nil, fmt.Errorf("moneygram: decode transaction response: %w", err)
+		return nil, fmt.Errorf("stellaranchor: decode transaction response: %w", err)
 	}
 	if envelope.Transaction.ID == "" {
-		return nil, fmt.Errorf("moneygram: transaction response missing id: %s", truncate(string(respBody), 200))
+		return nil, fmt.Errorf("stellaranchor: transaction response missing id: %s", truncate(string(respBody), 200))
 	}
 	return &envelope.Transaction, nil
 }
@@ -246,7 +246,7 @@ func buildWithdrawBody(req WithdrawRequest) ([]byte, error) {
 
 	body, err := json.Marshal(m)
 	if err != nil {
-		return nil, fmt.Errorf("moneygram: marshal withdraw body: %w", err)
+		return nil, fmt.Errorf("stellaranchor: marshal withdraw body: %w", err)
 	}
 	return body, nil
 }

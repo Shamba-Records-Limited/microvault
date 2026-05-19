@@ -28,8 +28,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
 // LoanRecord is the projection of a loan row the poller needs to drive
@@ -64,7 +65,7 @@ type LoanRecorder interface {
 	// RecordTransactionUpdate persists the latest fields from a polled MG
 	// transaction onto the loan row: amount_out, amount_out_asset, amount_fee,
 	// external_transaction_id, more_info_url. Idempotent.
-	RecordTransactionUpdate(ctx context.Context, loanID string, tx *moneygram.Transaction) error
+	RecordTransactionUpdate(ctx context.Context, loanID string, tx *stellaranchor.Transaction) error
 
 	// RecordSendUSDC records the Stellar tx hash from a successful USDC
 	// transfer to MG's anchor account. Optional — implementations may
@@ -134,7 +135,7 @@ type Poller struct {
 	fetcher      LoanFetcher
 	recorder     LoanRecorder
 	disbursement DisbursementUpdater
-	treasury     adapters.TreasuryTransfer
+	treasury     offramp.TreasuryTransfer
 	alerts       AlertService
 	cfg          PollerConfig
 	logger       *slog.Logger
@@ -148,7 +149,7 @@ func NewPoller(
 	fetcher LoanFetcher,
 	recorder LoanRecorder,
 	disbursement DisbursementUpdater,
-	treasury adapters.TreasuryTransfer,
+	treasury offramp.TreasuryTransfer,
 	alerts AlertService,
 	cfg PollerConfig,
 	logger *slog.Logger,
@@ -244,7 +245,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		return
 	}
 
-	childMemo := moneygram.ChildAccountMemo(p.client.TreasuryAddress(), rec.ChildAccountIndex)
+	childMemo := stellaranchor.ChildAccountMemo(p.client.TreasuryAddress(), rec.ChildAccountIndex)
 	tx, err := p.client.GetTransaction(ctx, childMemo, rec.MoneyGramTxID)
 	if err != nil {
 		p.logger.Error("GetTransaction failed",
@@ -263,26 +264,26 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 	}
 
 	switch tx.Status {
-	case moneygram.StatusPendingUserTransferStart:
+	case stellaranchor.StatusPendingUserTransferStart:
 		p.handlePendingUserTransferStart(ctx, rec, tx)
 
-	case moneygram.StatusPendingUserTransferComplete:
+	case stellaranchor.StatusPendingUserTransferComplete:
 		p.handlePendingUserTransferComplete(ctx, rec, tx)
 
-	case moneygram.StatusCompleted:
+	case stellaranchor.StatusCompleted:
 		p.handleCompleted(rec, tx)
 
-	case moneygram.StatusRefunded:
+	case stellaranchor.StatusRefunded:
 		p.handleRefunded(rec, tx)
 
-	case moneygram.StatusExpired,
-		moneygram.StatusNoMarket,
-		moneygram.StatusTooSmall,
-		moneygram.StatusTooLarge,
-		moneygram.StatusError:
+	case stellaranchor.StatusExpired,
+		stellaranchor.StatusNoMarket,
+		stellaranchor.StatusTooSmall,
+		stellaranchor.StatusTooLarge,
+		stellaranchor.StatusError:
 		p.handleTerminalFailure(rec, tx)
 
-	case moneygram.StatusOnHold:
+	case stellaranchor.StatusOnHold:
 		// MG paused the transaction for additional checks (compliance,
 		// fraud review). Not terminal, but it can sit here for a while —
 		// alert ops so a human can chase MG support if needed.
@@ -293,7 +294,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 			fmt.Sprintf("Loan %s: MG on_hold for additional checks. Message: %s",
 				rec.LoanID, tx.Message))
 
-	case moneygram.StatusPendingTrust:
+	case stellaranchor.StatusPendingTrust:
 		// User-side trustline missing. In our custodial-wallet model the
 		// user never holds USDC directly, so this only arises on the MG
 		// side and likely indicates an anchor-config issue worth flagging.
@@ -304,7 +305,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 			fmt.Sprintf("Loan %s: MG reported pending_trust. Investigate anchor trustline. Message: %s",
 				rec.LoanID, tx.Message))
 
-	case moneygram.StatusPendingUser:
+	case stellaranchor.StatusPendingUser:
 		// MG is waiting on the user (additional KYC, action at the agent,
 		// etc.). Nothing automated to do — log for visibility and let
 		// the existing reminder SMS path handle nudges.
@@ -312,10 +313,10 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 			"message", tx.Message)
 
-	case moneygram.StatusIncomplete,
-		moneygram.StatusPendingAnchor,
-		moneygram.StatusPendingExternal,
-		moneygram.StatusPendingStellar:
+	case stellaranchor.StatusIncomplete,
+		stellaranchor.StatusPendingAnchor,
+		stellaranchor.StatusPendingExternal,
+		stellaranchor.StatusPendingStellar:
 		// In-flight, no action needed this cycle. pending_stellar is
 		// the natural transient state right after our SendUSDC while
 		// the network confirms the payment to MG's anchor.
@@ -331,7 +332,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 // tx.stellar_transaction_id is already populated we skip. There is a
 // small window between SendUSDC succeeding and MG observing the payment
 // where re-sending is theoretically possible — see §22 / poller TODOs.
-func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRecord, tx *moneygram.Transaction) {
+func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
 	if tx.StellarTransactionID != "" || rec.HasStellarSend {
 		// Already observed — wait for MG to advance.
 		return
@@ -378,7 +379,7 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 // populated. The recorder already wrote those above; here we just emit a
 // drift alert if the locked payout deviates from what the user saw at
 // USSD entry.
-func (p *Poller) handlePendingUserTransferComplete(_ context.Context, rec LoanRecord, tx *moneygram.Transaction) {
+func (p *Poller) handlePendingUserTransferComplete(_ context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
 	if p.cfg.PayoutDriftAlertPct == 0 || rec.RequestedLocalAmount == 0 {
 		return
 	}
@@ -397,7 +398,7 @@ func (p *Poller) handlePendingUserTransferComplete(_ context.Context, rec LoanRe
 }
 
 // handleCompleted: MG confirmed the user picked up the cash.
-func (p *Poller) handleCompleted(rec LoanRecord, _ *moneygram.Transaction) {
+func (p *Poller) handleCompleted(rec LoanRecord, _ *stellaranchor.Transaction) {
 	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusCompleted); err != nil {
 		p.logger.Error("failed to mark disbursement complete",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
@@ -413,7 +414,7 @@ func (p *Poller) handleCompleted(rec LoanRecord, _ *moneygram.Transaction) {
 // Stellar ingest worker watches for the inbound USDC payment by memo
 // and transitions to refund_received when it arrives. Vault repay
 // happens after the refund is observed (out of this poller's scope).
-func (p *Poller) handleRefunded(rec LoanRecord, _ *moneygram.Transaction) {
+func (p *Poller) handleRefunded(rec LoanRecord, _ *stellaranchor.Transaction) {
 	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusRefundPending); err != nil {
 		p.logger.Error("failed to mark refund_pending",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
@@ -424,7 +425,7 @@ func (p *Poller) handleRefunded(rec LoanRecord, _ *moneygram.Transaction) {
 
 // handleTerminalFailure: expired/no_market/too_small/too_large/error.
 // Mark failed, notify the user. If we already sent USDC, repay vault.
-func (p *Poller) handleTerminalFailure(rec LoanRecord, tx *moneygram.Transaction) {
+func (p *Poller) handleTerminalFailure(rec LoanRecord, tx *stellaranchor.Transaction) {
 	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusFailed); err != nil {
 		p.logger.Error("failed to mark failed",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)

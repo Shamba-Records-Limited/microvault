@@ -1,4 +1,4 @@
-package moneygram
+package stellaranchor
 
 import (
 	"encoding/json"

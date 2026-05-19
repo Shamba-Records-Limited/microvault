@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 )
 
@@ -21,7 +22,7 @@ var ycNameRegexp = regexp.MustCompile(`[^a-zA-Z ]+`)
 // dual-mode settlement: direct (crypto-funded) and fiat (YC balance-funded).
 type YellowCardOffRampAdapter struct {
 	ycAdapter    *yellowcard.YellowcardAdapter
-	treasury     TreasuryTransfer
+	treasury     offramp.TreasuryTransfer
 	businessID   string
 	businessName string
 	logger       *slog.Logger
@@ -30,7 +31,7 @@ type YellowCardOffRampAdapter struct {
 // YellowCardOffRampConfig contains configuration for the YellowCard off-ramp adapter.
 type YellowCardOffRampConfig struct {
 	Adapter      *yellowcard.YellowcardAdapter
-	Treasury     TreasuryTransfer // Required for direct settlement mode
+	Treasury     offramp.TreasuryTransfer // Required for direct settlement mode
 	BusinessID   string
 	BusinessName string
 	Logger       *slog.Logger
@@ -51,16 +52,31 @@ func NewYellowCardOffRampAdapter(cfg YellowCardOffRampConfig) *YellowCardOffRamp
 	}
 }
 
-var _ OffRampService = (*YellowCardOffRampAdapter)(nil)
+var (
+	_ offramp.Provider             = (*YellowCardOffRampAdapter)(nil)
+	_ offramp.StatusReader         = (*YellowCardOffRampAdapter)(nil)
+	_ offramp.Quoter               = (*YellowCardOffRampAdapter)(nil)
+	_ offramp.Directory            = (*YellowCardOffRampAdapter)(nil)
+	_ offramp.MobileMoneyDirectory = (*YellowCardOffRampAdapter)(nil)
+	_ offramp.BalanceReporter      = (*YellowCardOffRampAdapter)(nil)
+)
 
-// InitiateOffRamp is the dual-mode orchestrator for loan disbursement.
+// ID identifies this provider in the registry.
+func (a *YellowCardOffRampAdapter) ID() offramp.ProviderID { return offramp.ProviderYellowCard }
+
+// Initiate is the dual-mode orchestrator for loan disbursement.
 //
 // Settlement flow:
 //   - "direct" (default): Submit with directSettlement=true → send USDC to YC wallet → YC disburses fiat
 //     Failover F1: If YC API call fails → fallback to fiat
 //     Failover F2: If Stellar USDC transfer fails → fallback to fiat (USDC still in treasury)
 //   - "fiat": Check YC balance → submit with forceAccept only → YC disburses from pre-funded balance
-func (a *YellowCardOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffRampRequest) (*OffRampResult, error) {
+func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Request) (*offramp.Result, error) {
+	opts, err := readYCOptions(req.Options)
+	if err != nil {
+		return nil, err
+	}
+
 	a.logger.Info("off-ramp initiated",
 		"loan_id", req.LoanID,
 		"user_id", req.UserID,
@@ -69,7 +85,7 @@ func (a *YellowCardOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffR
 		"destination_phone", req.DestinationPhone,
 		"country", req.CountryCode,
 		"network_code", req.NetworkCode,
-		"settlement_method", req.SettlementMethod,
+		"settlement_method", opts.SettlementMethod,
 	)
 
 	if req.NetworkCode == "" {
@@ -140,7 +156,7 @@ func (a *YellowCardOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffR
 		idempotencyKey = fmt.Sprintf("%s_%s", req.LoanID, uuid.New().String()[:8])
 	}
 
-	method := req.SettlementMethod
+	method := opts.SettlementMethod
 	if method == "" {
 		method = yellowcard.SettlementMethodDirect
 	}
@@ -174,7 +190,6 @@ func (a *YellowCardOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffR
 		a.logger.Info("direct settlement succeeded",
 			"loan_id", req.LoanID,
 			"request_id", result.RequestID,
-			"stellar_tx_hash", result.StellarTxHash,
 		)
 		return result, nil
 	}
@@ -186,7 +201,7 @@ func (a *YellowCardOffRampAdapter) InitiateOffRamp(ctx context.Context, req OffR
 
 // disbursementParams holds pre-resolved channel/network data shared by both settlement modes.
 type disbursementParams struct {
-	req            OffRampRequest
+	req            offramp.Request
 	momoChannel    yellowcard.Channel
 	networkID      string
 	networkName    string
@@ -199,7 +214,7 @@ type disbursementParams struct {
 // The request includes settlementInfo with cryptoCurrency, cryptoNetwork, and
 // cryptoAmount. YC returns the same fields plus walletAddress, cryptoUSDRate,
 // cryptoLocalRate, and expiresAt in the response.
-func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *disbursementParams) (*OffRampResult, error) {
+func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *disbursementParams) (*offramp.Result, error) {
 	loanID := p.req.LoanID
 
 	paymentReq := a.buildPaymentRequest(p)
@@ -326,7 +341,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 
 	createdAt, _ := time.Parse(time.RFC3339, resp.CreatedAt)
 
-	return &OffRampResult{
+	return &offramp.Result{
 		RequestID:        resp.ID,
 		SequenceID:       resp.SequenceID,
 		Status:           resp.Status,
@@ -339,15 +354,17 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		EstimatedTime:    p.momoChannel.EstimatedSettlementTime,
 		CreatedAt:        createdAt,
 		SettlementMethod: yellowcard.SettlementMethodDirect,
-		StellarAddress:   stellarAddr,
-		StellarMemo:      stellarMemo,
-		StellarTxHash:    txHash,
+		Provider: yellowcard.DirectSettlementPayload{
+			StellarAddress: stellarAddr,
+			StellarMemo:    stellarMemo,
+			StellarTxHash:  txHash,
+		},
 	}, nil
 }
 
 // tryFiatDisbursement submits a fiat-mode payment (forceAccept only).
 // Includes a balance guard: checks YC account balance before submitting.
-func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *disbursementParams) (*OffRampResult, error) {
+func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *disbursementParams) (*offramp.Result, error) {
 	loanID := p.req.LoanID
 
 	// Balance guard: check YC has sufficient USD balance for fiat disbursement.
@@ -370,7 +387,7 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 			"available", availableBalance,
 			"requested", p.req.AmountUSD,
 		)
-		return nil, &InsufficientBalanceError{
+		return nil, &yellowcard.InsufficientBalanceError{
 			Available: availableBalance,
 			Requested: p.req.AmountUSD,
 		}
@@ -406,7 +423,7 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 
 	createdAt, _ := time.Parse(time.RFC3339, resp.CreatedAt)
 
-	return &OffRampResult{
+	return &offramp.Result{
 		RequestID:        resp.ID,
 		SequenceID:       resp.SequenceID,
 		Status:           resp.Status,
@@ -419,7 +436,21 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 		EstimatedTime:    p.momoChannel.EstimatedSettlementTime,
 		CreatedAt:        createdAt,
 		SettlementMethod: yellowcard.SettlementMethodFiat,
+		Provider:         yellowcard.FiatPayload{},
 	}, nil
+}
+
+// readYCOptions extracts the typed yellowcard.Options from a Request. A nil
+// Options is acceptable (defaults to direct settlement). Wrong concrete type
+// is rejected with a clear error.
+func readYCOptions(opts offramp.ProviderOptions) (yellowcard.Options, error) {
+	if opts == nil {
+		return yellowcard.Options{}, nil
+	}
+	if v, ok := opts.(yellowcard.Options); ok {
+		return v, nil
+	}
+	return yellowcard.Options{}, fmt.Errorf("yellowcard off-ramp: Request.Options must be yellowcard.Options, got %T", opts)
 }
 
 // buildPaymentRequest constructs the base YellowCard PaymentRequest from resolved params.
@@ -475,9 +506,10 @@ func normalizePhone(phone string) string {
 	return phone
 }
 
-// GetOffRampStatus retrieves the status of a disbursement from YellowCard.
-func (a *YellowCardOffRampAdapter) GetOffRampStatus(ctx context.Context, requestID string) (*OffRampStatus, error) {
-	details, err := a.ycAdapter.LookupPayment(ctx, requestID)
+// Status retrieves the status of a disbursement from YellowCard. ref.ID is
+// the YC payment ID; ref.Extra is unused.
+func (a *YellowCardOffRampAdapter) Status(ctx context.Context, ref offramp.ProviderRef) (*offramp.Status, error) {
+	details, err := a.ycAdapter.LookupPayment(ctx, ref.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -490,7 +522,7 @@ func (a *YellowCardOffRampAdapter) GetOffRampStatus(ctx context.Context, request
 		}
 	}
 
-	return &OffRampStatus{
+	return &offramp.Status{
 		RequestID:     details.ID,
 		SequenceID:    details.SequenceID,
 		Status:        details.Status,
@@ -501,14 +533,14 @@ func (a *YellowCardOffRampAdapter) GetOffRampStatus(ctx context.Context, request
 	}, nil
 }
 
-// GetSupportedProviders returns available MoMo channels for disbursement.
-func (a *YellowCardOffRampAdapter) GetSupportedProviders(ctx context.Context, countryCode string) ([]OffRampProvider, error) {
+// SupportedProviders returns available MoMo channels for disbursement.
+func (a *YellowCardOffRampAdapter) SupportedProviders(ctx context.Context, countryCode string) ([]offramp.ProviderInfo, error) {
 	channels, err := a.ycAdapter.GetChannels(ctx, countryCode)
 	if err != nil {
 		return nil, err
 	}
 
-	providers := make([]OffRampProvider, 0, len(channels))
+	providers := make([]offramp.ProviderInfo, 0, len(channels))
 	for _, ch := range channels {
 		if ch.ChannelType != yellowcard.ChannelTypeMomo {
 			continue
@@ -520,7 +552,7 @@ func (a *YellowCardOffRampAdapter) GetSupportedProviders(ctx context.Context, co
 			continue
 		}
 
-		providers = append(providers, OffRampProvider{
+		providers = append(providers, offramp.ProviderInfo{
 			ID:                      ch.ID,
 			Name:                    fmt.Sprintf("%s Mobile Money", ch.Country),
 			SupportedMethods:        []string{ch.ChannelType},
@@ -537,15 +569,15 @@ func (a *YellowCardOffRampAdapter) GetSupportedProviders(ctx context.Context, co
 	return providers, nil
 }
 
-// GetExchangeRate returns the current USD to local currency rate.
-func (a *YellowCardOffRampAdapter) GetExchangeRate(ctx context.Context, currency string) (*ExchangeRate, error) {
-	rates, err := a.ycAdapter.GetRates(ctx, currency)
+// Quote returns the current USD to local currency rate.
+func (a *YellowCardOffRampAdapter) Quote(ctx context.Context, q offramp.QuoteRequest) (*offramp.ExchangeRate, error) {
+	rates, err := a.ycAdapter.GetRates(ctx, q.Currency)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(rates) == 0 {
-		return nil, fmt.Errorf("no rates found for currency: %s", currency)
+		return nil, fmt.Errorf("no rates found for currency: %s", q.Currency)
 	}
 
 	rate := rates[0]
@@ -555,7 +587,7 @@ func (a *YellowCardOffRampAdapter) GetExchangeRate(ctx context.Context, currency
 		updatedAt = time.Now()
 	}
 
-	return &ExchangeRate{
+	return &offramp.ExchangeRate{
 		FromCurrency: yellowcard.CurrencyUSD,
 		ToCurrency:   rate.Code,
 		Rate:         rate.Sell,
@@ -566,8 +598,8 @@ func (a *YellowCardOffRampAdapter) GetExchangeRate(ctx context.Context, currency
 	}, nil
 }
 
-// GetMobileMoneyNetworks returns available MoMo operators for a country.
-func (a *YellowCardOffRampAdapter) GetMobileMoneyNetworks(ctx context.Context, countryCode string) ([]MobileMoneyNetwork, error) {
+// Networks returns available MoMo operators for a country.
+func (a *YellowCardOffRampAdapter) Networks(ctx context.Context, countryCode string) ([]offramp.MobileMoneyNetwork, error) {
 	channels, err := a.ycAdapter.GetChannels(ctx, countryCode)
 	if err != nil {
 		return nil, err
@@ -588,7 +620,7 @@ func (a *YellowCardOffRampAdapter) GetMobileMoneyNetworks(ctx context.Context, c
 		return nil, err
 	}
 
-	result := make([]MobileMoneyNetwork, 0, len(networks))
+	result := make([]offramp.MobileMoneyNetwork, 0, len(networks))
 	for _, n := range networks {
 		if n.Status != "active" {
 			continue
@@ -596,7 +628,7 @@ func (a *YellowCardOffRampAdapter) GetMobileMoneyNetworks(ctx context.Context, c
 
 		for _, cid := range n.ChannelIDs {
 			if channelIDs[cid] {
-				result = append(result, MobileMoneyNetwork{
+				result = append(result, offramp.MobileMoneyNetwork{
 					ID:     n.ID,
 					Name:   n.Name,
 					Code:   n.CodeString(),
@@ -610,8 +642,8 @@ func (a *YellowCardOffRampAdapter) GetMobileMoneyNetworks(ctx context.Context, c
 	return result, nil
 }
 
-// GetAvailableBalance returns the available USD balance for disbursements.
-func (a *YellowCardOffRampAdapter) GetAvailableBalance(ctx context.Context) (float64, error) {
+// AvailableBalance returns the available USD balance for disbursements.
+func (a *YellowCardOffRampAdapter) AvailableBalance(ctx context.Context) (float64, error) {
 	return a.ycAdapter.GetAvailableBalance(ctx)
 }
 
@@ -669,7 +701,7 @@ func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryC
 	}
 
 	if matchedNetwork == nil {
-		return "", "", &NetworkNotFoundError{
+		return "", "", &yellowcard.NetworkNotFoundError{
 			NetworkCode: networkCode,
 			NetworkName: networkName,
 			Country:     countryCode,
@@ -677,7 +709,7 @@ func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryC
 	}
 
 	if matchedNetwork.Status != "active" {
-		return "", "", &NetworkInactiveError{
+		return "", "", &yellowcard.NetworkInactiveError{
 			NetworkCode: networkCode,
 			NetworkName: matchedNetwork.Name,
 			Country:     countryCode,
@@ -686,42 +718,4 @@ func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryC
 	}
 
 	return matchedNetwork.ID, matchedNetwork.Name, nil
-}
-
-// InsufficientBalanceError is returned when the YellowCard account balance
-// is too low for a fiat disbursement.
-type InsufficientBalanceError struct {
-	Available float64
-	Requested float64
-}
-
-// Error returns a human-readable description of the insufficient balance condition.
-func (e *InsufficientBalanceError) Error() string {
-	return fmt.Sprintf("insufficient YC balance: available %.2f USD, requested %.2f USD",
-		e.Available, e.Requested)
-}
-
-// NetworkNotFoundError is returned when a network is not found in YellowCard.
-type NetworkNotFoundError struct {
-	NetworkCode string
-	NetworkName string
-	Country     string
-}
-
-// Error returns a human-readable description of the missing network.
-func (e *NetworkNotFoundError) Error() string {
-	return fmt.Sprintf("network '%s' (%s) not found in country %s", e.NetworkName, e.NetworkCode, e.Country)
-}
-
-// NetworkInactiveError is returned when a network is not currently active.
-type NetworkInactiveError struct {
-	NetworkCode string
-	NetworkName string
-	Country     string
-	Status      string
-}
-
-// Error returns a human-readable description of the inactive network.
-func (e *NetworkInactiveError) Error() string {
-	return fmt.Sprintf("network '%s' (%s) is currently %s in country %s", e.NetworkName, e.NetworkCode, e.Status, e.Country)
 }

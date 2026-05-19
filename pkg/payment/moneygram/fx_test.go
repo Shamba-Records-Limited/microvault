@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
 // fakeFallback implements FallbackRateSource for tests. Each call returns
@@ -58,7 +60,7 @@ func newPrimaryReturning(t *testing.T, rate float64) *FXRateClient {
 
 func TestFXOrchestrator_RejectsBothNil(t *testing.T) {
 	_, err := NewFXOrchestrator(nil, nil, FXOrchestratorConfig{}, nil)
-	require.ErrorIs(t, err, ErrInvalidConfig)
+	require.ErrorIs(t, err, stellaranchor.ErrInvalidConfig)
 }
 
 func TestFXOrchestrator_PrimarySuccess_AppliesPrimaryBuffer(t *testing.T) {
@@ -191,7 +193,7 @@ func TestFXOrchestrator_RejectsEmptyCurrencies(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = o.Quote(context.Background(), FXQuoteRequest{})
-	require.ErrorIs(t, err, ErrInvalidConfig)
+	require.ErrorIs(t, err, stellaranchor.ErrInvalidConfig)
 }
 
 func TestFXOrchestrator_ValidateAmount(t *testing.T) {

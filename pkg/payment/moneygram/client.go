@@ -1,19 +1,20 @@
 package moneygram
 
 import (
-	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
 // Config bundles everything required to construct a Client: TOML-derived
 // values, treasury secret, and optional REST credentials for the FX Rate API.
 //
-// Fetch the TOML at startup (FetchTOML), validate it (TOML.Validate), and
-// pass the relevant fields here. Doing it that way means TOML rotation
-// surfaces as an explicit re-Validate at boot, not as a silent runtime drift.
+// Fetch the TOML at startup (stellaranchor.FetchTOML), validate it
+// (TOML.Validate), and pass the relevant fields here. Doing it that way means
+// TOML rotation surfaces as an explicit re-Validate at boot, not as a silent
+// runtime drift.
 type Config struct {
 	// HomeDomain — e.g. "stellar.moneygram.com".
 	HomeDomain string
@@ -57,24 +58,20 @@ type RESTConfig struct {
 	Scope         string
 }
 
-// Client is the top-level MoneyGram SDK handle. Sub-clients are exported so
-// consumers can reach in for advanced cases; the convenience methods on
-// Client cover the common cash-pickup off-ramp flow.
+// Client is the top-level MoneyGram SDK handle. It embeds the generic
+// stellaranchor.Client (SEP-1/9/10/24 + JWT cache) and layers on MG-specific
+// REST OAuth and FX Rate clients.
 type Client struct {
-	Auth     *AuthClient
-	JWTCache *JWTCache
-	Anchor   *AnchorClient
-	OAuth    *OAuthClient   // nil when REST credentials not provided
-	FXRate   *FXRateClient  // nil when REST credentials not provided
+	*stellaranchor.Client
+	OAuth  *OAuthClient  // nil when REST credentials not provided
+	FXRate *FXRateClient // nil when REST credentials not provided
 
 	cfg Config
 }
 
-// New wires every sub-client.
+// New wires every sub-client. The embedded stellaranchor.Client is always
+// constructed; OAuth + FXRate are only wired when REST credentials are set.
 func New(cfg Config) (*Client, error) {
-	if cfg.JWTSafetyMargin <= 0 {
-		cfg.JWTSafetyMargin = 60 * time.Second
-	}
 	if cfg.FXRateCacheTTL <= 0 {
 		cfg.FXRateCacheTTL = 60 * time.Second
 	}
@@ -82,28 +79,23 @@ func New(cfg Config) (*Client, error) {
 		cfg.Logger = slog.Default()
 	}
 
-	auth, err := NewAuthClient(AuthConfig{
+	anchor, err := stellaranchor.New(stellaranchor.Config{
+		HomeDomain:        cfg.HomeDomain,
 		WebAuthEndpoint:   cfg.WebAuthEndpoint,
+		TransferServerURL: cfg.TransferServerURL,
 		ServerSigningKey:  cfg.ServerSigningKey,
 		NetworkPassphrase: cfg.NetworkPassphrase,
-		HomeDomain:        cfg.HomeDomain,
+		USDCIssuer:        cfg.USDCIssuer,
 		TreasurySecret:    cfg.TreasurySecret,
-	}, cfg.HTTPClient, cfg.Logger)
+		HTTPClient:        cfg.HTTPClient,
+		Logger:            cfg.Logger,
+		JWTSafetyMargin:   cfg.JWTSafetyMargin,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	anchor, err := NewAnchorClient(AnchorConfig{TransferServerURL: cfg.TransferServerURL}, cfg.HTTPClient, cfg.Logger)
-	if err != nil {
-		return nil, err
-	}
-
-	c := &Client{
-		Auth:     auth,
-		JWTCache: NewJWTCache(auth, cfg.JWTSafetyMargin),
-		Anchor:   anchor,
-		cfg:      cfg,
-	}
+	c := &Client{Client: anchor, cfg: cfg}
 
 	if restConfigured(cfg.REST) {
 		oauth, err := NewOAuthClient(OAuthConfig{
@@ -129,46 +121,6 @@ func New(cfg Config) (*Client, error) {
 	return c, nil
 }
 
-// TreasuryAddress returns the custodial G... account ID. Use this as the
-// SEP-10 account, the source of withdrawal Stellar payments, and the
-// Stellar account that needs the USDC trustline.
-func (c *Client) TreasuryAddress() string {
-	return c.Auth.TreasuryAddress()
-}
-
-// USDCIssuer returns the Circle USDC issuer pubkey from Config — useful when
-// constructing Stellar Payment operations that need an Asset.
-func (c *Client) USDCIssuer() string {
-	return c.cfg.USDCIssuer
-}
-
-// Token returns a cached SEP-10 JWT for the given child memo, refreshing if
-// stale. Equivalent to JWTCache.Get.
-func (c *Client) Token(ctx context.Context, childMemo int64) (string, error) {
-	return c.JWTCache.Get(ctx, childMemo)
-}
-
-// InitiateWithdrawal is a convenience wrapper that fetches a JWT for
-// childMemo and calls Anchor.InitiateWithdrawal. On a 401 it evicts the
-// cached token and retries once.
-func (c *Client) InitiateWithdrawal(ctx context.Context, childMemo int64, req WithdrawRequest) (*WithdrawResponse, error) {
-	jwt, err := c.JWTCache.Get(ctx, childMemo)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.Anchor.InitiateWithdrawal(ctx, jwt, req)
-	if isUnauthorized(err) {
-		c.JWTCache.Invalidate(childMemo)
-		jwt, err = c.JWTCache.Get(ctx, childMemo)
-		if err != nil {
-			return nil, err
-		}
-		return c.Anchor.InitiateWithdrawal(ctx, jwt, req)
-	}
-	return resp, err
-}
-
 // NewFXOrchestrator returns an FX orchestrator with this client's FXRate
 // sub-client (if available) as the primary source. fallback may be nil when
 // MG REST credentials are configured and the consumer wants MG-only quoting.
@@ -186,30 +138,6 @@ func (c *Client) HasFXRate() bool {
 	return c.FXRate != nil
 }
 
-// GetTransaction is a convenience wrapper around Anchor.GetTransaction with
-// the same JWT cache semantics as InitiateWithdrawal.
-func (c *Client) GetTransaction(ctx context.Context, childMemo int64, txID string) (*Transaction, error) {
-	jwt, err := c.JWTCache.Get(ctx, childMemo)
-	if err != nil {
-		return nil, err
-	}
-
-	tx, err := c.Anchor.GetTransaction(ctx, jwt, txID)
-	if isUnauthorized(err) {
-		c.JWTCache.Invalidate(childMemo)
-		jwt, err = c.JWTCache.Get(ctx, childMemo)
-		if err != nil {
-			return nil, err
-		}
-		return c.Anchor.GetTransaction(ctx, jwt, txID)
-	}
-	return tx, err
-}
-
 func restConfigured(c RESTConfig) bool {
 	return c.BaseURL != "" && c.OAuthTokenURL != "" && c.ClientID != "" && c.ClientSecret != ""
-}
-
-func isUnauthorized(err error) bool {
-	return errors.Is(err, ErrUnauthorized)
 }

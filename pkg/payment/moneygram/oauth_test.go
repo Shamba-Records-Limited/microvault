@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
 func TestOAuthClient_FetchesAndCachesToken(t *testing.T) {
@@ -94,7 +96,7 @@ func TestOAuthClient_RejectsBadConfig(t *testing.T) {
 	}
 	for _, cfg := range tests {
 		_, err := NewOAuthClient(cfg, nil, nil)
-		require.ErrorIs(t, err, ErrInvalidConfig)
+		require.ErrorIs(t, err, stellaranchor.ErrInvalidConfig)
 	}
 }
 
@@ -109,7 +111,7 @@ func TestOAuthClient_PropagatesUnauthorized(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = c.Token(context.Background())
-	require.ErrorIs(t, err, ErrUnauthorized)
+	require.ErrorIs(t, err, stellaranchor.ErrUnauthorized)
 }
 
 func TestOAuthClient_DefaultsExpiry(t *testing.T) {

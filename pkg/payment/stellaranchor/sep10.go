@@ -1,4 +1,4 @@
-package moneygram
+package stellaranchor
 
 import (
 	"context"
@@ -54,20 +54,20 @@ type AuthClient struct {
 func NewAuthClient(cfg AuthConfig, httpClient *http.Client, logger *slog.Logger) (*AuthClient, error) {
 	switch {
 	case cfg.WebAuthEndpoint == "":
-		return nil, fmt.Errorf("moneygram: %w: WebAuthEndpoint required", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: WebAuthEndpoint required", ErrInvalidConfig)
 	case cfg.ServerSigningKey == "":
-		return nil, fmt.Errorf("moneygram: %w: ServerSigningKey required", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: ServerSigningKey required", ErrInvalidConfig)
 	case cfg.NetworkPassphrase == "":
-		return nil, fmt.Errorf("moneygram: %w: NetworkPassphrase required", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: NetworkPassphrase required", ErrInvalidConfig)
 	case cfg.HomeDomain == "":
-		return nil, fmt.Errorf("moneygram: %w: HomeDomain required", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: HomeDomain required", ErrInvalidConfig)
 	case cfg.TreasurySecret == "":
-		return nil, fmt.Errorf("moneygram: %w: TreasurySecret required", ErrInvalidConfig)
+		return nil, fmt.Errorf("stellaranchor: %w: TreasurySecret required", ErrInvalidConfig)
 	}
 
 	kp, err := keypair.ParseFull(cfg.TreasurySecret)
 	if err != nil {
-		return nil, fmt.Errorf("moneygram: %w: parse TreasurySecret: %v", ErrInvalidConfig, err)
+		return nil, fmt.Errorf("stellaranchor: %w: parse TreasurySecret: %v", ErrInvalidConfig, err)
 	}
 
 	if cfg.FallbackTokenTTL <= 0 {
@@ -106,7 +106,7 @@ type AuthResult struct {
 // result via JWTCache rather than calling this on every SEP-24 request.
 func (c *AuthClient) Authenticate(ctx context.Context, childMemo int64) (AuthResult, error) {
 	if childMemo < 0 {
-		return AuthResult{}, fmt.Errorf("moneygram: %w: childMemo must be non-negative", ErrInvalidConfig)
+		return AuthResult{}, fmt.Errorf("stellaranchor: %w: childMemo must be non-negative", ErrInvalidConfig)
 	}
 
 	challenge, err := c.fetchChallenge(ctx, childMemo)
@@ -125,7 +125,7 @@ func (c *AuthClient) Authenticate(ctx context.Context, childMemo int64) (AuthRes
 	}
 
 	expiresAt := tokenExpiry(jwt, time.Now().Add(c.cfg.FallbackTokenTTL))
-	c.logger.Debug("moneygram: sep-10 token issued",
+	c.logger.Debug("stellaranchor: sep-10 token issued",
 		"memo", childMemo,
 		"expires_at", expiresAt.Format(time.RFC3339),
 	)
@@ -139,18 +139,18 @@ func (c *AuthClient) fetchChallenge(ctx context.Context, memo int64) (string, er
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.WebAuthEndpoint+"?"+q.Encode(), nil)
 	if err != nil {
-		return "", fmt.Errorf("moneygram: build challenge request: %w", err)
+		return "", fmt.Errorf("stellaranchor: build challenge request: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("moneygram: SEP-10 challenge request: %w", err)
+		return "", fmt.Errorf("stellaranchor: SEP-10 challenge request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("moneygram: SEP-10 challenge HTTP %d: %s",
+		return "", fmt.Errorf("stellaranchor: SEP-10 challenge HTTP %d: %s",
 			resp.StatusCode, truncate(string(body), 200))
 	}
 
@@ -159,13 +159,13 @@ func (c *AuthClient) fetchChallenge(ctx context.Context, memo int64) (string, er
 		NetworkPassphrase string `json:"network_passphrase"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", fmt.Errorf("moneygram: decode challenge: %w", err)
+		return "", fmt.Errorf("stellaranchor: decode challenge: %w", err)
 	}
 	if parsed.Transaction == "" {
-		return "", fmt.Errorf("moneygram: challenge response missing 'transaction'")
+		return "", fmt.Errorf("stellaranchor: challenge response missing 'transaction'")
 	}
 	if parsed.NetworkPassphrase != "" && parsed.NetworkPassphrase != c.cfg.NetworkPassphrase {
-		return "", fmt.Errorf("moneygram: challenge network passphrase mismatch (got %q, want %q)",
+		return "", fmt.Errorf("stellaranchor: challenge network passphrase mismatch (got %q, want %q)",
 			parsed.NetworkPassphrase, c.cfg.NetworkPassphrase)
 	}
 	return parsed.Transaction, nil
@@ -183,17 +183,17 @@ func (c *AuthClient) coSignChallenge(challengeXDR string) (string, error) {
 		[]string{c.cfg.HomeDomain},
 	)
 	if err != nil {
-		return "", fmt.Errorf("moneygram: validate SEP-10 challenge: %w", err)
+		return "", fmt.Errorf("stellaranchor: validate SEP-10 challenge: %w", err)
 	}
 
 	signed, err := tx.Sign(c.cfg.NetworkPassphrase, c.treasury)
 	if err != nil {
-		return "", fmt.Errorf("moneygram: co-sign SEP-10 challenge: %w", err)
+		return "", fmt.Errorf("stellaranchor: co-sign SEP-10 challenge: %w", err)
 	}
 
 	out, err := signed.Base64()
 	if err != nil {
-		return "", fmt.Errorf("moneygram: encode signed challenge: %w", err)
+		return "", fmt.Errorf("stellaranchor: encode signed challenge: %w", err)
 	}
 	return out, nil
 }
@@ -201,29 +201,29 @@ func (c *AuthClient) coSignChallenge(challengeXDR string) (string, error) {
 func (c *AuthClient) submitChallenge(ctx context.Context, signedXDR string) (string, error) {
 	body, err := json.Marshal(map[string]string{"transaction": signedXDR})
 	if err != nil {
-		return "", fmt.Errorf("moneygram: marshal challenge submission: %w", err)
+		return "", fmt.Errorf("stellaranchor: marshal challenge submission: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.WebAuthEndpoint, strings.NewReader(string(body)))
 	if err != nil {
-		return "", fmt.Errorf("moneygram: build token request: %w", err)
+		return "", fmt.Errorf("stellaranchor: build token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("moneygram: SEP-10 token request: %w", err)
+		return "", fmt.Errorf("stellaranchor: SEP-10 token request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return "", fmt.Errorf("moneygram: %w: SEP-10 token endpoint rejected challenge", ErrUnauthorized)
+		return "", fmt.Errorf("stellaranchor: %w: SEP-10 token endpoint rejected challenge", ErrUnauthorized)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("moneygram: SEP-10 token HTTP %d: %s",
+		return "", fmt.Errorf("stellaranchor: SEP-10 token HTTP %d: %s",
 			resp.StatusCode, truncate(string(respBody), 200))
 	}
 
@@ -231,10 +231,10 @@ func (c *AuthClient) submitChallenge(ctx context.Context, signedXDR string) (str
 		Token string `json:"token"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return "", fmt.Errorf("moneygram: decode token response: %w", err)
+		return "", fmt.Errorf("stellaranchor: decode token response: %w", err)
 	}
 	if parsed.Token == "" {
-		return "", fmt.Errorf("moneygram: token response missing 'token'")
+		return "", fmt.Errorf("stellaranchor: token response missing 'token'")
 	}
 	return parsed.Token, nil
 }

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
 // Service-option codes returned by MoneyGram's FX Rate endpoint. The exact
@@ -70,10 +72,10 @@ type FXRateClient struct {
 // own caching).
 func NewFXRateClient(cfg FXRateConfig, oauth *OAuthClient, httpClient *http.Client, logger *slog.Logger) (*FXRateClient, error) {
 	if cfg.BaseURL == "" {
-		return nil, fmt.Errorf("moneygram: %w: FX Rate BaseURL is required", ErrInvalidConfig)
+		return nil, fmt.Errorf("moneygram: %w: FX Rate BaseURL is required", stellaranchor.ErrInvalidConfig)
 	}
 	if oauth == nil {
-		return nil, fmt.Errorf("moneygram: %w: FX Rate requires an OAuthClient", ErrInvalidConfig)
+		return nil, fmt.Errorf("moneygram: %w: FX Rate requires an OAuthClient", stellaranchor.ErrInvalidConfig)
 	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
@@ -166,7 +168,7 @@ func (c *FXRateClient) fetchAll(ctx context.Context, req FXRateRequest) ([]FXRat
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		c.oauth.Invalidate()
-		return nil, fmt.Errorf("moneygram: %w: FX Rate HTTP 401", ErrUnauthorized)
+		return nil, fmt.Errorf("moneygram: %w: FX Rate HTTP 401", stellaranchor.ErrUnauthorized)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("moneygram: FX Rate HTTP %d: %s",
@@ -183,7 +185,7 @@ func (c *FXRateClient) fetchAll(ctx context.Context, req FXRateRequest) ([]FXRat
 func validateFXRateRequest(req FXRateRequest) error {
 	if req.OriginatingCountry == "" || req.SendCurrency == "" || req.DestinationCountry == "" || req.ServiceOption == "" {
 		return fmt.Errorf("moneygram: %w: FXRateRequest requires OriginatingCountry, SendCurrency, DestinationCountry, ServiceOption",
-			ErrInvalidConfig)
+			stellaranchor.ErrInvalidConfig)
 	}
 	return nil
 }

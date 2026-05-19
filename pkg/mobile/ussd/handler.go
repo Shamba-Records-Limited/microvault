@@ -4,6 +4,7 @@ package ussd
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"strconv"
 	"strings"
@@ -13,6 +14,22 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
 	pinPkg "github.com/Shamba-Records-Limited/microvault/pkg/pin"
 )
+
+// deriveChildAccountIndex turns a stable user ID (a UUID string) into the
+// 32-bit derivation index used by the MoneyGram cash-pickup flow. The
+// function is deterministic: re-invoking it on a restart yields the same
+// index, which lets the poller re-derive the SEP-10 child memo without any
+// persisted state beyond the user ID itself. The reserved value 0 is mapped
+// to 1 so the resulting memo is unambiguously per-user.
+func deriveChildAccountIndex(userID string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(userID))
+	idx := h.Sum32()
+	if idx == 0 {
+		idx = 1
+	}
+	return idx
+}
 
 // sensitiveMenus lists menus where user input contains PII (PINs, national IDs, names).
 var sensitiveMenus = map[string]bool{
@@ -238,6 +255,10 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 	// Loan flow
 	case "request_loan", "loan_amount":
 		return h.handleLoanAmount(ctx, session, input)
+	case "payout_method":
+		return h.handlePayoutMethod(ctx, session, input)
+	case "loan_birthdate":
+		return h.handleLoanBirthdate(ctx, session, input)
 	case "loan_confirm":
 		return h.handleLoanConfirm(ctx, session, input)
 	case "my_loans":
@@ -420,12 +441,68 @@ func (h *USSDHandler) handleLoanAmount(ctx context.Context, session *Session, in
 	session.Data["loan_duration"] = cfg.DurationDays
 	session.Data["repayment_schedule"] = cfg.RepaymentSchedule
 	session.Data["product_id"] = cfg.ProductID
-	session.CurrentMenu = "loan_confirm"
+	session.CurrentMenu = "payout_method"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
 
+	return h.showMenu(session, "payout_method")
+}
+
+// handlePayoutMethod stores the chosen disbursement rail and either advances
+// straight to confirmation (mobile money) or asks for the birth date that
+// MoneyGram needs for SEP-9 KYC prefill (cash pickup).
+func (h *USSDHandler) handlePayoutMethod(ctx context.Context, session *Session, input string) (string, error) {
+	switch input {
+	case "1":
+		session.Data["payout_method"] = "mobile_money"
+		session.CurrentMenu = "loan_confirm"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showLoanConfirmation(ctx, session)
+	case "2":
+		session.Data["payout_method"] = "cash_pickup"
+		session.CurrentMenu = "loan_birthdate"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showMenu(session, "loan_birthdate")
+	default:
+		return h.showMenu(session, "payout_method")
+	}
+}
+
+// handleLoanBirthdate validates the SEP-9 birth date (YYYY-MM-DD) and routes
+// to the confirmation screen. Cash-pickup only.
+func (h *USSDHandler) handleLoanBirthdate(ctx context.Context, session *Session, input string) (string, error) {
+	if !isISODate(input) {
+		return h.formatResponse(session.Language, "CON",
+			"Invalid format. Enter date of birth as YYYY-MM-DD:"), nil
+	}
+	session.Data["birth_date"] = input
+	session.CurrentMenu = "loan_confirm"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
 	return h.showLoanConfirmation(ctx, session)
+}
+
+// isISODate is a light YYYY-MM-DD shape check — full validity is enforced by
+// MoneyGram inside the webview, so we only catch obvious typos here.
+func isISODate(s string) bool {
+	if len(s) != 10 || s[4] != '-' || s[7] != '-' {
+		return false
+	}
+	for i, r := range s {
+		if i == 4 || i == 7 {
+			continue
+		}
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // handleLoanConfirm handles loan confirmation. When PIN service is available,
@@ -522,6 +599,9 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 
 	// Fire off the disbursement pipeline asynchronously so the USSD session
 	// ends immediately. The user is notified via SMS on success or failure.
+	payoutMethod, _ := session.Data["payout_method"].(string)
+	birthDate, _ := session.Data["birth_date"].(string)
+
 	loanReq := &LoanRequest{
 		UserID:          session.UserID,
 		AccountID:       accountID,
@@ -540,6 +620,15 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		LocalAmount:     localAmount,
 		LocalCurrency:   localCurrency,
 		ConversionRate:  buyRate,
+		PayoutMethod:    payoutMethod,
+		BirthDate:       birthDate,
+	}
+	// Cash-pickup needs a stable per-user 32-bit derivation index so the MG
+	// poller can re-derive the SEP-10 child memo on restart. Hashing the
+	// UserID UUID gives us determinism without a schema change — if the
+	// account record ever gains a dedicated column, swap this for a read.
+	if payoutMethod == "cash_pickup" {
+		loanReq.ChildAccountIndex = deriveChildAccountIndex(session.UserID)
 	}
 	go func() {
 		// Use a detached context so the pipeline isn't cancelled when the

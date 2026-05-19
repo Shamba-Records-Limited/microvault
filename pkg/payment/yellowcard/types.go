@@ -1,4 +1,3 @@
-// Package yellowcard provides types and client for the YellowCard payment API.
 package yellowcard
 
 import "encoding/json"
@@ -256,17 +255,6 @@ type AccountsResponse struct {
 type APIError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
-}
-
-// Options contains YellowCard-specific payment options passed via InitializePaymentRequest.
-type Options struct {
-	ChannelID      string      `json:"channel_id"`
-	Destination    Destination `json:"destination"`
-	Sender         Sender      `json:"sender"`
-	Reason         string      `json:"reason"`
-	CustomerUID    string      `json:"customer_uid"`
-	CustomerType   string      `json:"customer_type"`
-	IdempotencyKey string      `json:"idempotency_key"`
 }
 
 // YellowCard payment event statuses (full lifecycle).

@@ -21,6 +21,17 @@ type LoanNotifier interface {
 	NotifyLoanFailed(ctx context.Context, n LoanNotification) error
 	NotifyRepaymentReceived(ctx context.Context, n LoanNotification) error
 	NotifyRepaymentReminder(ctx context.Context, n LoanNotification) error
+
+	// NotifyLoanCashPickupInitiated sends the MoneyGram interactive URL to
+	// the user. The locked payout amount is unknown at this point and
+	// confirmed when the user opens the link; the template should make that
+	// disclosure explicit.
+	NotifyLoanCashPickupInitiated(ctx context.Context, n LoanNotification) error
+
+	// NotifyLoanCashPickupReady sends the cash-pickup reference number once
+	// MoneyGram has locked the payout. Template should include the
+	// reference, the locked amount, and the currency.
+	NotifyLoanCashPickupReady(ctx context.Context, n LoanNotification) error
 }
 
 // EligibilityRequest contains the data needed to assess loan eligibility.
@@ -88,4 +99,12 @@ type LoanNotification struct {
 	Reason           string     // For rejection notifications
 	RemainingBalance float64    // For repayment confirmations
 	DueDate          *time.Time // For repayment reminders
+
+	// InteractiveURL is the MoneyGram SEP-24 webview URL sent in the
+	// cash-pickup initiated SMS. Empty for non-MG notifications.
+	InteractiveURL string
+
+	// CashPickupRef is the reference number the user quotes at the MG agent
+	// when collecting cash. Populated once MG locks the payout.
+	CashPickupRef string
 }
