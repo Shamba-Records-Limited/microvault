@@ -12,6 +12,17 @@ type LoanTemplates struct {
 	Disbursed string
 	// Failed: args = (LoanNumber)
 	Failed string
+	// OffRampFailed: args = (DisplayCurrency, DisplayAmount, LoanNumber).
+	// Sent when vault borrow succeeded but the off-ramp could not be
+	// initiated/completed and the USDC has been returned to the vault. The
+	// borrower owes nothing — distinct from the credit-default "Failed".
+	OffRampFailed string
+	// CashPickupApproved: args = (DisplayCurrency, DisplayAmount, LoanNumber).
+	// Sent when a cash-pickup loan is approved, in place of "Approved" — the
+	// generic copy implies a push disbursement, which is misleading here. A
+	// second SMS with the MoneyGram interactive URL follows once the off-ramp
+	// is initiated (see CashPickupInitiated).
+	CashPickupApproved string
 	// RepaymentReceived: args = (DisplayCurrency, DisplayAmount, LoanNumber, DisplayCurrency, RemainingBalance)
 	RepaymentReceived string
 	// RepaymentOverdue: args = (DisplayCurrency, DisplayAmount, LoanNumber)
@@ -38,6 +49,10 @@ func DefaultLoanTemplates() *LoanTemplates {
 			"The funds are now available in your account.",
 		Failed: "Your loan (Ref: %s) has been marked as defaulted. " +
 			"This will affect your credit score. Please contact support.",
+		OffRampFailed: "We could not disburse your loan of %s %.2f (Ref: %s). " +
+			"No funds left your account and you owe nothing. Please try again or contact support.",
+		CashPickupApproved: "Your cash-pickup loan of %s %.2f has been approved (Ref: %s). " +
+			"You will receive a verification link shortly to complete pickup at a MoneyGram agent.",
 		RepaymentReceived: "Payment of %s %.2f received for loan %s. " +
 			"Remaining balance: %s %.2f. Thank you!",
 		RepaymentOverdue: "URGENT: Your loan payment of %s %.2f is overdue (Ref: %s). " +

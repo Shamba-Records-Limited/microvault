@@ -20,7 +20,7 @@ func (Options) ProviderID() offramp.ProviderID { return offramp.ProviderYellowCa
 type DirectSettlementPayload struct {
 	StellarAddress string // YC-issued wallet
 	StellarMemo    string // memo/walletTag accompanying the USDC transfer
-	StellarTxHash  string // hash of the treasury → YC payment
+	StellarTxHash  string // hash of the treasury to YC payment
 }
 
 // ProviderID identifies this payload's provider.

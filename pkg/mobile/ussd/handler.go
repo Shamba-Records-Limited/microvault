@@ -4,7 +4,6 @@ package ussd
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"log"
 	"strconv"
 	"strings"
@@ -14,22 +13,6 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
 	pinPkg "github.com/Shamba-Records-Limited/microvault/pkg/pin"
 )
-
-// deriveChildAccountIndex turns a stable user ID (a UUID string) into the
-// 32-bit derivation index used by the MoneyGram cash-pickup flow. The
-// function is deterministic: re-invoking it on a restart yields the same
-// index, which lets the poller re-derive the SEP-10 child memo without any
-// persisted state beyond the user ID itself. The reserved value 0 is mapped
-// to 1 so the resulting memo is unambiguously per-user.
-func deriveChildAccountIndex(userID string) uint32 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(userID))
-	idx := h.Sum32()
-	if idx == 0 {
-		idx = 1
-	}
-	return idx
-}
 
 // sensitiveMenus lists menus where user input contains PII (PINs, national IDs, names).
 var sensitiveMenus = map[string]bool{
@@ -50,7 +33,7 @@ var sensitiveMenus = map[string]bool{
 }
 
 // redactPhone masks the middle digits of a phone number.
-// e.g. "254799334972" → "2547XXXX972", "+254799334972" → "+2547XXXX972"
+// e.g. "254799334972" to "2547XXXX972", "+254799334972" to "+2547XXXX972"
 func redactPhone(phone string) string {
 	digits := phone
 	prefix := ""
@@ -529,7 +512,7 @@ func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, i
 }
 
 // submitLoan executes the actual loan request after all gates (PIN, eligibility)
-// have passed. KES→USDC conversion happens in the adapter's RequestLoan method,
+// have passed. KEStoUSDC conversion happens in the adapter's RequestLoan method,
 // so this function passes the fiat amount and lets the adapter handle conversion.
 func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string, error) {
 	if h.userService == nil || h.loanService == nil {
@@ -541,7 +524,7 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	schedule, _ := session.Data["repayment_schedule"].(string)
 	productID, _ := session.Data["product_id"].(string)
 
-	// Fetch exchange rate for KES → USDC conversion.
+	// Fetch exchange rate for KES to USDC conversion.
 	localAmount := toInt64(session.Data["loan_amount_local"])
 	localCurrency, _ := session.Data["local_currency"].(string)
 
@@ -568,6 +551,7 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	}
 
 	var accountID, stellarAddress string
+	var accountIndex uint32
 	if accMap, ok := accounts[0].(map[string]any); ok {
 		if id, ok := accMap["id"].(string); ok {
 			accountID = id
@@ -575,16 +559,22 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		if pk, ok := accMap["public_key"].(string); ok {
 			stellarAddress = pk
 		}
+		// account_index is the BIP-44 derivation index used to derive this
+		// Stellar account from the treasury seed. Reuse it as the MG SEP-10
+		// child-account index so the memo is stable across restarts.
+		if v, ok := accMap["account_index"].(int); ok && v >= 0 {
+			accountIndex = uint32(v)
+		}
 	}
 
 	// Extract user disbursement details for off-ramp.
 	var recipientName, nationalID, countryCode, networkCode, networkName string
 	if userMap, ok := userData.(map[string]any); ok {
-		if v, ok := userMap["full_name"].(*string); ok && v != nil {
-			recipientName = *v
+		if v, ok := userMap["full_name"].(string); ok {
+			recipientName = v
 		}
-		if v, ok := userMap["national_id"].(*string); ok && v != nil {
-			nationalID = *v
+		if v, ok := userMap["national_id"].(string); ok {
+			nationalID = v
 		}
 		if v, ok := userMap["country_code"].(string); ok {
 			countryCode = v
@@ -623,12 +613,11 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		PayoutMethod:    payoutMethod,
 		BirthDate:       birthDate,
 	}
-	// Cash-pickup needs a stable per-user 32-bit derivation index so the MG
-	// poller can re-derive the SEP-10 child memo on restart. Hashing the
-	// UserID UUID gives us determinism without a schema change — if the
-	// account record ever gains a dedicated column, swap this for a read.
+	// Cash-pickup needs the per-user Stellar derivation index so the MG
+	// poller can re-derive the SEP-10 child memo on restart. This is the
+	// real BIP-44 account_index from the accounts row, not a hash.
 	if payoutMethod == "cash_pickup" {
-		loanReq.ChildAccountIndex = deriveChildAccountIndex(session.UserID)
+		loanReq.ChildAccountIndex = accountIndex
 	}
 	go func() {
 		// Use a detached context so the pipeline isn't cancelled when the

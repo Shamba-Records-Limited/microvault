@@ -268,7 +268,7 @@ stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$
 
 ## Critical Notes
 
-- **Owner is the TimelockController.** Every `[only_owner]` function (`set_max_deposit`, `set_max_withdraw`, `set_lock_period`, `set_guardian`, `set_treasury`, `upgrade`, `unpause`) must be invoked via `schedule_op` → `execute_op` on the timelock. A direct call signed by a deployer key will trap on the owner check.
+- **Owner is the TimelockController.** Every `[only_owner]` function (`set_max_deposit`, `set_max_withdraw`, `set_lock_period`, `set_guardian`, `set_treasury`, `upgrade`, `unpause`) must be invoked via `schedule_op` to `execute_op` on the timelock. A direct call signed by a deployer key will trap on the owner check.
 - **Lock period is in seconds, not ledgers.** `set_lock_period(604_800)` = 7 days. Do not confuse this with the TimelockController's `delay`, which is measured in ledger sequence counts.
 - **Decimals offset is 6.** Share-token amounts are scaled by `1e13` (USDC's 7 + offset 6). Trust the `preview_deposit`/`preview_redeem` helpers for conversion. Do not multiply manually.
 - **Utilization cap is hard-enforced at 80 %.** A borrow that would push utilization above the cap reverts with `ExceedsUtilizationCap`. The rate curve above 80 % is intentionally steep (slope-2 = 500 %) to discourage probing the cap.

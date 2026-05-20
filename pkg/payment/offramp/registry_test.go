@@ -73,7 +73,7 @@ func TestRegistry_Resolve_ByPayoutMethod(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ProviderID("mg"), got.ID())
 
-	// Empty PayoutMethod → mobile money default.
+	// Empty PayoutMethod to mobile money default.
 	got, err = r.Resolve(Request{})
 	require.NoError(t, err)
 	assert.Equal(t, ProviderID("yc"), got.ID())

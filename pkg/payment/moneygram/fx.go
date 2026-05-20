@@ -29,7 +29,7 @@ var ErrAmountOutOfRange = errors.New("moneygram: amount out of corridor range")
 // the stale cache are all unusable. Callers must reject the loan request.
 var ErrNoRateAvailable = errors.New("moneygram: no FX rate available from any source")
 
-// FallbackRateSource is implemented by anything that can return a USD →
+// FallbackRateSource is implemented by anything that can return a USD to
 // local-currency exchange rate when MoneyGram's REST FX endpoint is
 // unavailable. The microvault integration wires `yellowcard.YellowcardAdapter`
 // behind a thin function adapter (FallbackRateFunc); tests can supply fakes.
@@ -100,7 +100,7 @@ type FXQuoteResult struct {
 	FetchedAt time.Time
 }
 
-// FXOrchestrator implements the §7 strategy: try MG primary → fallback →
+// FXOrchestrator implements the §7 strategy: try MG primary to fallback to
 // stale cache. Last-known-good is held per (sendCurrency, receiveCurrency)
 // pair and survives across calls within a single process lifetime.
 type FXOrchestrator struct {

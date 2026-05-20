@@ -67,10 +67,10 @@ func (a *YellowCardOffRampAdapter) ID() offramp.ProviderID { return offramp.Prov
 // Initiate is the dual-mode orchestrator for loan disbursement.
 //
 // Settlement flow:
-//   - "direct" (default): Submit with directSettlement=true → send USDC to YC wallet → YC disburses fiat
-//     Failover F1: If YC API call fails → fallback to fiat
-//     Failover F2: If Stellar USDC transfer fails → fallback to fiat (USDC still in treasury)
-//   - "fiat": Check YC balance → submit with forceAccept only → YC disburses from pre-funded balance
+//   - "direct" (default): Submit with directSettlement=true to send USDC to YC wallet to YC disburses fiat
+//     Failover F1: If YC API call fails to fallback to fiat
+//     Failover F2: If Stellar USDC transfer fails to fallback to fiat (USDC still in treasury)
+//   - "fiat": Check YC balance to submit with forceAccept only to YC disburses from pre-funded balance
 func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Request) (*offramp.Result, error) {
 	opts, err := readYCOptions(req.Options)
 	if err != nil {
@@ -238,7 +238,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		"crypto_network", yellowcard.CryptoNetworkXLM,
 	)
 
-	// F1 checkpoint: If YC API call fails, USDC is still in treasury → safe to failover.
+	// F1 checkpoint: If YC API call fails, USDC is still in treasury to safe to failover.
 	resp, err := a.ycAdapter.SubmitPayment(ctx, paymentReq)
 	if err != nil {
 		a.logger.Error("direct settlement API call failed (F1)",
@@ -308,7 +308,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 	}
 
 	// F2 checkpoint: Send USDC from treasury to YellowCard's Stellar wallet.
-	// If Stellar tx fails, USDC is still in treasury → safe to failover.
+	// If Stellar tx fails, USDC is still in treasury to safe to failover.
 	a.logger.Info("sending USDC from treasury to YellowCard wallet",
 		"loan_id", loanID,
 		"destination", stellarAddr,

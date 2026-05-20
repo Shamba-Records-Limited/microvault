@@ -215,7 +215,7 @@ func (p *Poller) Start(ctx context.Context) {
 	}
 }
 
-// poll runs a single cycle: fetch active MG loans → drive each.
+// poll runs a single cycle: fetch active MG loans to drive each.
 func (p *Poller) poll(ctx context.Context) {
 	loans, err := p.fetcher.GetActiveMoneyGramLoans(ctx, p.cfg.MaxBatch)
 	if err != nil {

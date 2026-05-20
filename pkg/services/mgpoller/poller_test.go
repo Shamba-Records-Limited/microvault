@@ -297,7 +297,7 @@ func TestPoller_PendingUserTransferComplete_DriftAlert(t *testing.T) {
 		"external_transaction_id":"REF-12345"
 	}}`)
 
-	// User saw 6500 KES at USSD entry, MG locked 5500 → 15% drift.
+	// User saw 6500 KES at USSD entry, MG locked 5500 to 15% drift.
 	fetcher.loans = []LoanRecord{{
 		LoanID:               "L-1",
 		SequenceID:           "L-1",
@@ -374,7 +374,7 @@ func TestPoller_TerminalFailure_BeforeUSDCSent_NoRepay(t *testing.T) {
 	p.poll(context.Background())
 
 	assert.Equal(t, []string{"L-1=failed"}, disb.statuses)
-	assert.Empty(t, disb.repays, "no USDC sent → nothing to repay")
+	assert.Empty(t, disb.repays, "no USDC sent to nothing to repay")
 }
 
 func TestPoller_NonTerminalState_NoOp(t *testing.T) {

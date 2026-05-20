@@ -47,7 +47,7 @@ pub fn __constructor(
     min_delay: u32,                  // ledger sequence counts, NOT seconds
     proposers: Vec<Address>,
     executors: Vec<Address>,
-    admin: Option<Address>,          // None → self-administered (contract is its own admin)
+    admin: Option<Address>,          // None to self-administered (contract is its own admin)
 )
 ```
 
@@ -117,7 +117,7 @@ The contract does not define its own error enum. Errors propagate from `stellar-
 
 ## CLI Operations
 
-The schedule → wait → execute pattern below is the canonical way to perform any governance action. The same shape applies whether you are bumping a deposit cap, replacing the treasury, unpausing the vault, or upgrading either contract's WASM. See [Operations](./operations.md) for end-to-end deploy and upgrade flows.
+The schedule to wait to execute pattern below is the canonical way to perform any governance action. The same shape applies whether you are bumping a deposit cap, replacing the treasury, unpausing the vault, or upgrading either contract's WASM. See [Operations](./operations.md) for end-to-end deploy and upgrade flows.
 
 All examples assume the env vars in [Operations § Prerequisites](./operations.md#prerequisites) are exported.
 
@@ -139,7 +139,7 @@ stellar contract invoke \
   --salt $(openssl rand -hex 32) \
   --delay 120 \
   --proposer $DEPLOYER  # delay 120 ledgers ≈ 10 min
-# → returns the 32-byte operation_id, e.g.
+# to returns the 32-byte operation_id, e.g.
 # 8c2f4c4e1aab3f0c2d3e7c5d6f9b1a2e7c8d4b3f5e1a0d9c8b7a6e5d4c3b2a1f
 ```
 

@@ -29,7 +29,7 @@ type CashPickupPayload struct {
 	ExternalReference string // cash-pickup reference number (populated post-completion)
 	MoreInfoURL       string // MG-hosted support link for the transaction
 	ChildAccountMemo  int64  // SEP-10 child memo for this withdrawal
-	WithdrawMemo      string // memo MG expects on the treasury → anchor payment
+	WithdrawMemo      string // memo MG expects on the treasury to anchor payment
 	WithdrawMemoType  string // memo type ("id", "hash", "text") MG specifies
 }
 

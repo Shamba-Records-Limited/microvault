@@ -73,7 +73,7 @@ stellar contract deploy \
   --treasury "$TREASURY" \
   --name "MicroVault USDC" \
   --symbol "mvUSDC"
-# → returns the vault contract id
+# to returns the vault contract id
 export VAULT_ID="<RETURNED_CONTRACT_ID>"
 ```
 
@@ -92,7 +92,7 @@ stellar contract deploy \
   --proposers '["'$DEPLOYER'"]' \
   --executors '["'$DEPLOYER'"]' \
   --admin '"'$DEPLOYER'"'
-# → returns the timelock contract id
+# to returns the timelock contract id
 export TIMELOCK_ID="<RETURNED_CONTRACT_ID>"
 ```
 
@@ -105,7 +105,7 @@ Ownership transfer follows the OpenZeppelin `Ownable` two-step pattern. Each leg
 | Call | Who calls | Why direct vs timelocked |
 |---|---|---|
 | `transfer_ownership(new_owner, live_until_ledger)` | **Deployer** (current owner), direct | Requires the **current** owner's auth. The deployer is still the owner at this point, so the call is signed directly by the deployer; no `schedule_op` involved. |
-| `accept_ownership()` | **TimelockController** (pending owner), via `schedule_op` → `execute_op` | Requires the **pending** owner's auth. The pending owner is the controller, and a contract can only call other contracts via `execute_op`, so this leg must be timelocked. |
+| `accept_ownership()` | **TimelockController** (pending owner), via `schedule_op` to `execute_op` | Requires the **pending** owner's auth. The pending owner is the controller, and a contract can only call other contracts via `execute_op`, so this leg must be timelocked. |
 
 `live_until_ledger` is the ledger number until which `accept_ownership` can be called. Set it far enough in the future to comfortably outlast the timelock's `delay`. A value of `0` cancels a pending transfer.
 
@@ -162,20 +162,20 @@ Verify the handover landed:
 
 ```bash
 stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" --rpc-url "$RPC_URL" -- get_owner
-# → expected: "$TIMELOCK_ID"
+# to expected: "$TIMELOCK_ID"
 ```
 
-After step 3c the vault's owner is the controller, and every `[only_owner]` call must flow through `schedule_op` → `execute_op`.
+After step 3c the vault's owner is the controller, and every `[only_owner]` call must flow through `schedule_op` to `execute_op`.
 
 > **Why not schedule `transfer_ownership` through the timelock too?** `transfer_ownership` is gated by the **current** owner's auth (`enforce_owner_auth`). Routing it via `execute_op` would make the timelock the auth source, but the timelock is not yet the owner during bootstrap, so the call would fail. Only the second leg (`accept_ownership`) needs to be timelocked, because that one requires the *pending* owner's auth, and the pending owner *is* the timelock.
 
-## Rotate Vault ownership (timelock → new owner)
+## Rotate Vault ownership (timelock to new owner)
 
 If you later need to move ownership away from the controller — say, to a multisig or a new governance contract — the auth roles invert and the directness of each leg flips with them:
 
 | Call | Who calls | Why direct vs timelocked |
 |---|---|---|
-| `transfer_ownership(new_owner, live_until_ledger)` | **TimelockController** (current owner), via `schedule_op` → `execute_op` | Requires the **current** owner's auth. The current owner is now the timelock, so the call must go through `schedule_op` → wait → `execute_op`. |
+| `transfer_ownership(new_owner, live_until_ledger)` | **TimelockController** (current owner), via `schedule_op` to `execute_op` | Requires the **current** owner's auth. The current owner is now the timelock, so the call must go through `schedule_op` to wait to `execute_op`. |
 | `accept_ownership()` | **New owner** (pending), direct (or via that owner's own governance) | Requires the **pending** owner's auth. If the new owner is an EOA or multisig signer, they call `accept_ownership` directly with their own key. |
 
 ```bash
@@ -227,14 +227,14 @@ stellar contract invoke \
 
 # Verify.
 stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" --rpc-url "$RPC_URL" -- get_owner
-# → expected: "$NEW_OWNER"
+# to expected: "$NEW_OWNER"
 ```
 
-If the new owner is itself a contract (e.g. another timelock or a multisig contract), step R3 is replaced by that contract's own mechanism for issuing a call to `accept_ownership()`. For a fresh timelock, that means another `schedule_op` → `execute_op` round, mirroring step 3b/3c of the bootstrap.
+If the new owner is itself a contract (e.g. another timelock or a multisig contract), step R3 is replaced by that contract's own mechanism for issuing a call to `accept_ownership()`. For a fresh timelock, that means another `schedule_op` to `execute_op` round, mirroring step 3b/3c of the bootstrap.
 
 To **abort** a pending transfer at any point before acceptance, the current owner calls `transfer_ownership(<anything>, 0)`. `live_until_ledger = 0` cancels the pending transfer per the OpenZeppelin spec. During bootstrap the deployer can do this directly; after rotation it must go through the timelock.
 
-## Schedule → Execute Pattern
+## Schedule to Execute Pattern
 
 This is the canonical shape for every governance action against the vault. Substitute the function name and `--args` JSON for the specific operation; the scaffolding stays identical.
 
@@ -254,7 +254,7 @@ stellar contract invoke \
   --salt $SALT \
   --delay 120 \
   --proposer $DEPLOYER
-# → returns the operation_id
+# to returns the operation_id
 
 # 2. Wait for `delay` ledgers.
 
@@ -411,7 +411,7 @@ If the controller has an external admin instead of self-administration, the admi
 
 ## Common Admin Operations
 
-Each row below shows just the `--target`, `--function`, and `--args` you slot into the [Schedule → Execute Pattern](#schedule--execute-pattern). Everything else (predecessor, salt, delay, proposer, executor) is unchanged.
+Each row below shows just the `--target`, `--function`, and `--args` you slot into the [Schedule to Execute Pattern](#schedule--execute-pattern). Everything else (predecessor, salt, delay, proposer, executor) is unchanged.
 
 | Operation | Target | Function | Args |
 |---|---|---|---|

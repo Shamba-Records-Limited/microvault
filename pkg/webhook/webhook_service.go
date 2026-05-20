@@ -69,15 +69,15 @@ var _ WebhookEventHandler = (*Service)(nil)
 // ProcessYellowCardEvent handles a single YellowCard webhook event by mapping
 // it to the appropriate disbursement status update and side effects.
 //
-// Event → Action mapping:
+// Event to Action mapping:
 //
-//	DISBURSEMENT.COMPLETE / PAYMENT.COMPLETE → DisbursementComplete + notify user
-//	DISBURSEMENT.FAILED / PAYMENT.FAILED → if direct: DisbursementRefundPending; if fiat: DisbursementFailed + alert ops
-//	PENDING_LIQUIDITY → alert ops (YC balance low, auto-retries for 2hrs)
-//	REFUNDED → DisbursementRefundReceived (RefundPoller handles fiat failover)
-//	REFUND_FAILED → DisbursementFailed + alert ops
-//	EXPIRED / CANCELLED → treat as FAILED
-//	PROCESSING / PENDING / PROCESS → DisbursementProcessing
+//	DISBURSEMENT.COMPLETE / PAYMENT.COMPLETE to DisbursementComplete + notify user
+//	DISBURSEMENT.FAILED / PAYMENT.FAILED to if direct: DisbursementRefundPending; if fiat: DisbursementFailed + alert ops
+//	PENDING_LIQUIDITY to alert ops (YC balance low, auto-retries for 2hrs)
+//	REFUNDED to DisbursementRefundReceived (RefundPoller handles fiat failover)
+//	REFUND_FAILED to DisbursementFailed + alert ops
+//	EXPIRED / CANCELLED to treat as FAILED
+//	PROCESSING / PENDING / PROCESS to DisbursementProcessing
 func (s *Service) ProcessYellowCardEvent(event yellowcard.WebhookEvent) error {
 	seqID := event.Data.SequenceID
 	paymentID := event.Data.PaymentID
@@ -110,7 +110,7 @@ func (s *Service) ProcessYellowCardEvent(event yellowcard.WebhookEvent) error {
 // handleFailedEvent processes FAILED events with mode-specific logic.
 func (s *Service) handleFailedEvent(seqID, paymentID, status string, isDirect bool) error {
 	if isDirect {
-		// Direct settlement failed after USDC was sent → YC will refund crypto.
+		// Direct settlement failed after USDC was sent to YC will refund crypto.
 		// Set to refund_pending; RefundPoller will detect the refund and trigger fiat failover.
 		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementRefundPending); err != nil {
 			return fmt.Errorf("update status to refund_pending: %w", err)
@@ -118,7 +118,7 @@ func (s *Service) handleFailedEvent(seqID, paymentID, status string, isDirect bo
 		s.alertOps("Direct Settlement Failed",
 			fmt.Sprintf("Payment %s (seq: %s) failed after USDC sent. Awaiting crypto refund.", paymentID, seqID))
 	} else {
-		// Fiat disbursement failed → terminal failure.
+		// Fiat disbursement failed to terminal failure.
 		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementFailed); err != nil {
 			return fmt.Errorf("update status to failed: %w", err)
 		}

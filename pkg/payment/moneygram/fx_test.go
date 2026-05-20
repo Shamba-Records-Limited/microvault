@@ -104,7 +104,7 @@ func TestFXOrchestrator_PrimaryFail_FallsBackToFallback(t *testing.T) {
 }
 
 func TestFXOrchestrator_BothFail_ServesStaleCache(t *testing.T) {
-	// First call: primary OK → caches at 100.0 with 1% buffer = 99.0.
+	// First call: primary OK to caches at 100.0 with 1% buffer = 99.0.
 	primary := newPrimaryReturning(t, 100.0)
 	fb := &fakeFallback{err: errors.New("yc down")}
 	o, err := NewFXOrchestrator(primary, fb, FXOrchestratorConfig{

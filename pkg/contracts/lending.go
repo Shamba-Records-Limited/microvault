@@ -19,6 +19,15 @@ type LoanNotifier interface {
 	NotifyLoanRejected(ctx context.Context, n LoanNotification) error
 	NotifyLoanDisbursed(ctx context.Context, n LoanNotification) error
 	NotifyLoanFailed(ctx context.Context, n LoanNotification) error
+	// NotifyLoanOffRampFailed reports that vault borrow succeeded but fiat
+	// disbursement could not be completed and the USDC has been returned to
+	// the vault. Distinct from NotifyLoanFailed, which is a credit-default
+	// notice.
+	NotifyLoanOffRampFailed(ctx context.Context, n LoanNotification) error
+	// NotifyLoanCashPickupApproved acknowledges approval of a cash-pickup
+	// loan without implying a push disbursement is on the way. A subsequent
+	// NotifyLoanCashPickupInitiated carries the MoneyGram interactive URL.
+	NotifyLoanCashPickupApproved(ctx context.Context, n LoanNotification) error
 	NotifyRepaymentReceived(ctx context.Context, n LoanNotification) error
 	NotifyRepaymentReminder(ctx context.Context, n LoanNotification) error
 

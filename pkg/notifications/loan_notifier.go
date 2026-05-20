@@ -47,6 +47,16 @@ func (s *SMSLoanNotifier) NotifyLoanFailed(ctx context.Context, n contracts.Loan
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
+func (s *SMSLoanNotifier) NotifyLoanOffRampFailed(ctx context.Context, n contracts.LoanNotification) error {
+	msg := fmt.Sprintf(s.templates.OffRampFailed, n.DisplayCurrency, n.DisplayAmount, n.LoanNumber)
+	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+}
+
+func (s *SMSLoanNotifier) NotifyLoanCashPickupApproved(ctx context.Context, n contracts.LoanNotification) error {
+	msg := fmt.Sprintf(s.templates.CashPickupApproved, n.DisplayCurrency, n.DisplayAmount, n.LoanNumber)
+	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+}
+
 func (s *SMSLoanNotifier) NotifyRepaymentReceived(ctx context.Context, n contracts.LoanNotification) error {
 	msg := fmt.Sprintf(s.templates.RepaymentReceived,
 		n.DisplayCurrency, n.DisplayAmount, n.LoanNumber,
@@ -103,6 +113,12 @@ func (*NoOpLoanNotifier) NotifyLoanDisbursed(context.Context, contracts.LoanNoti
 	return nil
 }
 func (*NoOpLoanNotifier) NotifyLoanFailed(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+func (*NoOpLoanNotifier) NotifyLoanOffRampFailed(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+func (*NoOpLoanNotifier) NotifyLoanCashPickupApproved(context.Context, contracts.LoanNotification) error {
 	return nil
 }
 func (*NoOpLoanNotifier) NotifyRepaymentReceived(context.Context, contracts.LoanNotification) error {

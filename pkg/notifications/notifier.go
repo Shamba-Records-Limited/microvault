@@ -64,7 +64,7 @@ var _ Notifier = (*NoOpNotifier)(nil)
 func (*NoOpNotifier) Send(context.Context, string, string) error { return nil }
 
 // redactPhone masks the middle digits of a phone number for safe logging.
-// e.g. "254799334972" → "2547XXXX972", "+254799334972" → "+2547XXXX972"
+// e.g. "254799334972" to "2547XXXX972", "+254799334972" to "+2547XXXX972"
 func redactPhone(phone string) string {
 	digits := phone
 	prefix := ""

@@ -128,7 +128,7 @@ func (c *FXRateClient) Get(ctx context.Context, req FXRateRequest) (FXRate, erro
 			return r, nil
 		}
 	}
-	return FXRate{}, fmt.Errorf("moneygram: %w: %s for %s→%s",
+	return FXRate{}, fmt.Errorf("moneygram: %w: %s for %sto%s",
 		ErrServiceOptionUnavailable, req.ServiceOption, req.OriginatingCountry, req.DestinationCountry)
 }
 
