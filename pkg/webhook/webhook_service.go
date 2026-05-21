@@ -31,6 +31,12 @@ type DisbursementUpdater interface {
 	// RepayVault returns borrowed USDC from treasury to the vault pool for the
 	// loan identified by sequenceID. No-op if already repaid.
 	RepayVault(sequenceID string) error
+
+	// SetSettlementMethod updates the loan's settlement_method field. Called
+	// by RefundPoller when a direct-mode disbursement is failed over to fiat
+	// so the eventual DisbursementComplete handler correctly triggers the
+	// vault repay branch.
+	SetSettlementMethod(sequenceID string, method string) error
 }
 
 // AlertService is the interface for sending operational alerts.

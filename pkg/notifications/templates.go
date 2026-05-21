@@ -4,36 +4,36 @@ package notifications
 // Each template uses fmt.Sprintf-style verbs; the exact arguments are
 // documented per-field.
 type LoanTemplates struct {
-	// Approved: args = (DisplayCurrency, DisplayAmount, LoanNumber)
+	// Approved: args = (DisplayCurrency, DisplayAmount, LoanReference)
 	Approved string
 	// Rejected: args = (DisplayCurrency, DisplayAmount, Reason)
 	Rejected string
-	// Disbursed: args = (DisplayCurrency, DisplayAmount, LoanNumber)
+	// Disbursed: args = (DisplayCurrency, DisplayAmount, LoanReference)
 	Disbursed string
-	// Failed: args = (LoanNumber)
+	// Failed: args = (LoanReference)
 	Failed string
-	// OffRampFailed: args = (DisplayCurrency, DisplayAmount, LoanNumber).
+	// OffRampFailed: args = (DisplayCurrency, DisplayAmount, LoanReference).
 	// Sent when vault borrow succeeded but the off-ramp could not be
 	// initiated/completed and the USDC has been returned to the vault. The
 	// borrower owes nothing — distinct from the credit-default "Failed".
 	OffRampFailed string
-	// CashPickupApproved: args = (DisplayCurrency, DisplayAmount, LoanNumber).
+	// CashPickupApproved: args = (DisplayCurrency, DisplayAmount, LoanReference).
 	// Sent when a cash-pickup loan is approved, in place of "Approved" — the
 	// generic copy implies a push disbursement, which is misleading here. A
 	// second SMS with the MoneyGram interactive URL follows once the off-ramp
 	// is initiated (see CashPickupInitiated).
 	CashPickupApproved string
-	// RepaymentReceived: args = (DisplayCurrency, DisplayAmount, LoanNumber, DisplayCurrency, RemainingBalance)
+	// RepaymentReceived: args = (DisplayCurrency, DisplayAmount, LoanReference, DisplayCurrency, RemainingBalance)
 	RepaymentReceived string
-	// RepaymentOverdue: args = (DisplayCurrency, DisplayAmount, LoanNumber)
+	// RepaymentOverdue: args = (DisplayCurrency, DisplayAmount, LoanReference)
 	RepaymentOverdue string
-	// RepaymentSoon: args = (DisplayCurrency, DisplayAmount, daysUntilDue, LoanNumber)
+	// RepaymentSoon: args = (DisplayCurrency, DisplayAmount, daysUntilDue, LoanReference)
 	RepaymentSoon string
-	// RepaymentUpcoming: args = (DisplayCurrency, DisplayAmount, dueDateFormatted, LoanNumber)
+	// RepaymentUpcoming: args = (DisplayCurrency, DisplayAmount, dueDateFormatted, LoanReference)
 	RepaymentUpcoming string
-	// CashPickupInitiated: args = (LoanNumber, InteractiveURL)
+	// CashPickupInitiated: args = (LoanReference, InteractiveURL)
 	CashPickupInitiated string
-	// CashPickupReady: args = (DisplayCurrency, DisplayAmount, CashPickupRef, LoanNumber)
+	// CashPickupReady: args = (DisplayCurrency, DisplayAmount, CashPickupRef, LoanReference)
 	CashPickupReady string
 }
 

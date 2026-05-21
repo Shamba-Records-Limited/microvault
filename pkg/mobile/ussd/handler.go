@@ -33,7 +33,7 @@ var sensitiveMenus = map[string]bool{
 }
 
 // redactPhone masks the middle digits of a phone number.
-// e.g. "254799334972" to "2547XXXX972", "+254799334972" to "+2547XXXX972"
+// e.g. "254799334972" to "254799XXX972", "+254799334972" to "+254799XXX972"
 func redactPhone(phone string) string {
 	digits := phone
 	prefix := ""
@@ -41,11 +41,11 @@ func redactPhone(phone string) string {
 		prefix = "+"
 		digits = phone[1:]
 	}
-	if len(digits) <= 6 {
+	if len(digits) <= 9 {
 		return phone // too short to redact meaningfully
 	}
-	// Keep first 4 and last 3 digits, mask the rest
-	masked := digits[:4] + strings.Repeat("X", len(digits)-7) + digits[len(digits)-3:]
+	// Keep first 6 (country + network) and last 3 digits, mask the rest
+	masked := digits[:6] + strings.Repeat("X", len(digits)-9) + digits[len(digits)-3:]
 	return prefix + masked
 }
 
@@ -438,19 +438,19 @@ func (h *USSDHandler) handleLoanAmount(ctx context.Context, session *Session, in
 func (h *USSDHandler) handlePayoutMethod(ctx context.Context, session *Session, input string) (string, error) {
 	switch input {
 	case "1":
-		session.Data["payout_method"] = "mobile_money"
-		session.CurrentMenu = "loan_confirm"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
-		}
-		return h.showLoanConfirmation(ctx, session)
-	case "2":
 		session.Data["payout_method"] = "cash_pickup"
 		session.CurrentMenu = "loan_birthdate"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
 		return h.showMenu(session, "loan_birthdate")
+	case "2":
+		session.Data["payout_method"] = "mobile_money"
+		session.CurrentMenu = "loan_confirm"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showLoanConfirmation(ctx, session)
 	default:
 		return h.showMenu(session, "payout_method")
 	}

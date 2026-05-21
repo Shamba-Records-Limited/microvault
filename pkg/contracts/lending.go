@@ -72,7 +72,7 @@ type CreateLoanRequest struct {
 // LoanRecord represents a loan with vault and ramp disbursement tracking.
 type LoanRecord struct {
 	ID                 string
-	LoanNumber         string
+	LoanReference      string
 	UserID             string
 	AccountID          string
 	PrincipalAmount    int64
@@ -98,7 +98,7 @@ type LoanRecord struct {
 // LoanNotification contains data for loan lifecycle notifications.
 type LoanNotification struct {
 	LoanID           string
-	LoanNumber       string
+	LoanReference    string
 	UserID           string
 	PhoneNumber      string
 	Amount           int64      // Raw amount (stroops/cents) for consumers that need it

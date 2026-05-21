@@ -53,6 +53,7 @@ func defaultReportHandler(_ context.Context, report DeliveryReport) {
 }
 
 // redactPhone masks the middle digits of a phone number for safe logging.
+// e.g. "254799334972" to "254799XXX972".
 func redactPhone(phone string) string {
 	digits := phone
 	prefix := ""
@@ -60,8 +61,8 @@ func redactPhone(phone string) string {
 		prefix = "+"
 		digits = phone[1:]
 	}
-	if len(digits) <= 6 {
+	if len(digits) <= 9 {
 		return phone
 	}
-	return prefix + digits[:4] + strings.Repeat("X", len(digits)-7) + digits[len(digits)-3:]
+	return prefix + digits[:6] + strings.Repeat("X", len(digits)-9) + digits[len(digits)-3:]
 }

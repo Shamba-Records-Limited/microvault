@@ -202,6 +202,13 @@ func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendin
 		return
 	}
 
+	// Flip settlement_method first so the eventual DisbursementComplete
+	// event sees "fiat" and triggers the vault repay (the original "direct"
+	// stamp would silently skip it).
+	if err := p.disbursement.SetSettlementMethod(rec.SequenceID, "fiat"); err != nil {
+		log.Printf("refund_poller: failed to flip settlement_method to fiat for %s: %v", rec.SequenceID, err)
+	}
+
 	fiatStatus := "fiat_submitted"
 	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, fiatStatus); err != nil {
 		log.Printf("refund_poller: failed to update fiat status for %s: %v", rec.SequenceID, err)

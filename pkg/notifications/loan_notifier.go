@@ -28,7 +28,7 @@ func NewSMSLoanNotifier(notifier Notifier, templates *LoanTemplates) *SMSLoanNot
 }
 
 func (s *SMSLoanNotifier) NotifyLoanApproved(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.templates.Approved, n.DisplayCurrency, n.DisplayAmount, n.LoanNumber)
+	msg := fmt.Sprintf(s.templates.Approved, n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
@@ -38,39 +38,39 @@ func (s *SMSLoanNotifier) NotifyLoanRejected(ctx context.Context, n contracts.Lo
 }
 
 func (s *SMSLoanNotifier) NotifyLoanDisbursed(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.templates.Disbursed, n.DisplayCurrency, n.DisplayAmount, n.LoanNumber)
+	msg := fmt.Sprintf(s.templates.Disbursed, n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
 func (s *SMSLoanNotifier) NotifyLoanFailed(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.templates.Failed, n.LoanNumber)
+	msg := fmt.Sprintf(s.templates.Failed, n.LoanReference)
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
 func (s *SMSLoanNotifier) NotifyLoanOffRampFailed(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.templates.OffRampFailed, n.DisplayCurrency, n.DisplayAmount, n.LoanNumber)
+	msg := fmt.Sprintf(s.templates.OffRampFailed, n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupApproved(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.templates.CashPickupApproved, n.DisplayCurrency, n.DisplayAmount, n.LoanNumber)
+	msg := fmt.Sprintf(s.templates.CashPickupApproved, n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentReceived(ctx context.Context, n contracts.LoanNotification) error {
 	msg := fmt.Sprintf(s.templates.RepaymentReceived,
-		n.DisplayCurrency, n.DisplayAmount, n.LoanNumber,
+		n.DisplayCurrency, n.DisplayAmount, n.LoanReference,
 		n.DisplayCurrency, n.RemainingBalance)
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupInitiated(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.templates.CashPickupInitiated, n.LoanNumber, n.InteractiveURL)
+	msg := fmt.Sprintf(s.templates.CashPickupInitiated, n.LoanReference, n.InteractiveURL)
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupReady(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.templates.CashPickupReady, n.DisplayCurrency, n.DisplayAmount, n.CashPickupRef, n.LoanNumber)
+	msg := fmt.Sprintf(s.templates.CashPickupReady, n.DisplayCurrency, n.DisplayAmount, n.CashPickupRef, n.LoanReference)
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
@@ -85,13 +85,13 @@ func (s *SMSLoanNotifier) NotifyRepaymentReminder(ctx context.Context, n contrac
 	switch {
 	case daysUntilDue <= 0:
 		msg = fmt.Sprintf(s.templates.RepaymentOverdue,
-			n.DisplayCurrency, n.DisplayAmount, n.LoanNumber)
+			n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 	case daysUntilDue <= 3:
 		msg = fmt.Sprintf(s.templates.RepaymentSoon,
-			n.DisplayCurrency, n.DisplayAmount, daysUntilDue, n.LoanNumber)
+			n.DisplayCurrency, n.DisplayAmount, daysUntilDue, n.LoanReference)
 	default:
 		msg = fmt.Sprintf(s.templates.RepaymentUpcoming,
-			n.DisplayCurrency, n.DisplayAmount, n.DueDate.Format("2006-01-02"), n.LoanNumber)
+			n.DisplayCurrency, n.DisplayAmount, n.DueDate.Format("2006-01-02"), n.LoanReference)
 	}
 
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)

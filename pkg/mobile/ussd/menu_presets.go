@@ -84,15 +84,15 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("sw", "Ungependa kupokea mkopo wako vipi?").
 		WithTitle("fr", "Comment souhaitez-vous recevoir votre prêt?").
 		WithOption("1", map[string]string{
-			"en": "Mobile Money",
-			"sw": "Pesa za Simu",
-			"fr": "Mobile Money",
-		}, "loan_confirm").
-		WithOption("2", map[string]string{
 			"en": "Cash Pickup (MoneyGram)",
 			"sw": "Kuchukua Pesa (MoneyGram)",
 			"fr": "Retrait en Espèces (MoneyGram)",
 		}, "loan_birthdate").
+		WithOption("2", map[string]string{
+			"en": "Mobile Money",
+			"sw": "Pesa za Simu",
+			"fr": "Mobile Money",
+		}, "loan_confirm").
 		WithAuth(true).
 		Build()
 	registry.Register(payoutMethodMenu)
