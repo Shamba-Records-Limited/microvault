@@ -195,6 +195,7 @@ type LoanProductConfig struct {
 	DurationDays      int    // Fixed loan term in days (e.g. 30).
 	RepaymentSchedule string // Repayment cadence (e.g. "lump_sum").
 	InterestRateBps   int32  // Fallback annual rate in basis points; vault APR takes precedence.
+	OriginationFeeBps int32  // One-off fee in bps (1 bps = 0.01 %). Zero when product has none.
 }
 
 // PINService defines the interface for PIN management operations used by the

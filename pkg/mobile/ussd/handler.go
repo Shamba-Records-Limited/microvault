@@ -661,8 +661,8 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 		var displayAmount string
 
 		if loanMap, ok := loan.(map[string]any); ok {
-			if ref, ok := loanMap["loan_number"].(string); ok {
-				loanRef = ref
+			if ref, ok := loanMap["loan_reference"].(*string); ok && ref != nil {
+				loanRef = *ref
 			}
 			if st, ok := loanMap["status"].(string); ok {
 				status = st
@@ -725,8 +725,8 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, inp
 		var displayAmount string
 
 		if loanMap, ok := loan.(map[string]any); ok {
-			if ref, ok := loanMap["loan_number"].(string); ok {
-				loanRef = ref
+			if ref, ok := loanMap["loan_reference"].(*string); ok && ref != nil {
+				loanRef = *ref
 			}
 			// Prefer KES repayment amount if available
 			if kesAmt, ok := loanMap["repayment_amount_kes"].(*int64); ok && kesAmt != nil {
