@@ -18,7 +18,7 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
-      <div className="container flex h-16 items-center justify-between gap-3">
+      <div className="container max-w-4xl flex h-16 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-4 sm:gap-8">
           <Link to="/" className="flex items-center gap-2">
             <svg
@@ -64,46 +64,54 @@ export function Header() {
           <nav className="flex items-center gap-4 sm:gap-6">
             <Link
               to="/transactions"
-              className="whitespace-nowrap text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              activeProps={{ className: "text-foreground font-semibold" }}
+              inactiveProps={{ className: "text-muted-foreground" }}
+              className="whitespace-nowrap text-sm font-medium hover:text-foreground transition-colors"
             >
               Transactions
             </Link>
             <Link
               to="/our-approach"
-              className="whitespace-nowrap text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              activeProps={{ className: "text-foreground font-semibold" }}
+              inactiveProps={{ className: "text-muted-foreground" }}
+              className="whitespace-nowrap text-sm font-medium hover:text-foreground transition-colors"
             >
               Our Approach
             </Link>
           </nav>
         </div>
 
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           {isConnected ? (
-            <div className="hidden sm:flex items-center gap-2">
-              <Button variant="outline" size="sm" className="font-mono text-xs">
-                <Wallet className="h-3.5 w-3.5" />
-                {address!.slice(0, 4)}...{address!.slice(-4)}
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <Button variant="outline" size="sm" className="font-mono text-xs px-2.5 sm:px-3">
+                <Wallet className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline-block">{address!.slice(0, 4)}...{address!.slice(-4)}</span>
+                <span className="inline-block sm:hidden">{address!.slice(0, 3)}...{address!.slice(-3)}</span>
               </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
                 onClick={disconnect}
                 title="Disconnect wallet"
+                className="h-8 w-8 px-0 flex items-center justify-center shrink-0"
               >
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>
           ) : (
-            <Button variant="outline" size="sm" onClick={connect} className="hidden sm:flex">
-              <Wallet className="h-4 w-4" />
-              Connect Wallet
+            <Button variant="outline" size="sm" onClick={connect} className="flex gap-1.5 px-2.5 sm:px-3">
+              <Wallet className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">Connect Wallet</span>
+              <span className="inline sm:hidden">Connect</span>
             </Button>
           )}
           <a
             href="https://github.com/Shamba-Records-Limited/microvault/"
             target="_blank"
             rel="noopener noreferrer"
-            className="h-9 w-9 rounded-xl bg-foreground flex items-center justify-center hover:opacity-80 transition-opacity"
+            className="h-9 w-9 rounded-xl bg-foreground flex items-center justify-center hover:opacity-80 transition-opacity shrink-0"
+            title="GitHub Repository"
           >
             <svg role="img" viewBox="0 0 24 24" className="h-5 w-5 fill-current text-background"><path d={siGithub.path} /></svg>
           </a>

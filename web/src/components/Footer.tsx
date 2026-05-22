@@ -16,8 +16,8 @@ export function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="border-t border-border mt-16">
-      <div className="container py-10">
+    <footer className="border-t border-border mt-24">
+      <div className="container max-w-4xl py-12">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8">
           {/* Branding */}
           <div className="flex flex-col gap-3">
@@ -31,6 +31,7 @@ export function Footer() {
                 <img
                   src={shambaLogo}
                   alt="Shamba Records"
+                  loading="lazy"
                   className="h-full w-full object-contain"
                 />
               </div>

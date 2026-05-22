@@ -159,7 +159,7 @@ function LiveIndicator() {
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
         <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
       </span>
-      <span className="text-xs font-medium text-green-400">Live</span>
+      <span className="text-[10px] font-mono uppercase tracking-wider text-green-400">Live</span>
     </span>
   );
 }
@@ -169,15 +169,15 @@ function InfoBanner({ accountId, label }: { accountId: string; label: string }) 
   const href = isContract ? contractExplorerUrl(accountId) : accountExplorerUrl(accountId);
 
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/30 px-4 py-3 mb-4">
+    <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5 mb-6">
       <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm text-muted-foreground leading-relaxed">
         {isContract ? `Recent ${label.toLowerCase()} events` : `${label} transactions`} for{" "}
         <a
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="font-mono text-blue-400 hover:underline"
+          className="font-mono text-foreground underline decoration-border hover:decoration-foreground transition-all duration-200"
         >
           {truncateHash(accountId)}
         </a>
@@ -196,7 +196,7 @@ function EmptyState() {
 
 function LoadingSkeleton() {
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" role="status" aria-live="polite" aria-label="Loading transaction history details...">
       {/* biome-ignore lint/suspicious/noArrayIndexKey: Static skeleton loader list that never reorders */}
       {Array.from({ length: 5 }).map((_, i) => (
         <Skeleton key={i} className="h-14 rounded-xl" />
@@ -212,31 +212,31 @@ function LoadingSkeleton() {
 function TxTableRow({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
   return (
     <tr
-      className={`border-b border-border/50 ${isNew ? "animate-in fade-in duration-500 bg-green-500/5" : ""}`}
+      className={`border-b border-border/40 hover:bg-muted/5 transition-colors ${isNew ? "animate-in fade-in duration-500 bg-green-500/5" : ""}`}
     >
-      <td className="py-3 text-sm text-muted-foreground whitespace-nowrap">
+      <td className="py-4 text-sm text-muted-foreground whitespace-nowrap">
         {formatTime(tx.createdAt)}
       </td>
-      <td className="py-3">
-        <Badge variant={tx.successful ? "secondary" : "destructive"}>
+      <td className="py-4">
+        <Badge variant={tx.successful ? "secondary" : "destructive"} className="rounded-md font-mono text-[10px] uppercase tracking-wider px-2 py-0.5">
           {tx.successful ? "Success" : "Failed"}
         </Badge>
       </td>
-      <td className="py-3">
+      <td className="py-4">
         <a
           href={txExplorerUrl(tx.txHash)}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-sm font-mono text-blue-400 hover:underline"
+          className="inline-flex items-center gap-1 text-sm font-mono text-foreground underline decoration-border hover:decoration-foreground transition-all duration-200"
         >
           {truncateHash(tx.txHash)}
-          <ExternalLink className="h-3 w-3" />
+          <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
         </a>
       </td>
-      <td className="py-3 text-sm text-muted-foreground">{tx.ledger}</td>
-      <td className="py-3 text-sm">
+      <td className="py-4 text-sm font-mono text-muted-foreground">{tx.ledger}</td>
+      <td className="py-4 text-sm">
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="outline" className="capitalize font-normal">
+          <Badge variant="outline" className="capitalize font-normal rounded-md text-xs py-0.5 px-2">
             {formatEventName(tx.type)}
           </Badge>
           <span className="text-muted-foreground font-mono text-xs">
@@ -255,39 +255,44 @@ function TxTableRow({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
 function TxCard({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
   return (
     <Card
-      className={`${isNew ? "animate-in fade-in duration-500 border-green-500/30" : ""}`}
+      className={`border border-border/60 bg-card/40 ${isNew ? "animate-in fade-in duration-500 border-green-500/30" : ""}`}
     >
-      <CardContent className="grid grid-cols-2 gap-2 p-4 text-sm">
-        <span className="text-muted-foreground">Time</span>
-        <span>{formatTime(tx.createdAt)}</span>
-        <span className="text-muted-foreground">Status</span>
+      <CardContent className="grid grid-cols-2 gap-y-3 gap-x-4 p-5 text-xs">
+        <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Time</span>
+        <span className="text-foreground font-medium">{formatTime(tx.createdAt)}</span>
+        
+        <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Status</span>
         <Badge
           variant={tx.successful ? "secondary" : "destructive"}
-          className="w-fit"
+          className="w-fit rounded-md font-mono text-[9px] uppercase tracking-wider px-2 py-0.5"
         >
           {tx.successful ? "Success" : "Failed"}
         </Badge>
-        <span className="text-muted-foreground">Tx Hash</span>
+        
+        <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Tx Hash</span>
         <a
           href={txExplorerUrl(tx.txHash)}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 font-mono text-blue-400 hover:underline"
+          className="inline-flex items-center gap-1 font-mono text-foreground underline decoration-border hover:decoration-foreground transition-all duration-200"
         >
           {truncateHash(tx.txHash)}
-          <ExternalLink className="h-3 w-3" />
+          <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
         </a>
-        <span className="text-muted-foreground">Ledger</span>
-        <span>{tx.ledger}</span>
-        <span className="text-muted-foreground">Operation</span>
+        
+        <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Ledger</span>
+        <span className="font-mono text-foreground">{tx.ledger}</span>
+        
+        <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Operation</span>
         <Badge
           variant="outline"
-          className="w-fit max-w-full capitalize font-normal whitespace-normal break-words text-left"
+          className="w-fit max-w-full capitalize font-normal whitespace-normal break-words text-left rounded-md px-2 py-0.5"
         >
           {formatEventName(tx.type)}
         </Badge>
-        <span className="text-muted-foreground">Details</span>
-        <span className="font-mono text-xs break-all">{tx.summary}</span>
+        
+        <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px] self-start mt-0.5">Details</span>
+        <span className="font-mono text-[11px] text-foreground/90 break-all bg-muted/20 border border-border/30 rounded px-2 py-1.5">{tx.summary}</span>
       </CardContent>
     </Card>
   );
@@ -300,25 +305,25 @@ function TxCard({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
 function EventTableRow({ event, isNew }: { event: ContractEventEntry; isNew: boolean }) {
   return (
     <tr
-      className={`border-b border-border/50 ${isNew ? "animate-in fade-in duration-500 bg-green-500/5" : ""}`}
+      className={`border-b border-border/40 hover:bg-muted/5 transition-colors ${isNew ? "animate-in fade-in duration-500 bg-green-500/5" : ""}`}
     >
-      <td className="py-3 pr-4 text-sm text-muted-foreground whitespace-nowrap align-top">
+      <td className="py-4 pr-4 text-sm text-muted-foreground whitespace-nowrap align-top">
         {formatTime(event.createdAt)}
       </td>
-      <td className="py-3 pr-4 align-top">
-        <Badge variant="secondary" className="capitalize">
+      <td className="py-4 pr-4 align-top">
+        <Badge variant="secondary" className="capitalize rounded-md font-mono text-[10px] uppercase tracking-wider px-2 py-0.5">
           {formatEventName(event.eventName)}
         </Badge>
       </td>
-      <td className="py-3 text-sm align-top max-w-0 w-full">
+      <td className="py-4 text-sm align-top max-w-0 w-full">
         <a
           href={opExplorerUrl(event.id)}
           target="_blank"
           rel="noopener noreferrer"
-          className="font-mono text-xs text-blue-400 hover:underline break-all"
+          className="font-mono text-xs text-foreground underline decoration-border/80 hover:decoration-foreground transition-all duration-200 break-all leading-relaxed"
         >
           {formatEventArgs(event.topics, event.value)}
-          <ExternalLink className="inline h-3 w-3 shrink-0 ml-1 align-text-bottom" />
+          <ExternalLink className="inline h-3.5 w-3.5 shrink-0 ml-1 text-muted-foreground align-text-bottom" />
         </a>
       </td>
     </tr>
@@ -332,27 +337,29 @@ function EventTableRow({ event, isNew }: { event: ContractEventEntry; isNew: boo
 function EventCard({ event, isNew }: { event: ContractEventEntry; isNew: boolean }) {
   return (
     <Card
-      className={`${isNew ? "animate-in fade-in duration-500 border-green-500/30" : ""}`}
+      className={`border border-border/60 bg-card/40 ${isNew ? "animate-in fade-in duration-500 border-green-500/30" : ""}`}
     >
-      <CardContent className="grid grid-cols-2 gap-2 p-4 text-sm">
-        <span className="text-muted-foreground">Time</span>
-        <span>{formatTime(event.createdAt)}</span>
-        <span className="text-muted-foreground">Event</span>
+      <CardContent className="grid grid-cols-2 gap-y-3 gap-x-4 p-5 text-xs">
+        <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Time</span>
+        <span className="text-foreground font-medium">{formatTime(event.createdAt)}</span>
+        
+        <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Event</span>
         <Badge
           variant="secondary"
-          className="w-fit max-w-full capitalize whitespace-normal break-words text-left"
+          className="w-fit max-w-full capitalize whitespace-normal break-words text-left rounded-md font-mono text-[9px] uppercase tracking-wider px-2 py-0.5"
         >
           {formatEventName(event.eventName)}
         </Badge>
-        <span className="text-muted-foreground">Details</span>
+        
+        <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px] self-start mt-0.5">Details</span>
         <a
           href={opExplorerUrl(event.id)}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-start gap-1 font-mono text-xs text-blue-400 hover:underline break-all"
+          className="font-mono text-[11px] text-foreground underline decoration-border hover:decoration-foreground transition-all duration-200 break-all bg-muted/20 border border-border/30 rounded px-2 py-1.5 leading-relaxed"
         >
           {formatEventArgs(event.topics, event.value)}
-          <ExternalLink className="h-3 w-3 shrink-0 mt-0.5" />
+          <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground inline-block ml-1 align-text-top" />
         </a>
       </CardContent>
     </Card>
@@ -380,18 +387,6 @@ interface TransactionsTableProps {
 
 /**
  * Renders the full tabbed transactions view.
- * @param props.activeTab - Currently selected tab id
- * @param props.onTabChange - Tab switch handler
- * @param props.transactions - Rows for the Treasury tab (Horizon ops)
- * @param props.events - Rows for Vault / Governance tabs (Soroban RPC events)
- * @param props.isLoading - Whether the current tab is waiting on its first page
- * @param props.isLive - Whether an SSE stream is currently attached
- * @param props.accountId - G-/C-address being queried, used by the info banner
- * @param props.newItemIds - Ids to highlight with the fade-in "new row" animation
- * @param props.onPrevious - Handler for the previous-page button
- * @param props.onNext - Handler for the next-page button
- * @param props.hasPrevious - Whether a previous page is available
- * @param props.hasNext - Whether a next page is available
  */
 export function TransactionsTable({
   activeTab,
@@ -421,14 +416,16 @@ export function TransactionsTable({
             key={tab.id}
             type="button"
             onClick={() => onTabChange(tab.id)}
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            className={`flex-1 rounded-md py-2 text-xs font-semibold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
               activeTab === tab.id
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground shadow-sm animate-fade-in"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            {tab.label}
-            {activeTab === tab.id && isLive && <LiveIndicator />}
+            <span className="inline-flex items-center gap-2">
+              {tab.label}
+              {activeTab === tab.id && isLive && <LiveIndicator />}
+            </span>
           </button>
         ))}
       </div>
@@ -451,19 +448,19 @@ export function TransactionsTable({
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground">
+                    <tr className="border-b border-border/80">
+                      <th className="text-left pb-3 pr-4 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                         Time
                       </th>
-                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground">
+                      <th className="text-left pb-3 pr-4 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                         Event
                       </th>
-                      <th className="text-left py-2 font-medium text-muted-foreground">
+                      <th className="text-left pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                         Details
                       </th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-border/40">
                     {events.map((event) => (
                       <EventTableRow
                         key={event.id}
@@ -476,7 +473,7 @@ export function TransactionsTable({
               </div>
 
               {/* Mobile cards — contract events */}
-              <div className="md:hidden space-y-3">
+              <div className="md:hidden space-y-3.5">
                 {events.map((event) => (
                   <EventCard
                     key={event.id}
@@ -492,25 +489,25 @@ export function TransactionsTable({
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 font-medium text-muted-foreground">
+                    <tr className="border-b border-border/80">
+                      <th className="text-left pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                         Time
                       </th>
-                      <th className="text-left py-2 font-medium text-muted-foreground">
+                      <th className="text-left pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                         Status
                       </th>
-                      <th className="text-left py-2 font-medium text-muted-foreground">
+                      <th className="text-left pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                         Tx Hash
                       </th>
-                      <th className="text-left py-2 font-medium text-muted-foreground">
+                      <th className="text-left pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                         Ledger
                       </th>
-                      <th className="text-left py-2 font-medium text-muted-foreground">
+                      <th className="text-left pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                         Details
                       </th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-border/40">
                     {transactions.map((tx) => (
                       <TxTableRow
                         key={tx.id}
@@ -523,7 +520,7 @@ export function TransactionsTable({
               </div>
 
               {/* Mobile cards — treasury transactions */}
-              <div className="md:hidden space-y-3">
+              <div className="md:hidden space-y-3.5">
                 {transactions.map((tx) => (
                   <TxCard
                     key={tx.id}
@@ -536,12 +533,13 @@ export function TransactionsTable({
           )}
 
           {/* Pagination */}
-          <div className="flex items-center justify-between mt-6">
+          <div className="flex items-center justify-between border-t border-border pt-6 mt-8">
             <Button
               variant="outline"
               size="sm"
               onClick={onPrevious}
               disabled={!hasPrevious}
+              className="font-mono text-xs uppercase tracking-wider cursor-pointer"
             >
               Previous
             </Button>
@@ -550,6 +548,7 @@ export function TransactionsTable({
               size="sm"
               onClick={onNext}
               disabled={!hasNext}
+              className="font-mono text-xs uppercase tracking-wider cursor-pointer"
             >
               Next
             </Button>
