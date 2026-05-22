@@ -1,0 +1,22 @@
+ACCOUNTS = []
+VERSION = "0.1.0"
+NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
+SIGNING_KEY = "GDBO63YQK45L7HBSBM7M3EIQNSJMA4IO2X7EHQ5XNGJTNRUQ7JTQMA4D"
+
+WEB_AUTH_ENDPOINT = ""
+TRANSFER_SERVER_SEP0024 = ""
+
+[[CURRENCIES]]
+code = "USDC"
+issuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+status = "test"
+is_asset_anchored = false
+anchor_asset_type = "fiat"
+desc = "A test USDC issued by Circle."
+
+[DOCUMENTATION]
+ORG_NAME = "Shamba Records"
+ORG_URL = "https://www.shambarecords.com"
+ORG_DESCRIPTION = "Digitizing the agriculture sector and increasing income for small scale farmers."
+ORG_LOGO = "https://www.shambarecords.com/Logo/shamba.svg"
+ORG_SUPPORT_EMAIL = "info@shambarecords.com"
