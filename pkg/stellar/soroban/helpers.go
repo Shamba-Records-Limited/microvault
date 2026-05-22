@@ -2,6 +2,7 @@ package soroban
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -119,8 +120,9 @@ func extractBorrowedRecipient(resultMetaXDR string, contractID string) (string, 
 		events = v3.SorobanMeta.Events
 	case 4:
 		v4 := meta.MustV4()
-		for _, txEvent := range v4.Events {
-			events = append(events, txEvent.Event)
+		// Retrieve contract events from per-operation metadata
+		for _, op := range v4.Operations {
+			events = append(events, op.Events...)
 		}
 	default:
 		return "", fmt.Errorf("unsupported transaction meta version: %d", meta.V)
@@ -143,28 +145,30 @@ func extractBorrowedRecipient(resultMetaXDR string, contractID string) (string, 
 			continue
 		}
 
-		// Check topic[0] == Symbol("Borrowed").
+		// Check topic[0] == Symbol("borrowed") case-insensitively.
 		topics := event.Body.MustV0().Topics
 		if len(topics) == 0 {
 			continue
 		}
-		if topics[0].Type != xdr.ScValTypeScvSymbol || string(*topics[0].Sym) != "Borrowed" {
+		if topics[0].Type != xdr.ScValTypeScvSymbol || !strings.EqualFold(string(*topics[0].Sym), "borrowed") {
 			continue
 		}
 
-		// The event data is a Map with keys: treasury, recipient, amount, total_borrowed.
+		// The event data is either a Vec (standard Soroban order) or a Map.
 		data := event.Body.MustV0().Data
-		if data.Type != xdr.ScValTypeScvMap {
-			continue
-		}
-		scMap := data.MustMap()
-		if scMap == nil {
-			continue
-		}
-
-		for _, entry := range *scMap {
-			if entry.Key.Type == xdr.ScValTypeScvSymbol && string(*entry.Key.Sym) == "recipient" {
-				return scValToAddress(entry.Val)
+		if data.Type == xdr.ScValTypeScvVec {
+			scVec := data.MustVec()
+			if scVec != nil && len(*scVec) > 1 {
+				return scValToAddress((*scVec)[1]) // Index 1 is "recipient" Address
+			}
+		} else if data.Type == xdr.ScValTypeScvMap {
+			scMap := data.MustMap()
+			if scMap != nil {
+				for _, entry := range *scMap {
+					if entry.Key.Type == xdr.ScValTypeScvSymbol && string(*entry.Key.Sym) == "recipient" {
+						return scValToAddress(entry.Val)
+					}
+				}
 			}
 		}
 	}
@@ -187,4 +191,46 @@ func scValToAddress(val xdr.ScVal) (string, error) {
 	default:
 		return "", fmt.Errorf("unknown address type: %v", addr.Type)
 	}
+}
+
+// ExtractContractInfo parses the base64-encoded transaction envelope XDR
+// and extracts the invoked contract ID and contract function name.
+func ExtractContractInfo(envelopeXDR string) (contractID string, functionName string, err error) {
+	var env xdr.TransactionEnvelope
+	if err := xdr.SafeUnmarshalBase64(envelopeXDR, &env); err != nil {
+		return "", "", fmt.Errorf("failed to decode envelope XDR: %w", err)
+	}
+
+	var tx xdr.Transaction
+	switch env.Type {
+	case xdr.EnvelopeTypeEnvelopeTypeTx:
+		tx = env.V1.Tx
+	case xdr.EnvelopeTypeEnvelopeTypeTxFeeBump:
+		if env.FeeBump.Tx.InnerTx.Type == xdr.EnvelopeTypeEnvelopeTypeTx {
+			tx = env.FeeBump.Tx.InnerTx.V1.Tx
+		} else {
+			return "", "", fmt.Errorf("unsupported inner transaction type")
+		}
+	default:
+		return "", "", fmt.Errorf("unsupported envelope type: %v", env.Type)
+	}
+
+	for _, op := range tx.Operations {
+		if op.Body.Type == xdr.OperationTypeInvokeHostFunction {
+			hostFn := op.Body.InvokeHostFunctionOp.HostFunction
+			if hostFn.Type == xdr.HostFunctionTypeHostFunctionTypeInvokeContract {
+				invokeContract := hostFn.InvokeContract
+				if invokeContract.ContractAddress.Type == xdr.ScAddressTypeScAddressTypeContract {
+					contractIDBytes := *invokeContract.ContractAddress.ContractId
+					contractID, err := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
+					if err != nil {
+						return "", "", fmt.Errorf("failed to encode contract ID: %w", err)
+					}
+					return contractID, string(invokeContract.FunctionName), nil
+				}
+			}
+		}
+	}
+
+	return "", "", fmt.Errorf("invoke contract host function not found in transaction")
 }

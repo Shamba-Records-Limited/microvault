@@ -98,6 +98,7 @@ type ProviderPayload interface {
 // into off-ramp providers that need to settle on-chain.
 type TreasuryTransfer interface {
 	SendUSDC(ctx context.Context, destination string, memo string, amount int64) (txHash string, err error)
+	CheckUSDCTrustline(ctx context.Context, address string) (hasTrustline bool, err error)
 }
 
 // Request contains the cross-provider data needed to initiate an off-ramp.

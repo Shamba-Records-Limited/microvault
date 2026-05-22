@@ -39,6 +39,9 @@ type Service interface {
 
 	// SendUSDC sends USDC directly from the treasury wallet to an external Stellar address with a memo.
 	SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error)
+
+	// CheckUSDCTrustline checks if an external address has a trustline for our USDC asset.
+	CheckUSDCTrustline(ctx context.Context, address string) (bool, error)
 }
 
 type service struct {
@@ -417,6 +420,23 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 		Ledger: int64(txResult.Ledger),
 		Status: txResult.Status,
 	}, nil
+}
+
+// CheckUSDCTrustline checks if an external address has a trustline for our USDC asset.
+func (s *service) CheckUSDCTrustline(ctx context.Context, address string) (bool, error) {
+	destination, err := keypair.ParseAddress(address)
+	if err != nil {
+		s.logger.Error("CheckUSDCTrustline: invalid address", slog.String("address", address))
+		return false, types.ErrInvalidStellarAddress
+	}
+
+	destinationAccount, err := s.rpcClient.LoadAccount(ctx, destination.Address())
+	if err != nil {
+		s.logger.Error("CheckUSDCTrustline: failed to load account", slog.String("address", address))
+		return false, types.ErrFailedToLoadAccount
+	}
+
+	return hasAssetTrustline(ctx, s.rpcClient, destinationAccount.GetAccountID(), "USDC", s.usdcIssuer)
 }
 
 // SendUSDC sends USDC directly from the treasury wallet to a destination Stellar address

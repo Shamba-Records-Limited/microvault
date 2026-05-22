@@ -667,11 +667,13 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 			if st, ok := loanMap["status"].(string); ok {
 				status = st
 			}
-			// Prefer KES amount if available
-			if kesAmt, ok := loanMap["disbursement_amount_kes"].(*int64); ok && kesAmt != nil {
+			// Show what the borrower actually received. Pre-disbursement
+			// the column is NULL — display "—" rather than a fabricated
+			// figure derived from a stale hardcoded FX rate.
+			if kesAmt, ok := loanMap["delivered_amount_kes"].(*int64); ok && kesAmt != nil {
 				displayAmount = fmt.Sprintf("KES %.0f", float64(*kesAmt)/100.0)
-			} else if amt, ok := loanMap["total_amount"].(int64); ok {
-				displayAmount = fmt.Sprintf("KES %.0f", float64(amt)/1e7*153.50)
+			} else {
+				displayAmount = "—"
 			}
 		}
 
@@ -722,17 +724,28 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, inp
 		}
 
 		var loanRef = "N/A"
-		var displayAmount string
+		var loanID string
+		var displayAmount = "—"
 
 		if loanMap, ok := loan.(map[string]any); ok {
 			if ref, ok := loanMap["loan_reference"].(*string); ok && ref != nil {
 				loanRef = *ref
 			}
-			// Prefer KES repayment amount if available
-			if kesAmt, ok := loanMap["repayment_amount_kes"].(*int64); ok && kesAmt != nil {
-				displayAmount = fmt.Sprintf("KES %.0f", float64(*kesAmt)/100.0)
-			} else if amt, ok := loanMap["total_amount"].(int64); ok {
-				displayAmount = fmt.Sprintf("KES %.0f", float64(amt)/1e7*153.50)
+			if id, ok := loanMap["id"].(string); ok {
+				loanID = id
+			}
+		}
+
+		// Live amount owed — quote against current vault index + FX. Hard
+		// fail surface: if the quote can't be obtained, show "—" rather
+		// than a stale stored value the borrower might act on.
+		if loanID != "" {
+			if quote, err := h.loanService.GetRepaymentQuote(ctx, loanID); err == nil {
+				displayAmount = fmt.Sprintf("%s %.2f",
+					quote.LocalCurrency,
+					float64(quote.AmountLocalCents)/100.0)
+			} else {
+				log.Printf("repayment quote failed for loan %s: %v", loanID, err)
 			}
 		}
 
@@ -815,7 +828,7 @@ func (h *USSDHandler) showLoanConfirmation(_ context.Context, session *Session) 
 	localAmount := float64(localAmountCents) / 100
 	duration := cfg.DurationDays
 
-	summary := fmt.Sprintf("Loan of %s %.0f for %d days\n\n1. Confirm\n0. Cancel",
+	summary := fmt.Sprintf("Loan of %s %.0f for %d days\n1. Confirm\n0. Cancel",
 		cfg.Currency, localAmount, duration)
 	return "CON " + summary, nil
 }

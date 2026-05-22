@@ -83,6 +83,10 @@ func (s *service) SendUSDC(ctx context.Context, req SendUSDCRequest) (*SendUSDCR
 	return s.classicService.SendUSDC(ctx, req)
 }
 
+func (s *service) CheckUSDCTrustline(ctx context.Context, address string) (bool, error) {
+	return s.classicService.CheckUSDCTrustline(ctx, address)
+}
+
 // Soroban view method delegation
 func (s *service) GetTreasuryAddress(ctx context.Context) (string, error) {
 	return s.sorobanService.GetTreasuryAddress(ctx)

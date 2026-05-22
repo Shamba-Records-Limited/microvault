@@ -9,6 +9,7 @@ import (
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // Common errors for TransactionRepository
@@ -103,6 +104,7 @@ func (r *transactionRepository) GetByID(ctx context.Context, id string) (*models
 func (r *transactionRepository) GetByStellarHash(ctx context.Context, txHash string) (*models.Transaction, error) {
 	var tx models.Transaction
 	result := r.db.WithContext(ctx).
+		Session(&gorm.Session{Logger: r.db.Logger.LogMode(logger.Silent)}).
 		Where("stellar_tx_hash = ?", txHash).
 		First(&tx)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -119,6 +121,7 @@ func (r *transactionRepository) GetByStellarHash(ctx context.Context, txHash str
 func (r *transactionRepository) GetByExternalID(ctx context.Context, externalID string) (*models.Transaction, error) {
 	var tx models.Transaction
 	result := r.db.WithContext(ctx).
+		Session(&gorm.Session{Logger: r.db.Logger.LogMode(logger.Silent)}).
 		Where("external_id = ?", externalID).
 		First(&tx)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {

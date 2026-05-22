@@ -37,6 +37,12 @@ type DisbursementUpdater interface {
 	// so the eventual DisbursementComplete handler correctly triggers the
 	// vault repay branch.
 	SetSettlementMethod(sequenceID string, method string) error
+
+	// IsDirectSettlement reports whether the loan identified by sequenceID
+	// was disbursed via direct settlement. Lets the webhook service branch
+	// FAILED events into refund-pending (direct) vs terminal-failed (fiat)
+	// without YC having to send a directSettlement flag on every webhook.
+	IsDirectSettlement(sequenceID string) (bool, error)
 }
 
 // AlertService is the interface for sending operational alerts.
@@ -85,13 +91,18 @@ var _ WebhookEventHandler = (*Service)(nil)
 //	EXPIRED / CANCELLED to treat as FAILED
 //	PROCESSING / PENDING / PROCESS to DisbursementProcessing
 func (s *Service) ProcessYellowCardEvent(event yellowcard.WebhookEvent) error {
-	seqID := event.Data.SequenceID
-	paymentID := event.Data.PaymentID
-	status := event.Data.Status
-	isDirect := event.Data.DirectSettlement
+	seqID := event.SequenceID
+	paymentID := event.PaymentID
+	status := event.Status
 
-	log.Printf("yellowcard webhook: event=%s payment=%s sequence=%s status=%s direct=%v",
-		event.Event, paymentID, seqID, status, isDirect)
+	log.Printf("yellowcard webhook: event=%s payment=%s sequence=%s status=%s",
+		event.Event, paymentID, seqID, status)
+
+	// YC's webhook payload doesn't carry directSettlement; derive it from the
+	// loan record. Look up lazily — only failed events branch on it.
+	directSettlementLookup := func() (bool, error) {
+		return s.disbursements.IsDirectSettlement(seqID)
+	}
 
 	switch event.Event {
 	case yellowcard.EventDisbursementComplete, yellowcard.EventPaymentComplete:
@@ -103,11 +114,16 @@ func (s *Service) ProcessYellowCardEvent(event yellowcard.WebhookEvent) error {
 		}
 
 	case yellowcard.EventDisbursementFailed, yellowcard.EventPaymentFailed:
+		isDirect, err := directSettlementLookup()
+		if err != nil {
+			return fmt.Errorf("look up settlement method for %s: %w", seqID, err)
+		}
 		return s.handleFailedEvent(seqID, paymentID, status, isDirect)
 
 	default:
 		// Route by status for events that don't have specific event constants.
-		return s.handleByStatus(seqID, paymentID, status, isDirect)
+		// handleByStatus does its own lazy lookup if a failed branch is hit.
+		return s.handleByStatus(seqID, paymentID, status, directSettlementLookup)
 	}
 
 	return nil
@@ -137,8 +153,10 @@ func (s *Service) handleFailedEvent(seqID, paymentID, status string, isDirect bo
 	return nil
 }
 
-// handleByStatus routes events based on the payment status field.
-func (s *Service) handleByStatus(seqID, paymentID, status string, isDirect bool) error {
+// handleByStatus routes events based on the payment status field. directLookup
+// is only invoked when a failed branch is hit, to avoid a needless loan read
+// on every Processing/Pending tick.
+func (s *Service) handleByStatus(seqID, paymentID, status string, directLookup func() (bool, error)) error {
 	switch status {
 	case yellowcard.StatusComplete:
 		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementComplete); err != nil {
@@ -149,6 +167,10 @@ func (s *Service) handleByStatus(seqID, paymentID, status string, isDirect bool)
 		}
 
 	case yellowcard.StatusFailed, yellowcard.StatusExpired, yellowcard.StatusCancelled:
+		isDirect, err := directLookup()
+		if err != nil {
+			return fmt.Errorf("look up settlement method for %s: %w", seqID, err)
+		}
 		return s.handleFailedEvent(seqID, paymentID, status, isDirect)
 
 	case yellowcard.StatusPendingLiquidity:

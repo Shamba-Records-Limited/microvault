@@ -217,26 +217,41 @@ type PaymentDetails struct {
 }
 
 // WebhookEvent represents an incoming webhook payload from YellowCard.
+//
+// YC delivers payment data and event metadata together at the top level —
+// there is no nested "data" envelope. Settlement structure (amount,
+// directSettlement, etc.) is NOT included in the webhook; consumers that
+// need those details must call LookupPayment(PaymentID).
 type WebhookEvent struct {
-	Event     string         `json:"event"`
-	Timestamp string         `json:"timestamp"`
-	Data      WebhookPayload `json:"data"`
+	PaymentID      string          `json:"id"`
+	SequenceID     string          `json:"sequenceId"`
+	Status         string          `json:"status"`
+	APIKey         string          `json:"apiKey"`
+	Event          string          `json:"event"`
+	SettlementInfo *SettlementInfo `json:"settlementInfo,omitempty"`
+	ErrorCode      string          `json:"errorCode,omitempty"`
+	SessionID      string          `json:"sessionId,omitempty"`
+	ExecutedAt     int64           `json:"executedAt"`
 }
 
-// WebhookPayload contains the payment data embedded in a webhook event.
-type WebhookPayload struct {
-	PaymentID        string          `json:"id"`
-	SequenceID       string          `json:"sequenceId"`
-	Status           string          `json:"status"`
-	Amount           float64         `json:"amount"`
-	ConvertedAmount  float64         `json:"convertedAmount"`
-	Currency         string          `json:"currency"`
-	Country          string          `json:"country"`
-	Rate             float64         `json:"rate"`
-	DirectSettlement bool            `json:"directSettlement"`
-	SettlementInfo   *SettlementInfo `json:"settlementInfo,omitempty"`
-	CreatedAt        string          `json:"createdAt"`
-	UpdatedAt        string          `json:"updatedAt"`
+// UnmarshalJSON ensures SettlementInfo is always a non-nil pointer after
+// decoding, even when the JSON omits settlementInfo entirely or contains
+// an empty object. Callers can safely check fields like CryptoCurrency or
+// WalletAddress to determine whether real settlement data was provided.
+func (e *WebhookEvent) UnmarshalJSON(data []byte) error {
+	type Alias WebhookEvent
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(e),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if e.SettlementInfo == nil {
+		e.SettlementInfo = &SettlementInfo{}
+	}
+	return nil
 }
 
 // Account represents a YellowCard business account balance.

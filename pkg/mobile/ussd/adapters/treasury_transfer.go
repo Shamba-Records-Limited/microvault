@@ -14,6 +14,8 @@ import (
 type StellarSendUSDC interface {
 	// SendUSDC sends USDC from the treasury wallet to the destination specified in the request.
 	SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error)
+	// CheckUSDCTrustline checks if an address has a trustline for our USDC asset.
+	CheckUSDCTrustline(ctx context.Context, address string) (bool, error)
 }
 
 // StellarTreasuryTransfer adapts the Stellar service's SendUSDC method
@@ -70,4 +72,9 @@ func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination stri
 		"amount_usdc", float64(amount)/1e7,
 	)
 	return resp.TxHash, nil
+}
+
+// CheckUSDCTrustline checks if an external address has a trustline for our USDC asset.
+func (t *StellarTreasuryTransfer) CheckUSDCTrustline(ctx context.Context, address string) (bool, error) {
+	return t.stellar.CheckUSDCTrustline(ctx, address)
 }

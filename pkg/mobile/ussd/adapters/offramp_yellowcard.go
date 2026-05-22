@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,11 +22,20 @@ var ycNameRegexp = regexp.MustCompile(`[^a-zA-Z ]+`)
 // YellowCardOffRampAdapter implements OffRampService using YellowCard with
 // dual-mode settlement: direct (crypto-funded) and fiat (YC balance-funded).
 type YellowCardOffRampAdapter struct {
-	ycAdapter    *yellowcard.YellowcardAdapter
-	treasury     offramp.TreasuryTransfer
-	businessID   string
-	businessName string
-	logger       *slog.Logger
+	ycAdapter            *yellowcard.YellowcardAdapter
+	treasury             offramp.TreasuryTransfer
+	businessID           string
+	businessName         string
+	testDestinationPhone string // gated test-only override; see config docs.
+	logger               *slog.Logger
+
+	// Thread-safe caching for channels and networks
+	cacheMu          sync.RWMutex
+	cachedChannels   map[string][]yellowcard.Channel // keyed by country
+	cachedNetworks   map[string][]yellowcard.Network // keyed by country
+	channelsExpireAt map[string]time.Time            // keyed by country
+	networksExpireAt map[string]time.Time            // keyed by country
+	cacheTTL         time.Duration
 }
 
 // YellowCardOffRampConfig contains configuration for the YellowCard off-ramp adapter.
@@ -35,6 +45,18 @@ type YellowCardOffRampConfig struct {
 	BusinessID   string
 	BusinessName string
 	Logger       *slog.Logger
+
+	// TestDestinationPhoneOverride replaces every payment request's
+	// destination phone with a fixed value. Used for testing against
+	// YellowCard sandbox simulation numbers (e.g. +2341111111111 for a
+	// guaranteed-success momo transaction).
+	//
+	// MUST be empty in production. The caller is responsible for the
+	// environment gate — see microvault-credit/cmd/credit/main.go where
+	// the env var is only read when SERVER_ENVIRONMENT != "production".
+	// When non-empty, every disbursement logs a WARN before submission so
+	// the override is impossible to overlook in logs.
+	TestDestinationPhoneOverride string
 }
 
 // NewYellowCardOffRampAdapter creates a new YellowCard off-ramp adapter.
@@ -43,12 +65,23 @@ func NewYellowCardOffRampAdapter(cfg YellowCardOffRampConfig) *YellowCardOffRamp
 	if logger == nil {
 		logger = slog.Default()
 	}
+	scoped := logger.With("component", "yellowcard_offramp")
+	if cfg.TestDestinationPhoneOverride != "" {
+		scoped.Warn("YC test phone override active — every disbursement will go to a fixed number; DO NOT use in production",
+			"override_phone", cfg.TestDestinationPhoneOverride)
+	}
 	return &YellowCardOffRampAdapter{
-		ycAdapter:    cfg.Adapter,
-		treasury:     cfg.Treasury,
-		businessID:   cfg.BusinessID,
-		businessName: cfg.BusinessName,
-		logger:       logger.With("component", "yellowcard_offramp"),
+		ycAdapter:            cfg.Adapter,
+		treasury:             cfg.Treasury,
+		businessID:           cfg.BusinessID,
+		businessName:         cfg.BusinessName,
+		testDestinationPhone: cfg.TestDestinationPhoneOverride,
+		logger:               scoped,
+		cachedChannels:       make(map[string][]yellowcard.Channel),
+		cachedNetworks:       make(map[string][]yellowcard.Network),
+		channelsExpireAt:     make(map[string]time.Time),
+		networksExpireAt:     make(map[string]time.Time),
+		cacheTTL:             15 * time.Minute,
 	}
 }
 
@@ -94,7 +127,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 
 	// Resolve channel and network upfront (shared by both modes).
 	a.logger.Info("fetching channels", "loan_id", req.LoanID, "country", req.CountryCode)
-	channels, err := a.ycAdapter.GetChannels(ctx, req.CountryCode)
+	channels, err := a.getChannelsWithCache(ctx, req.CountryCode)
 	if err != nil {
 		a.logger.Error("failed to fetch channels", "loan_id", req.LoanID, "error", err)
 		return nil, fmt.Errorf("failed to get channels: %w", err)
@@ -292,6 +325,25 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		"stellar_memo", stellarMemo,
 	)
 
+	// Proactive Trustline Verification (closes caveat B):
+	// Check if YellowCard's destination wallet is missing a USDC trustline before attempting Stellar transfer.
+	hasTrustline, err := a.treasury.CheckUSDCTrustline(ctx, stellarAddr)
+	if err != nil {
+		a.logger.Error("failed to verify trustline for YellowCard wallet",
+			"loan_id", loanID,
+			"destination", stellarAddr,
+			"error", err,
+		)
+		return nil, fmt.Errorf("failed to verify trustline for YellowCard wallet: %w", err)
+	}
+	if !hasTrustline {
+		a.logger.Warn("YellowCard destination wallet does not have a USDC trustline, aborting on-chain send",
+			"loan_id", loanID,
+			"destination", stellarAddr,
+		)
+		return nil, fmt.Errorf("destination wallet is missing a USDC trustline")
+	}
+
 	// Determine the USDC amount to send (in stroops).
 	// Use the crypto amount from YC response if available, otherwise use request amount.
 	amountStroops := p.req.AmountStroops
@@ -464,6 +516,17 @@ func (a *YellowCardOffRampAdapter) buildPaymentRequest(p *disbursementParams) ye
 
 	phone := normalizePhone(p.req.DestinationPhone)
 
+	// Test-only override (see TestDestinationPhoneOverride on the config).
+	// Logged loud so it's visible in any production log greppinng.
+	if a.testDestinationPhone != "" {
+		a.logger.Warn("YC test phone override applied — using simulation number instead of user's",
+			"loan_id", p.req.LoanID,
+			"original_phone_redacted", redactPhoneForLog(phone),
+			"override_phone", a.testDestinationPhone,
+		)
+		phone = normalizePhone(a.testDestinationPhone)
+	}
+
 	return yellowcard.PaymentRequest{
 		ChannelID:    p.momoChannel.ID,
 		SequenceID:   p.idempotencyKey,
@@ -491,6 +554,21 @@ func (a *YellowCardOffRampAdapter) buildPaymentRequest(p *disbursementParams) ye
 // to satisfy YellowCard's validation: "must be only characters and spaces".
 func sanitizeYCName(name string) string {
 	return strings.TrimSpace(ycNameRegexp.ReplaceAllString(name, ""))
+}
+
+// redactPhoneForLog masks the middle digits of a phone number for log output.
+// Matches the 6-prefix + 3-suffix pattern used elsewhere (see ussd/handler.go).
+func redactPhoneForLog(phone string) string {
+	digits := phone
+	prefix := ""
+	if strings.HasPrefix(phone, "+") {
+		prefix = "+"
+		digits = phone[1:]
+	}
+	if len(digits) <= 9 {
+		return phone
+	}
+	return prefix + digits[:6] + strings.Repeat("X", len(digits)-9) + digits[len(digits)-3:]
 }
 
 // normalizePhone ensures the phone number is in international format with a '+' prefix.
@@ -535,7 +613,7 @@ func (a *YellowCardOffRampAdapter) Status(ctx context.Context, ref offramp.Provi
 
 // SupportedProviders returns available MoMo channels for disbursement.
 func (a *YellowCardOffRampAdapter) SupportedProviders(ctx context.Context, countryCode string) ([]offramp.ProviderInfo, error) {
-	channels, err := a.ycAdapter.GetChannels(ctx, countryCode)
+	channels, err := a.getChannelsWithCache(ctx, countryCode)
 	if err != nil {
 		return nil, err
 	}
@@ -600,7 +678,7 @@ func (a *YellowCardOffRampAdapter) Quote(ctx context.Context, q offramp.QuoteReq
 
 // Networks returns available MoMo operators for a country.
 func (a *YellowCardOffRampAdapter) Networks(ctx context.Context, countryCode string) ([]offramp.MobileMoneyNetwork, error) {
-	channels, err := a.ycAdapter.GetChannels(ctx, countryCode)
+	channels, err := a.getChannelsWithCache(ctx, countryCode)
 	if err != nil {
 		return nil, err
 	}
@@ -615,7 +693,7 @@ func (a *YellowCardOffRampAdapter) Networks(ctx context.Context, countryCode str
 		channelIDs[ch.ID] = true
 	}
 
-	networks, err := a.ycAdapter.GetNetworks(ctx, countryCode)
+	networks, err := a.getNetworksWithCache(ctx, countryCode)
 	if err != nil {
 		return nil, err
 	}
@@ -655,7 +733,7 @@ func (a *YellowCardOffRampAdapter) AvailableBalance(ctx context.Context) (float6
 // stored network code (e.g. from Africa's Talking) doesn't map to a YellowCard
 // network (e.g. "SANDBOX" vs "M PESA").
 func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryCode, networkCode, networkName string) (networkID string, resolvedName string, err error) {
-	networks, err := a.ycAdapter.GetNetworks(ctx, countryCode)
+	networks, err := a.getNetworksWithCache(ctx, countryCode)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get networks: %w", err)
 	}
@@ -718,4 +796,72 @@ func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryC
 	}
 
 	return matchedNetwork.ID, matchedNetwork.Name, nil
+}
+
+// getChannelsWithCache retrieves channels with in-memory TTL caching.
+func (a *YellowCardOffRampAdapter) getChannelsWithCache(ctx context.Context, country string) ([]yellowcard.Channel, error) {
+	a.cacheMu.RLock()
+	channels, ok := a.cachedChannels[country]
+	expireAt, hasExpire := a.channelsExpireAt[country]
+	a.cacheMu.RUnlock()
+
+	if ok && hasExpire && time.Now().Before(expireAt) {
+		a.logger.Debug("getChannelsWithCache: cache hit", "country", country)
+		return channels, nil
+	}
+
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+
+	// Double-check under write lock
+	channels, ok = a.cachedChannels[country]
+	expireAt, hasExpire = a.channelsExpireAt[country]
+	if ok && hasExpire && time.Now().Before(expireAt) {
+		return channels, nil
+	}
+
+	a.logger.Info("getChannelsWithCache: cache miss, fetching from API", "country", country)
+	fetched, err := a.ycAdapter.GetChannels(ctx, country)
+	if err != nil {
+		return nil, err
+	}
+
+	a.cachedChannels[country] = fetched
+	a.channelsExpireAt[country] = time.Now().Add(a.cacheTTL)
+
+	return fetched, nil
+}
+
+// getNetworksWithCache retrieves networks with in-memory TTL caching.
+func (a *YellowCardOffRampAdapter) getNetworksWithCache(ctx context.Context, country string) ([]yellowcard.Network, error) {
+	a.cacheMu.RLock()
+	networks, ok := a.cachedNetworks[country]
+	expireAt, hasExpire := a.networksExpireAt[country]
+	a.cacheMu.RUnlock()
+
+	if ok && hasExpire && time.Now().Before(expireAt) {
+		a.logger.Debug("getNetworksWithCache: cache hit", "country", country)
+		return networks, nil
+	}
+
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+
+	// Double-check under write lock
+	networks, ok = a.cachedNetworks[country]
+	expireAt, hasExpire = a.networksExpireAt[country]
+	if ok && hasExpire && time.Now().Before(expireAt) {
+		return networks, nil
+	}
+
+	a.logger.Info("getNetworksWithCache: cache miss, fetching from API", "country", country)
+	fetched, err := a.ycAdapter.GetNetworks(ctx, country)
+	if err != nil {
+		return nil, err
+	}
+
+	a.cachedNetworks[country] = fetched
+	a.networksExpireAt[country] = time.Now().Add(a.cacheTTL)
+
+	return fetched, nil
 }

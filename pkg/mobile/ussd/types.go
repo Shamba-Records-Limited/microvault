@@ -183,6 +183,28 @@ type LoanService interface {
 	// GetProductConfig returns the active loan product parameters used by the
 	// USSD flow (limits, duration, schedule). Returns nil when no product is configured.
 	GetProductConfig() *LoanProductConfig
+
+	// GetRepaymentQuote returns the amount currently owed on a loan, in both
+	// USDC stroops and local currency cents. The USDC figure is derived from
+	// the vault's current borrow_index relative to the index at origination;
+	// the local figure applies the latest FX. Returns an error (hard-fail —
+	// no stale fallback) when the vault or FX is unavailable.
+	GetRepaymentQuote(ctx context.Context, loanID string) (*RepaymentQuote, error)
+}
+
+// RepaymentQuote is the live amount owed on a loan, computed from the vault
+// borrow_index + current FX. Stored repayment quotes are advisory only — this
+// is the figure to show on USSD screens, in SMS reminders, and to validate
+// borrower payments against (with ±2 % tolerance).
+type RepaymentQuote struct {
+	LoanID             string
+	AmountUSDCStroops  int64   // What the borrower owes in USDC, stroops.
+	AmountLocalCents   int64   // Same, converted at the FX rate below.
+	LocalCurrency      string  // ISO 4217 (e.g. "KES").
+	BorrowIndexAtQuote int64   // WAD scale (1e18).
+	FXRate             float64 // local-per-USD at quote time.
+	QuoteSource        string  // "mg_primary" | "yc_fallback" | "stale_cache".
+	AsOf               time.Time
 }
 
 // LoanProductConfig provides loan product parameters for the USSD flow.
