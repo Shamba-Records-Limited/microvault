@@ -8,6 +8,7 @@ import {
   TransactionsTable,
   type TabId,
 } from "@/components/transactions/TransactionsTable";
+import { Button } from "@/components/ui/button";
 import { useContractEvents } from "@/hooks/use-contract-events";
 import { useTransactions } from "@/hooks/use-transactions";
 import { EVENTS_PAGE_SIZE } from "@/lib/constants";
@@ -124,11 +125,16 @@ export default function TransactionsPage() {
   }, [currentHistory, setCursor]);
 
   return (
-    <main className="container py-8">
-      <section className="mb-8">
-        <h1 className="text-3xl md:text-4xl font-bold mb-3">Transactions</h1>
-        <p className="text-muted-foreground text-lg max-w-2xl">
-          Live contract and treasury account activity on the Stellar Network.
+    <main className="container max-w-4xl py-12">
+      <section className="mb-10">
+        <p className="text-[10px] font-mono uppercase tracking-[0.2em] font-bold text-muted-foreground mb-3">
+          On-Chain Activity
+        </p>
+        <h1 className="text-3xl md:text-4xl font-extrabold leading-tight tracking-tighter text-foreground mb-3">
+          Transactions
+        </h1>
+        <p className="text-muted-foreground text-base md:text-lg max-w-2xl">
+          Live contract events and treasury operations streaming directly from the Stellar Network.
         </p>
       </section>
 
@@ -136,11 +142,19 @@ export default function TransactionsPage() {
       {activeQuery.error && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 mb-8">
           <h3 className="font-semibold text-destructive mb-2">
-            Failed to load data
+            Failed to load transaction data
           </h3>
           <p className="text-sm text-muted-foreground">
             {activeQuery.error.message}
           </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => activeQuery.refetch()}
+            className="mt-4 border-destructive/30 hover:border-destructive/60 hover:bg-destructive/10 text-destructive text-xs font-mono uppercase tracking-wider cursor-pointer"
+          >
+            Retry Fetch
+          </Button>
         </div>
       )}
 

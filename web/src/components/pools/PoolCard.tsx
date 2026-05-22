@@ -9,10 +9,6 @@ import { Button } from "@/components/ui/button";
 import {
   ChevronDown,
   ChevronUp,
-  Coins,
-  Users,
-  Landmark,
-  Shield,
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -43,12 +39,8 @@ interface PoolCardProps {
 
 /**
  * Expandable card displaying pool metrics, governance addresses, asset
- * breakdown, and an integrated deposit/withdraw form.
+ * breakdown, and an integrated deposit/withdraw form in an asymmetric split.
  * @param props.pool - Pool record assembled from vault metadata + stats
- * @remarks The preview flow debounces typed input (200ms), queries a
- * race-safe cache via `usePreviewShares`, and gates rendering on
- * `isValidAmount` + fresh-data checks so the user never sees a stale or
- * stranded preview after clearing the input.
  */
 export function PoolCard({ pool }: PoolCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -65,8 +57,27 @@ export function PoolCard({ pool }: PoolCardProps) {
   const isValidAmount = !isNaN(parsedAmount) && parsedAmount > 0;
   const isPending = deposit.isPending || withdraw.isPending;
 
-  // Debounce the typed value before firing the preview RPC. 200ms feels
-  // instant but coalesces a burst of keystrokes into a single call.
+  // Immediate inline reactive validation error
+  const validationError = useMemo(() => {
+    if (!rawAmount || !isValidAmount) return null;
+    if (!position.data) return null;
+
+    if (activeTab === "deposit") {
+      if (parsedAmount > position.data.walletBalance) {
+        return `Insufficient balance: You only have ${formatNumber(position.data.walletBalance, 4)} USDC`;
+      }
+      if (parsedAmount > position.data.maxDeposit) {
+        return `Exceeds max deposit: Limit is ${formatNumber(position.data.maxDeposit, 4)} USDC`;
+      }
+    } else {
+      if (parsedAmount > position.data.maxWithdraw) {
+        return `Exceeds max withdraw: Limit is ${formatNumber(position.data.maxWithdraw, 4)} USDC`;
+      }
+    }
+    return null;
+  }, [rawAmount, isValidAmount, activeTab, position.data, parsedAmount]);
+
+  // Debounce the typed value before firing the preview RPC.
   const debouncedRaw = useDebouncedValue(rawAmount, 200);
   const debouncedScaled = useMemo<bigint | null>(() => {
     const num = parseFloat(debouncedRaw);
@@ -76,12 +87,8 @@ export function PoolCard({ pool }: PoolCardProps) {
 
   const previewQuery = usePreviewShares(activeTab, debouncedScaled);
 
-  // Only render a preview that matches the *current* input. While the user
-  // is mid-typing (rawAmount changed but debounced hasn't caught up yet),
-  // suppress the previous result so we never show a stale number.
+  // Suppress preview results that are out of sync with current typing.
   const isPreviewStale = rawAmount !== debouncedRaw;
-  // Gate on `isValidAmount` so clearing the input immediately wipes the
-  // preview — `keepPreviousData` would otherwise keep the last result around.
   const preview =
     isValidAmount && previewQuery.data && !isPreviewStale
       ? `~${formatNumber(Number(previewQuery.data) / Number(SHARE_SCALE))} ${pool.assets[0].symbol} shares`
@@ -145,409 +152,420 @@ export function PoolCard({ pool }: PoolCardProps) {
   }
 
   return (
-    <Card className="overflow-hidden transition-all duration-200 hover:shadow-md">
+    <Card className="overflow-hidden border border-border/85 bg-card/45 rounded-xl transition-all duration-300 hover:shadow-sm">
       <CardHeader
-        className="cursor-pointer"
+        className="cursor-pointer select-none p-6 md:p-8"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-              <Coins className="h-5 w-5 text-primary" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5">
+              <h3 className="text-lg font-bold tracking-tight text-foreground">{pool.name}</h3>
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full inline-block",
+                  pool.status === "active" && "bg-green-500 ring-2 ring-green-500/20 animate-caret-blink",
+                  pool.status === "frozen" && "bg-gray-400",
+                )}
+                aria-label={pool.status === "active" ? "Active" : "Frozen"}
+              />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-base">{pool.name}</h3>
-                <div
-                  className={cn(
-                    "h-2.5 w-2.5 rounded-full",
-                    pool.status === "active" &&
-                      "bg-green-500 ring-2 ring-green-500/50 animate-caret-blink",
-                    pool.status === "frozen" && "bg-gray-400",
-                  )}
-                />
-              </div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
+              <span>Vault ID:</span>
               <a
                 href={`${explorerUrl}/contract/${pool.address}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="text-xs text-muted-foreground font-mono hover:text-foreground transition-colors"
+                className="hover:text-foreground hover:underline transition-colors"
               >
                 {pool.address.slice(0, 8)}...{pool.address.slice(-6)}
               </a>
-              {/* Mobile stats: below name */}
-              <div className="flex items-center gap-4 mt-2 md:hidden">
-                <div>
-                  <p className="text-xs text-muted-foreground">TVL</p>
-                  <p className="font-semibold text-sm">
-                    {formatCurrency(pool.tvl)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">APY</p>
-                  <p className="font-semibold text-primary text-sm">
-                    {formatPercent(pool.apy)}
-                  </p>
-                </div>
-              </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-6">
-            {/* Desktop stats: right side */}
-            <div className="hidden md:flex items-center gap-8">
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">TVL</p>
-                <p className="font-semibold">{formatCurrency(pool.tvl)}</p>
+            
+            {/* Mobile stats: rendered below name */}
+            <div className="flex items-center gap-6 mt-3 sm:hidden border-t border-border/40 pt-3">
+              <div>
+                <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">TVL</p>
+                <p className="font-bold text-sm text-foreground tabular-nums mt-0.5">
+                  {formatCurrency(pool.tvl)}
+                </p>
               </div>
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">APY</p>
-                <p className="font-semibold text-primary">
+              <div>
+                <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">APY</p>
+                <p className="font-bold text-sm text-foreground tabular-nums mt-0.5">
                   {formatPercent(pool.apy)}
                 </p>
               </div>
             </div>
+          </div>
 
-            {isExpanded ? (
-              <ChevronUp className="h-5 w-5 text-muted-foreground" />
-            ) : (
-              <ChevronDown className="h-5 w-5 text-muted-foreground" />
-            )}
+          <div className="flex items-center gap-8">
+            {/* Desktop stats: rendered on the right */}
+            <div className="hidden sm:flex items-center gap-10">
+              <div className="text-right">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5">TVL</p>
+                <p className="font-bold text-base text-foreground tabular-nums">{formatCurrency(pool.tvl)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5">APY</p>
+                <p className="font-bold text-base text-foreground tabular-nums">{formatPercent(pool.apy)}</p>
+              </div>
+            </div>
+
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background hover:bg-muted/10 transition-colors">
+              {isExpanded ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </div>
           </div>
         </div>
       </CardHeader>
 
-      {isExpanded && (
-        <CardContent className="border-t border-border bg-muted/30 pt-4">
-          <div className="grid gap-6">
-            {/* Owner, Treasury & Guardian */}
-            <div className="flex flex-wrap gap-6">
-              {pool.admin && (
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Owner</p>
-                    <a
-                      href={`${explorerUrl}/contract/${pool.admin}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium font-mono text-xs hover:underline"
-                    >
-                      {pool.admin.slice(0, 8)}...{pool.admin.slice(-6)}
-                    </a>
-                  </div>
-                </div>
-              )}
-              {pool.treasury && (
-                <div className="flex items-center gap-2">
-                  <Landmark className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Treasury</p>
-                    <a
-                      href={`${explorerUrl}/account/${pool.treasury}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium font-mono text-xs hover:underline"
-                    >
-                      {pool.treasury.slice(0, 8)}...{pool.treasury.slice(-6)}
-                    </a>
-                  </div>
-                </div>
-              )}
-              {pool.guardian && (
-                <div className="flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Guardian</p>
-                    <a
-                      href={`${explorerUrl}/account/${pool.guardian}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium font-mono text-xs hover:underline"
-                    >
-                      {pool.guardian.slice(0, 8)}...{pool.guardian.slice(-6)}
-                    </a>
-                  </div>
-                </div>
-              )}
-            </div>
+      <div
+        className={cn(
+          "grid transition-all duration-300 ease-in-out border-t border-border/80",
+          isExpanded
+            ? "grid-rows-[1fr] opacity-100"
+            : "grid-rows-[0fr] opacity-0 pointer-events-none"
+        )}
+      >
+        <div className="overflow-hidden">
+          <CardContent className="bg-muted/10 p-6 md:p-8">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-8 items-start">
+            
+            {/* Left columns: Asset Allocation & Contract Authority (3/5 width) */}
+            <div className="md:col-span-3 space-y-8">
+              {/* Asset Allocation */}
+              <div>
+                <h4 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-4">
+                  Asset Allocation
+                </h4>
 
-            {/* Asset Breakdown */}
-            <div>
-              <h4 className="text-sm font-medium mb-3">Asset Breakdown</h4>
-
-              {/* Mobile: stacked cards */}
-              <div className="md:hidden space-y-3">
-                {pool.assets.map((asset) => (
-                  <div
-                    key={asset.symbol}
-                    className="rounded-lg border border-border/50 p-3 space-y-2"
-                  >
-                    <p className="font-medium">
-                      {asset.contractAddress ? (
-                        <a
-                          href={`${explorerUrl}/contract/${asset.contractAddress}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="hover:underline"
-                        >
-                          {asset.symbol}
-                        </a>
-                      ) : (
-                        asset.symbol
-                      )}
-                    </p>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                      <span className="text-muted-foreground">Supplied</span>
-                      <span className="text-right">
-                        {formatCurrency(asset.supplied)}
-                      </span>
-                      <span className="text-muted-foreground">Borrowed</span>
-                      <span className="text-right">
-                        {formatCurrency(asset.borrowed)}
-                      </span>
-                      <span className="text-muted-foreground">Liquidity</span>
-                      <span className="text-right">
-                        {formatCurrency(asset.supplied - asset.borrowed)}
-                      </span>
-                      <span className="text-muted-foreground">Utilization</span>
-                      <span className="text-right">
-                        {asset.supplied > 0
-                          ? formatPercent(
-                              (asset.borrowed / asset.supplied) * 100,
-                            )
-                          : "0.00%"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Desktop: table */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 font-medium text-muted-foreground">
-                        Asset
-                      </th>
-                      <th className="text-right py-2 font-medium text-muted-foreground">
-                        Supplied
-                      </th>
-                      <th className="text-right py-2 font-medium text-muted-foreground">
-                        Borrowed
-                      </th>
-                      <th className="text-right py-2 font-medium text-muted-foreground">
-                        Liquidity
-                      </th>
-                      <th className="text-right py-2 font-medium text-muted-foreground">
-                        Utilization
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pool.assets.map((asset) => (
-                      <tr
-                        key={asset.symbol}
-                        className="border-b border-border/50 last:border-0"
-                      >
-                        <td className="py-2 font-medium">
+                {/* Mobile stacked asset card view */}
+                <div className="md:hidden space-y-3">
+                  {pool.assets.map((asset) => (
+                    <div
+                      key={asset.symbol}
+                      className="rounded-lg border border-border/60 bg-background/50 p-4 space-y-2.5"
+                    >
+                      <div className="flex justify-between items-center border-b border-border/40 pb-2">
+                        <span className="font-bold text-foreground">
                           {asset.contractAddress ? (
                             <a
                               href={`${explorerUrl}/contract/${asset.contractAddress}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="hover:underline"
+                              className="hover:underline hover:text-primary transition-colors"
                             >
                               {asset.symbol}
                             </a>
                           ) : (
                             asset.symbol
                           )}
-                        </td>
-                        <td className="text-right py-2">
+                        </span>
+                        <span className="text-[10px] font-mono text-muted-foreground uppercase">
+                          Util:{" "}
+                          <span className="text-foreground font-semibold">
+                            {asset.supplied > 0
+                              ? formatPercent((asset.borrowed / asset.supplied) * 100)
+                              : "0.00%"}
+                          </span>
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-y-1.5 text-xs tabular-nums">
+                        <span className="text-muted-foreground">Supplied</span>
+                        <span className="text-right text-foreground font-medium">
                           {formatCurrency(asset.supplied)}
-                        </td>
-                        <td className="text-right py-2">
+                        </span>
+                        <span className="text-muted-foreground">Borrowed</span>
+                        <span className="text-right text-foreground font-medium">
                           {formatCurrency(asset.borrowed)}
-                        </td>
-                        <td className="text-right py-2">
+                        </span>
+                        <span className="text-muted-foreground">Available Liquidity</span>
+                        <span className="text-right text-foreground font-medium">
                           {formatCurrency(asset.supplied - asset.borrowed)}
-                        </td>
-                        <td className="text-right py-2">
-                          {asset.supplied > 0
-                            ? formatPercent(
-                                (asset.borrowed / asset.supplied) * 100,
-                              )
-                            : "0.00%"}
-                        </td>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop tabular asset view */}
+                <div className="hidden md:block">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/80 pb-2">
+                        <th className="text-left pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                          Asset
+                        </th>
+                        <th className="text-right pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                          Supplied
+                        </th>
+                        <th className="text-right pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                          Borrowed
+                        </th>
+                        <th className="text-right pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                          Available
+                        </th>
+                        <th className="text-right pb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                          Utilization
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-border/40">
+                      {pool.assets.map((asset) => (
+                        <tr
+                          key={asset.symbol}
+                          className="hover:bg-muted/10 transition-colors"
+                        >
+                          <td className="py-3.5 font-bold text-foreground">
+                            {asset.contractAddress ? (
+                              <a
+                                href={`${explorerUrl}/contract/${asset.contractAddress}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:underline transition-colors"
+                              >
+                                {asset.symbol}
+                              </a>
+                            ) : (
+                              asset.symbol
+                            )}
+                          </td>
+                          <td className="text-right py-3.5 tabular-nums text-foreground/90">
+                            {formatCurrency(asset.supplied)}
+                          </td>
+                          <td className="text-right py-3.5 tabular-nums text-foreground/90">
+                            {formatCurrency(asset.borrowed)}
+                          </td>
+                          <td className="text-right py-3.5 tabular-nums text-foreground/90">
+                            {formatCurrency(asset.supplied - asset.borrowed)}
+                          </td>
+                          <td className="text-right py-3.5 tabular-nums font-medium text-foreground">
+                            {asset.supplied > 0
+                              ? formatPercent((asset.borrowed / asset.supplied) * 100)
+                              : "0.00%"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Contract Authority */}
+              <div className="border-t border-border/60 pt-6">
+                <h4 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-4">
+                  Contract Authority
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  {pool.admin && (
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Owner</p>
+                      <a
+                        href={`${explorerUrl}/contract/${pool.admin}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block font-mono text-xs text-foreground hover:text-primary hover:underline transition-colors truncate"
+                        title={pool.admin}
+                      >
+                        {pool.admin.slice(0, 8)}...{pool.admin.slice(-6)}
+                      </a>
+                    </div>
+                  )}
+                  {pool.treasury && (
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Treasury</p>
+                      <a
+                        href={`${explorerUrl}/account/${pool.treasury}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block font-mono text-xs text-foreground hover:text-primary hover:underline transition-colors truncate"
+                        title={pool.treasury}
+                      >
+                        {pool.treasury.slice(0, 8)}...{pool.treasury.slice(-6)}
+                      </a>
+                    </div>
+                  )}
+                  {pool.guardian && (
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Guardian</p>
+                      <a
+                        href={`${explorerUrl}/account/${pool.guardian}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block font-mono text-xs text-foreground hover:text-primary hover:underline transition-colors truncate"
+                        title={pool.guardian}
+                      >
+                        {pool.guardian.slice(0, 8)}...{pool.guardian.slice(-6)}
+                      </a>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Deposit / Withdraw */}
-            <div className="rounded-lg border border-border/50 p-4">
-              {/* User position (when connected) */}
-              {isConnected && position.data && (
-                <div className="flex flex-wrap gap-6 mb-4 pb-4 border-b border-border/50">
-                  <div>
-                    <p className="text-xs text-muted-foreground">
-                      Wallet Balance
-                    </p>
-                    <p className="font-semibold text-sm">
-                      {formatNumber(position.data.walletBalance, 7)} USDC
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">
+            {/* Right column: Transaction Panel (2/5 width) */}
+            <div className="md:col-span-2 space-y-6 border-t md:border-t-0 md:border-l border-border/70 pt-8 md:pt-0 md:pl-8">
+              <div>
+                <h4 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-4">
+                  Transaction Control
+                </h4>
+
+                {/* Tab toggle */}
+                <div className="flex gap-1 rounded-lg bg-muted p-1 mb-5">
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex-1 rounded-md py-1.5 text-xs font-semibold uppercase tracking-wider transition-all duration-200 cursor-pointer",
+                      activeTab === "deposit"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => handleTabSwitch("deposit")}
+                  >
+                    Deposit
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex-1 rounded-md py-1.5 text-xs font-semibold uppercase tracking-wider transition-all duration-200 cursor-pointer",
+                      activeTab === "withdraw"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => handleTabSwitch("withdraw")}
+                  >
+                    Withdraw
+                  </button>
+                </div>
+
+                {/* User account details (when connected) */}
+                {isConnected && position.data ? (
+                  <div className="rounded-lg border border-border/60 bg-background/55 p-4 space-y-3 mb-5">
+                    <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border/30 pb-1.5 mb-2">
                       Your Position
                     </p>
-                    <p className="font-semibold text-sm">
-                      {formatNumber(position.data.assetsValue, 7)} USDC
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Shares</p>
-                    <p className="font-semibold text-sm">
-                      {formatNumber(position.data.shares)}{" "}
-                      {pool.assets[0].symbol}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">
-                      Max Withdraw
-                    </p>
-                    <p className="font-semibold text-sm">
-                      {formatNumber(position.data.maxWithdraw, 7)} USDC
-                    </p>
-                  </div>
-                </div>
-              )}
+                    <div className="grid grid-cols-2 gap-y-2 text-xs tabular-nums">
+                      <span className="text-muted-foreground">Wallet Balance</span>
+                      <span className="text-right text-foreground font-semibold">
+                        {formatNumber(position.data.walletBalance, 4)} USDC
+                      </span>
+                      
+                      <span className="text-muted-foreground">Active Deposit</span>
+                      <span className="text-right text-foreground font-semibold">
+                        {formatNumber(position.data.assetsValue, 4)} USDC
+                      </span>
+                      
+                      <span className="text-muted-foreground">Shares Held</span>
+                      <span className="text-right text-foreground font-semibold">
+                        {formatNumber(position.data.shares, 4)} mvUSDC
+                      </span>
 
-              {/* Tab toggle */}
-              <div className="flex gap-1 mb-4 rounded-md bg-muted p-1">
-                <button
-                  type="button"
-                  className={cn(
-                    "flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
-                    activeTab === "deposit"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => handleTabSwitch("deposit")}
-                >
-                  Deposit
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
-                    activeTab === "withdraw"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => handleTabSwitch("withdraw")}
-                >
-                  Withdraw
-                </button>
-              </div>
+                      <span className="text-muted-foreground">Max Allowed</span>
+                      <span className="text-right text-foreground font-semibold">
+                        {activeTab === "deposit"
+                          ? `${formatNumber(position.data.maxDeposit, 4)} USDC`
+                          : `${formatNumber(position.data.maxWithdraw, 4)} USDC`}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
 
-              {/* Amount input */}
-              <div className="space-y-3">
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder={
-                      activeTab === "deposit" ? "0.00 USDC" : "0.00 USDC"
-                    }
-                    value={displayAmount}
-                    onChange={(e) => handleAmountChange(e.target.value)}
-                    disabled={isPending}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 pr-16 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                  />
-                  {isConnected &&
-                    position.data &&
-                    activeTab === "deposit" &&
-                    position.data.walletBalance > 0 && (
+                {/* Amount input field */}
+                <div className="space-y-4">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0.00 USDC"
+                      maxLength={15}
+                      value={displayAmount}
+                      onChange={(e) => handleAmountChange(e.target.value)}
+                      disabled={isPending}
+                      className={cn(
+                        "w-full rounded-lg border bg-background py-3 pl-4 pr-16 text-sm tabular-nums placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground disabled:opacity-50 transition-all",
+                        validationError ? "border-destructive focus:ring-destructive focus:border-destructive" : "border-input"
+                      )}
+                    />
+                    {isConnected && position.data && (
                       <button
                         type="button"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-mono font-bold text-muted-foreground hover:text-foreground hover:bg-muted/10 transition-colors"
                         onClick={() => {
                           const max =
-                            Math.floor(
-                              Math.min(
-                                position.data!.walletBalance,
-                                position.data!.maxDeposit,
-                              ) * 100,
-                            ) / 100;
+                            activeTab === "deposit"
+                              ? Math.floor(
+                                  Math.min(
+                                    position.data!.walletBalance,
+                                    position.data!.maxDeposit,
+                                  ) * 100,
+                                ) / 100
+                              : Math.floor(position.data!.maxWithdraw * 100) / 100;
                           handleAmountChange(max.toString());
                         }}
                       >
                         MAX
                       </button>
                     )}
-                  {isConnected &&
-                    position.data &&
-                    activeTab === "withdraw" &&
-                    position.data.maxWithdraw > 0 && (
-                      <button
-                        type="button"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
-                        onClick={() => {
-                          const max =
-                            Math.floor(position.data!.maxWithdraw * 100) / 100;
-                          handleAmountChange(max.toString());
-                        }}
-                      >
-                        MAX
-                      </button>
-                    )}
+                  </div>
+
+                  {/* Immediate validation error notice */}
+                  {validationError && (
+                    <p className="text-xs text-destructive font-mono mt-1" role="alert">
+                      {validationError}
+                    </p>
+                  )}
+
+                  {/* Dynamic Preview panel */}
+                  {(previewLoading || preview) && (
+                    <div className="rounded-lg bg-muted/40 border border-border/30 p-4 transition-all duration-200">
+                      {previewLoading ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          <span>Recalculating conversion...</span>
+                        </div>
+                      ) : preview ? (
+                        <div className="text-xs space-y-1.5 text-muted-foreground">
+                          <p className="font-semibold text-foreground uppercase text-[9px] font-mono tracking-wider">
+                            {activeTab === "deposit" ? "Estimated Receipt" : "Estimated Settlement"}
+                          </p>
+                          <p className="font-mono text-xs font-medium text-foreground">{preview}</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {/* Submit CTA */}
+                  {isConnected ? (
+                    <Button
+                      className="w-full h-11 font-semibold uppercase tracking-wider text-xs cursor-pointer transition-all duration-200"
+                      disabled={!isValidAmount || isPending || !!validationError}
+                      onClick={handleSubmit}
+                    >
+                      {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 mr-1.5" />}
+                      {isPending
+                        ? "Confirming Transaction..."
+                        : activeTab === "deposit"
+                          ? "Deposit Capital"
+                          : "Withdraw Capital"}
+                    </Button>
+                  ) : (
+                    <Button className="w-full h-11 font-semibold uppercase tracking-wider text-xs cursor-pointer transition-all duration-200" onClick={connect}>
+                      Connect Wallet
+                    </Button>
+                  )}
                 </div>
-
-                {/* Preview */}
-                {previewLoading && (
-                  <p className="text-xs text-muted-foreground">
-                    Calculating preview...
-                  </p>
-                )}
-                {preview && !previewLoading && (
-                  <p className="text-xs text-muted-foreground">
-                    {activeTab === "deposit"
-                      ? "You will receive"
-                      : "This will burn"}{" "}
-                    {preview}
-                  </p>
-                )}
-
-                {/* Submit button */}
-                {isConnected ? (
-                  <Button
-                    className="w-full"
-                    disabled={!isValidAmount || isPending}
-                    onClick={handleSubmit}
-                  >
-                    {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {isPending
-                      ? "Confirming..."
-                      : activeTab === "deposit"
-                        ? "Deposit"
-                        : "Withdraw"}
-                  </Button>
-                ) : (
-                  <Button className="w-full" onClick={connect}>
-                    Connect Wallet
-                  </Button>
-                )}
               </div>
             </div>
+
           </div>
         </CardContent>
-      )}
-    </Card>
+      </div>
+    </div>
+  </Card>
   );
 }

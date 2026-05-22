@@ -5,6 +5,16 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+    /* Type stack — Geist via Google Fonts; system fallbacks keep paint
+       readable before web fonts arrive (no FOIT). Mono variant feeds the
+       eyebrow + tabular-numeric callouts. */
+    --font-sans:
+        "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono:
+        "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+        "Liberation Mono", monospace;
+
     --radius-sm: calc(var(--radius) - 4px);
     --radius-md: calc(var(--radius) - 2px);
     --radius-lg: var(--radius);
@@ -117,10 +127,36 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
+  }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    /* Geist ships proper kerning + ligatures; turn them on. */
+    font-feature-settings:
+        "kern" 1,
+        "ss01" 1,
+        "cv11" 1;
+    font-kerning: normal;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  /* Tabular figures on numeric content where alignment matters. */
+  .tabular-nums,
+  [data-tabular],
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
+  }
 }
 
 @utility container {
