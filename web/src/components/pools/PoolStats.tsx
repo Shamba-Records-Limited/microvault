@@ -1,9 +1,7 @@
 /**
- * Protocol-level summary cards shown above the pool list.
+ * Protocol-level summary metrics.
  * @module components/pools/PoolStats
  */
-import { Card, CardContent } from "@/components/ui/card";
-import { LockKeyhole, Coins, FlaskRound } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 
 interface PoolStatsProps {
@@ -13,53 +11,40 @@ interface PoolStatsProps {
 }
 
 /**
- * Renders the three protocol-level stat cards.
+ * Renders the three protocol-level metrics in a clean, card-less layout with typography and borders.
  * @param props.totalTvl - Total value locked across all pools, in major units
  * @param props.poolCount - Number of deployed vaults
  * @param props.totalBorrowed - Outstanding loan principal across all pools
  */
 export function PoolStats({ totalTvl, poolCount, totalBorrowed }: PoolStatsProps) {
-  const stats = [
-    {
-      label: "Total Value Locked",
-      value: formatCurrency(totalTvl),
-      icon: LockKeyhole,
-      description: "Across all pools",
-    },
-    {
-      label: "Pools",
-      value: poolCount.toString(),
-      icon: FlaskRound,
-      description: "Deployed vaults",
-    },
-    {
-      label: "Total Borrowed",
-      value: formatCurrency(totalBorrowed),
-      icon: Coins,
-      description: "Outstanding loans",
-    },
-  ];
-
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {stats.map((stat) => (
-        <Card key={stat.label}>
-          <CardContent className="pt-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{stat.label}</p>
-                <p className="text-2xl font-bold mt-1">{stat.value}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {stat.description}
-                </p>
-              </div>
-              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <stat.icon className="h-5 w-5 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+    <div className="space-y-4 pt-1">
+      <div className="group">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+          Total Value Locked
+        </p>
+        <p className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+          {formatCurrency(totalTvl)}
+        </p>
+      </div>
+
+      <div className="border-t border-border/50 pt-3">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+          Total Borrowed
+        </p>
+        <p className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+          {formatCurrency(totalBorrowed)}
+        </p>
+      </div>
+
+      <div className="border-t border-border/50 pt-3">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+          Active Vaults
+        </p>
+        <p className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+          {poolCount.toString()}
+        </p>
+      </div>
     </div>
   );
 }

@@ -16,12 +16,18 @@ import { Footer } from "@/components/Footer";
  */
 export default function RootLayout() {
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <Header />
-      <div className="flex-1">
-        <Outlet />
+    <div className="flex min-h-screen flex-col bg-background relative overflow-hidden">
+      {/* Subtle dotted grid overlay for high-technology texture */}
+      <div className="absolute inset-0 bg-[radial-gradient(oklch(0.922_0_0)_1px,transparent_1px)] dark:bg-[radial-gradient(oklch(1_0_0_/_10%)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none opacity-70 z-0" />
+      
+      <div className="relative z-10 flex flex-1 flex-col">
+        <Header />
+        <div className="flex-1">
+          <Outlet />
+        </div>
+        <Footer />
       </div>
-      <Footer />
+      
       <Toaster
         theme="dark"
         position="bottom-right"
