@@ -82,30 +82,30 @@ export function Header() {
         </div>
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          {isConnected ? (
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <Button variant="outline" size="sm" className="font-mono text-xs px-2.5 sm:px-3">
-                <Wallet className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden sm:inline-block">{address!.slice(0, 4)}...{address!.slice(-4)}</span>
-                <span className="inline-block sm:hidden">{address!.slice(0, 3)}...{address!.slice(-3)}</span>
+          <div className="hidden sm:flex items-center gap-1.5 sm:gap-2">
+            {isConnected ? (
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <Button variant="outline" size="sm" className="font-mono text-xs px-2.5 sm:px-3">
+                  <Wallet className="h-3.5 w-3.5 shrink-0" />
+                  <span>{address!.slice(0, 4)}...{address!.slice(-4)}</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={disconnect}
+                  title="Disconnect wallet"
+                  className="h-8 w-8 px-0 flex items-center justify-center shrink-0"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" onClick={connect} className="flex gap-1.5 px-3">
+                <Wallet className="h-4 w-4 shrink-0" />
+                <span>Connect Wallet</span>
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={disconnect}
-                title="Disconnect wallet"
-                className="h-8 w-8 px-0 flex items-center justify-center shrink-0"
-              >
-                <LogOut className="h-4 w-4" />
-              </Button>
-            </div>
-          ) : (
-            <Button variant="outline" size="sm" onClick={connect} className="flex gap-1.5 px-2.5 sm:px-3">
-              <Wallet className="h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline">Connect Wallet</span>
-              <span className="inline sm:hidden">Connect</span>
-            </Button>
-          )}
+            )}
+          </div>
           <a
             href="https://github.com/Shamba-Records-Limited/microvault/"
             target="_blank"
