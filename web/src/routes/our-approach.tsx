@@ -3,10 +3,6 @@
  * @module routes/our-approach
  */
 import {
-  Globe,
-  ShieldCheck,
-  Zap,
-  Users,
   ExternalLink,
 } from "lucide-react";
 import stellarLogo from "@/assets/stellar-logo.png";
@@ -23,25 +19,21 @@ const stats = [
 
 const pillars = [
   {
-    icon: ShieldCheck,
     title: "Farmer Credential Verification",
     description:
       "Soil data, crop yields, market records, and weather resilience are aggregated into tamper-proof verifiable credentials \u2014 giving farmers a financial identity based on productivity, not collateral.",
   },
   {
-    icon: Zap,
     title: "AI-Powered Credit Scoring",
     description:
       "Shamba Records\u2019 AI analyses real farm productivity, market potential, and climate resilience to generate credit scores that reflect a farmer\u2019s true financial standing.",
   },
   {
-    icon: Globe,
     title: "On-Chain Lending Vaults",
     description:
       "Built on Stellar\u2019s Soroban smart contract platform using the SEP-56 Vault standard, every loan is transparent, auditable, and accessible \u2014 no intermediaries, no hidden fees.",
   },
   {
-    icon: Users,
     title: "Verifiable Digital Identity",
     description:
       "Farmer credentials plug directly into DeFi platforms, banks, and microfinance institutions, enabling last-mile financing at a scale traditional systems have never reached.",
@@ -128,11 +120,11 @@ export default function UseCasePage() {
         <div className="space-y-6 max-w-prose">
           {pillars.map((pillar) => (
             <div key={pillar.title}>
-              <div className="flex items-center gap-2 mb-1.5">
-                <pillar.icon className="h-4 w-4 text-foreground shrink-0" />
+              <div className="flex items-start gap-2 mb-1.5">
+                <span className="text-muted-foreground select-none pt-0.5 text-lg leading-none">•</span>
                 <h3 className="font-semibold text-base text-foreground">{pillar.title}</h3>
               </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <p className="text-sm text-muted-foreground leading-relaxed pl-3.5">
                 {pillar.description}
               </p>
             </div>
@@ -147,7 +139,7 @@ export default function UseCasePage() {
         </h2>
         <div className="grid md:grid-cols-3 gap-x-8 gap-y-4">
           <div className="border-l border-foreground pl-3">
-            <p className="text-2xl font-bold tabular-nums mb-0.5">50,000</p>
+            <p className="text-2xl font-bold tabular-nums mb-0.5">80,000</p>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Active Shamba Records users on the platform today
             </p>
@@ -219,6 +211,28 @@ export default function UseCasePage() {
           </a>
 
           <a
+            href="https://www.moneygram.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group block border border-border/80 rounded-xl p-5 hover:bg-muted/10 transition-all duration-300"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <img
+                src={moneygramLogo}
+                alt="MoneyGram"
+                loading="lazy"
+                className="h-7 w-7 object-contain"
+              />
+              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <h3 className="font-semibold text-sm text-foreground mb-1">MoneyGram</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Global cash-pickup network letting borrowers collect loan funds in
+              person at thousands of agent locations across Africa.
+            </p>
+          </a>
+
+          <a
             href="https://africastalking.com/"
             target="_blank"
             rel="noopener noreferrer"
@@ -238,7 +252,7 @@ export default function UseCasePage() {
             </h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
               USSD and SMS mobile services enabling farmers to access loans and
-              manage repayments from any phone.
+              manage repayments from any phone across Africa.
             </p>
           </a>
 
@@ -260,29 +274,8 @@ export default function UseCasePage() {
             <h3 className="font-semibold text-sm text-foreground mb-1">Yellow Card</h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Fiat on/off-ramp infrastructure enabling last-mile loan
-              disbursement and repayment across Africa.
-            </p>
-          </a>
-
-          <a
-            href="https://www.moneygram.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group block border border-border/80 rounded-xl p-5 hover:bg-muted/10 transition-all duration-300"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <img
-                src={moneygramLogo}
-                alt="MoneyGram"
-                loading="lazy"
-                className="h-7 w-7 object-contain"
-              />
-              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <h3 className="font-semibold text-sm text-foreground mb-1">MoneyGram</h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Global cash-pickup network letting borrowers collect loan funds in
-              person at thousands of agent locations.
+              disbursement and repayment through mobile money and bank transfer
+              across Africa.
             </p>
           </a>
         </div>
