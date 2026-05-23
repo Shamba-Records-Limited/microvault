@@ -154,12 +154,12 @@ function formatEventArgs(topics: string[], value: unknown): string {
 
 function LiveIndicator() {
   return (
-    <span className="inline-flex items-center gap-1.5 ml-2">
+    <span className="inline-flex items-center gap-1.5 ml-1 sm:ml-2">
       <span className="relative flex h-2 w-2">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
         <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
       </span>
-      <span className="text-[10px] font-mono uppercase tracking-wider text-green-400">Live</span>
+      <span className="hidden sm:inline text-[10px] font-mono uppercase tracking-wider text-green-400">Live</span>
     </span>
   );
 }
@@ -416,13 +416,13 @@ export function TransactionsTable({
             key={tab.id}
             type="button"
             onClick={() => onTabChange(tab.id)}
-            className={`flex-1 rounded-md py-2 text-xs font-semibold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+            className={`flex-1 rounded-md py-2 px-1 text-[10px] sm:text-xs font-semibold uppercase tracking-normal sm:tracking-wider transition-all duration-200 cursor-pointer ${
               activeTab === tab.id
                 ? "bg-background text-foreground shadow-sm animate-fade-in"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <span className="inline-flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 sm:gap-2">
               {tab.label}
               {activeTab === tab.id && isLive && <LiveIndicator />}
             </span>
