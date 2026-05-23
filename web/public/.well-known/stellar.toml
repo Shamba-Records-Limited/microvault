@@ -17,6 +17,6 @@ desc = "A test USDC issued by Circle."
 [DOCUMENTATION]
 ORG_NAME = "Shamba Records"
 ORG_URL = "https://www.shambarecords.com"
-ORG_DESCRIPTION = "Digitizing the agriculture sector and increasing income for small scale farmers."
+ORG_DESCRIPTION = "Turning farm data into financial identity for emerging markets."
 ORG_LOGO = "https://www.shambarecords.com/Logo/shamba.svg"
 ORG_SUPPORT_EMAIL = "info@shambarecords.com"
