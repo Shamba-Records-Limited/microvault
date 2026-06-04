@@ -207,6 +207,10 @@ func (t *fakeTreasury) SendUSDC(_ context.Context, dest, memo string, stroops in
 	return t.hash, nil
 }
 
+func (t *fakeTreasury) CheckUSDCTrustline(_ context.Context, _ string) (bool, error) {
+	return true, nil
+}
+
 type fakeAlerts struct {
 	calls []string
 }
