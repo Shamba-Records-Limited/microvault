@@ -188,9 +188,14 @@ type PaymentResponse struct {
 	ServiceFeeAmountLocal float64         `json:"serviceFeeAmountLocal,omitempty"`
 	PartnerFeeAmountUSD   float64         `json:"partnerFeeAmountUSD,omitempty"`
 	PartnerFeeAmountLocal float64         `json:"partnerFeeAmountLocal,omitempty"`
-	CreatedAt             string          `json:"createdAt"`
-	UpdatedAt             string          `json:"updatedAt"`
-	ExpiresAt             string          `json:"expiresAt"`
+	// TotalCryptoReceived tracks how much crypto YellowCard has received against
+	// a direct-settlement request. It starts at 0 and increments toward
+	// SettlementInfo.CryptoAmount as the treasury's USDC deposit is detected.
+	TotalCryptoReceived float64 `json:"totalCryptoReceived,omitempty"`
+	FiatSettlement      bool    `json:"fiatSettlement,omitempty"`
+	CreatedAt           string  `json:"createdAt"`
+	UpdatedAt           string  `json:"updatedAt"`
+	ExpiresAt           string  `json:"expiresAt"`
 }
 
 // PaymentDetails contains full details of a payment retrieved by ID.
