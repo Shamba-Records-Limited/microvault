@@ -50,6 +50,8 @@ commit_parsers = [
     { message = "^.*WIP:", group = "Work in Progress" },
     { message = "^.*Merge pull request", skip = true },
     { message = "^.*chore\\(deps\\):", group = "➕ Dependencies" },
+    { message = "^.*ci:", group = "CI" },
+    { message = "^.*chore:", group = "Chore" },
     { message = "^.*", group = "Other" },
 ]
 # protect breaking changes from being skipped due to matching a skipping commit_parser

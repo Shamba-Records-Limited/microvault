@@ -46,7 +46,7 @@ PRERELEASE_FLAG=""
 # if [[ $VERSION == *"beta"* ]] || [[ $VERSION == *"alpha"* ]] || [[ $VERSION == *"rc"* ]]; then
 #     PRERELEASE_FLAG="--prerelease"
 # fi
-if [[ $VERSION == *"alpha"* ]] || [[ $VERSION == *"rc"* ]]; then
+if [[ $VERSION == *"alpha"* ]] || [[ $VERSION == *"beta"* ]] || [[ $VERSION == *"rc"* ]]; then
     PRERELEASE_FLAG="--prerelease"
 fi
 
