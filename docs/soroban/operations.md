@@ -73,7 +73,7 @@ stellar contract deploy \
   --treasury "$TREASURY" \
   --name "MicroVault USDC" \
   --symbol "mvUSDC"
-# → returns the vault contract id
+# to returns the vault contract id
 export VAULT_ID="<RETURNED_CONTRACT_ID>"
 ```
 
@@ -92,7 +92,7 @@ stellar contract deploy \
   --proposers '["'$DEPLOYER'"]' \
   --executors '["'$DEPLOYER'"]' \
   --admin '"'$DEPLOYER'"'
-# → returns the timelock contract id
+# to returns the timelock contract id
 export TIMELOCK_ID="<RETURNED_CONTRACT_ID>"
 ```
 
@@ -105,7 +105,7 @@ Ownership transfer follows the OpenZeppelin `Ownable` two-step pattern. Each leg
 | Call | Who calls | Why direct vs timelocked |
 |---|---|---|
 | `transfer_ownership(new_owner, live_until_ledger)` | **Deployer** (current owner), direct | Requires the **current** owner's auth. The deployer is still the owner at this point, so the call is signed directly by the deployer; no `schedule_op` involved. |
-| `accept_ownership()` | **TimelockController** (pending owner), via `schedule_op` → `execute_op` | Requires the **pending** owner's auth. The pending owner is the controller, and a contract can only call other contracts via `execute_op`, so this leg must be timelocked. |
+| `accept_ownership()` | **TimelockController** (pending owner), via `schedule_op` to `execute_op` | Requires the **pending** owner's auth. The pending owner is the controller, and a contract can only call other contracts via `execute_op`, so this leg must be timelocked. |
 
 `live_until_ledger` is the ledger number until which `accept_ownership` can be called. Set it far enough in the future to comfortably outlast the timelock's `delay`. A value of `0` cancels a pending transfer.
 
@@ -162,20 +162,20 @@ Verify the handover landed:
 
 ```bash
 stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" --rpc-url "$RPC_URL" -- get_owner
-# → expected: "$TIMELOCK_ID"
+# to expected: "$TIMELOCK_ID"
 ```
 
-After step 3c the vault's owner is the controller, and every `[only_owner]` call must flow through `schedule_op` → `execute_op`.
+After step 3c the vault's owner is the controller, and every `[only_owner]` call must flow through `schedule_op` to `execute_op`.
 
 > **Why not schedule `transfer_ownership` through the timelock too?** `transfer_ownership` is gated by the **current** owner's auth (`enforce_owner_auth`). Routing it via `execute_op` would make the timelock the auth source, but the timelock is not yet the owner during bootstrap, so the call would fail. Only the second leg (`accept_ownership`) needs to be timelocked, because that one requires the *pending* owner's auth, and the pending owner *is* the timelock.
 
-## Rotate Vault ownership (timelock → new owner)
+## Rotate Vault ownership (timelock to new owner)
 
 If you later need to move ownership away from the controller — say, to a multisig or a new governance contract — the auth roles invert and the directness of each leg flips with them:
 
 | Call | Who calls | Why direct vs timelocked |
 |---|---|---|
-| `transfer_ownership(new_owner, live_until_ledger)` | **TimelockController** (current owner), via `schedule_op` → `execute_op` | Requires the **current** owner's auth. The current owner is now the timelock, so the call must go through `schedule_op` → wait → `execute_op`. |
+| `transfer_ownership(new_owner, live_until_ledger)` | **TimelockController** (current owner), via `schedule_op` to `execute_op` | Requires the **current** owner's auth. The current owner is now the timelock, so the call must go through `schedule_op` to wait to `execute_op`. |
 | `accept_ownership()` | **New owner** (pending), direct (or via that owner's own governance) | Requires the **pending** owner's auth. If the new owner is an EOA or multisig signer, they call `accept_ownership` directly with their own key. |
 
 ```bash
@@ -227,14 +227,14 @@ stellar contract invoke \
 
 # Verify.
 stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" --rpc-url "$RPC_URL" -- get_owner
-# → expected: "$NEW_OWNER"
+# to expected: "$NEW_OWNER"
 ```
 
-If the new owner is itself a contract (e.g. another timelock or a multisig contract), step R3 is replaced by that contract's own mechanism for issuing a call to `accept_ownership()`. For a fresh timelock, that means another `schedule_op` → `execute_op` round, mirroring step 3b/3c of the bootstrap.
+If the new owner is itself a contract (e.g. another timelock or a multisig contract), step R3 is replaced by that contract's own mechanism for issuing a call to `accept_ownership()`. For a fresh timelock, that means another `schedule_op` to `execute_op` round, mirroring step 3b/3c of the bootstrap.
 
 To **abort** a pending transfer at any point before acceptance, the current owner calls `transfer_ownership(<anything>, 0)`. `live_until_ledger = 0` cancels the pending transfer per the OpenZeppelin spec. During bootstrap the deployer can do this directly; after rotation it must go through the timelock.
 
-## Schedule → Execute Pattern
+## Schedule to Execute Pattern
 
 This is the canonical shape for every governance action against the vault. Substitute the function name and `--args` JSON for the specific operation; the scaffolding stays identical.
 
@@ -254,7 +254,7 @@ stellar contract invoke \
   --salt $SALT \
   --delay 120 \
   --proposer $DEPLOYER
-# → returns the operation_id
+# to returns the operation_id
 
 # 2. Wait for `delay` ledgers.
 
@@ -369,7 +369,9 @@ stellar contract invoke \
 
 ### TimelockController self-upgrade
 
-The controller's own `upgrade` is `[only_admin]`. When the controller is its own admin, the upgrade must be scheduled against itself and then executed via the regular `execute_op` flow. Soroban routes the auth through `__check_auth`, which verifies the delay before letting the call through.
+The controller's own `upgrade` is `[only_admin]`. When the controller is its own admin, a self-targeted operation **cannot** go through `execute_op`: `execute_op` makes a cross-contract call into `target`, and when `target` is the controller itself that is a nested call back into the running contract — Soroban rejects it as re-entry (`Error(Context, InvalidAction)`, "Contract re-entry is not allowed").
+
+Instead, **schedule the op against the controller, wait the delay, then call `upgrade` _directly_** (not `execute_op`). Because `upgrade` is `[only_admin]` and the admin is the contract itself, the direct call triggers the controller's `__check_auth`, which reconstructs the operation from the `OperationMeta` you supply, verifies the delay has passed via `set_execute_operation`, and marks it `Done` — all in a single (root) invocation, so there is no re-entry.
 
 ```bash
 NEW_TIMELOCK_WASM_HASH=$(stellar contract upload \
@@ -392,26 +394,23 @@ stellar contract invoke \
   --delay 34560 \
   --proposer $DEPLOYER
 
-# After delay:
+# After delay: call `upgrade` DIRECTLY (NOT execute_op).
 stellar contract invoke \
   --id $TIMELOCK_ID \
   --source deployer \
   --network-passphrase "$NETWORK" \
   -- \
-  execute_op \
-  --target $TIMELOCK_ID \
-  --function upgrade \
-  --args '[{"bytes":"'$NEW_TIMELOCK_WASM_HASH'"}]' \
-  --predecessor 0000000000000000000000000000000000000000000000000000000000000000 \
-  --salt $SALT \
-  --executor '"'$DEPLOYER'"'
+  upgrade \
+  --new_wasm_hash $NEW_TIMELOCK_WASM_HASH
 ```
 
-If the controller has an external admin instead of self-administration, the admin can call `upgrade` directly without going through `execute_op`; the `[only_admin]` check is the only gate.
+The direct `upgrade` call requires the controller's `__check_auth` authorization, whose signature is the `Vec<OperationMeta>` `[{ predecessor, salt, executor }]` — **not** an EOA key signature. The `stellar` CLI cannot synthesize a custom-account signature, so this leg's `SorobanAuthorizationEntry` (an `Address` credential for `$TIMELOCK_ID` carrying that `OperationMeta` ScVal) must be built with the SDK (JS/Rust) and attached to the transaction. If executors are configured, `__check_auth` *also* calls `executor.require_auth_for_args(...)`; that inner leg is a normal EOA signature the CLI signs with `--source deployer`. The `predecessor`, `salt`, and `args` in the `OperationMeta` must exactly match the `schedule_op` call, or the reconstructed operation hash won't match the `Ready` slot.
+
+If the controller has an external admin instead of self-administration, the admin calls `upgrade` directly with its own key — no `execute_op`, no `__check_auth`, no re-entry concern; the `[only_admin]` check is the only gate.
 
 ## Common Admin Operations
 
-Each row below shows just the `--target`, `--function`, and `--args` you slot into the [Schedule → Execute Pattern](#schedule--execute-pattern). Everything else (predecessor, salt, delay, proposer, executor) is unchanged.
+Each row below shows just the `--target`, `--function`, and `--args` you slot into the [Schedule to Execute Pattern](#schedule--execute-pattern). Everything else (predecessor, salt, delay, proposer, executor) is unchanged.
 
 | Operation | Target | Function | Args |
 |---|---|---|---|
