@@ -269,7 +269,7 @@ func (a *MoneyGramOffRampAdapter) Quote(ctx context.Context, q offramp.QuoteRequ
 	return &offramp.ExchangeRate{
 		FromCurrency: "USD",
 		ToCurrency:   q.Currency,
-		Rate:         got.Rate,
+		SellRate:     got.Rate,
 		BuyRate:      got.Rate,
 		UpdatedAt:    got.FetchedAt,
 	}, nil

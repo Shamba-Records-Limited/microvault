@@ -528,21 +528,21 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	localAmount := toInt64(session.Data["loan_amount_local"])
 	localCurrency, _ := session.Data["local_currency"].(string)
 
-	var buyRate float64
+	var sellRate float64
 	if h.rateService != nil {
 		rate, err := h.rateService.GetExchangeRate(ctx, localCurrency)
 		if err != nil {
 			log.Printf("submitLoan: failed to get exchange rate: %v", err)
 			return h.formatError(session.Language, "error"), nil
 		}
-		buyRate = rate
+		sellRate = rate
 	} else {
-		buyRate = 153.50 // fallback
+		sellRate = 153.50 // fallback
 	}
 
 	// Convert local currency to USDC stroops: (fiat / rate) * 1e7
 	fiatAmount := float64(localAmount) / 100.0
-	usdcStroops := int64(fiatAmount / buyRate * 1e7)
+	usdcStroops := int64(fiatAmount / sellRate * 1e7)
 
 	// Get user and first account.
 	userData, accounts, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
@@ -609,7 +609,7 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		RepaymentSched:  schedule,
 		LocalAmount:     localAmount,
 		LocalCurrency:   localCurrency,
-		ConversionRate:  buyRate,
+		ConversionRate:  sellRate,
 		PayoutMethod:    payoutMethod,
 		BirthDate:       birthDate,
 	}

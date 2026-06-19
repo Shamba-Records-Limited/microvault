@@ -163,8 +163,8 @@ type UserService interface {
 
 // RateService provides exchange rate lookups for local currency conversion.
 type RateService interface {
-	// GetExchangeRate returns the current buying rate for the specified currency.
-	GetExchangeRate(ctx context.Context, currency string) (buyRate float64, err error)
+	// GetExchangeRate returns the current sell rate for the specified currency.
+	GetExchangeRate(ctx context.Context, currency string) (sellRate float64, err error)
 }
 
 // LoanService defines the interface for loan-related operations.

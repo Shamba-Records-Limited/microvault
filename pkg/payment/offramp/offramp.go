@@ -175,7 +175,7 @@ type ProviderInfo struct {
 type ExchangeRate struct {
 	FromCurrency string
 	ToCurrency   string
-	Rate         float64
+	SellRate     float64
 	BuyRate      float64
 	RateID       string
 	Locale       string

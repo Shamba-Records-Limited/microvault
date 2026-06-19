@@ -26,8 +26,9 @@ type YellowCardOffRampAdapter struct {
 	treasury             offramp.TreasuryTransfer
 	businessID           string
 	businessName         string
-	testDestinationPhone string // gated test-only override; see config docs.
-	logger               *slog.Logger
+	testDestinationPhone   string // gated test-only override; see config docs.
+	testDestinationAddress string // gated test-only override; see config docs.
+	logger                 *slog.Logger
 
 	// Thread-safe caching for channels and networks
 	cacheMu          sync.RWMutex
@@ -57,6 +58,13 @@ type YellowCardOffRampConfig struct {
 	// When non-empty, every disbursement logs a WARN before submission so
 	// the override is impossible to overlook in logs.
 	TestDestinationPhoneOverride string
+
+	// TestDestinationAddressOverride, when set, makes direct mode run its
+	// trustline check against this fixed address before any YC submission. Set
+	// it to an address with no USDC trustline to force the direct-to-fiat
+	// failover without creating an orphaned direct YC payment. Same production
+	// gate as the phone override.
+	TestDestinationAddressOverride string
 }
 
 // NewYellowCardOffRampAdapter creates a new YellowCard off-ramp adapter.
@@ -70,13 +78,18 @@ func NewYellowCardOffRampAdapter(cfg YellowCardOffRampConfig) *YellowCardOffRamp
 		scoped.Warn("YC test phone override active — every disbursement will go to a fixed number; DO NOT use in production",
 			"override_phone", cfg.TestDestinationPhoneOverride)
 	}
+	if cfg.TestDestinationAddressOverride != "" {
+		scoped.Warn("YC test destination address override active — direct settlement will send to a fixed Stellar address; DO NOT use in production",
+			"override_address", cfg.TestDestinationAddressOverride)
+	}
 	return &YellowCardOffRampAdapter{
-		ycAdapter:            cfg.Adapter,
-		treasury:             cfg.Treasury,
-		businessID:           cfg.BusinessID,
-		businessName:         cfg.BusinessName,
-		testDestinationPhone: cfg.TestDestinationPhoneOverride,
-		logger:               scoped,
+		ycAdapter:              cfg.Adapter,
+		treasury:               cfg.Treasury,
+		businessID:             cfg.BusinessID,
+		businessName:           cfg.BusinessName,
+		testDestinationPhone:   cfg.TestDestinationPhoneOverride,
+		testDestinationAddress: cfg.TestDestinationAddressOverride,
+		logger:                 scoped,
 		cachedChannels:       make(map[string][]yellowcard.Channel),
 		cachedNetworks:       make(map[string][]yellowcard.Network),
 		channelsExpireAt:     make(map[string]time.Time),
@@ -249,6 +262,20 @@ type disbursementParams struct {
 // cryptoLocalRate, and expiresAt in the response.
 func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *disbursementParams) (*offramp.Result, error) {
 	loanID := p.req.LoanID
+
+	if a.testDestinationAddress != "" {
+		a.logger.Warn("YC test destination address override active — checking its trustline before any direct submission to avoid an orphaned YC payment",
+			"loan_id", loanID,
+			"override_address", a.testDestinationAddress,
+		)
+		hasTrustline, err := a.treasury.CheckUSDCTrustline(ctx, a.testDestinationAddress)
+		if err != nil {
+			return nil, fmt.Errorf("test override trustline check failed: %w", err)
+		}
+		if !hasTrustline {
+			return nil, fmt.Errorf("destination wallet is missing a USDC trustline")
+		}
+	}
 
 	paymentReq := a.buildPaymentRequest(p)
 	paymentReq.DirectSettlement = true
@@ -668,7 +695,7 @@ func (a *YellowCardOffRampAdapter) Quote(ctx context.Context, q offramp.QuoteReq
 	return &offramp.ExchangeRate{
 		FromCurrency: yellowcard.CurrencyUSD,
 		ToCurrency:   rate.Code,
-		Rate:         rate.Sell,
+		SellRate:     rate.Sell,
 		BuyRate:      rate.Buy,
 		RateID:       rate.RateID,
 		Locale:       rate.Locale,
