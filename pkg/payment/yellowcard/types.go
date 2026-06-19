@@ -182,8 +182,6 @@ type PaymentResponse struct {
 	Destination           Destination     `json:"destination"`
 	SettlementInfo        *SettlementInfo `json:"settlementInfo,omitempty"`
 	Reference             string          `json:"reference,omitempty"`
-	NetworkFeeAmountUSD   float64         `json:"networkFeeAmountUSD,omitempty"`
-	NetworkFeeAmountLocal float64         `json:"networkFeeAmountLocal,omitempty"`
 	ServiceFeeAmountUSD   float64         `json:"serviceFeeAmountUSD,omitempty"`
 	ServiceFeeAmountLocal float64         `json:"serviceFeeAmountLocal,omitempty"`
 	PartnerFeeAmountUSD   float64         `json:"partnerFeeAmountUSD,omitempty"`
@@ -213,6 +211,14 @@ type PaymentDetails struct {
 	Reason           string          `json:"reason"`
 	Status           string          `json:"status"`
 	DirectSettlement bool            `json:"directSettlement"`
+
+	ServiceFeeAmountUSD   float64 `json:"serviceFeeAmountUSD,omitempty"`
+	ServiceFeeAmountLocal float64 `json:"serviceFeeAmountLocal,omitempty"`
+	ServiceFeeID          string  `json:"serviceFeeId,omitempty"`
+	PartnerFeeAmountUSD   float64 `json:"partnerFeeAmountUSD,omitempty"`
+	PartnerFeeAmountLocal float64 `json:"partnerFeeAmountLocal,omitempty"`
+	PartnerFeeID          string  `json:"partnerFeeId,omitempty"`
+
 	Sender           Sender          `json:"sender"`
 	Destination      Destination     `json:"destination"`
 	SettlementInfo   *SettlementInfo `json:"settlementInfo,omitempty"`

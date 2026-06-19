@@ -43,10 +43,7 @@ echo ""
 
 # Determine if this is a prerelease
 PRERELEASE_FLAG=""
-# if [[ $VERSION == *"beta"* ]] || [[ $VERSION == *"alpha"* ]] || [[ $VERSION == *"rc"* ]]; then
-#     PRERELEASE_FLAG="--prerelease"
-# fi
-if [[ $VERSION == *"alpha"* ]] || [[ $VERSION == *"beta"* ]] || [[ $VERSION == *"rc"* ]]; then
+if [[ $VERSION == *"beta"* ]] || [[ $VERSION == *"alpha"* ]] || [[ $VERSION == *"rc"* ]]; then
     PRERELEASE_FLAG="--prerelease"
 fi
 

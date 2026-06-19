@@ -318,7 +318,6 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		"currency", resp.Currency,
 		"direct_settlement", resp.DirectSettlement,
 		"service_fee_usd", resp.ServiceFeeAmountUSD,
-		"network_fee_usd", resp.NetworkFeeAmountUSD,
 	)
 
 	// Parse the combined wallet address format: {stellar_address}_{memo}
@@ -428,8 +427,8 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		AmountLocal:      float64(resp.ConvertedAmount),
 		LocalCurrency:    resp.Currency,
 		ExchangeRate:     resp.Rate,
-		Fee:              resp.ServiceFeeAmountUSD + resp.NetworkFeeAmountUSD,
-		FeeLocal:         resp.ServiceFeeAmountLocal + resp.NetworkFeeAmountLocal,
+		Fee:              resp.ServiceFeeAmountUSD,
+		FeeLocal:         resp.ServiceFeeAmountLocal,
 		EstimatedTime:    p.momoChannel.EstimatedSettlementTime,
 		CreatedAt:        createdAt,
 		SettlementMethod: yellowcard.SettlementMethodDirect,
@@ -497,7 +496,6 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 		"converted_amount", resp.ConvertedAmount,
 		"currency", resp.Currency,
 		"service_fee_usd", resp.ServiceFeeAmountUSD,
-		"network_fee_usd", resp.NetworkFeeAmountUSD,
 	)
 
 	createdAt, _ := time.Parse(time.RFC3339, resp.CreatedAt)
@@ -510,8 +508,8 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 		AmountLocal:      float64(resp.ConvertedAmount),
 		LocalCurrency:    resp.Currency,
 		ExchangeRate:     resp.Rate,
-		Fee:              resp.ServiceFeeAmountUSD + resp.NetworkFeeAmountUSD,
-		FeeLocal:         resp.ServiceFeeAmountLocal + resp.NetworkFeeAmountLocal,
+		Fee:              resp.ServiceFeeAmountUSD,
+		FeeLocal:         resp.ServiceFeeAmountLocal,
 		EstimatedTime:    p.momoChannel.EstimatedSettlementTime,
 		CreatedAt:        createdAt,
 		SettlementMethod: yellowcard.SettlementMethodFiat,

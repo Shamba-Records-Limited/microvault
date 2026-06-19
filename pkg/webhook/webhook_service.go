@@ -25,6 +25,10 @@ type DisbursementUpdater interface {
 	// NotifyDisbursementComplete sends a notification (SMS) to the user that their disbursement completed.
 	NotifyDisbursementComplete(sequenceID string) error
 
+	// RecordDisbursementCompletion persists the final financials of a completed
+	// payment: the delivered local amount and the service/partner fees.
+	RecordDisbursementCompletion(sequenceID string, fin CompletionFinancials) error
+
 	// NotifyDisbursementFailed sends a notification (SMS) to the user that their disbursement failed.
 	NotifyDisbursementFailed(sequenceID string) error
 
@@ -43,6 +47,21 @@ type DisbursementUpdater interface {
 	// FAILED events into refund-pending (direct) vs terminal-failed (fiat)
 	// without YC having to send a directSettlement flag on every webhook.
 	IsDirectSettlement(sequenceID string) (bool, error)
+}
+
+// CompletionFinancials carries the final amounts from a completed YellowCard
+// payment, looked up at completion time.
+type CompletionFinancials struct {
+	ConvertedAmountLocal  float64
+	ServiceFeeAmountUSD   float64
+	ServiceFeeAmountLocal float64
+	PartnerFeeAmountUSD   float64
+	PartnerFeeAmountLocal float64
+}
+
+// PaymentLookup fetches final payment details (amounts, fees) at completion.
+type PaymentLookup interface {
+	LookupPayment(ctx context.Context, paymentID string) (*yellowcard.PaymentDetails, error)
 }
 
 // AlertService is the interface for sending operational alerts.
@@ -65,14 +84,16 @@ type Service struct {
 	disbursements DisbursementUpdater
 	alerts        AlertService
 	transactions  TransactionRecorder
+	payments      PaymentLookup
 }
 
 // NewService creates a new webhook processing service.
-func NewService(disbursements DisbursementUpdater, alerts AlertService, transactions TransactionRecorder) *Service {
+func NewService(disbursements DisbursementUpdater, alerts AlertService, transactions TransactionRecorder, payments PaymentLookup) *Service {
 	return &Service{
 		disbursements: disbursements,
 		alerts:        alerts,
 		transactions:  transactions,
+		payments:      payments,
 	}
 }
 
@@ -106,12 +127,7 @@ func (s *Service) ProcessYellowCardEvent(event yellowcard.WebhookEvent) error {
 
 	switch event.Event {
 	case yellowcard.EventDisbursementComplete, yellowcard.EventPaymentComplete:
-		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementComplete); err != nil {
-			return fmt.Errorf("update status to complete: %w", err)
-		}
-		if err := s.disbursements.NotifyDisbursementComplete(seqID); err != nil {
-			log.Printf("yellowcard webhook: failed to notify user of completion for %s: %v", seqID, err)
-		}
+		return s.handleComplete(seqID, paymentID)
 
 	case yellowcard.EventDisbursementFailed, yellowcard.EventPaymentFailed:
 		isDirect, err := directSettlementLookup()
@@ -125,8 +141,41 @@ func (s *Service) ProcessYellowCardEvent(event yellowcard.WebhookEvent) error {
 		// handleByStatus does its own lazy lookup if a failed branch is hit.
 		return s.handleByStatus(seqID, paymentID, status, directSettlementLookup)
 	}
+}
 
+// handleComplete marks the disbursement complete, records the final financials
+// from a payment lookup (delivered amount + service/partner fees), and notifies
+// the borrower.
+func (s *Service) handleComplete(seqID, paymentID string) error {
+	if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementComplete); err != nil {
+		return fmt.Errorf("update status to complete: %w", err)
+	}
+	s.recordCompletionFinancials(seqID, paymentID)
+	if err := s.disbursements.NotifyDisbursementComplete(seqID); err != nil {
+		log.Printf("yellowcard webhook: failed to notify completion for %s: %v", seqID, err)
+	}
 	return nil
+}
+
+func (s *Service) recordCompletionFinancials(seqID, paymentID string) {
+	if s.payments == nil || paymentID == "" {
+		return
+	}
+	details, err := s.payments.LookupPayment(context.Background(), paymentID)
+	if err != nil {
+		log.Printf("yellowcard webhook: failed to look up payment %s for completion financials: %v", paymentID, err)
+		return
+	}
+	fin := CompletionFinancials{
+		ConvertedAmountLocal:  details.ConvertedAmount,
+		ServiceFeeAmountUSD:   details.ServiceFeeAmountUSD,
+		ServiceFeeAmountLocal: details.ServiceFeeAmountLocal,
+		PartnerFeeAmountUSD:   details.PartnerFeeAmountUSD,
+		PartnerFeeAmountLocal: details.PartnerFeeAmountLocal,
+	}
+	if err := s.disbursements.RecordDisbursementCompletion(seqID, fin); err != nil {
+		log.Printf("yellowcard webhook: failed to record completion financials for %s: %v", seqID, err)
+	}
 }
 
 // handleFailedEvent processes FAILED events with mode-specific logic.
@@ -159,12 +208,7 @@ func (s *Service) handleFailedEvent(seqID, paymentID, status string, isDirect bo
 func (s *Service) handleByStatus(seqID, paymentID, status string, directLookup func() (bool, error)) error {
 	switch status {
 	case yellowcard.StatusComplete:
-		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementComplete); err != nil {
-			return fmt.Errorf("update status to complete: %w", err)
-		}
-		if err := s.disbursements.NotifyDisbursementComplete(seqID); err != nil {
-			log.Printf("yellowcard webhook: failed to notify completion for %s: %v", seqID, err)
-		}
+		return s.handleComplete(seqID, paymentID)
 
 	case yellowcard.StatusFailed, yellowcard.StatusExpired, yellowcard.StatusCancelled:
 		isDirect, err := directLookup()
