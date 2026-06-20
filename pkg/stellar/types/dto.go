@@ -26,6 +26,12 @@ type MultiSigConfig struct {
 	HighThreshold  uint32 // Set to 1
 }
 
+// EstablishTrustlineRequest represents a request to add a sponsored USDC trustline
+// to an existing child account whose reserves are covered by the treasury.
+type EstablishTrustlineRequest struct {
+	ChildKeypair *keypair.Full
+}
+
 // SponsoredPaymentTransactionRequest represents a request to perform a classic sponsored payment transaction
 // used for use cases such as off-ramping USDC from child account to off-ramp account
 type SponsoredPaymentTransactionRequest struct {

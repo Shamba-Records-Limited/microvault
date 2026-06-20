@@ -13,6 +13,7 @@ import (
 // Re-export types from the types package for external consumers
 type (
 	CreateAccountRequest                = types.CreateAccountRequest
+	EstablishTrustlineRequest           = types.EstablishTrustlineRequest
 	MultiSigConfig                      = types.MultiSigConfig
 	SponsoredPaymentTransactionRequest  = types.SponsoredPaymentTransactionRequest
 	SponsoredPaymentTransactionResponse = types.SponsoredPaymentTransactionResponse
@@ -73,6 +74,10 @@ type service struct {
 // Classic service method delegation
 func (s *service) CreateSponsoredAccount(ctx context.Context, req CreateAccountRequest) error {
 	return s.classicService.CreateSponsoredAccount(ctx, req)
+}
+
+func (s *service) EstablishSponsoredTrustline(ctx context.Context, req EstablishTrustlineRequest) error {
+	return s.classicService.EstablishSponsoredTrustline(ctx, req)
 }
 
 func (s *service) SponsoredPaymentTransaction(ctx context.Context, req SponsoredPaymentTransactionRequest) (*SponsoredPaymentTransactionResponse, error) {
