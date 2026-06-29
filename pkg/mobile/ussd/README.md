@@ -10,35 +10,35 @@ manage their PIN. The concepts
 
 ```mermaid
 flowchart TD
-    GW[Telecom gateway<br/>Africa's Talking] -->|HTTP form post| SVC[USSDService.HandleRequest]
-    SVC -->|resolves provider by name| Prov[USSDProvider<br/>transport contract]
-    Prov --> Handler[USSDHandler.HandleRequest]
+    GW["Telecom gateway<br/>Africa's Talking"] -->|HTTP form post| SVC["USSDService.HandleRequest"]
+    SVC -->|resolves provider by name| Prov["USSDProvider<br/>transport contract"]
+    Prov --> Handler["USSDHandler.HandleRequest"]
 
     subgraph handler_deps[Handler dependencies]
-        SM[SessionManager<br/>Redis, 5 min TTL]
-        MR[MenuRegistry<br/>menu graph + presets]
-        LOC[InMemoryLocalizer<br/>en / sw / fr]
-        NM[NetworkMapper<br/>MCC+MNC to MoMo network]
+        SM["SessionManager<br/>Redis, 5 min TTL"]
+        MR["MenuRegistry<br/>menu graph + presets"]
+        LOC["InMemoryLocalizer<br/>en / sw / fr"]
+        NM["NetworkMapper<br/>MCC+MNC to MoMo network"]
     end
     Handler --> handler_deps
 
-    Handler -->|depends on narrow ports| UserPort[ussd.UserService]
-    Handler --> LoanPort[ussd.LoanService]
-    Handler --> RatePort[ussd.RateService]
-    Handler --> PinPort[ussd.PINService]
+    Handler -->|depends on narrow ports| UserPort["ussd.UserService"]
+    Handler --> LoanPort["ussd.LoanService"]
+    Handler --> RatePort["ussd.RateService"]
+    Handler --> PinPort["ussd.PINService"]
 
-    UserPort --> UserAdapter[adapters.UserServiceAdapter]
-    LoanPort --> LoanAdapter[credit module's<br/>LoanServiceAdapter]
-    RatePort --> RateAdapter[credit module's<br/>RateServiceAdapter]
-    PinPort --> PinSvc[pkg/pin.Service]
+    UserPort --> UserAdapter["adapters.UserServiceAdapter"]
+    LoanPort --> LoanAdapter["credit module's<br/>LoanServiceAdapter"]
+    RatePort --> RateAdapter["credit module's<br/>RateServiceAdapter"]
+    PinPort --> PinSvc["pkg/pin.Service"]
 
-    LoanAdapter --> Reg[offramp.Registry]
-    Reg --> MG[adapters.MoneyGramOffRampAdapter]
-    Reg --> YC[adapters.YellowCardOffRampAdapter]
-    MG --> TTransfer[adapters.StellarTreasuryTransfer]
+    LoanAdapter --> Reg["offramp.Registry"]
+    Reg --> MG["adapters.MoneyGramOffRampAdapter"]
+    Reg --> YC["adapters.YellowCardOffRampAdapter"]
+    MG --> TTransfer["adapters.StellarTreasuryTransfer"]
     YC --> TTransfer
 
-    UserAdapter --> Domain[user / account / stellar /<br/>payment services]
+    UserAdapter --> Domain["user / account / stellar /<br/>payment services"]
     LoanAdapter --> Domain
     RateAdapter --> Domain
     TTransfer --> Domain

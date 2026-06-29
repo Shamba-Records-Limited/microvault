@@ -29,8 +29,8 @@ how the credit module plugs in.
 
 ```mermaid
 flowchart TD
-    GW[telecom gateway<br/>Africa's Talking] -->|HTTP form post| USSDR[/mobile/ussd/:provider]
-    GW -->|HTTP form post| SMSR[/mobile/sms/:provider/delivery]
+    GW["telecom gateway<br/>Africa's Talking"] -->|HTTP form post| USSDR["/mobile/ussd/:provider"]
+    GW -->|HTTP form post| SMSR["/mobile/sms/:provider/delivery"]
 
     USSDR --> USSDCtrl[controllers.USSDController]
     SMSR --> SMSCtrl[controllers.SMSCallbackController]
@@ -41,8 +41,8 @@ flowchart TD
     USSDSvc --> USSDProv[ussd.USSDProvider]
     USSDProv --> USSDH[ussd.USSDHandler]
 
-    USSDH --> Ports[port interfaces:<br/>UserService, LoanService,<br/>RateService, PINService]
-    Ports --> Adapters[adapters in pkg/mobile/ussd/adapters<br/>UserServiceAdapter + credit module<br/>LoanServiceAdapter, RateServiceAdapter]
+    USSDH --> Ports["port interfaces:<br/>UserService, LoanService,<br/>RateService, PINService"]
+    Ports --> Adapters["adapters in pkg/mobile/ussd/adapters<br/>UserServiceAdapter + credit module<br/>LoanServiceAdapter, RateServiceAdapter"]
 
     SMSH -.->|outbound SMS goes the other way| SMSSvc[sms.SMSService]
     SMSSvc --> SMSProv[SMSProvider interface]
@@ -299,26 +299,26 @@ exists separately from `cmd/microvault`:
 
 ```mermaid
 flowchart TD
-    Main[cmd/credit/main.go]
+    Main["cmd/credit/main.go"]
 
-    Main --> UA[ussdadapters.NewUserServiceAdapter]
-    Main --> YC[ussdadapters.NewYellowCardOffRampAdapter]
-    Main --> MG[ussdadapters.NewMoneyGramOffRampAdapter]
-    Main --> ST[usssadapters.NewStellarTreasuryTransfer]
+    Main --> UA["ussdadapters.NewUserServiceAdapter"]
+    Main --> YC["ussdadapters.NewYellowCardOffRampAdapter"]
+    Main --> MG["ussdadapters.NewMoneyGramOffRampAdapter"]
+    Main --> ST["ussdadapters.NewStellarTreasuryTransfer"]
 
-    YC --> Reg[offramp.Registry]
+    YC --> Reg["offramp.Registry"]
     MG --> Reg
     ST --> Reg
 
-    Main --> LA[adapters.NewLoanServiceAdapter<br/>loanSvc, stellarSvc, offRampRegistry,<br/>loanNotifier, txnSvc, ...]
-    Main --> RA[adapters.NewRateServiceAdapter<br/>ycOffRamp]
+    Main --> LA["adapters.NewLoanServiceAdapter<br/>loanSvc, stellarSvc, offRampRegistry,<br/>loanNotifier, txnSvc, ..."]
+    Main --> RA["adapters.NewRateServiceAdapter<br/>ycOffRamp"]
 
-    UA -->|satisfies| US[ussd.UserService]
-    LA -->|satisfies| LS[ussd.LoanService]
-    RA -->|satisfies| RS[ussd.RateService]
-    Reg -.consumed by.-> LA
+    UA -->|satisfies| US["ussd.UserService"]
+    LA -->|satisfies| LS["ussd.LoanService"]
+    RA -->|satisfies| RS["ussd.RateService"]
+    Reg -. "consumed by" .-> LA
 
-    Main --> H[ussd.NewUSSDHandler<br/>sessionMgr, menuRegistry,<br/>userAdapter, loanAdapter, rateSvc,<br/>pinService, accountNotifier]
+    Main --> H["ussd.NewUSSDHandler<br/>sessionMgr, menuRegistry,<br/>userAdapter, loanAdapter, rateSvc,<br/>pinService, accountNotifier"]
     US --> H
     LS --> H
     RS --> H

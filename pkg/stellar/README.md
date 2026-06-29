@@ -6,13 +6,13 @@ operations (accounts, trustlines, payments) and **Soroban** smart-contract calls
 
 ```mermaid
 flowchart TD
-    Host[host service] --> Svc[stellar.Service]
-    Svc --> Classic[classic.Service<br/>accounts, trustlines,<br/>payments, USDC sends]
-    Svc --> Soroban[soroban.Service<br/>vault borrow/repay,<br/>views, admin]
-    Svc --> Poll[rpc.PollTransaction<br/>build to sign to<br/>submit to poll]
-    Classic --> RPC[Stellar RPC]
+    Host["host service"] --> Svc["stellar.Service"]
+    Svc --> Classic["classic.Service<br/>accounts, trustlines,<br/>payments, USDC sends"]
+    Svc --> Soroban["soroban.Service<br/>vault borrow/repay,<br/>views, admin"]
+    Svc --> Poll["rpc.PollTransaction<br/>build to sign to<br/>submit to poll"]
+    Classic --> RPC["Stellar RPC"]
     Soroban --> RPC
-    RPC --> Net[Stellar network]
+    RPC --> Net["Stellar network"]
 ```
 
 ## Subpackages

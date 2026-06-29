@@ -14,7 +14,7 @@ stateDiagram-v2
     Unset --> Waiting: schedule_op
     Waiting --> Ready: delay elapsed
     Ready --> Done: execute_op
-    Waiting --> Unset: cancel_op<br/>(canceler role)
+    Waiting --> Unset: cancel_op (canceler role)
 ```
 
 | State | Meaning |

@@ -11,11 +11,11 @@ The system is deployed as **two contracts**:
 
 ```mermaid
 flowchart LR
-    Depositors -->|deposit/withdraw| Vault[Vault]
-    Vault -->|borrow on behalf of<br/>Child Accounts| Treasury
-    Proposer -->|schedule_op| TL[TimelockController]
-    TL -->|execute_op after delay| VaultAdmin[Vault.admin_fn]
-    Vault -. owner .-> TL
+    Depositors -->|"deposit/withdraw"| Vault["Vault"]
+    Vault -->|"borrow on behalf of<br/>Child Accounts"| Treasury["Treasury"]
+    Proposer -->|"schedule_op"| TL["TimelockController"]
+    TL -->|"execute_op after delay"| VaultAdmin["Vault.admin_fn"]
+    Vault -. "owner" .-> TL
 ```
 
 Day-to-day depositor and treasury calls hit the Vault directly. Anything privileged — changing limits, replacing the treasury, upgrading WASM, unpausing — is routed through the TimelockController, so every change is publicly visible during the delay window before it takes effect.
