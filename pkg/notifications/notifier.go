@@ -1,6 +1,3 @@
-// Package notifications provides base notification primitives and loan lifecycle
-// notifiers. Consumers depend on the Notifier interface
-// for transport and on contracts.LoanNotifier for loan-specific messaging.
 package notifications
 
 import (

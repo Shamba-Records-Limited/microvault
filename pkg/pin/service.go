@@ -1,4 +1,3 @@
-// Package pin provides secure PIN management, including hashing, validation, and lockout mechanisms.
 package pin
 
 import (

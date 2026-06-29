@@ -30,7 +30,7 @@ classic.Service          soroban.Service             rpc.PollTransaction
 | [`types`](./types/dto.go) | Request/response DTOs ([`dto.go`](./types/dto.go)), service errors, and contract-error mapping ([`errors.go`](./types/errors.go)). |
 | [`testing`](./testing/mock_rpc_client.go) | `MockRPCClient` and deterministic test keys used by the table tests. |
 
-## The composite service
+## Building the service
 
 `stellar.Service` embeds both `classic.Service` and `soroban.Service`, so a caller
 holds one handle for on-chain and off-chain work. Build it with `NewService`
@@ -47,21 +47,17 @@ svc := stellar.NewService(
 )
 ```
 
-## The one thing to know: child accounts are fully sponsored
+## How it works
 
-Child accounts are created holding **zero XLM**. The treasury account sponsors
-their base reserves, so they exist purely as on-chain markers for tracking and
-auditing — they never hold USDC. Two consequences that surprise people:
+The concepts — the treasury sponsorship model, why child accounts hold zero XLM
+and carry no trustline, the two-key split, and the build/sign/submit/poll path —
+live in the package docs. Read them with `go doc` or on pkg.go.dev:
 
-- **No trustline at creation.** Children are created without a USDC trustline,
-  because they never receive USDC. Add one later with
-  [`EstablishSponsoredTrustline`](./classic/classic.go) only if a child genuinely
-  needs to hold the asset.
-- **USDC lives in the treasury.** Borrowing moves USDC to the treasury (the child
-  is only recorded in the on-chain event); payouts then leave the treasury.
-
-The full custody and sponsorship model — who signs, who pays reserves, and why —
-is in the reference doc below.
+```bash
+go doc ./pkg/stellar          # composite overview
+go doc ./pkg/stellar/classic  # accounts, trustlines, USDC, sponsorship
+go doc ./pkg/stellar/soroban  # the Vault contract client
+```
 
 ## Full reference
 

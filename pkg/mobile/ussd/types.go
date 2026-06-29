@@ -1,4 +1,3 @@
-// Package ussd provides the types and interfaces for the USSD application flow.
 package ussd
 
 import (
@@ -16,17 +15,17 @@ import (
 
 // Session represents a single interactive USSD session with a mobile user.
 type Session struct {
-	SessionID     string                 `json:"session_id"`
-	PhoneNumber   string                 `json:"phone_number"`
-	ServiceCode   string                 `json:"service_code"`
-	NetworkCode   string                 `json:"network_code"`
-	UserID        string                 `json:"user_id,omitempty"`
-	CurrentMenu   string                 `json:"current_menu"`
-	PreviousMenus []string               `json:"previous_menus"`
-	Language      string                 `json:"language"`
+	SessionID     string         `json:"session_id"`
+	PhoneNumber   string         `json:"phone_number"`
+	ServiceCode   string         `json:"service_code"`
+	NetworkCode   string         `json:"network_code"`
+	UserID        string         `json:"user_id,omitempty"`
+	CurrentMenu   string         `json:"current_menu"`
+	PreviousMenus []string       `json:"previous_menus"`
+	Language      string         `json:"language"`
 	Data          map[string]any `json:"data"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
 }
 
 // SessionManager handles the storage, retrieval, and lifecycle of USSD sessions.
@@ -168,7 +167,7 @@ type RateService interface {
 }
 
 // LoanService defines the interface for loan-related operations.
-// Implementations live in microvault-credit; the USSD handler depends only on
+// Implementations live in the lending module; the USSD handler depends only on
 // this consumer-defined interface.
 type LoanService interface {
 	// GetUserLoans returns all loans for the given user, formatted for USSD display.

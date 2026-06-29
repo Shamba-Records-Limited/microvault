@@ -1,4 +1,3 @@
-// Package ussd provides the core USSD gateway handler and request routing.
 package ussd
 
 import (

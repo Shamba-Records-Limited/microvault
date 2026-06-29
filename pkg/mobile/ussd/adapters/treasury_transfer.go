@@ -1,4 +1,3 @@
-// Package adapters provides core implementation for USSD integration for stellar treasury transfers.
 package adapters
 
 import (

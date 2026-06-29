@@ -1,6 +1,3 @@
-// Package pin provides PIN management services including creation, verification,
-// change, reset, and security question handling for USSD-based user
-// authentication.
 package pin
 
 import (

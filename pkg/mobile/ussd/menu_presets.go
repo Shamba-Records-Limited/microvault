@@ -1,4 +1,3 @@
-// Package ussd provides predefined menu flows, layouts, and registration sequences.
 package ussd
 
 // NewStandardLoanMenuPreset creates a new instance of StandardLoanMenuPreset.

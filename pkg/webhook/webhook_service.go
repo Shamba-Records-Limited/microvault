@@ -1,4 +1,3 @@
-// Package webhook provides services for processing payment provider webhook events.
 package webhook
 
 import (

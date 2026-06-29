@@ -36,9 +36,8 @@ import (
 // LoanRecord is the projection of a loan row the poller needs to drive
 // state for a single MoneyGram cash-pickup transaction.
 //
-// The implementation in microvault-credit (loan repository) constructs
-// these from active rows where ramp_provider="moneygram" and
-// disbursement_status is in the active set.
+// The lending module's loan repository constructs these from active rows
+// where ramp_provider="moneygram" and disbursement_status is in the active set.
 type LoanRecord struct {
 	LoanID                string
 	SequenceID            string  // = loans.ramp_sequence_id
@@ -76,7 +75,7 @@ type LoanRecorder interface {
 }
 
 // DisbursementUpdater drives terminal state transitions and user
-// notifications. The microvault-credit DisbursementStatusAdapter already
+// notifications. The lending module's disbursement-status adapter already
 // implements this for the YC flow; the same impl is reused here.
 type DisbursementUpdater interface {
 	UpdateDisbursementStatus(sequenceID string, status string) error
@@ -92,11 +91,11 @@ type AlertService interface {
 }
 
 // Disbursement status strings the poller writes. These match the canonical
-// constants in microvault-credit/internal/credit/app/models/loan.go
-// (DisbursementStatus*). We hardcode them here because this package can't
-// import from microvault-credit without a layering inversion.
+// DisbursementStatus* constants in the lending module's loan model. We hardcode
+// them here because this package can't import from the lending module without a
+// layering inversion.
 //
-// statusRefundPending is intentionally not in microvault-credit's enum yet
+// statusRefundPending is intentionally not in the lending module's enum yet
 // — added inline here to mirror what the existing YC flow writes; reconcile
 // in a follow-up that also fixes YC's "complete" vs the model's "completed".
 const (

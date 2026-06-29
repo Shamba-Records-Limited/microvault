@@ -37,8 +37,8 @@ type LoanTemplates struct {
 	CashPickupReady string
 }
 
-// DefaultLoanTemplates returns templates matching the current microvault-credit
-// messages but parameterized for any currency.
+// DefaultLoanTemplates returns ready-to-use loan templates, parameterized for
+// any currency.
 func DefaultLoanTemplates() *LoanTemplates {
 	return &LoanTemplates{
 		Approved: "Congratulations! Your loan of %s %.2f has been approved (Ref: %s). " +

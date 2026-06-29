@@ -1,4 +1,3 @@
-// Package webhook provides services for polling for refund pending loans.
 package webhook
 
 import (

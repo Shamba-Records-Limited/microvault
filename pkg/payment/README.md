@@ -380,7 +380,7 @@ The USSD loan service adapter depends on the **narrow** capabilities it
 actually uses:
 
 ```go
-// internal/credit/adapters/loan_service_adapter.go
+// credit module: internal/credit/adapters/loan_service_adapter.go
 
 type LoanServiceAdapter struct {
     offRampSvc offramp.Provider // just Initiate

@@ -1,5 +1,3 @@
-// Package adapters provides core implementation for USSD integration with
-// the MoneyGram cash-pickup off-ramp provider.
 package adapters
 
 import (
@@ -27,13 +25,13 @@ import (
 //
 // Treasury USDC transfer happens later in the lifecycle, after the user
 // completes the webview and MoneyGram transitions the transaction to
-// pending_user_transfer_start. That step is driven by the background poller
-// (see pkg/services/moneygram/poller.go in microvault-credit), not by this
-// adapter — InitiateOffRamp only registers intent.
+// pending_user_transfer_start. That step is driven by the background poller in
+// the lending module, not by this adapter — InitiateOffRamp only registers
+// intent.
 type MoneyGramOffRampAdapter struct {
-	client          *moneygram.Client
-	treasuryPubkey  string // for child memo derivation
-	logger          *slog.Logger
+	client         *moneygram.Client
+	treasuryPubkey string // for child memo derivation
+	logger         *slog.Logger
 }
 
 // MoneyGramOffRampConfig contains configuration for the MoneyGram off-ramp adapter.
@@ -44,7 +42,7 @@ type MoneyGramOffRampConfig struct {
 
 // NewMoneyGramOffRampAdapter creates a new MoneyGram off-ramp adapter. The
 // client must already be initialised (TOML fetched and validated) by the
-// caller — see microvault-credit/cmd/credit/main.go.
+// calling binary at startup.
 func NewMoneyGramOffRampAdapter(cfg MoneyGramOffRampConfig) (*MoneyGramOffRampAdapter, error) {
 	if cfg.Client == nil {
 		return nil, fmt.Errorf("moneygram off-ramp: client is required")
@@ -85,7 +83,7 @@ func (a *MoneyGramOffRampAdapter) ID() offramp.ProviderID { return offramp.Provi
 //   - RequestID         — MG's transaction ID; persist as loans.ramp_request_id
 //   - InteractiveURL    — webview URL; persist as loans.ramp_interactive_url, SMS to user
 //   - ChildAccountMemo  — SEP-10 child memo; persist as loans.ramp_child_account_index
-//                         input so the poller can re-derive it on restart
+//     input so the poller can re-derive it on restart
 //   - SettlementMethod  — always "cash_pickup"
 //
 // ExternalReference and AmountLocal/LocalCurrency are populated later by the

@@ -1,4 +1,3 @@
-// Package adapters implements USSD integration for user and account services.
 package adapters
 
 import (

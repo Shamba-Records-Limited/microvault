@@ -1,4 +1,3 @@
-// Package adapters provides core implementation for USSD integration with yellowcard off-ramp provider.
 package adapters
 
 import (
@@ -22,10 +21,10 @@ var ycNameRegexp = regexp.MustCompile(`[^a-zA-Z ]+`)
 // YellowCardOffRampAdapter implements OffRampService using YellowCard with
 // dual-mode settlement: direct (crypto-funded) and fiat (YC balance-funded).
 type YellowCardOffRampAdapter struct {
-	ycAdapter            *yellowcard.YellowcardAdapter
-	treasury             offramp.TreasuryTransfer
-	businessID           string
-	businessName         string
+	ycAdapter              *yellowcard.YellowcardAdapter
+	treasury               offramp.TreasuryTransfer
+	businessID             string
+	businessName           string
 	testDestinationPhone   string // gated test-only override; see config docs.
 	testDestinationAddress string // gated test-only override; see config docs.
 	logger                 *slog.Logger
@@ -52,9 +51,9 @@ type YellowCardOffRampConfig struct {
 	// YellowCard sandbox simulation numbers (e.g. +2341111111111 for a
 	// guaranteed-success momo transaction).
 	//
-	// MUST be empty in production. The caller is responsible for the
-	// environment gate — see microvault-credit/cmd/credit/main.go where
-	// the env var is only read when SERVER_ENVIRONMENT != "production".
+	// MUST be empty in production. The calling binary is responsible for the
+	// environment gate, reading the env var only when
+	// SERVER_ENVIRONMENT != "production".
 	// When non-empty, every disbursement logs a WARN before submission so
 	// the override is impossible to overlook in logs.
 	TestDestinationPhoneOverride string
@@ -90,11 +89,11 @@ func NewYellowCardOffRampAdapter(cfg YellowCardOffRampConfig) *YellowCardOffRamp
 		testDestinationPhone:   cfg.TestDestinationPhoneOverride,
 		testDestinationAddress: cfg.TestDestinationAddressOverride,
 		logger:                 scoped,
-		cachedChannels:       make(map[string][]yellowcard.Channel),
-		cachedNetworks:       make(map[string][]yellowcard.Network),
-		channelsExpireAt:     make(map[string]time.Time),
-		networksExpireAt:     make(map[string]time.Time),
-		cacheTTL:             15 * time.Minute,
+		cachedChannels:         make(map[string][]yellowcard.Channel),
+		cachedNetworks:         make(map[string][]yellowcard.Network),
+		channelsExpireAt:       make(map[string]time.Time),
+		networksExpireAt:       make(map[string]time.Time),
+		cacheTTL:               15 * time.Minute,
 	}
 }
 

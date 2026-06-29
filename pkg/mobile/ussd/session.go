@@ -1,4 +1,3 @@
-// Package ussd provides session state management for the USSD application.
 package ussd
 
 import (

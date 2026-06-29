@@ -1,4 +1,3 @@
-// Package ussd provides multi-language string localization and formatting.
 package ussd
 
 import "fmt"
