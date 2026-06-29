@@ -4,20 +4,15 @@ Go client for everything Microvault does on the Stellar network — both **class
 operations (accounts, trustlines, payments) and **Soroban** smart-contract calls
 (the Vault). One composite service fronts both.
 
-```
-host service
-     │
-     ▼
-stellar.Service ──────────────┬───────────────────────────┐
-     │                        │                           │
-     ▼                        ▼                           ▼
-classic.Service          soroban.Service             rpc.PollTransaction
-(accounts, trustlines,   (vault borrow/repay,        (build to sign to
- payments, USDC sends)    views, admin)               submit to poll)
-     │                        │
-     └──────────┬─────────────┘
-                ▼
-        Stellar RPC ──▶ Stellar network
+```mermaid
+flowchart TD
+    Host[host service] --> Svc[stellar.Service]
+    Svc --> Classic[classic.Service<br/>accounts, trustlines,<br/>payments, USDC sends]
+    Svc --> Soroban[soroban.Service<br/>vault borrow/repay,<br/>views, admin]
+    Svc --> Poll[rpc.PollTransaction<br/>build to sign to<br/>submit to poll]
+    Classic --> RPC[Stellar RPC]
+    Soroban --> RPC
+    RPC --> Net[Stellar network]
 ```
 
 ## Subpackages

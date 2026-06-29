@@ -8,13 +8,13 @@ Source: [`soroban/contracts/timelock-controller/src/lib.rs`](../../soroban/contr
 
 Every governance action goes through these states:
 
-```
-        schedule_op             delay elapsed              execute_op
-Unset ──────────────▶ Waiting ─────────────────▶ Ready ─────────────▶ Done
-                         │
-                         │ cancel_op (canceler role)
-                         ▼
-                       Unset
+```mermaid
+stateDiagram-v2
+    [*] --> Unset
+    Unset --> Waiting: schedule_op
+    Waiting --> Ready: delay elapsed
+    Ready --> Done: execute_op
+    Waiting --> Unset: cancel_op<br/>(canceler role)
 ```
 
 | State | Meaning |

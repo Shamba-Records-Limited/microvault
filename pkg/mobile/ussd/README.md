@@ -8,54 +8,40 @@ manage their PIN. The concepts
 
 ## Layer diagram
 
-```
-                    Telecom gateway (Africa's Talking)
-                              │  HTTP form post
-                              ▼
-                     USSDService.HandleRequest
-                              │  resolves provider by name
-                              ▼
-                     USSDProvider (transport contract)
-              ┌───────────────┴────────────────┐
-              │  ParseRequest → USSDRequest     │
-              │  FormatResponse ← USSDResponse  │
-              └───────────────┬────────────────┘
-                              │
-                              ▼
-                     USSDHandler.HandleRequest
-              ┌───────────────┴────────────────────────────┐
-              │  SessionManager (Redis, 5 min TTL)          │
-              │  MenuRegistry  (menu graph + presets)       │
-              │  InMemoryLocalizer (en / sw / fr)           │
-              │  NetworkMapper (MCC+MNC → MoMo network)     │
-              └───────────────┬────────────────────────────┘
-                              │  depends on narrow ports
-                              ▼
-   ┌────────────┬──────────────┬──────────────┬───────────────┐
-   ▼            ▼              ▼              ▼               ▼
-ussd.UserService  ussd.LoanService  ussd.RateService  ussd.PINService
-   │                │                 │                  │
-   │                │                 │                  │
-   ▼                ▼                 ▼                  ▼
-adapters.           credit module's    credit module's     pkg/pin
-UserServiceAdapter  LoanServiceAdapter RateServiceAdapter   .Service
-   │                │                 │
-   │                ▼                 │
-   │        offramp.Registry ──────────┤
-   │                │                 │
-   │        ┌───────┴────────┐        │
-   │        ▼                ▼        │
-   │  adapters.        adapters.     │
-   │  MoneyGramOff-     YellowCard-  │
-   │  RampAdapter       OffRampAdapter
-   │        │                │        │
-   │        └────────┬───────┘        │
-   │                 ▼                 │
-   │        adapters.StellarTreasuryTransfer
-   │                 │                 │
-   └─────────────────┴─────────────────┘
-                     ▼
-        user / account / stellar / payment services
+```mermaid
+flowchart TD
+    GW[Telecom gateway<br/>Africa's Talking] -->|HTTP form post| SVC[USSDService.HandleRequest]
+    SVC -->|resolves provider by name| Prov[USSDProvider<br/>transport contract]
+    Prov --> Handler[USSDHandler.HandleRequest]
+
+    subgraph handler_deps[Handler dependencies]
+        SM[SessionManager<br/>Redis, 5 min TTL]
+        MR[MenuRegistry<br/>menu graph + presets]
+        LOC[InMemoryLocalizer<br/>en / sw / fr]
+        NM[NetworkMapper<br/>MCC+MNC to MoMo network]
+    end
+    Handler --> handler_deps
+
+    Handler -->|depends on narrow ports| UserPort[ussd.UserService]
+    Handler --> LoanPort[ussd.LoanService]
+    Handler --> RatePort[ussd.RateService]
+    Handler --> PinPort[ussd.PINService]
+
+    UserPort --> UserAdapter[adapters.UserServiceAdapter]
+    LoanPort --> LoanAdapter[credit module's<br/>LoanServiceAdapter]
+    RatePort --> RateAdapter[credit module's<br/>RateServiceAdapter]
+    PinPort --> PinSvc[pkg/pin.Service]
+
+    LoanAdapter --> Reg[offramp.Registry]
+    Reg --> MG[adapters.MoneyGramOffRampAdapter]
+    Reg --> YC[adapters.YellowCardOffRampAdapter]
+    MG --> TTransfer[adapters.StellarTreasuryTransfer]
+    YC --> TTransfer
+
+    UserAdapter --> Domain[user / account / stellar /<br/>payment services]
+    LoanAdapter --> Domain
+    RateAdapter --> Domain
+    TTransfer --> Domain
 ```
 
 Two things to read off the diagram:
