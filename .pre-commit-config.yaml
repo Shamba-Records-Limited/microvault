@@ -78,7 +78,7 @@ repos:
 
       - id: typescript-check
         name: TypeScript type check
-        entry: bash -c 'cd web && npm run typecheck'
+        entry: bash -c 'cd web && npm run type-check'
         language: system
         pass_filenames: false
         types_or: [ts, tsx]
