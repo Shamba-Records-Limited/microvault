@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 RUN apk add --no-cache python3 make g++ linux-headers eudev-dev
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -13,7 +13,7 @@ ARG VITE_TREASURY_ADDRESS
 ARG VITE_HORIZON_URL
 RUN npm run build
 
-FROM nginx:1.30.0-alpine3.23-slim
+FROM nginx:1.31.2-alpine3.23-slim
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 3000
