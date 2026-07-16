@@ -22,6 +22,9 @@ import (
 
 const mgTestNetworkPassphrase = "Test SDF Network ; September 2015"
 
+// mgTestFundsAddr is a stand-in funds wallet, distinct from the auth wallet.
+const mgTestFundsAddr = "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL"
+
 // mgFakeServer mimics MoneyGram's SEP-10 + SEP-24 endpoints. Reused across
 // adapter tests to keep individual test cases focused.
 type mgFakeServer struct {
@@ -168,7 +171,7 @@ func newMGTestAdapter(t *testing.T, srv *mgFakeServer) *MoneyGramOffRampAdapter 
 	})
 	require.NoError(t, err)
 
-	a, err := NewMoneyGramOffRampAdapter(MoneyGramOffRampConfig{Client: c})
+	a, err := NewMoneyGramOffRampAdapter(MoneyGramOffRampConfig{Client: c, FundsPubkey: mgTestFundsAddr})
 	require.NoError(t, err)
 	return a
 }
@@ -180,6 +183,7 @@ func TestMGAdapter_InitiateOffRamp_BuildsCorrectSEP9(t *testing.T) {
 		assert.Equal(t, "USDC", got["asset_code"])
 		assert.Equal(t, "50.00", got["amount"])
 		assert.Equal(t, "en", got["lang"])
+		assert.Equal(t, mgTestFundsAddr, got["account"])
 		assert.Equal(t, "Jane", got["first_name"])
 		assert.Equal(t, "Doe", got["last_name"])
 		assert.Equal(t, "+254712345678", got["mobile_number"])

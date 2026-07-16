@@ -53,6 +53,7 @@ type WithdrawRequest struct {
 	AssetCode string   // "USDC"
 	Amount    string   // decimal USD, e.g. "50.00" — required for custodial wallets
 	Lang      string   // ISO-639-1, defaults to "en"
+	Account   string   // funds wallet G... address — the withdrawal payment source
 	Customer  Customer // optional SEP-9 prefill
 }
 
@@ -132,6 +133,9 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 	if req.Amount == "" {
 		return nil, fmt.Errorf("stellaranchor: %w: Amount required (custodial wallets must specify amount)", ErrInvalidConfig)
 	}
+	if req.Account == "" {
+		return nil, fmt.Errorf("stellaranchor: %w: Account required (funds wallet address)", ErrInvalidConfig)
+	}
 
 	body, err := buildWithdrawBody(req)
 	if err != nil {
@@ -139,15 +143,16 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 	}
 
 	endpoint := strings.TrimRight(c.cfg.TransferServerURL, "/") + "/transactions/withdraw/interactive"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
-	if err != nil {
-		return nil, fmt.Errorf("stellaranchor: build withdraw request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+jwt)
-
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := doHTTPWithRetry(ctx, c.httpClient, func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+jwt)
+		return httpReq, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("stellaranchor: withdraw request: %w", err)
 	}
@@ -186,14 +191,15 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 	q.Set("id", txID)
 	endpoint := strings.TrimRight(c.cfg.TransferServerURL, "/") + "/transaction?" + q.Encode()
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("stellaranchor: build transaction request: %w", err)
-	}
-	httpReq.Header.Set("Accept", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+jwt)
-
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := doHTTPWithRetry(ctx, c.httpClient, func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Accept", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+jwt)
+		return httpReq, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("stellaranchor: transaction request: %w", err)
 	}
@@ -233,6 +239,7 @@ func buildWithdrawBody(req WithdrawRequest) ([]byte, error) {
 		"asset_code": req.AssetCode,
 		"amount":     req.Amount,
 		"lang":       req.Lang,
+		"account":    req.Account,
 	}
 	addIfSet(m, "first_name", req.Customer.FirstName)
 	addIfSet(m, "last_name", req.Customer.LastName)

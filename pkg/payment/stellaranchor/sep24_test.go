@@ -27,6 +27,7 @@ func TestAnchorClient_InitiateWithdrawal(t *testing.T) {
 		assert.Equal(t, "USDC", got["asset_code"])
 		assert.Equal(t, "50.00", got["amount"])
 		assert.Equal(t, "en", got["lang"])
+		assert.Equal(t, "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL", got["account"])
 		assert.Equal(t, "Jane", got["first_name"])
 		assert.Equal(t, "Doe", got["last_name"])
 		assert.Equal(t, "+254712345678", got["mobile_number"])
@@ -49,6 +50,7 @@ func TestAnchorClient_InitiateWithdrawal(t *testing.T) {
 	resp, err := c.InitiateWithdrawal(context.Background(), "my-jwt", WithdrawRequest{
 		AssetCode: "USDC",
 		Amount:    "50.00",
+		Account:   "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
 		Customer: Customer{
 			FirstName:          "Jane",
 			LastName:           "Doe",
@@ -125,7 +127,10 @@ func TestAnchorClient_PropagatesUnauthorized(t *testing.T) {
 	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
 	require.NoError(t, err)
 
-	_, err = c.InitiateWithdrawal(context.Background(), "jwt", WithdrawRequest{Amount: "10"})
+	_, err = c.InitiateWithdrawal(context.Background(), "jwt", WithdrawRequest{
+		Amount:  "10",
+		Account: "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUnauthorized)
 

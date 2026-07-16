@@ -72,6 +72,9 @@ type ServerConfig struct {
 	ServerHost        string
 	CoreServerPort    string
 	CreditServerPort  string
+	// PublicBaseURL is the externally-reachable origin used to build SMS
+	// short-links (e.g. https://microvault.outray.app). No trailing slash.
+	PublicBaseURL string
 }
 
 // CoreAddr returns the host:port address for the core server to listen on.
@@ -153,6 +156,11 @@ type MoneyGramConfig struct {
 	ClientSecret string
 	OAuthURL     string // token endpoint
 	FXRateURL    string // GET /fx-rate/v1/rates
+
+	// Custodial wallets. AuthSecret co-signs SEP-10; FundsSecret is the SEP-24
+	// account and USDC send source. Both default to TREASURY_SECRET_KEY.
+	AuthSecret  string
+	FundsSecret string
 }
 
 // PaymentsConfig bundles all payment provider configurations
@@ -235,6 +243,8 @@ func New() (*Config, error) {
 	mgClientSecret := os.Getenv("MONEYGRAM_CLIENT_SECRET")
 	mgOAuthURL := os.Getenv("MONEYGRAM_OAUTH_URL")
 	mgFXRateURL := os.Getenv("MONEYGRAM_FX_RATE_URL")
+	mgAuthSecret := os.Getenv("MONEYGRAM_AUTH_SECRET")
+	mgFundsSecret := os.Getenv("MONEYGRAM_FUNDS_SECRET")
 
 	mobileUsername := os.Getenv("AT_USERNAME")
 	mobileAPIKey := os.Getenv("AT_API_KEY")
@@ -400,6 +410,7 @@ func New() (*Config, error) {
 			ServerHost:        serverHost,
 			CoreServerPort:    coreServerPort,
 			CreditServerPort:  creditServerPort,
+			PublicBaseURL:     strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"),
 		},
 		Stellar: StellarConfig{
 			RpcURL:                  stellarRpcURL,
@@ -437,6 +448,8 @@ func New() (*Config, error) {
 				ClientSecret:      mgClientSecret,
 				OAuthURL:          mgOAuthURL,
 				FXRateURL:         mgFXRateURL,
+				AuthSecret:        firstNonEmpty(mgAuthSecret, treasurySecretKey),
+				FundsSecret:       firstNonEmpty(mgFundsSecret, treasurySecretKey),
 			},
 		},
 		Mobile: MobileConfig{
@@ -498,10 +511,41 @@ func (c *MoneyGramConfig) Validate() error {
 	if c.USDCIssuer == "" {
 		missing = append(missing, "MONEYGRAM_USDC_ISSUER or USDC_ISSUER")
 	}
+	if c.AuthSecret == "" {
+		missing = append(missing, "MONEYGRAM_AUTH_SECRET or TREASURY_SECRET_KEY")
+	}
+	if c.FundsSecret == "" {
+		missing = append(missing, "MONEYGRAM_FUNDS_SECRET or TREASURY_SECRET_KEY")
+	}
 	if len(missing) > 0 {
 		return fmt.Errorf("moneygram config missing required values: %s", strings.Join(missing, ", "))
 	}
+	if _, err := keypair.ParseFull(c.AuthSecret); err != nil {
+		return fmt.Errorf("moneygram MONEYGRAM_AUTH_SECRET is not a valid Stellar secret: %w", err)
+	}
+	if _, err := keypair.ParseFull(c.FundsSecret); err != nil {
+		return fmt.Errorf("moneygram MONEYGRAM_FUNDS_SECRET is not a valid Stellar secret: %w", err)
+	}
 	return nil
+}
+
+// AuthAddress returns the public G... address of the SEP-10 auth wallet.
+func (c *MoneyGramConfig) AuthAddress() (string, error) {
+	kp, err := keypair.ParseFull(c.AuthSecret)
+	if err != nil {
+		return "", err
+	}
+	return kp.Address(), nil
+}
+
+// FundsAddress returns the public G... address of the funds wallet — the
+// SEP-24 account and USDC send source.
+func (c *MoneyGramConfig) FundsAddress() (string, error) {
+	kp, err := keypair.ParseFull(c.FundsSecret)
+	if err != nil {
+		return "", err
+	}
+	return kp.Address(), nil
 }
 
 // HasRESTCredentials reports whether the REST API credentials are populated.

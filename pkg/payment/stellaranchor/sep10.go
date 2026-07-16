@@ -137,12 +137,9 @@ func (c *AuthClient) fetchChallenge(ctx context.Context, memo int64) (string, er
 	q.Set("account", c.treasury.Address())
 	q.Set("memo", strconv.FormatInt(memo, 10))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.WebAuthEndpoint+"?"+q.Encode(), nil)
-	if err != nil {
-		return "", fmt.Errorf("stellaranchor: build challenge request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := doHTTPWithRetry(ctx, c.httpClient, func() (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.WebAuthEndpoint+"?"+q.Encode(), nil)
+	})
 	if err != nil {
 		return "", fmt.Errorf("stellaranchor: SEP-10 challenge request: %w", err)
 	}
@@ -204,14 +201,15 @@ func (c *AuthClient) submitChallenge(ctx context.Context, signedXDR string) (str
 		return "", fmt.Errorf("stellaranchor: marshal challenge submission: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.WebAuthEndpoint, strings.NewReader(string(body)))
-	if err != nil {
-		return "", fmt.Errorf("stellaranchor: build token request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := doHTTPWithRetry(ctx, c.httpClient, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.WebAuthEndpoint, strings.NewReader(string(body)))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		return req, nil
+	})
 	if err != nil {
 		return "", fmt.Errorf("stellaranchor: SEP-10 token request: %w", err)
 	}

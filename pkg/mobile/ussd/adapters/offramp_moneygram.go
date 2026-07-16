@@ -30,14 +30,16 @@ import (
 // intent.
 type MoneyGramOffRampAdapter struct {
 	client         *moneygram.Client
-	treasuryPubkey string // for child memo derivation
+	treasuryPubkey string // auth wallet — for child memo derivation
+	fundsPubkey    string // funds wallet — SEP-24 account / withdrawal source
 	logger         *slog.Logger
 }
 
 // MoneyGramOffRampConfig contains configuration for the MoneyGram off-ramp adapter.
 type MoneyGramOffRampConfig struct {
-	Client *moneygram.Client
-	Logger *slog.Logger
+	Client      *moneygram.Client
+	FundsPubkey string
+	Logger      *slog.Logger
 }
 
 // NewMoneyGramOffRampAdapter creates a new MoneyGram off-ramp adapter. The
@@ -47,6 +49,9 @@ func NewMoneyGramOffRampAdapter(cfg MoneyGramOffRampConfig) (*MoneyGramOffRampAd
 	if cfg.Client == nil {
 		return nil, fmt.Errorf("moneygram off-ramp: client is required")
 	}
+	if cfg.FundsPubkey == "" {
+		return nil, fmt.Errorf("moneygram off-ramp: funds pubkey is required")
+	}
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -54,6 +59,7 @@ func NewMoneyGramOffRampAdapter(cfg MoneyGramOffRampConfig) (*MoneyGramOffRampAd
 	return &MoneyGramOffRampAdapter{
 		client:         cfg.Client,
 		treasuryPubkey: cfg.Client.TreasuryAddress(),
+		fundsPubkey:    cfg.FundsPubkey,
 		logger:         logger.With("component", "moneygram_offramp"),
 	}, nil
 }
@@ -126,6 +132,7 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 		AssetCode: "USDC",
 		Amount:    formatUSDAmount(req.AmountUSD),
 		Lang:      "en",
+		Account:   a.fundsPubkey,
 		Customer:  customer,
 	}
 
