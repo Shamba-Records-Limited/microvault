@@ -7,6 +7,15 @@ import (
 	"gorm.io/gorm"
 )
 
+type Date struct{ time.Time }
+
+func (d Date) MarshalJSON() ([]byte, error) {
+	if d.IsZero() {
+		return []byte("null"), nil
+	}
+	return []byte(`"` + d.Format("2006-01-02") + `"`), nil
+}
+
 // User represents a system user
 type User struct {
 	ID                string     `json:"id" gorm:"type:uuid;primaryKey"`
@@ -17,13 +26,18 @@ type User struct {
 	MomoNetworkName   string     `json:"momo_network_name" gorm:"type:varchar(20);not null;default:'Sandbox Network'"`
 	TelcoName         string     `json:"telco_name" gorm:"type:varchar(20);not null;default:'Athena'"`
 	FullName          *string    `json:"full_name,omitempty" gorm:"type:varchar(255)"`
+	BirthDate         *Date      `json:"birth_date,omitempty" gorm:"type:date"`
+	Address           *string    `json:"address,omitempty" gorm:"type:varchar(255)"`
+	City              *string    `json:"city,omitempty" gorm:"type:varchar(255)"`
+	PostalCode        *string    `json:"postal_code,omitempty" gorm:"type:varchar(20)"`
+	StateOrProvince   *string    `json:"state_or_province,omitempty" gorm:"type:varchar(255)"`
 	NationalID        *string    `json:"national_id,omitempty" gorm:"type:varchar(50);uniqueIndex"`
 	KYCStatus         string     `json:"kyc_status" gorm:"type:varchar(20);not null;default:'pending'"`
 	KYCVerifiedAt     *time.Time `json:"kyc_verified_at,omitempty" gorm:"type:timestamp"`
-	PinHash        *string    `json:"-" gorm:"type:varchar(72)"`
-	PinAttempts    int        `json:"-" gorm:"not null;default:0"`
-	PinLockedUntil *time.Time `json:"-" gorm:"type:timestamp"`
-	PinSetAt       *time.Time `json:"-" gorm:"type:timestamp"`
+	PinHash           *string    `json:"-" gorm:"type:varchar(72)"`
+	PinAttempts       int        `json:"-" gorm:"not null;default:0"`
+	PinLockedUntil    *time.Time `json:"-" gorm:"type:timestamp"`
+	PinSetAt          *time.Time `json:"-" gorm:"type:timestamp"`
 
 	PreferredLanguage string     `json:"preferred_language" gorm:"type:varchar(10);not null;default:'en'"`
 	Status            string     `json:"status" gorm:"type:varchar(20);not null;default:'active'"`

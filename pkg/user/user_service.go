@@ -7,9 +7,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/services"
-	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"gorm.io/gorm"
 )
 
@@ -192,6 +192,21 @@ func (s *service) CreateWithTx(ctx context.Context, tx *gorm.DB, req CreateUserR
 	if req.NationalID != "" {
 		user.NationalID = &req.NationalID
 	}
+	if req.BirthDate != nil {
+		user.BirthDate = req.BirthDate
+	}
+	if req.Address != "" {
+		user.Address = &req.Address
+	}
+	if req.City != "" {
+		user.City = &req.City
+	}
+	if req.PostalCode != "" {
+		user.PostalCode = &req.PostalCode
+	}
+	if req.StateOrProvince != "" {
+		user.StateOrProvince = &req.StateOrProvince
+	}
 
 	if err := s.repo.CreateWithTx(ctx, tx, user); err != nil {
 		log.Printf("CreateWithTx: failed to create user: %v", err)
@@ -358,6 +373,21 @@ func (s *service) Update(ctx context.Context, id string, req UpdateUserRequest) 
 	}
 	if req.PreferredLanguage != nil {
 		user.PreferredLanguage = *req.PreferredLanguage
+	}
+	if req.BirthDate != nil {
+		user.BirthDate = req.BirthDate
+	}
+	if req.Address != nil {
+		user.Address = req.Address
+	}
+	if req.City != nil {
+		user.City = req.City
+	}
+	if req.PostalCode != nil {
+		user.PostalCode = req.PostalCode
+	}
+	if req.StateOrProvince != nil {
+		user.StateOrProvince = req.StateOrProvince
 	}
 
 	// Update in database
@@ -737,6 +767,21 @@ func toUserResponse(user *models.User) *UserResponse {
 	}
 	if user.NationalID != nil {
 		resp.NationalID = *user.NationalID
+	}
+	if user.BirthDate != nil {
+		resp.BirthDate = user.BirthDate
+	}
+	if user.Address != nil {
+		resp.Address = *user.Address
+	}
+	if user.City != nil {
+		resp.City = *user.City
+	}
+	if user.PostalCode != nil {
+		resp.PostalCode = *user.PostalCode
+	}
+	if user.StateOrProvince != nil {
+		resp.StateOrProvince = *user.StateOrProvince
 	}
 
 	return resp

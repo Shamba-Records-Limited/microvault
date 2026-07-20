@@ -258,6 +258,11 @@ func (r *userRepository) Update(ctx context.Context, user *models.User) error {
 		Where("id = ? AND deleted_at IS NULL", user.ID).
 		Updates(map[string]interface{}{
 			"full_name":          user.FullName,
+			"birth_date":         user.BirthDate,
+			"address":            user.Address,
+			"city":               user.City,
+			"postal_code":        user.PostalCode,
+			"state_or_province":  user.StateOrProvince,
 			"national_id":        user.NationalID,
 			"kyc_status":         user.KYCStatus,
 			"kyc_verified_at":    user.KYCVerifiedAt,
