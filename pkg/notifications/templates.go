@@ -67,3 +67,72 @@ func DefaultLoanTemplates() *LoanTemplates {
 			"Reference: %s (Loan: %s). Bring valid ID.",
 	}
 }
+
+// swahiliLoanTemplates returns the Swahili loan templates.
+func swahiliLoanTemplates() *LoanTemplates {
+	return &LoanTemplates{
+		Approved: "Hongera! Mkopo wako wa %s %.2f umeidhinishwa (Kumb: %s). " +
+			"Tunaushughulikia na utaarifiwa utakapotolewa.",
+		Rejected: "Ombi lako la mkopo wa %s %.2f halikuidhinishwa. Sababu: %s. " +
+			"Piga *384*1234# kwa maelezo zaidi.",
+		Disbursed: "Mkopo wako wa %s %.2f umetolewa (Kumb: %s). " +
+			"Fedha sasa zinapatikana kwenye akaunti yako.",
+		Failed: "Mkopo wako (Kumb: %s) umewekwa alama ya kutolipwa. " +
+			"Hii itaathiri alama yako ya mkopo. Tafadhali wasiliana na msaada.",
+		OffRampFailed: "Hatukuweza kutoa mkopo wako wa %s %.2f (Kumb: %s). " +
+			"Hakuna fedha zilizotoka kwenye akaunti yako na hudaiwi chochote. Jaribu tena au wasiliana na msaada.",
+		CashPickupApproved: "Mkopo wako wa kuchukua pesa wa %s %.2f umeidhinishwa (Kumb: %s). " +
+			"Utapokea kiungo cha uthibitisho hivi karibuni kukamilisha uchukuaji kwa wakala wa MoneyGram.",
+		RepaymentReceived: "Malipo ya %s %.2f yamepokelewa kwa mkopo %s. " +
+			"Salio lililobaki: %s %.2f. Asante!",
+		RepaymentOverdue: "HARAKA: Malipo yako ya mkopo ya %s %.2f yamechelewa (Kumb: %s). " +
+			"Tafadhali lipa mara moja kuepuka adhabu.",
+		RepaymentSoon: "Kumbusho: Malipo yako ya mkopo ya %s %.2f yanastahili kwa siku %d (Kumb: %s). " +
+			"Piga *384*1234# kulipa.",
+		RepaymentUpcoming: "Kumbusho: Malipo yako ya mkopo ya %s %.2f yanastahili tarehe %s (Kumb: %s).",
+		CashPickupInitiated: "Mkopo (Kumb: %s) tayari.\n\n" +
+			"Fungua kuthibitisha:\n\n%s\n\n" +
+			"Kiasi cha mwisho kwenye kiungo.",
+		CashPickupReady: "Mkopo wako wa %s %.2f uko tayari kuchukuliwa kwa wakala yeyote wa MoneyGram. " +
+			"Kumbukumbu: %s (Mkopo: %s). Lete kitambulisho halali.",
+	}
+}
+
+// frenchLoanTemplates returns the French loan templates.
+func frenchLoanTemplates() *LoanTemplates {
+	return &LoanTemplates{
+		Approved: "Félicitations! Votre prêt de %s %.2f a été approuvé (Réf: %s). " +
+			"Nous le traitons et vous serez notifié lors du décaissement.",
+		Rejected: "Votre demande de prêt de %s %.2f n'a pas été approuvée. Raison: %s. " +
+			"Composez *384*1234# pour plus d'informations.",
+		Disbursed: "Votre prêt de %s %.2f a été décaissé (Réf: %s). " +
+			"Les fonds sont maintenant disponibles sur votre compte.",
+		Failed: "Votre prêt (Réf: %s) a été marqué comme défaillant. " +
+			"Cela affectera votre score de crédit. Veuillez contacter le support.",
+		OffRampFailed: "Nous n'avons pas pu décaisser votre prêt de %s %.2f (Réf: %s). " +
+			"Aucun fonds n'a quitté votre compte et vous ne devez rien. Réessayez ou contactez le support.",
+		CashPickupApproved: "Votre prêt à retrait en espèces de %s %.2f a été approuvé (Réf: %s). " +
+			"Vous recevrez bientôt un lien de vérification pour compléter le retrait chez un agent MoneyGram.",
+		RepaymentReceived: "Paiement de %s %.2f reçu pour le prêt %s. " +
+			"Solde restant: %s %.2f. Merci!",
+		RepaymentOverdue: "URGENT: Votre paiement de prêt de %s %.2f est en retard (Réf: %s). " +
+			"Veuillez payer immédiatement pour éviter des pénalités.",
+		RepaymentSoon: "Rappel: Votre paiement de prêt de %s %.2f est dû dans %d jours (Réf: %s). " +
+			"Composez *384*1234# pour payer.",
+		RepaymentUpcoming: "Rappel: Votre paiement de prêt de %s %.2f est dû le %s (Réf: %s).",
+		CashPickupInitiated: "Prêt (Réf: %s) prêt.\n\n" +
+			"Ouvrez pour vérifier:\n\n%s\n\n" +
+			"Montant final dans le lien.",
+		CashPickupReady: "Votre prêt de %s %.2f est prêt à être retiré chez tout agent MoneyGram. " +
+			"Référence: %s (Prêt: %s). Apportez une pièce d'identité valide.",
+	}
+}
+
+// localizedLoanTemplates returns the loan templates keyed by ISO language code.
+func localizedLoanTemplates() map[string]*LoanTemplates {
+	return map[string]*LoanTemplates{
+		"en": DefaultLoanTemplates(),
+		"sw": swahiliLoanTemplates(),
+		"fr": frenchLoanTemplates(),
+	}
+}

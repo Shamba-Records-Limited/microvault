@@ -116,4 +116,8 @@ type LoanNotification struct {
 	// CashPickupRef is the reference number the user quotes at the MG agent
 	// when collecting cash. Populated once MG locks the payout.
 	CashPickupRef string
+
+	// Language optionally pins the SMS language (ISO code: en/sw/fr). When
+	// empty the notifier resolves it from the recipient's stored preference.
+	Language string
 }

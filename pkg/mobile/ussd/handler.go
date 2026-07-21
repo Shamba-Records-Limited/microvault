@@ -13,22 +13,23 @@ import (
 	pinPkg "github.com/Shamba-Records-Limited/microvault/pkg/pin"
 )
 
-// sensitiveMenus lists menus where user input contains PII (PINs, national IDs, names).
-var sensitiveMenus = map[string]bool{
-	"register":                 true, // full name
-	"register_national_id":     true, // national ID
-	"pin_create":               true,
-	"pin_confirm":              true,
-	"pin_verify_loan":          true,
-	"pin_verify_repay":         true,
-	"pin_change_old":           true,
-	"pin_change_new":           true,
-	"pin_change_confirm":       true,
-	"pin_recovery_national_id": true,
-	"pin_recovery_q1":          true, // security answer
-	"pin_recovery_q2":          true, // security answer
-	"pin_recovery_new":         true,
-	"pin_recovery_confirm":     true,
+// menus lists all menus including menus where user input contains PII (PINs, national IDs, names, birth dates, addresses).
+var menus = map[string]bool{
+	"register":             true, // full name
+	"register_national_id": true, // national ID
+	"register_bio":         true, // optional SEP-9 bio wizard (birth date, address, …)
+	"pin_create":                 true,
+	"pin_confirm":                true,
+	"pin_verify_loan":            true,
+	"pin_verify_repay":           true,
+	"pin_change_old":             true,
+	"pin_change_new":             true,
+	"pin_change_confirm":         true,
+	"pin_recovery_national_id":   true,
+	"pin_recovery_q1":            true, // security answer
+	"pin_recovery_q2":            true, // security answer
+	"pin_recovery_new":           true,
+	"pin_recovery_confirm":       true,
 }
 
 // redactPhone masks the middle digits of a phone number.
@@ -78,7 +79,7 @@ func toInt64(v any) int64 {
 
 // safeInput returns the input for logging, redacted if the current menu handles sensitive data.
 func safeInput(menu, input string) string {
-	if sensitiveMenus[menu] {
+	if menus[menu] {
 		return "[REDACTED]"
 	}
 	return fmt.Sprintf("%q", input)
@@ -140,19 +141,13 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 	// Check if user is registered
 	user, _, err := h.userService.GetUserWithAccounts(ctx, session.PhoneNumber)
 	if err != nil || user == nil {
-		// User not registered, show registration flow
-		response, err := h.showRegistrationMenu(session)
-		if err != nil {
-			return "", err
-		}
-		log.Printf("After showRegistrationMenu - CurrentMenu: %s", session.CurrentMenu)
-		// Save session with updated menu
+		// New user — choose language first, then register in that language.
+		session.CurrentMenu = "language_select"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			log.Printf("ERROR: Failed to save session after registration menu: %v", err)
+			log.Printf("ERROR: Failed to save session before language select: %v", err)
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
-		log.Printf("Session saved successfully - SessionID: %s, CurrentMenu: %s", session.SessionID, session.CurrentMenu)
-		return response, nil
+		return h.showLanguageMenu(session)
 	}
 
 	// User registered, associate with session and show main menu.
@@ -189,6 +184,8 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 		return h.handleRegistration(ctx, session, input)
 	case "register_national_id":
 		return h.handleRegistrationNationalID(ctx, session, input)
+	case "register_bio":
+		return h.handleRegistrationBio(ctx, session, input)
 
 	// PIN creation (during registration)
 	case "pin_create":
@@ -305,6 +302,10 @@ func (h *USSDHandler) handleLanguageSelect(ctx context.Context, session *Session
 	case "3":
 		language = "fr"
 	case "0":
+		// Back: unregistered users must still pick a language before registering.
+		if session.UserID == "" {
+			return h.showLanguageMenu(session)
+		}
 		session.CurrentMenu = "main"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
@@ -315,6 +316,20 @@ func (h *USSDHandler) handleLanguageSelect(ctx context.Context, session *Session
 	}
 
 	session.Language = language
+
+	// New (unregistered) users continue into registration in the chosen
+	// language; registered users return to the main menu.
+	if session.UserID == "" {
+		response, err := h.showRegistrationMenu(session)
+		if err != nil {
+			return "", err
+		}
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return response, nil
+	}
+
 	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
@@ -327,8 +342,12 @@ func (h *USSDHandler) handleLanguageSelect(ctx context.Context, session *Session
 func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, input string) (string, error) {
 	log.Printf("handleRegistration called - SessionID: %s", session.SessionID)
 
-	// Store name
-	session.Data["full_name"] = input
+	// Store name (required).
+	fullName := strings.TrimSpace(input)
+	if fullName == "" {
+		return h.formatResponse(session.Language, "CON", "reg_name_required"), nil
+	}
+	session.Data["full_name"] = fullName
 
 	// Ask for national ID
 	session.CurrentMenu = "register_national_id"
@@ -338,43 +357,125 @@ func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, 
 
 	log.Printf("Registration - stored full_name, updated CurrentMenu to: register_national_id")
 
-	return h.formatResponse(session.Language, "CON", "Enter your national ID:"), nil
+	return h.formatResponse(session.Language, "CON", "reg_enter_national_id"), nil
 }
 
-// handleRegistrationNationalID registers the user and chains into PIN creation
-// if the PIN service is available, otherwise ends with success.
+// handleRegistrationNationalID stores the (required) national ID and advances
+// to the optional bio wizard. User creation is deferred to completeRegistration
+// so all data — name, national ID, and any bio — is written in one call.
 func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session *Session, input string) (string, error) {
+	nationalID := strings.TrimSpace(input)
+	if nationalID == "" {
+		return h.formatResponse(session.Language, "CON", "reg_national_id_required"), nil
+	}
+
+	session.Data["national_id"] = nationalID
+	session.Data["bio_step"] = 0
+	session.CurrentMenu = "register_bio"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+	return h.formatResponse(session.Language, "CON", "reg_bio_gate"), nil
+}
+
+// bioFields is the ordered set of optional SEP-9 fields the registration bio
+// wizard walks through. Any field can be skipped by replying "0". promptKey is
+// a localization key resolved via formatResponse.
+var bioFields = []struct {
+	key       string // session key suffix and RegisterUserRequest field
+	promptKey string // localization key
+}{
+	{"birth_date", "reg_bio_birth_date"},
+	{"address", "reg_bio_address"},
+	{"city", "reg_bio_city"},
+	{"postal_code", "reg_bio_postal_code"},
+	{"state_or_province", "reg_bio_state_or_province"},
+}
+
+// handleRegistrationBio drives the optional SEP-9 bio wizard from a single
+// handler. Step 0 is the fill/skip gate; steps 1..len(bioFields) collect one
+// field each. Registration is finalised once the wizard ends.
+func (h *USSDHandler) handleRegistrationBio(ctx context.Context, session *Session, input string) (string, error) {
+	step := toInt(session.Data["bio_step"])
+
+	// Step 0 — fill-or-skip gate.
+	if step == 0 {
+		switch input {
+		case "1":
+			session.Data["bio_step"] = 1
+			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+				return "", fmt.Errorf("failed to save session: %w", err)
+			}
+			return h.formatResponse(session.Language, "CON", bioFields[0].promptKey), nil
+		case "2":
+			return h.completeRegistration(ctx, session)
+		default:
+			return h.formatResponse(session.Language, "CON", "reg_bio_gate"), nil
+		}
+	}
+
+	// Steps 1..N — one field per step; "0" (or blank) skips it.
+	field := bioFields[step-1]
+	if v := strings.TrimSpace(input); v != "" && v != "0" {
+		if field.key == "birth_date" && !isISODate(v) {
+			return h.formatResponse(session.Language, "CON", "reg_bio_invalid_date"), nil
+		}
+		session.Data["bio_"+field.key] = v
+	}
+
+	if step < len(bioFields) {
+		session.Data["bio_step"] = step + 1
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.formatResponse(session.Language, "CON", bioFields[step].promptKey), nil
+	}
+	return h.completeRegistration(ctx, session)
+}
+
+// completeRegistration creates the user from the collected registration data
+// (name + national ID required, bio optional) and chains into PIN creation if
+// the PIN service is available, otherwise ends with success.
+func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session) (string, error) {
 	if h.userService == nil {
 		return h.formatError(session.Language, "error"), nil
 	}
 
 	fullName, _ := session.Data["full_name"].(string)
+	nationalID, _ := session.Data["national_id"].(string)
+	birthDate, _ := session.Data["bio_birth_date"].(string)
+	address, _ := session.Data["bio_address"].(string)
+	city, _ := session.Data["bio_city"].(string)
+	postalCode, _ := session.Data["bio_postal_code"].(string)
+	stateOrProvince, _ := session.Data["bio_state_or_province"].(string)
 
-	// Register user.
 	user, _, err := h.userService.RegisterUser(ctx, &RegisterUserRequest{
 		MobileNumber:      session.PhoneNumber,
 		NetworkCode:       session.NetworkCode,
 		FullName:          fullName,
-		NationalID:        input,
+		NationalID:        nationalID,
 		PreferredLanguage: session.Language,
+		BirthDate:         birthDate,
+		Address:           address,
+		City:              city,
+		PostalCode:        postalCode,
+		StateOrProvince:   stateOrProvince,
 	})
-
 	if err != nil {
 		_ = h.accountNotifier.NotifyRegistrationFailed(ctx, contracts.AccountNotification{
 			PhoneNumber: session.PhoneNumber,
 			Reason:      "Account creation failed. Please try again.",
+			Language:    session.Language,
 		})
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	// Associate user with session.
 	if userMap, ok := user.(map[string]any); ok {
 		if id, ok := userMap["id"].(string); ok {
 			session.UserID = id
 		}
 	}
 
-	// If PIN service is available, chain into PIN creation flow.
 	if h.pinService != nil {
 		session.CurrentMenu = "pin_create"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
@@ -383,13 +484,28 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 		return h.showMenu(session, "pin_create")
 	}
 
-	// No PIN service — finish registration immediately.
 	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
-
 	return h.formatResponse(session.Language, "END", "registration_success"), nil
+}
+
+// isISODate is a light YYYY-MM-DD shape check — full validity is enforced by
+// MoneyGram inside the webview, so we only catch obvious typos here.
+func isISODate(s string) bool {
+	if len(s) != 10 || s[4] != '-' || s[7] != '-' {
+		return false
+	}
+	for i, r := range s {
+		if i == 4 || i == 7 {
+			continue
+		}
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // handleLoanAmount validates the requested amount against the active loan
@@ -408,12 +524,10 @@ func (h *USSDHandler) handleLoanAmount(ctx context.Context, session *Session, in
 	amountCents := int64(amount * 100)
 
 	if amountCents < cfg.MinAmountCents {
-		return fmt.Sprintf("END Minimum loan amount is %s %.0f",
-			cfg.Currency, float64(cfg.MinAmountCents)/100), nil
+		return "END " + Format(session.Language, "loan_min_amount", cfg.Currency, float64(cfg.MinAmountCents)/100), nil
 	}
 	if amountCents > cfg.MaxAmountCents {
-		return fmt.Sprintf("END The amount requested exceeds the auto-approved limit of %s %.0f",
-			cfg.Currency, float64(cfg.MaxAmountCents)/100), nil
+		return "END " + Format(session.Language, "loan_max_amount", cfg.Currency, float64(cfg.MaxAmountCents)/100), nil
 	}
 
 	session.Data["loan_amount_local"] = amountCents
@@ -526,8 +640,12 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		}
 	}
 
-	// Extract user disbursement details for off-ramp.
+	// Extract user disbursement details for off-ramp. The bio fields are
+	// optional SEP-9 prefill for MoneyGram cash pickup (empty when the user
+	// skipped them at registration — MoneyGram then collects them in its
+	// webview).
 	var recipientName, nationalID, countryCode, networkCode, networkName string
+	var birthDate, address, city, postalCode, stateOrProvince string
 	if userMap, ok := userData.(map[string]any); ok {
 		if v, ok := userMap["full_name"].(string); ok {
 			recipientName = v
@@ -543,6 +661,21 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		}
 		if v, ok := userMap["momo_network_name"].(string); ok {
 			networkName = v
+		}
+		if v, ok := userMap["birth_date"].(string); ok {
+			birthDate = v
+		}
+		if v, ok := userMap["address"].(string); ok {
+			address = v
+		}
+		if v, ok := userMap["city"].(string); ok {
+			city = v
+		}
+		if v, ok := userMap["postal_code"].(string); ok {
+			postalCode = v
+		}
+		if v, ok := userMap["state_or_province"].(string); ok {
+			stateOrProvince = v
 		}
 	}
 
@@ -569,6 +702,11 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		LocalCurrency:   localCurrency,
 		ConversionRate:  sellRate,
 		PayoutMethod:    payoutMethod,
+		BirthDate:       birthDate,
+		Address:         address,
+		City:            city,
+		PostalCode:      postalCode,
+		StateOrProvince: stateOrProvince,
 	}
 	// Cash-pickup needs the per-user Stellar derivation index so the MG
 	// poller can re-derive the SEP-10 child memo on restart. This is the
@@ -586,8 +724,7 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	}()
 
 	localKES := float64(localAmount) / 100
-	return fmt.Sprintf("END Your loan of %s %.0f is being processed. You will receive a notification when disbursement is successful.",
-		localCurrency, localKES), nil
+	return "END " + Format(session.Language, "loan_processing", localCurrency, localKES), nil
 }
 
 // handleMyLoans shows user's loans
@@ -606,7 +743,8 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 	}
 
 	var response strings.Builder
-	response.WriteString("Your Loans:\n")
+	response.WriteString(GetLocalizedMessage(session.Language, "my_loans_header"))
+	response.WriteString("\n")
 	for i, loan := range loans {
 		if i >= 5 { // Limit to 5 loans for USSD display
 			break
@@ -614,7 +752,7 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 
 		// Extract loan details
 		var loanRef = "N/A"
-		var status = "Unknown"
+		var status = GetLocalizedMessage(session.Language, "loan_status_unknown")
 		var displayAmount string
 
 		if loanMap, ok := loan.(map[string]any); ok {
@@ -622,7 +760,7 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 				loanRef = *ref
 			}
 			if st, ok := loanMap["status"].(string); ok {
-				status = st
+				status = localizeLoanStatus(session.Language, st)
 			}
 			// Show what the borrower actually received. Pre-disbursement
 			// the column is NULL — display "—" rather than a fabricated
@@ -670,10 +808,9 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, inp
 
 	// Show repayment information
 	var response strings.Builder
-	response.WriteString("Repay via M-Pesa:\n")
-	response.WriteString("PayBill: 123456\n") // TODO: Use actual paybill from config
-	response.WriteString("Account: Your Loan Number\n\n")
-	response.WriteString("Active Loans:\n")
+	// TODO: Use actual paybill from config (currently baked into repay_header).
+	response.WriteString(GetLocalizedMessage(session.Language, "repay_header"))
+	response.WriteString("\n")
 
 	for i, loan := range activeLoans {
 		if i >= 3 { // Limit to 3 loans
@@ -706,7 +843,8 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, inp
 			}
 		}
 
-		response.WriteString(fmt.Sprintf("Loan: %s\nDue: %s\n\n", loanRef, displayAmount))
+		response.WriteString(Format(session.Language, "repay_loan_line", loanRef, displayAmount))
+		response.WriteString("\n\n")
 	}
 
 	return h.formatResponse(session.Language, "END", response.String()), nil
@@ -763,8 +901,7 @@ func (h *USSDHandler) showLoanAmountMenu(session *Session) (string, error) {
 	}
 	minFiat := float64(cfg.MinAmountCents) / 100
 	maxFiat := float64(cfg.MaxAmountCents) / 100
-	return fmt.Sprintf("CON Enter amount to borrow in %s (min %.0f, max %.0f):",
-		cfg.Currency, minFiat, maxFiat), nil
+	return "CON " + Format(session.Language, "loan_amount_prompt", cfg.Currency, minFiat, maxFiat), nil
 }
 
 func (h *USSDHandler) showAccountMenu(session *Session) (string, error) {
@@ -785,8 +922,7 @@ func (h *USSDHandler) showLoanConfirmation(_ context.Context, session *Session) 
 	localAmount := float64(localAmountCents) / 100
 	duration := cfg.DurationDays
 
-	summary := fmt.Sprintf("Loan of %s %.0f for %d days\n1. Confirm\n0. Cancel",
-		cfg.Currency, localAmount, duration)
+	summary := Format(session.Language, "loan_confirm_summary", cfg.Currency, localAmount, duration)
 	return "CON " + summary, nil
 }
 
@@ -950,6 +1086,7 @@ func (h *USSDHandler) handleSecurityQ2Answer(ctx context.Context, session *Sessi
 	_ = h.accountNotifier.NotifyRegistrationSuccess(ctx, contracts.AccountNotification{
 		PhoneNumber: session.PhoneNumber,
 		FullName:    fullName,
+		Language:    session.Language,
 	})
 
 	return h.formatResponse(session.Language, "END", "registration_complete"), nil
@@ -1326,6 +1463,19 @@ func (h *USSDHandler) formatLockedMessage(ctx context.Context, session *Session)
 }
 
 // formatResponse formats a response with type prefix
+// localizeLoanStatus maps a raw loan status enum to its localized label,
+// falling back to the raw value when no translation exists.
+func localizeLoanStatus(language, status string) string {
+	if status == "" {
+		return GetLocalizedMessage(language, "loan_status_unknown")
+	}
+	key := "loan_status_" + strings.ToLower(status)
+	if msg := GetLocalizedMessage(language, key); msg != key {
+		return msg
+	}
+	return status
+}
+
 func (h *USSDHandler) formatResponse(language, responseType, message string) string {
 	return fmt.Sprintf("%s %s", responseType, GetLocalizedMessage(language, message))
 }

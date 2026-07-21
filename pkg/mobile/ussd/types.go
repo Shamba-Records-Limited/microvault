@@ -262,6 +262,14 @@ type RegisterUserRequest struct {
 	FullName          string
 	NationalID        string
 	PreferredLanguage string
+
+	// Optional SEP-9 bio (MoneyGram cash-pickup prefill). Empty when the user
+	// skips the bio step. BirthDate is YYYY-MM-DD.
+	BirthDate       string
+	Address         string
+	City            string
+	PostalCode      string
+	StateOrProvince string
 }
 
 // LoanRequest represents a loan request from the USSD flow.
@@ -290,8 +298,15 @@ type LoanRequest struct {
 	PayoutMethod string
 
 	// Cash-pickup-only KYC fields (MoneyGram). Ignored by mobile-money flows.
-	BirthDate         string // ISO-8601 (YYYY-MM-DD) — SEP-9 prefill
-	ChildAccountIndex uint32 // per-user Stellar derivation index for SEP-10 memo
+	FirstName          string
+	LastName           string
+	BirthDate          string // ISO-8601 (YYYY-MM-DD)
+	Address            string
+	PostalCode         string
+	StateOrProvince    string
+	City               string
+	AddressCountryCode string
+	ChildAccountIndex  uint32 // per-user Stellar derivation index for SEP-10 memo
 }
 
 // LoanApproval contains the result of a loan eligibility check, including approval status and terms.

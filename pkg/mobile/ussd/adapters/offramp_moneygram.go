@@ -119,10 +119,14 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 
 	first, last := stellaranchor.SplitFullName(req.RecipientName)
 	customer := stellaranchor.Customer{
-		FirstName:    first,
-		LastName:     last,
-		MobileNumber: req.DestinationPhone,
-		BirthDate:    opts.BirthDate,
+		FirstName:       first,
+		LastName:        last,
+		MobileNumber:    req.DestinationPhone,
+		BirthDate:       opts.BirthDate,
+		Address:         opts.Address,
+		PostalCode:      opts.PostalCode,
+		StateOrProvince: opts.StateOrProvince,
+		City:            opts.City,
 	}
 	if iso3 := stellaranchor.CountryISO3(req.CountryCode); iso3 != "" {
 		customer.AddressCountryCode = iso3

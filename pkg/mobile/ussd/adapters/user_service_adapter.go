@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
 	"github.com/Shamba-Records-Limited/microvault/pkg/user"
 	"github.com/google/uuid"
@@ -125,6 +127,23 @@ func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPh
 		"updated_at":          userResp.UpdatedAt,
 	}
 
+	if userResp.BirthDate != nil {
+		userMap["birth_date"] = userResp.BirthDate.Format("2006-01-02")
+	}
+
+	if userResp.Address != "" {
+		userMap["address"] = userResp.Address
+	}
+	if userResp.City != "" {
+		userMap["city"] = userResp.City
+	}
+	if userResp.PostalCode != "" {
+		userMap["postal_code"] = userResp.PostalCode
+	}
+	if userResp.StateOrProvince != "" {
+		userMap["state_or_province"] = userResp.StateOrProvince
+	}
+
 	if userResp.KYCVerifiedAt != nil {
 		userMap["kyc_verified_at"] = *userResp.KYCVerifiedAt
 	}
@@ -197,6 +216,15 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 		NationalID:        req.NationalID,
 		PreferredLanguage: req.PreferredLanguage,
 		Role:              "user",
+		Address:           req.Address,
+		City:              req.City,
+		PostalCode:        req.PostalCode,
+		StateOrProvince:   req.StateOrProvince,
+	}
+	if req.BirthDate != "" {
+		if t, err := time.Parse("2006-01-02", req.BirthDate); err == nil {
+			createReq.BirthDate = &models.Date{Time: t}
+		}
 	}
 
 	// Set default language if not provided

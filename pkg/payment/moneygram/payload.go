@@ -6,9 +6,33 @@ import "github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 // Required for cash-pickup off-ramps — the adapter rejects requests without
 // it.
 type Options struct {
+	// FirstName is the user's first name, used for KYC verification.
+	FirstName string
+
+	// LastName is the user's last name, used for KYC verification.
+	LastName string
+
 	// BirthDate is an ISO-8601 (YYYY-MM-DD) string used for the SEP-9 KYC
 	// prefill. MG honours this in the interactive webview.
 	BirthDate string
+
+	// MobileNumber is the user's mobile number, used for KYC verification.
+	MobileNumber string
+
+	// StateOrProvince is the user's state or province, used for KYC verification.
+	StateOrProvince string
+
+	// Address is the user's address, used for KYC verification.
+	Address string
+
+	// PostalCode is the user's postal code, used for KYC verification.
+	PostalCode string
+
+	// City is the user's city, used for KYC verification.
+	City string
+
+	// AddressCountryCode is the user's address country code, used for KYC verification.
+	AddressCountryCode string
 
 	// ChildAccountIndex is the per-user Stellar derivation index that drives
 	// the SEP-10 child memo. Persist this on the loan row alongside the

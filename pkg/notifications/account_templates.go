@@ -61,3 +61,58 @@ func DefaultAccountTemplates() *AccountTemplates {
 			"Reason: %s. Please try again or contact support.",
 	}
 }
+
+// swahiliAccountTemplates returns the Swahili account/PIN templates.
+func swahiliAccountTemplates() *AccountTemplates {
+	return &AccountTemplates{
+		RegistrationSuccess: "Karibu Shamba Records, %s! " +
+			"Akaunti yako imeundwa na PIN yako imewekwa. " +
+			"Piga *384# kuomba mkopo wako wa kwanza.",
+		RegistrationFailed: "Usajili wako wa Shamba Records haukukamilika. " +
+			"Sababu: %s. Tafadhali jaribu tena au wasiliana na msaada.",
+		WrongAttempt: "TAHADHARI: PIN isiyo sahihi iliwekwa kwenye akaunti yako ya Shamba Records. " +
+			"Majaribio %d yamebaki kabla akaunti yako kufungwa.",
+		AccountLocked: "USALAMA: Akaunti yako ya Shamba Records imefungwa kwa muda " +
+			"kutokana na majaribio mengi ya PIN yaliyoshindwa. Jaribu tena baada ya %s au piga kuweka upya PIN.",
+		PINChanged: "PIN yako ya Shamba Records imebadilishwa. " +
+			"Kama hukufanya mabadiliko haya, piga *384*1234# mara moja kuweka upya PIN yako.",
+		PINChangeFailed: "Jaribio la kubadilisha PIN kwenye akaunti yako ya Shamba Records halikufanikiwa. " +
+			"Sababu: %s. Kama hukuwa wewe, tafadhali weka upya PIN yako mara moja.",
+		PINReset: "PIN yako ya Shamba Records imewekwa upya. " +
+			"Sasa unaweza kufikia akaunti yako kwa PIN yako mpya.",
+		PINResetFailed: "Jaribio la kuweka upya PIN kwenye akaunti yako ya Shamba Records limeshindwa. " +
+			"Sababu: %s. Tafadhali jaribu tena au wasiliana na msaada.",
+	}
+}
+
+// frenchAccountTemplates returns the French account/PIN templates.
+func frenchAccountTemplates() *AccountTemplates {
+	return &AccountTemplates{
+		RegistrationSuccess: "Bienvenue à Shamba Records, %s! " +
+			"Votre compte a été créé et votre PIN est défini. " +
+			"Composez *384# pour demander votre premier prêt.",
+		RegistrationFailed: "Votre inscription à Shamba Records n'a pas pu être complétée. " +
+			"Raison: %s. Veuillez réessayer ou contacter le support.",
+		WrongAttempt: "ALERTE: Un PIN incorrect a été saisi sur votre compte Shamba Records. " +
+			"%d tentative(s) restante(s) avant le verrouillage de votre compte.",
+		AccountLocked: "SÉCURITÉ: Votre compte Shamba Records a été temporairement verrouillé " +
+			"suite à plusieurs échecs de PIN. Réessayez dans %s ou composez pour réinitialiser votre PIN.",
+		PINChanged: "Votre PIN Shamba Records a été modifié avec succès. " +
+			"Si vous n'êtes pas à l'origine de ce changement, composez *384*1234# immédiatement pour réinitialiser votre PIN.",
+		PINChangeFailed: "Une tentative de changement de PIN sur votre compte Shamba Records a échoué. " +
+			"Raison: %s. Si ce n'était pas vous, réinitialisez votre PIN immédiatement.",
+		PINReset: "Votre PIN Shamba Records a été réinitialisé avec succès. " +
+			"Vous pouvez maintenant accéder à votre compte avec votre nouveau PIN.",
+		PINResetFailed: "Une tentative de réinitialisation de PIN sur votre compte Shamba Records a échoué. " +
+			"Raison: %s. Veuillez réessayer ou contacter le support.",
+	}
+}
+
+// localizedAccountTemplates returns account templates keyed by ISO language code.
+func localizedAccountTemplates() map[string]*AccountTemplates {
+	return map[string]*AccountTemplates{
+		"en": DefaultAccountTemplates(),
+		"sw": swahiliAccountTemplates(),
+		"fr": frenchAccountTemplates(),
+	}
+}
