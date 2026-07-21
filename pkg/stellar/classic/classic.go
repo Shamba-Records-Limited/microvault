@@ -711,7 +711,11 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 			slog.String("tx_hash", txHash),
 			slog.String("error", err.Error()),
 		)
-		return nil, types.ErrTransactionFailed
+		// Preserve the underlying reason: callers must distinguish a
+		// definitive on-ledger failure (nothing moved, safe to retry) from an
+		// unknown outcome such as a poll timeout, where retrying risks a
+		// duplicate payment.
+		return nil, fmt.Errorf("%w: %w", types.ErrTransactionFailed, err)
 	}
 
 	if txResult.Status != protocol.TransactionStatusSuccess {

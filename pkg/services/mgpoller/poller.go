@@ -5,17 +5,17 @@
 // internal-docs/moneygram-integration.md §10 makes polling the canonical
 // driver for cash-pickup loans:
 //
-//   1. After InitiateWithdrawal, MG returns an interactive URL. The user
-//      opens it (delivered via SMS by the USSD layer) and completes KYC.
-//   2. MG transitions the SEP-24 transaction to pending_user_transfer_start.
-//      The poller observes this and sends USDC from treasury to MG's
-//      anchor account using the memo embedded in the tx response.
-//   3. MG processes the payment and transitions to
-//      pending_user_transfer_complete. The poller backfills the locked
-//      payout amount, currency, and cash-pickup reference number on the
-//      loan row, then SMSes the reference to the user.
-//   4. completed / refunded / expired / error are terminal; the poller
-//      transitions disbursement_status accordingly and stops polling.
+//  1. After InitiateWithdrawal, MG returns an interactive URL. The user
+//     opens it (delivered via SMS by the USSD layer) and completes KYC.
+//  2. MG transitions the SEP-24 transaction to pending_user_transfer_start.
+//     The poller observes this and sends USDC from treasury to MG's
+//     anchor account using the memo embedded in the tx response.
+//  3. MG processes the payment and transitions to
+//     pending_user_transfer_complete. The poller backfills the locked
+//     payout amount, currency, and cash-pickup reference number on the
+//     loan row, then SMSes the reference to the user.
+//  4. completed / refunded / expired / error are terminal; the poller
+//     transitions disbursement_status accordingly and stops polling.
 //
 // The poller mirrors pkg/webhook/refund_poller.go's lifecycle conventions:
 // Start(ctx) runs a ticker loop and exits on context cancellation.
@@ -23,6 +23,7 @@ package mgpoller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -31,6 +32,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
 // LoanRecord is the projection of a loan row the poller needs to drive
@@ -39,16 +41,16 @@ import (
 // The lending module's loan repository constructs these from active rows
 // where ramp_provider="moneygram" and disbursement_status is in the active set.
 type LoanRecord struct {
-	LoanID                string
-	SequenceID            string  // = loans.ramp_sequence_id
-	MoneyGramTxID         string  // = loans.ramp_request_id
-	ChildAccountIndex     uint32  // for SEP-10 memo re-derivation
-	PrincipalStroops      int64   // USDC stroops to send to MG anchor
-	RequestedLocalAmount  float64 // KES the user typed in USSD; used for drift alerts
-	HasStellarSend        bool    // true once MG.tx.stellar_transaction_id is observed
-	DisbursementStatus    string
-	PhoneNumber           string
-	UserID                string
+	LoanID               string
+	SequenceID           string  // = loans.ramp_sequence_id
+	MoneyGramTxID        string  // = loans.ramp_request_id
+	ChildAccountIndex    uint32  // for SEP-10 memo re-derivation
+	PrincipalStroops     int64   // USDC stroops to send to MG anchor
+	RequestedLocalAmount float64 // KES the user typed in USSD; used for drift alerts
+	HasStellarSend       bool    // true once MG.tx.stellar_transaction_id is observed
+	DisbursementStatus   string
+	PhoneNumber          string
+	UserID               string
 }
 
 // LoanFetcher retrieves active MoneyGram cash-pickup loans for the poller
@@ -67,11 +69,18 @@ type LoanRecorder interface {
 	RecordTransactionUpdate(ctx context.Context, loanID string, tx *stellaranchor.Transaction) error
 
 	// RecordSendUSDC records the Stellar tx hash from a successful USDC
-	// transfer to MG's anchor account. Optional — implementations may
-	// no-op if a dedicated column hasn't been added yet (the poller will
-	// rely on MG's tx.stellar_transaction_id as the next-best idempotency
-	// marker).
+	// transfer to MG's anchor account, replacing the pending claim written by
+	// RecordSendAttempt.
 	RecordSendUSDC(ctx context.Context, loanID string, txHash string) error
+
+	// RecordSendAttempt claims the send *before* the payment is submitted, so
+	// a crash between submission and RecordSendUSDC cannot let the next tick
+	// re-send. The claim makes LoanRecord.HasStellarSend true on reload.
+	RecordSendAttempt(ctx context.Context, loanID string) error
+
+	// ClearSendAttempt releases the claim. Only called when the payment
+	// definitively did not move funds, so a later tick may safely retry.
+	ClearSendAttempt(ctx context.Context, loanID string) error
 }
 
 // DisbursementUpdater drives terminal state transitions and user
@@ -81,6 +90,12 @@ type DisbursementUpdater interface {
 	UpdateDisbursementStatus(sequenceID string, status string) error
 	NotifyDisbursementComplete(sequenceID string) error
 	NotifyDisbursementFailed(sequenceID string) error
+
+	// NotifyCashPickupReady tells the borrower their cash is collectable and
+	// quotes the MG reference number. Sent once, when MG reports
+	// pending_user_transfer_complete.
+	NotifyCashPickupReady(sequenceID string) error
+
 	RepayVault(sequenceID string) error
 }
 
@@ -254,6 +269,17 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		return
 	}
 
+	// Unconditional: every branch below can return without logging, which
+	// makes a parked transaction indistinguishable from a stalled poller.
+	p.logger.Info("MoneyGram transaction polled",
+		"loan_id", rec.LoanID,
+		"mg_tx_id", rec.MoneyGramTxID,
+		"status", tx.Status,
+		"mg_stellar_tx_id", tx.StellarTransactionID,
+		"withdraw_anchor_account", tx.WithdrawAnchorAccount,
+		"message", tx.Message,
+	)
+
 	// Always persist the latest fields — pending_user_transfer_complete
 	// is the one that matters most (carries amount_out + reference) but
 	// having amount_in available earlier is harmless.
@@ -318,7 +344,8 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		stellaranchor.StatusPendingStellar:
 		// In-flight, no action needed this cycle. pending_stellar is
 		// the natural transient state right after our SendUSDC while
-		// the network confirms the payment to MG's anchor.
+		// the network confirms the payment to MG's anchor. Status is
+		// already logged unconditionally above.
 
 	default:
 		p.logger.Warn("unexpected MoneyGram status",
@@ -333,7 +360,14 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 // where re-sending is theoretically possible — see §22 / poller TODOs.
 func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
 	if tx.StellarTransactionID != "" || rec.HasStellarSend {
-		// Already observed — wait for MG to advance.
+		// Already observed — wait for MG to advance. Logged because this is
+		// otherwise a silent permanent no-op: if MG reports a stellar_transaction_id
+		// we never sent, the loan parks here forever with no diagnostic.
+		p.logger.Info("skipping SendUSDC — payment already observed",
+			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
+			"mg_stellar_tx_id", tx.StellarTransactionID,
+			"has_stellar_send", rec.HasStellarSend,
+			"withdraw_anchor_account", tx.WithdrawAnchorAccount)
 		return
 	}
 	if tx.WithdrawAnchorAccount == "" {
@@ -344,6 +378,16 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 	if rec.PrincipalStroops <= 0 {
 		p.logger.Error("loan has no principal_stroops to send",
 			"loan_id", rec.LoanID)
+		return
+	}
+
+	// Claim the send before submitting. If the process dies between submission
+	// and RecordSendUSDC, the claim is already durable, so the next tick sees
+	// HasStellarSend and refuses to pay twice. Failing to claim means we cannot
+	// guarantee idempotency, so we don't send at all.
+	if err := p.recorder.RecordSendAttempt(ctx, rec.LoanID); err != nil {
+		p.logger.Error("could not claim send attempt; refusing to send",
+			"loan_id", rec.LoanID, "error", err)
 		return
 	}
 
@@ -358,10 +402,27 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 	if err != nil {
 		p.logger.Error("SendUSDC failed",
 			"loan_id", rec.LoanID, "error", err)
-		// Don't transition — MG keeps the tx in pending_user_transfer_start
-		// until either we send or the tx expires. Next tick retries.
-		p.alertOps("MoneyGram USDC send failed",
-			fmt.Sprintf("Loan %s: SendUSDC to %s failed: %v",
+
+		if errors.Is(err, types.ErrTransactionFailedOnLedger) {
+			// The transaction was included but its operation failed (e.g.
+			// PAYMENT_UNDERFUNDED): the fee was burned, no USDC moved. Safe to
+			// release the claim so a later tick retries once the cause is fixed.
+			if cerr := p.recorder.ClearSendAttempt(ctx, rec.LoanID); cerr != nil {
+				p.logger.Error("failed to release send claim after on-ledger failure; loan will not retry until cleared manually",
+					"loan_id", rec.LoanID, "error", cerr)
+			}
+			p.alertOps("MoneyGram USDC send failed on ledger",
+				fmt.Sprintf("Loan %s: payment to %s failed on ledger (no funds moved), will retry: %v",
+					rec.LoanID, tx.WithdrawAnchorAccount, err))
+			return
+		}
+
+		// Outcome unknown (submission error, poll timeout): the payment may or
+		// may not have landed. Keep the claim — a duplicate payment is worse
+		// than a stalled loan — and escalate for manual reconciliation.
+		p.alertOps("MoneyGram USDC send outcome UNKNOWN — manual reconciliation required",
+			fmt.Sprintf("Loan %s: SendUSDC to %s returned %v. The payment may have landed. "+
+				"Verify on-chain before clearing ramp_stellar_tx_hash; clearing it allows a re-send.",
 				rec.LoanID, tx.WithdrawAnchorAccount, err))
 		return
 	}
@@ -379,6 +440,33 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 // drift alert if the locked payout deviates from what the user saw at
 // USSD entry.
 func (p *Poller) handlePendingUserTransferComplete(_ context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
+	// MG has received our USDC and the cash is collectable at an agent. Move
+	// the loan off its initiated status exactly once and tell the borrower
+	// how to collect. The status transition is itself the idempotency guard,
+	// so the SMS is not re-sent on every 30s tick.
+	//
+	// Not terminal: the loan keeps being polled until MG reports completed
+	// (the borrower actually collected).
+	if rec.DisbursementStatus != statusProcessing {
+		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusProcessing); err != nil {
+			// Bail before notifying — sending an SMS we failed to record
+			// would re-send it every tick.
+			p.logger.Error("failed to mark cash ready for pickup",
+				"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
+			return
+		}
+		p.logger.Info("cash available for pickup",
+			"loan_id", rec.LoanID,
+			"mg_tx_id", rec.MoneyGramTxID,
+			"reference", tx.ExternalTransactionID,
+			"amount_out", tx.AmountOut,
+		)
+		if err := p.disbursement.NotifyCashPickupReady(rec.SequenceID); err != nil {
+			p.logger.Warn("cash-pickup ready SMS failed",
+				"loan_id", rec.LoanID, "error", err)
+		}
+	}
+
 	if p.cfg.PayoutDriftAlertPct == 0 || rec.RequestedLocalAmount == 0 {
 		return
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
 const testNetworkPassphrase = "Test SDF Network ; September 2015"
@@ -135,7 +136,27 @@ func (f *fakeFetcher) GetActiveMoneyGramLoans(_ context.Context, _ int) ([]LoanR
 type fakeRecorder struct {
 	updates  []*stellaranchor.Transaction
 	sendHash string
+	claims   int
+	releases int
+	claimErr error
 	mu       sync.Mutex
+}
+
+func (r *fakeRecorder) RecordSendAttempt(_ context.Context, _ string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.claimErr != nil {
+		return r.claimErr
+	}
+	r.claims++
+	return nil
+}
+
+func (r *fakeRecorder) ClearSendAttempt(_ context.Context, _ string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.releases++
+	return nil
 }
 
 func (r *fakeRecorder) RecordTransactionUpdate(_ context.Context, _ string, tx *stellaranchor.Transaction) error {
@@ -153,11 +174,12 @@ func (r *fakeRecorder) RecordSendUSDC(_ context.Context, _ string, h string) err
 }
 
 type fakeDisbursement struct {
-	statuses           []string
-	completedNotified  []string
-	failedNotified     []string
-	repays             []string
-	mu                 sync.Mutex
+	statuses          []string
+	completedNotified []string
+	failedNotified    []string
+	pickupReady       []string
+	repays            []string
+	mu                sync.Mutex
 }
 
 func (d *fakeDisbursement) UpdateDisbursementStatus(seqID, status string) error {
@@ -178,6 +200,13 @@ func (d *fakeDisbursement) NotifyDisbursementFailed(seqID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.failedNotified = append(d.failedNotified, seqID)
+	return nil
+}
+
+func (d *fakeDisbursement) NotifyCashPickupReady(seqID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pickupReady = append(d.pickupReady, seqID)
 	return nil
 }
 
@@ -286,11 +315,127 @@ func TestPoller_PendingUserTransferStart_AlreadySent_Skips(t *testing.T) {
 	}}`)
 
 	fetcher.loans = []LoanRecord{{
-		LoanID:           "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
 		PrincipalStroops: 500_000_000,
 	}}
 	p.poll(context.Background())
 	assert.Empty(t, treas.calls, "must not double-send when MG already observed the payment")
+}
+
+// Regression for the observed double-spend: MoneyGram left
+// stellar_transaction_id empty for ~10 minutes after we paid, so every 30s
+// tick re-sent USDC — 15 duplicate payments for one withdrawal, draining the
+// treasury. HasStellarSend (persisted locally from RecordSendUSDC) must hold
+// the guard on its own, without any echo from MG.
+func TestPoller_PendingUserTransferStart_LocalSendMarker_PreventsDoubleSpend(t *testing.T) {
+	p, srv, fetcher, recorder, _, treas, _ := newTestPoller(t)
+	// Note: no stellar_transaction_id — MG has not echoed the payment yet.
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+	}}`)
+
+	rec := LoanRecord{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+		PrincipalStroops: 500_000_000,
+	}
+	fetcher.loans = []LoanRecord{rec}
+
+	// First tick pays.
+	p.poll(context.Background())
+	require.Len(t, treas.calls, 1, "first tick should send once")
+	require.NotEmpty(t, recorder.sendHash, "send hash must be recorded for idempotency")
+
+	// Subsequent ticks: MG still silent, but our local marker is now set.
+	rec.HasStellarSend = true
+	fetcher.loans = []LoanRecord{rec}
+	for i := 0; i < 5; i++ {
+		p.poll(context.Background())
+	}
+	assert.Len(t, treas.calls, 1,
+		"must not re-send while MG lags its stellar_transaction_id echo")
+}
+
+// The send must be claimed *before* submission, so a crash in the window
+// between SendUSDC returning and RecordSendUSDC persisting cannot let the next
+// tick pay twice.
+func TestPoller_PendingUserTransferStart_ClaimsBeforeSending(t *testing.T) {
+	p, srv, fetcher, recorder, _, treas, _ := newTestPoller(t)
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+	}}`)
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+		PrincipalStroops: 500_000_000,
+	}}
+
+	p.poll(context.Background())
+
+	assert.Equal(t, 1, recorder.claims, "send must be claimed before submitting")
+	assert.Len(t, treas.calls, 1)
+	assert.Equal(t, 0, recorder.releases, "successful send must not release the claim")
+}
+
+// If the claim cannot be persisted we cannot guarantee idempotency, so no
+// payment may be attempted at all.
+func TestPoller_PendingUserTransferStart_ClaimFails_DoesNotSend(t *testing.T) {
+	p, srv, fetcher, recorder, _, treas, _ := newTestPoller(t)
+	recorder.claimErr = fmt.Errorf("db down")
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+	}}`)
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+		PrincipalStroops: 500_000_000,
+	}}
+
+	p.poll(context.Background())
+
+	assert.Empty(t, treas.calls, "must not send when the claim could not be persisted")
+}
+
+// A payment that failed on-ledger burned only the fee, so the claim is
+// released and a later tick may retry (e.g. after the treasury is refilled).
+func TestPoller_PendingUserTransferStart_OnLedgerFailure_ReleasesClaim(t *testing.T) {
+	p, srv, fetcher, recorder, _, treas, alerts := newTestPoller(t)
+	treas.err = fmt.Errorf("treasury USDC transfer failed: %w", types.ErrTransactionFailedOnLedger)
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+	}}`)
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+		PrincipalStroops: 500_000_000,
+	}}
+
+	p.poll(context.Background())
+
+	assert.Equal(t, 1, recorder.claims)
+	assert.Equal(t, 1, recorder.releases, "on-ledger failure moved no funds, so retry must be allowed")
+	assert.NotEmpty(t, alerts.calls)
+}
+
+// An unknown outcome (timeout) must keep the claim: a duplicate payment is
+// worse than a stalled loan.
+func TestPoller_PendingUserTransferStart_UnknownOutcome_KeepsClaim(t *testing.T) {
+	p, srv, fetcher, recorder, _, treas, alerts := newTestPoller(t)
+	treas.err = fmt.Errorf("context deadline exceeded")
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+	}}`)
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+		PrincipalStroops: 500_000_000,
+	}}
+
+	p.poll(context.Background())
+
+	assert.Equal(t, 1, recorder.claims)
+	assert.Equal(t, 0, recorder.releases, "unknown outcome must keep the claim to prevent a double-spend")
+	assert.NotEmpty(t, alerts.calls)
 }
 
 func TestPoller_PendingUserTransferComplete_DriftAlert(t *testing.T) {
@@ -312,6 +457,54 @@ func TestPoller_PendingUserTransferComplete_DriftAlert(t *testing.T) {
 	// can assert that the recorder still ran and no terminal transitions
 	// fired (drift is informational only, never blocking).
 	p.poll(context.Background())
+}
+
+// Regression: MG reporting pending_user_transfer_complete means it holds our
+// USDC and the cash is collectable. The loan must leave its initiated status
+// and the borrower must be told the reference exactly once — previously this
+// handler only drift-alerted, so loans parked on mg_initiated forever and the
+// borrower was never notified their money was waiting.
+func TestPoller_PendingUserTransferComplete_MarksReadyAndNotifiesOnce(t *testing.T) {
+	p, srv, fetcher, _, disb, _, _ := newTestPoller(t)
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_complete",
+		"amount_in":"50.00","amount_out":"5500.00","amount_out_asset":"iso4217:KES",
+		"external_transaction_id":"REF-12345",
+		"stellar_transaction_id":"abc123"
+	}}`)
+
+	rec := LoanRecord{
+		LoanID:             "L-1",
+		SequenceID:         "L-1",
+		MoneyGramTxID:      "mg-1",
+		DisbursementStatus: "mg_initiated",
+	}
+	fetcher.loans = []LoanRecord{rec}
+
+	p.poll(context.Background())
+
+	if len(disb.statuses) != 1 || disb.statuses[0] != "L-1="+statusProcessing {
+		t.Fatalf("expected one transition to %s, got %v", statusProcessing, disb.statuses)
+	}
+	if len(disb.pickupReady) != 1 || disb.pickupReady[0] != "L-1" {
+		t.Fatalf("expected one cash-pickup-ready notification, got %v", disb.pickupReady)
+	}
+
+	// Next tick with the status already advanced must not re-notify.
+	fetcher.loans = []LoanRecord{{
+		LoanID:             "L-1",
+		SequenceID:         "L-1",
+		MoneyGramTxID:      "mg-1",
+		DisbursementStatus: statusProcessing,
+	}}
+	p.poll(context.Background())
+
+	if len(disb.pickupReady) != 1 {
+		t.Fatalf("cash-pickup SMS re-sent on repeat poll: %v", disb.pickupReady)
+	}
+	if len(disb.statuses) != 1 {
+		t.Fatalf("status re-written on repeat poll: %v", disb.statuses)
+	}
 }
 
 func TestPoller_Completed_NotifiesAndTransitions(t *testing.T) {

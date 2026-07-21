@@ -121,7 +121,7 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 	customer := stellaranchor.Customer{
 		FirstName:       first,
 		LastName:        last,
-		MobileNumber:    req.DestinationPhone,
+		MobileNumber:    stellaranchor.E164(req.DestinationPhone),
 		BirthDate:       opts.BirthDate,
 		Address:         opts.Address,
 		PostalCode:      opts.PostalCode,
