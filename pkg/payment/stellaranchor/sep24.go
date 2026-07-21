@@ -249,7 +249,6 @@ func buildWithdrawBody(req WithdrawRequest) ([]byte, error) {
 	addIfSet(m, "city", req.Customer.City)
 	addIfSet(m, "postal_code", req.Customer.PostalCode)
 	addIfSet(m, "address_country_code", req.Customer.AddressCountryCode)
-	addIfSet(m, "state_or_province", req.Customer.StateOrProvince)
 
 	body, err := json.Marshal(m)
 	if err != nil {

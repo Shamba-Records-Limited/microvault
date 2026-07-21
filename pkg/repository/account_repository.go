@@ -142,56 +142,30 @@ func (r *accountRepository) GetByStatus(ctx context.Context, status string) (*mo
 	return &account, nil
 }
 
-// GetNextAccountIndex retrieves the next available account index globally
-// This ensures unique BIP44 derivation paths when using a single master seed
-// Note: Index 0 is reserved for the admin/master account at m/44'/148'/0'
-// User accounts start from index 1
+// GetNextAccountIndex allocates the next BIP44 derivation index from
+// account_index_seq. The sequence is monotonic and never rewinds on row
+// deletion or transaction rollback, so an index whose Stellar account may
+// already exist on-chain is never reused. Index 0 is reserved for the
+// admin/master account at m/44'/148'/0'.
 func (r *accountRepository) GetNextAccountIndex(ctx context.Context, userID string) (int, error) {
-	var maxIndex *int64
-	result := r.db.WithContext(ctx).
-		Model(&models.Account{}).
-		Where("deleted_at IS NULL").
-		Select("COALESCE(MAX(account_index), 0)").
-		Scan(&maxIndex)
-	if result.Error != nil {
-		log.Printf("GetNextAccountIndex: database error: %v", result.Error)
+	var idx int64
+	if err := r.db.WithContext(ctx).Raw("SELECT nextval('account_index_seq')").Scan(&idx).Error; err != nil {
+		log.Printf("GetNextAccountIndex: database error: %v", err)
 		return 0, ErrFailedToGetNextIndex
 	}
-
-	if maxIndex != nil {
-		nextIndex := int(*maxIndex)
-		log.Printf("GetNextAccountIndex: returning global index %d (max was %d)", nextIndex, *maxIndex)
-		return nextIndex, nil
-	}
-
-	log.Printf("GetNextAccountIndex: no accounts exist, returning index 1 (0 reserved for admin)")
-	return 1, nil
+	return int(idx), nil
 }
 
-// GetNextAccountIndexWithTx retrieves the next available account index globally within a transaction
-// This ensures unique BIP44 derivation paths when using a single master seed
-// Note: Index 0 is reserved for the admin/master account at m/44'/148'/0'
-// User accounts start from index 1
+// GetNextAccountIndexWithTx is [GetNextAccountIndex] scoped to tx. nextval is
+// not rolled back with the surrounding transaction, which is intended: a
+// failed registration burns its index rather than handing it to the next user.
 func (r *accountRepository) GetNextAccountIndexWithTx(ctx context.Context, tx *gorm.DB) (int, error) {
-	var maxIndex *int64
-	result := tx.WithContext(ctx).
-		Model(&models.Account{}).
-		Where("deleted_at IS NULL").
-		Select("COALESCE(MAX(account_index), 0)").
-		Scan(&maxIndex)
-	if result.Error != nil {
-		log.Printf("GetNextAccountIndexWithTx: database error: %v", result.Error)
+	var idx int64
+	if err := tx.WithContext(ctx).Raw("SELECT nextval('account_index_seq')").Scan(&idx).Error; err != nil {
+		log.Printf("GetNextAccountIndexWithTx: database error: %v", err)
 		return 0, ErrFailedToGetNextIndex
 	}
-
-	if maxIndex != nil {
-		nextIndex := int(*maxIndex) + 1
-		log.Printf("GetNextAccountIndexWithTx: returning global index %d (max was %d)", nextIndex, *maxIndex)
-		return nextIndex, nil
-	}
-
-	log.Printf("GetNextAccountIndexWithTx: no accounts exist, returning index 1 (0 reserved for admin)")
-	return 1, nil
+	return int(idx), nil
 }
 
 // --- Update Operations ---

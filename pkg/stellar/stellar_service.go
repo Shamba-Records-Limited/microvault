@@ -92,6 +92,10 @@ func (s *service) CheckUSDCTrustline(ctx context.Context, address string) (bool,
 	return s.classicService.CheckUSDCTrustline(ctx, address)
 }
 
+func (s *service) AccountExists(ctx context.Context, address string) (bool, error) {
+	return s.classicService.AccountExists(ctx, address)
+}
+
 // Soroban view method delegation
 func (s *service) GetTreasuryAddress(ctx context.Context) (string, error) {
 	return s.sorobanService.GetTreasuryAddress(ctx)

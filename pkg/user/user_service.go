@@ -204,9 +204,6 @@ func (s *service) CreateWithTx(ctx context.Context, tx *gorm.DB, req CreateUserR
 	if req.PostalCode != "" {
 		user.PostalCode = &req.PostalCode
 	}
-	if req.StateOrProvince != "" {
-		user.StateOrProvince = &req.StateOrProvince
-	}
 
 	if err := s.repo.CreateWithTx(ctx, tx, user); err != nil {
 		log.Printf("CreateWithTx: failed to create user: %v", err)
@@ -385,9 +382,6 @@ func (s *service) Update(ctx context.Context, id string, req UpdateUserRequest) 
 	}
 	if req.PostalCode != nil {
 		user.PostalCode = req.PostalCode
-	}
-	if req.StateOrProvince != nil {
-		user.StateOrProvince = req.StateOrProvince
 	}
 
 	// Update in database
@@ -779,9 +773,6 @@ func toUserResponse(user *models.User) *UserResponse {
 	}
 	if user.PostalCode != nil {
 		resp.PostalCode = *user.PostalCode
-	}
-	if user.StateOrProvince != nil {
-		resp.StateOrProvince = *user.StateOrProvince
 	}
 
 	return resp

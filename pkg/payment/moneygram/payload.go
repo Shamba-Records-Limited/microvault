@@ -19,9 +19,6 @@ type Options struct {
 	// MobileNumber is the user's mobile number, used for KYC verification.
 	MobileNumber string
 
-	// StateOrProvince is the user's state or province, used for KYC verification.
-	StateOrProvince string
-
 	// Address is the user's address, used for KYC verification.
 	Address string
 

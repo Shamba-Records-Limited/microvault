@@ -15,21 +15,21 @@ import (
 
 // menus lists all menus including menus where user input contains PII (PINs, national IDs, names, birth dates, addresses).
 var menus = map[string]bool{
-	"register":             true, // full name
-	"register_national_id": true, // national ID
-	"register_bio":         true, // optional SEP-9 bio wizard (birth date, address, …)
-	"pin_create":                 true,
-	"pin_confirm":                true,
-	"pin_verify_loan":            true,
-	"pin_verify_repay":           true,
-	"pin_change_old":             true,
-	"pin_change_new":             true,
-	"pin_change_confirm":         true,
-	"pin_recovery_national_id":   true,
-	"pin_recovery_q1":            true, // security answer
-	"pin_recovery_q2":            true, // security answer
-	"pin_recovery_new":           true,
-	"pin_recovery_confirm":       true,
+	"register":                 true, // full name
+	"register_national_id":     true, // national ID
+	"register_bio":             true, // optional SEP-9 bio wizard (birth date, address, …)
+	"pin_create":               true,
+	"pin_confirm":              true,
+	"pin_verify_loan":          true,
+	"pin_verify_repay":         true,
+	"pin_change_old":           true,
+	"pin_change_new":           true,
+	"pin_change_confirm":       true,
+	"pin_recovery_national_id": true,
+	"pin_recovery_q1":          true, // security answer
+	"pin_recovery_q2":          true, // security answer
+	"pin_recovery_new":         true,
+	"pin_recovery_confirm":     true,
 }
 
 // redactPhone masks the middle digits of a phone number.
@@ -389,7 +389,6 @@ var bioFields = []struct {
 	{"address", "reg_bio_address"},
 	{"city", "reg_bio_city"},
 	{"postal_code", "reg_bio_postal_code"},
-	{"state_or_province", "reg_bio_state_or_province"},
 }
 
 // handleRegistrationBio drives the optional SEP-9 bio wizard from a single
@@ -447,7 +446,6 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 	address, _ := session.Data["bio_address"].(string)
 	city, _ := session.Data["bio_city"].(string)
 	postalCode, _ := session.Data["bio_postal_code"].(string)
-	stateOrProvince, _ := session.Data["bio_state_or_province"].(string)
 
 	user, _, err := h.userService.RegisterUser(ctx, &RegisterUserRequest{
 		MobileNumber:      session.PhoneNumber,
@@ -459,7 +457,6 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 		Address:           address,
 		City:              city,
 		PostalCode:        postalCode,
-		StateOrProvince:   stateOrProvince,
 	})
 	if err != nil {
 		_ = h.accountNotifier.NotifyRegistrationFailed(ctx, contracts.AccountNotification{
@@ -645,7 +642,7 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	// skipped them at registration — MoneyGram then collects them in its
 	// webview).
 	var recipientName, nationalID, countryCode, networkCode, networkName string
-	var birthDate, address, city, postalCode, stateOrProvince string
+	var birthDate, address, city, postalCode string
 	if userMap, ok := userData.(map[string]any); ok {
 		if v, ok := userMap["full_name"].(string); ok {
 			recipientName = v
@@ -673,9 +670,6 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		}
 		if v, ok := userMap["postal_code"].(string); ok {
 			postalCode = v
-		}
-		if v, ok := userMap["state_or_province"].(string); ok {
-			stateOrProvince = v
 		}
 	}
 
@@ -706,14 +700,13 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		Address:         address,
 		City:            city,
 		PostalCode:      postalCode,
-		StateOrProvince: stateOrProvince,
 	}
 	// Cash-pickup needs the per-user Stellar derivation index so the MG
 	// poller can re-derive the SEP-10 child memo on restart. This is the
-	// real BIP-44 account_index from the accounts row, not a hash.
-	if payoutMethod == "cash_pickup" {
-		loanReq.ChildAccountIndex = accountIndex
-	}
+	// real BIP-44 account_index from the accounts row, not a hash. Always set:
+	// cash-pickup uses it for the SEP-10 child memo, and the disbursement
+	// pipeline uses it to ensure the on-chain identity exists before lending.
+	loanReq.ChildAccountIndex = accountIndex
 	go func() {
 		// Use a detached context so the pipeline isn't cancelled when the
 		// USSD request context expires.

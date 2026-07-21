@@ -14,7 +14,6 @@ type CreateUserRequest struct {
 	Address           string       `json:"address,omitempty"`
 	City              string       `json:"city,omitempty"`
 	PostalCode        string       `json:"postal_code,omitempty"`
-	StateOrProvince   string       `json:"state_or_province,omitempty"`
 	MobileNetworkCode string       `json:"mobile_network_code"`
 	MomoNetworkCode   string       `json:"momo_network_code"`
 	MomoNetworkName   string       `json:"momo_network_name,omitempty"`
@@ -33,7 +32,6 @@ type UpdateUserRequest struct {
 	Address           *string      `json:"address,omitempty"`
 	City              *string      `json:"city,omitempty"`
 	PostalCode        *string      `json:"postal_code,omitempty"`
-	StateOrProvince   *string      `json:"state_or_province,omitempty"`
 	PreferredLanguage *string      `json:"preferred_language,omitempty"`
 }
 
@@ -61,7 +59,6 @@ type UserResponse struct {
 	Address           string       `json:"address,omitempty"`
 	City              string       `json:"city,omitempty"`
 	PostalCode        string       `json:"postal_code,omitempty"`
-	StateOrProvince   string       `json:"state_or_province,omitempty"`
 	MobileNetworkCode string       `json:"mobile_network_code"`
 	MomoNetworkCode   string       `json:"momo_network_code"`
 	MomoNetworkName   string       `json:"momo_network_name,omitempty"`

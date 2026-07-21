@@ -45,6 +45,11 @@ type Service interface {
 
 	// CheckUSDCTrustline checks if an external address has a trustline for our USDC asset.
 	CheckUSDCTrustline(ctx context.Context, address string) (bool, error)
+
+	// AccountExists reports whether the given address is a funded/created account
+	// on the Stellar network. A failed load is reported as "not present" so the
+	// caller can attempt creation.
+	AccountExists(ctx context.Context, address string) (bool, error)
 }
 
 type service struct {
@@ -567,6 +572,20 @@ func (s *service) CheckUSDCTrustline(ctx context.Context, address string) (bool,
 	}
 
 	return hasAssetTrustline(ctx, s.rpcClient, destinationAccount.GetAccountID(), "USDC", s.usdcIssuer)
+}
+
+// AccountExists reports whether address is a created account on the network.
+// A load failure is treated as "not present" (false, nil) so callers can
+// attempt sponsored creation; genuine outages surface downstream when the
+// create is attempted and also fails.
+func (s *service) AccountExists(ctx context.Context, address string) (bool, error) {
+	if _, err := keypair.ParseAddress(address); err != nil {
+		return false, types.ErrInvalidStellarAddress
+	}
+	if _, err := s.rpcClient.LoadAccount(ctx, address); err != nil {
+		return false, nil
+	}
+	return true, nil
 }
 
 // SendUSDC sends USDC directly from the treasury wallet to a destination Stellar address

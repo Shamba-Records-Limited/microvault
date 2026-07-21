@@ -23,6 +23,7 @@ type Config struct {
 	Payments PaymentsConfig
 	Mobile   MobileConfig
 	Auth     AuthConfig
+	Shortener ShortenerConfig
 }
 
 // PostgresConfig holds all database-related configuration.
@@ -75,6 +76,23 @@ type ServerConfig struct {
 	// PublicBaseURL is the externally-reachable origin used to build SMS
 	// short-links (e.g. https://microvault.outray.app). No trailing slash.
 	PublicBaseURL string
+}
+
+// ShortenerConfig configures the optional dub.co link shortener used for
+// outbound cash-pickup SMS links. When APIKey is empty the shortener is off
+// and links fall back to the self-hosted /r/{code} redirect.
+type ShortenerConfig struct {
+	// APIKey is the dub.co workspace API key (from DUB_API_KEY). Presence
+	// enables the shortener.
+	APIKey string
+	// ImagePreviewURL is the og:image shown in dub Custom Link Previews
+	// (from DUB_IMAGE_PREVIEW_URL). Optional.
+	ImagePreviewURL string
+}
+
+// Enabled reports whether the dub.co shortener should be used.
+func (c *ShortenerConfig) Enabled() bool {
+	return c.APIKey != ""
 }
 
 // CoreAddr returns the host:port address for the core server to listen on.
@@ -194,6 +212,9 @@ func (c *AfricasTalkingConfig) ResolveSenderID() string {
 // MobileConfig holds all mobile-related configuration
 type MobileConfig struct {
 	AfricasTalking AfricasTalkingConfig
+	// SessionTimeout is the Redis TTL for a USSD session, refreshed on each
+	// request. From USSD_SESSION_TIMEOUT (seconds); defaults to 5 minutes.
+	SessionTimeout time.Duration
 }
 
 type AuthConfig struct {
@@ -298,6 +319,12 @@ func New() (*Config, error) {
 	idempotencyTTL := 24 * time.Hour
 	if ttlSeconds, err := strconv.Atoi(os.Getenv("REDIS_IDEMPOTENCY_TTL")); err == nil && ttlSeconds > 0 {
 		idempotencyTTL = time.Duration(ttlSeconds) * time.Second
+	}
+
+	// Parse USSD session timeout in seconds, default to 5 minutes (300 seconds)
+	ussdSessionTimeout := 5 * time.Minute
+	if secs, err := strconv.Atoi(os.Getenv("USSD_SESSION_TIMEOUT")); err == nil && secs > 0 {
+		ussdSessionTimeout = time.Duration(secs) * time.Second
 	}
 
 	ycBaseURL := os.Getenv("YELLOWCARD_BASE_URL")
@@ -412,6 +439,10 @@ func New() (*Config, error) {
 			CreditServerPort:  creditServerPort,
 			PublicBaseURL:     strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"),
 		},
+		Shortener: ShortenerConfig{
+			APIKey:          os.Getenv("DUB_API_KEY"),
+			ImagePreviewURL: os.Getenv("DUB_IMAGE_PREVIEW_URL"),
+		},
 		Stellar: StellarConfig{
 			RpcURL:                  stellarRpcURL,
 			TreasurySecretKey:       treasurySecretKey,
@@ -460,6 +491,7 @@ func New() (*Config, error) {
 				SenderID:  mobileSenderID,
 				Shortcode: mobileShortcode,
 			},
+			SessionTimeout: ussdSessionTimeout,
 		},
 		Auth: AuthConfig{
 			JWTSecret:           jwtSecret,

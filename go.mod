@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
+	github.com/dubinc/dub-go v0.23.12
 	github.com/go-playground/validator/v10 v10.30.3
 	github.com/gofiber/fiber/v2 v2.52.14
 	github.com/gofiber/swagger v1.1.1
@@ -35,20 +36,19 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/creachadair/jrpc2 v1.3.5 // indirect
-	github.com/creachadair/mds v0.30.3 // indirect
+	github.com/creachadair/mds v0.30.4 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-openapi/jsonreference v1.0.0 // indirect
-	github.com/go-openapi/spec v0.22.6 // indirect
-	github.com/go-openapi/swag/conv v0.27.2 // indirect
-	github.com/go-openapi/swag/jsonname v0.27.2 // indirect
-	github.com/go-openapi/swag/jsonutils v0.27.2 // indirect
-	github.com/go-openapi/swag/loading v0.27.2 // indirect
-	github.com/go-openapi/swag/pools v0.27.2 // indirect
-	github.com/go-openapi/swag/stringutils v0.27.2 // indirect
-	github.com/go-openapi/swag/typeutils v0.27.2 // indirect
-	github.com/go-openapi/swag/yamlutils v0.27.2 // indirect
+	github.com/go-openapi/spec v0.22.9 // indirect
+	github.com/go-openapi/swag/conv v0.27.3 // indirect
+	github.com/go-openapi/swag/jsonutils v0.27.3 // indirect
+	github.com/go-openapi/swag/loading v0.27.3 // indirect
+	github.com/go-openapi/swag/pools v0.27.3 // indirect
+	github.com/go-openapi/swag/stringutils v0.27.3 // indirect
+	github.com/go-openapi/swag/typeutils v0.27.3 // indirect
+	github.com/go-openapi/swag/yamlutils v0.27.3 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/hhrutter/lzw v1.0.0 // indirect
@@ -74,6 +74,7 @@ require (
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
+	github.com/spyzhov/ajson v0.8.0 // indirect
 	github.com/stellar/go-xdr v0.0.0-20260529210834-0bf8f4956364 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/swaggo/files/v2 v2.0.2 // indirect

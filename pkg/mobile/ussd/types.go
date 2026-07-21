@@ -269,7 +269,6 @@ type RegisterUserRequest struct {
 	Address         string
 	City            string
 	PostalCode      string
-	StateOrProvince string
 }
 
 // LoanRequest represents a loan request from the USSD flow.
@@ -303,7 +302,6 @@ type LoanRequest struct {
 	BirthDate          string // ISO-8601 (YYYY-MM-DD)
 	Address            string
 	PostalCode         string
-	StateOrProvince    string
 	City               string
 	AddressCountryCode string
 	ChildAccountIndex  uint32 // per-user Stellar derivation index for SEP-10 memo

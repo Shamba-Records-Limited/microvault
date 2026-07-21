@@ -250,11 +250,6 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Msimbo wa posta (hiari, jibu 0 kuruka):",
 			"fr": "Code postal (facultatif, répondez 0 pour ignorer):",
 		},
-		"reg_bio_state_or_province": {
-			"en": "State/province (optional, reply 0 to skip):",
-			"sw": "Jimbo/mkoa (hiari, jibu 0 kuruka):",
-			"fr": "État/province (facultatif, répondez 0 pour ignorer):",
-		},
 		"reg_bio_invalid_date": {
 			"en": "Invalid date. Enter date of birth as YYYY-MM-DD (or 0 to skip):",
 			"sw": "Tarehe batili. Weka tarehe ya kuzaliwa kama YYYY-MM-DD (au 0 kuruka):",

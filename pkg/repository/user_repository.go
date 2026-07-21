@@ -262,7 +262,6 @@ func (r *userRepository) Update(ctx context.Context, user *models.User) error {
 			"address":            user.Address,
 			"city":               user.City,
 			"postal_code":        user.PostalCode,
-			"state_or_province":  user.StateOrProvince,
 			"national_id":        user.NationalID,
 			"kyc_status":         user.KYCStatus,
 			"kyc_verified_at":    user.KYCVerifiedAt,

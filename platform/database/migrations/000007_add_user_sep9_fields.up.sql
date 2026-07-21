@@ -4,5 +4,4 @@ ALTER TABLE users
     ADD COLUMN IF NOT EXISTS birth_date        DATE,
     ADD COLUMN IF NOT EXISTS address           VARCHAR(255),
     ADD COLUMN IF NOT EXISTS city              VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS postal_code       VARCHAR(20),
-    ADD COLUMN IF NOT EXISTS state_or_province VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS postal_code       VARCHAR(20);

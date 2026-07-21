@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
 
@@ -136,8 +135,7 @@ func main() {
 
 	// ---- Initialize Mobile Providers ----
 	// Initialize USSD providers
-	timeout := time.Duration(3 * time.Minute)
-	sessionMgr := ussd.NewSessionManager(redisClient, timeout)
+	sessionMgr := ussd.NewSessionManager(redisClient, cfg.Mobile.SessionTimeout)
 	menuRegistry := ussd.NewMenuRegistry()
 	preset := ussd.NewStandardLoanMenuPreset()
 	preset.Initialize(menuRegistry)

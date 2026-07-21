@@ -17,7 +17,6 @@ type Customer struct {
 	City               string `json:"city,omitempty"`
 	PostalCode         string `json:"postal_code,omitempty"`
 	AddressCountryCode string `json:"address_country_code,omitempty"` // ISO-3, e.g. "KEN"
-	StateOrProvince    string `json:"state_or_province,omitempty"`    // ISO-3166-2; only USA/CAN/MEX
 }
 
 // SplitFullName splits a full-name string on the first whitespace into

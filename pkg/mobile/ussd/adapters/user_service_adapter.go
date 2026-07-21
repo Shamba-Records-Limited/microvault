@@ -140,9 +140,6 @@ func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPh
 	if userResp.PostalCode != "" {
 		userMap["postal_code"] = userResp.PostalCode
 	}
-	if userResp.StateOrProvince != "" {
-		userMap["state_or_province"] = userResp.StateOrProvince
-	}
 
 	if userResp.KYCVerifiedAt != nil {
 		userMap["kyc_verified_at"] = *userResp.KYCVerifiedAt
@@ -168,6 +165,84 @@ func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPh
 	accounts := []any{accountMap}
 
 	return userMap, accounts, nil
+}
+
+// buildSponsoredAccountReq assembles the sponsored-creation request for a child
+// keypair, including multi-sig config when enabled. Shared by the registration
+// path and EnsureOnChainAccount so both derive identical account parameters.
+func (a *UserServiceAdapter) buildSponsoredAccountReq(childKP *keypair.Full) stellar.CreateAccountRequest {
+	req := stellar.CreateAccountRequest{
+		ChildKeypair:    childKP,
+		StartingBalance: "0", // Fully sponsored
+		EnableMultiSig:  a.walletConfig.EnableMultiSig,
+	}
+	if a.walletConfig.EnableMultiSig {
+		req.MultiSigConfig = &stellar.MultiSigConfig{
+			TreasurySigner: a.walletConfig.TreasuryPublicKey,
+			TreasuryWeight: 1,
+			ChildWeight:    0,
+			LowThreshold:   a.walletConfig.LowThreshold,
+			MedThreshold:   a.walletConfig.MediumThreshold,
+			HighThreshold:  a.walletConfig.HighThreshold,
+		}
+	}
+	return req
+}
+
+// EnsureOnChainAccount guarantees the child account at accountIndex exists on
+// the Stellar network, creating it (sponsored) if missing. The account is a
+// fund-less on-chain identity used for tracking/auditing, so lending must not
+// proceed without it. Idempotent and safe to call before each disbursement;
+// returns an error only when the account is absent and cannot be created.
+func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIndex int, address string) error {
+	exists, err := a.stellarService.AccountExists(ctx, address)
+	if err != nil {
+		return fmt.Errorf("check on-chain account %s: %w", address, err)
+	}
+	if exists {
+		return nil
+	}
+
+	childKP, err := a.deriveChildKeypair(accountIndex + 4)
+	if err != nil {
+		return fmt.Errorf("derive child keypair for index %d: %w", accountIndex, err)
+	}
+	if childKP.Address() != address {
+		return fmt.Errorf("derived address %s does not match stored %s (index %d)", childKP.Address(), address, accountIndex)
+	}
+
+	if err := a.stellarService.CreateSponsoredAccount(ctx, a.buildSponsoredAccountReq(childKP)); err != nil {
+		// The account may have appeared between the check and the create (async
+		// registration finishing, a concurrent ensure) — re-check before failing.
+		if ok, e2 := a.stellarService.AccountExists(ctx, address); e2 == nil && ok {
+			return nil
+		}
+		return fmt.Errorf("create on-chain account %s: %w", address, err)
+	}
+	log.Printf("EnsureOnChainAccount: created missing account %s (index %d)", address, accountIndex)
+	return nil
+}
+
+// createSponsoredAccountAsync submits the child account's sponsored-creation
+// transaction off the USSD request path. It uses a background context so it
+// outlives the USSD turn, retries transient failures, and logs loudly on
+// permanent failure so the account can be reconciled.
+func (a *UserServiceAdapter) createSponsoredAccountAsync(userID string, req stellar.CreateAccountRequest) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	const attempts = 3
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err = a.stellarService.CreateSponsoredAccount(ctx, req); err == nil {
+			log.Printf("Sponsored Stellar account created for user %s (%s)", userID, req.ChildKeypair.Address())
+			return
+		}
+		log.Printf("Sponsored account creation attempt %d/%d failed for user %s: %v", attempt, attempts, userID, err)
+		time.Sleep(time.Duration(attempt) * 2 * time.Second)
+	}
+	log.Printf("ERROR: sponsored account creation permanently failed for user %s (%s): %v — needs reconciliation",
+		userID, req.ChildKeypair.Address(), err)
 }
 
 // RegisterUser registers a new user and auto-creates a Stellar account
@@ -219,7 +294,6 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 		Address:           req.Address,
 		City:              req.City,
 		PostalCode:        req.PostalCode,
-		StateOrProvince:   req.StateOrProvince,
 	}
 	if req.BirthDate != "" {
 		if t, err := time.Parse("2006-01-02", req.BirthDate); err == nil {
@@ -272,33 +346,10 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 		return nil, nil, fmt.Errorf("failed to derive child keypair: %w", err)
 	}
 
-	// Create account on Stellar network BEFORE creating database record
-	// This ensures the account exists on the network before we commit to the database
-	stellarReq := stellar.CreateAccountRequest{
-		ChildKeypair:    childKP,
-		StartingBalance: "0", // Fully sponsored
-		EnableMultiSig:  a.walletConfig.EnableMultiSig,
-	}
-
-	// Configure multi-sig if enabled
-	if a.walletConfig.EnableMultiSig {
-		stellarReq.MultiSigConfig = &stellar.MultiSigConfig{
-			TreasurySigner: a.walletConfig.TreasuryPublicKey,
-			TreasuryWeight: 1,
-			ChildWeight:    0,
-			LowThreshold:   a.walletConfig.LowThreshold,
-			MedThreshold:   a.walletConfig.MediumThreshold,
-			HighThreshold:  a.walletConfig.HighThreshold,
-		}
-	}
-
-	// Submit transaction to Stellar network
-	err = a.stellarService.CreateSponsoredAccount(ctx, stellarReq)
-	if err != nil {
-		tx.Rollback()
-		log.Printf("Failed to create Stellar account for user %s: %v", userResp.ID, err)
-		return nil, nil, fmt.Errorf("failed to create stellar account: %w", err)
-	}
+	// Build the sponsored-account creation request. The on-chain submit is
+	// deferred to a background goroutine after commit: it takes several seconds
+	// to confirm and the USSD gateway ends sessions on multi-second turns.
+	stellarReq := a.buildSponsoredAccountReq(childKP)
 
 	// Create account record in database with transaction
 	accountResp, err := a.accountService.CreateWithTx(ctx, tx, account.CreateAccountRequest{
@@ -312,13 +363,17 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 		return nil, nil, fmt.Errorf("failed to create account record: %w", err)
 	}
 
-	// COMMIT TRANSACTION - Both user and account created successfully
+	// COMMIT TRANSACTION - user + account row created atomically
 	if err := tx.Commit().Error; err != nil {
 		log.Printf("Failed to commit transaction for user %s: %v", userResp.ID, err)
 		return nil, nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	log.Printf("Successfully registered user %s with Stellar account %s (BIP44 index: %d)",
+	// Submit the on-chain sponsored-account creation off the USSD request path
+	// so the turn returns immediately and the gateway session survives.
+	go a.createSponsoredAccountAsync(userResp.ID, stellarReq)
+
+	log.Printf("Registered user %s with account %s (BIP44 index: %d); on-chain creation dispatched",
 		userResp.ID, childKP.Address(), accountIndex)
 
 	// Convert UserResponse to map
