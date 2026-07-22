@@ -96,7 +96,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(payoutMethodMenu)
 
-	// My Account (PIN Manager + Change Language)
+	// My Account (PIN Manager + Change Language + optional bio details)
 	accountMenu := NewMenuBuilder("my_account").
 		WithTitle("en", "My Account").
 		WithTitle("sw", "Akaunti Yangu").
@@ -111,6 +111,11 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 			"sw": "Badilisha Lugha",
 			"fr": "Changer Langue",
 		}, "language_select").
+		WithOption("3", map[string]string{
+			"en": "My Details",
+			"sw": "Maelezo Yangu",
+			"fr": "Mes Infos",
+		}, "register_bio").
 		WithOption("0", map[string]string{
 			"en": "Main Menu",
 			"sw": "Menyu Kuu",

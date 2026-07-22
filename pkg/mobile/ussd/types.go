@@ -168,6 +168,16 @@ type UserService interface {
 	// post-registration via the account menu for faster cash pickup). Empty
 	// fields are left unchanged; birthDate is YYYY-MM-DD.
 	UpdateBio(ctx context.Context, userID string, bio BioUpdate) error
+
+	// GetUserIDByNationalID resolves the account behind a national ID. Used by
+	// new-SIM recovery to find the existing account when registration hits the
+	// duplicate-ID case. Returns "" when no user holds that ID.
+	GetUserIDByNationalID(ctx context.Context, nationalID string) (string, error)
+
+	// RebindMobileNumber moves an account to the dialing SIM. Only called after
+	// the caller has verified ownership via security questions — it changes the
+	// account's identity anchor.
+	RebindMobileNumber(ctx context.Context, userID, mobileNumber string) error
 }
 
 // BioUpdate carries the optional SEP-9 fields set from the account menu.

@@ -43,8 +43,11 @@ type AccountTemplates struct {
 func DefaultAccountTemplates() *AccountTemplates {
 	return &AccountTemplates{
 		RegistrationSuccess: "Welcome to Shamba Records, %s! " +
-			"Your account has been created and your PIN is set. " +
-			"Dial *384# to request your first loan.",
+			"Your account is active and your PIN is set. " +
+			"Dial *384# to request your first loan.\n\n" +
+			"Next: My Account > PIN Manager > Security Questions — so you can " +
+			"recover your account if you lose your phone. " +
+			"Add My Details for faster cash pickup.",
 		RegistrationFailed: "Your Shamba Records registration could not be completed. " +
 			"Reason: %s. Please try again or contact support.",
 		WrongAttempt: "ALERT: An incorrect PIN was entered on your Shamba Records account. " +
@@ -66,8 +69,11 @@ func DefaultAccountTemplates() *AccountTemplates {
 func swahiliAccountTemplates() *AccountTemplates {
 	return &AccountTemplates{
 		RegistrationSuccess: "Karibu Shamba Records, %s! " +
-			"Akaunti yako imeundwa na PIN yako imewekwa. " +
-			"Piga *384# kuomba mkopo wako wa kwanza.",
+			"Akaunti yako iko hai na PIN yako imewekwa. " +
+			"Piga *384# kuomba mkopo wako wa kwanza.\n\n" +
+			"Ifuatayo: Akaunti Yangu > Dhibiti PIN > Maswali ya Usalama — ili " +
+			"uweze kurejesha akaunti yako ukipoteza simu. " +
+			"Weka Maelezo Yangu kwa kuchukua pesa haraka.",
 		RegistrationFailed: "Usajili wako wa Shamba Records haukukamilika. " +
 			"Sababu: %s. Tafadhali jaribu tena au wasiliana na msaada.",
 		WrongAttempt: "TAHADHARI: PIN isiyo sahihi iliwekwa kwenye akaunti yako ya Shamba Records. " +
@@ -89,8 +95,11 @@ func swahiliAccountTemplates() *AccountTemplates {
 func frenchAccountTemplates() *AccountTemplates {
 	return &AccountTemplates{
 		RegistrationSuccess: "Bienvenue à Shamba Records, %s! " +
-			"Votre compte a été créé et votre PIN est défini. " +
-			"Composez *384# pour demander votre premier prêt.",
+			"Votre compte est actif et votre PIN est défini. " +
+			"Composez *384# pour demander votre premier prêt.\n\n" +
+			"Ensuite: Mon Compte > Gérer PIN > Questions de Sécurité — pour " +
+			"récupérer votre compte si vous perdez votre téléphone. " +
+			"Ajoutez Mes Infos pour un retrait plus rapide.",
 		RegistrationFailed: "Votre inscription à Shamba Records n'a pas pu être complétée. " +
 			"Raison: %s. Veuillez réessayer ou contacter le support.",
 		WrongAttempt: "ALERTE: Un PIN incorrect a été saisi sur votre compte Shamba Records. " +

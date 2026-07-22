@@ -54,9 +54,7 @@ func E164(phone string) string {
 	if digits == "" {
 		return ""
 	}
-	if strings.HasPrefix(digits, "00") {
-		digits = digits[2:]
-	}
+	digits = strings.TrimPrefix(digits, "00")
 	if digits == "" || strings.HasPrefix(digits, "0") {
 		return ""
 	}

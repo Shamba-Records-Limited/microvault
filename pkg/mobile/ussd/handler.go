@@ -28,6 +28,8 @@ var menus = map[string]bool{
 	"pin_recovery_national_id": true,
 	"pin_recovery_q1":          true, // security answer
 	"pin_recovery_q2":          true, // security answer
+	"recover_sim_q1":           true, // security answer (new-SIM recovery)
+	"recover_sim_q2":           true, // security answer (new-SIM recovery)
 	"pin_recovery_new":         true,
 	"pin_recovery_confirm":     true,
 }
@@ -186,6 +188,14 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, input string) (string, error) {
 	input = strings.TrimSpace(input)
 
+	// Global back/home navigation is resolved before the per-menu handlers so
+	// no handler has to implement it. Menus that bind "0" themselves, or where
+	// stepping back would weaken a verification gate, are excluded by
+	// navBackTargets and fall through untouched.
+	if resp, handled, err := h.handleNavigation(ctx, session, input); handled {
+		return resp, err
+	}
+
 	switch session.CurrentMenu {
 	// Core navigation
 	case "main":
@@ -202,6 +212,14 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 		return h.handleRegistrationNationalID(ctx, session, input)
 	case "register_bio":
 		return h.handleRegistrationBio(ctx, session, input)
+
+	// New-SIM account recovery (reached from the duplicate-national-ID case)
+	case "recover_offer":
+		return h.handleRecoverOffer(ctx, session, input)
+	case "recover_sim_q1":
+		return h.handleRecoverSimQ1(ctx, session, input)
+	case "recover_sim_q2":
+		return h.handleRecoverSimQ2(ctx, session, input)
 
 	// PIN creation (during registration)
 	case "pin_create":
@@ -297,7 +315,7 @@ func (h *USSDHandler) handleMainMenu(ctx context.Context, session *Session, inpu
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
-		return h.showAccountMenu(session)
+		return h.showAccountMenu(ctx, session)
 	default:
 		mainMenu, err := h.showMainMenu(session)
 		if err != nil {
@@ -361,7 +379,7 @@ func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, 
 	// Store name (required).
 	fullName := strings.TrimSpace(input)
 	if fullName == "" {
-		return h.formatResponse(session.Language, "CON", "reg_name_required"), nil
+		return h.conNav(session, "reg_name_required"), nil
 	}
 	session.Data["full_name"] = fullName
 
@@ -373,7 +391,7 @@ func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, 
 
 	log.Printf("Registration - stored full_name, updated CurrentMenu to: register_national_id")
 
-	return h.formatResponse(session.Language, "CON", "reg_enter_national_id"), nil
+	return h.conWithNav(session, "register_national_id", "reg_enter_national_id"), nil
 }
 
 // handleRegistrationNationalID stores the (required) national ID and advances
@@ -384,7 +402,7 @@ func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, 
 func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session *Session, input string) (string, error) {
 	nationalID := strings.TrimSpace(input)
 	if nationalID == "" {
-		return h.formatResponse(session.Language, "CON", "reg_national_id_required"), nil
+		return h.conNav(session, "reg_national_id_required"), nil
 	}
 
 	// Reject an already-registered national ID up front, before the user spends
@@ -394,7 +412,15 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 		log.Printf("handleRegistrationNationalID: national ID check failed for %s: %v", redactPhone(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	} else if taken {
-		return h.formatResponse(session.Language, "CON", "reg_national_id_taken"), nil
+		// Usually this is the same person on a new SIM (lost phone), so offer
+		// account recovery rather than dead-ending. Ownership is verified in
+		// the recovery flow before anything is rebound.
+		session.Data["recover_national_id"] = nationalID
+		session.CurrentMenu = "recover_offer"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.formatResponse(session.Language, "CON", "recover_offer"), nil
 	}
 
 	session.Data["national_id"] = nationalID
@@ -409,6 +435,134 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
 	return h.showMenu(session, "pin_create")
+}
+
+// handleRecoverOffer handles the choice presented when registration hits an
+// already-registered national ID: recover the existing account onto this SIM,
+// or re-enter the ID (in case of a typo).
+//
+// Recovery is gated on security questions. The registered SIM is gone, so the
+// possession factor that backs a same-SIM PIN reset is absent; national ID
+// alone is semi-public and far too weak to transfer an account holding loans.
+// Without security questions this must go to a human.
+func (h *USSDHandler) handleRecoverOffer(ctx context.Context, session *Session, input string) (string, error) {
+	switch input {
+	case "1": // Recover this account on this phone
+		nationalID, _ := session.Data["recover_national_id"].(string)
+		userID, err := h.userService.GetUserIDByNationalID(ctx, nationalID)
+		if err != nil {
+			log.Printf("handleRecoverOffer: lookup by national ID failed for %s: %v", redactPhone(session.PhoneNumber), err)
+			return h.formatError(session.Language, "error"), nil
+		}
+		if userID == "" {
+			// The ID was taken a moment ago but resolves to nothing now — treat
+			// as a typo and let them re-enter.
+			session.CurrentMenu = "register_national_id"
+			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+				return "", fmt.Errorf("failed to save session: %w", err)
+			}
+			return h.formatResponse(session.Language, "CON", "reg_enter_national_id"), nil
+		}
+
+		if h.pinService == nil {
+			return h.formatResponse(session.Language, "END", "recover_contact_support"), nil
+		}
+		qIDs, err := h.pinService.GetUserQuestionIDs(ctx, userID)
+		if err != nil {
+			log.Printf("handleRecoverOffer: GetUserQuestionIDs failed for %s: %v", redactPhone(session.PhoneNumber), err)
+			return h.formatError(session.Language, "error"), nil
+		}
+		if len(qIDs) < 2 {
+			// No knowledge factor available — cannot self-serve an account move.
+			return h.formatResponse(session.Language, "END", "recover_contact_support"), nil
+		}
+
+		session.Data["recover_user_id"] = userID
+		session.Data["recover_sq1_id"] = qIDs[0]
+		session.Data["recover_sq2_id"] = qIDs[1]
+		session.CurrentMenu = "recover_sim_q1"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return "CON " + GetLocalizedMessage(session.Language, fmt.Sprintf("sq_%d", qIDs[0])), nil
+
+	case "2": // Re-enter the national ID
+		delete(session.Data, "recover_national_id")
+		session.CurrentMenu = "register_national_id"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.formatResponse(session.Language, "CON", "reg_enter_national_id"), nil
+
+	default:
+		return h.formatResponse(session.Language, "CON", "recover_offer"), nil
+	}
+}
+
+// handleRecoverSimQ1 stores the first security answer and prompts for the second.
+func (h *USSDHandler) handleRecoverSimQ1(ctx context.Context, session *Session, input string) (string, error) {
+	if strings.TrimSpace(input) == "" {
+		q1ID := toInt(session.Data["recover_sq1_id"])
+		return "CON " + GetLocalizedMessage(session.Language, fmt.Sprintf("sq_%d", q1ID)), nil
+	}
+
+	session.Data["recover_sq1_answer"] = input
+	session.CurrentMenu = "recover_sim_q2"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+	q2ID := toInt(session.Data["recover_sq2_id"])
+	return "CON " + GetLocalizedMessage(session.Language, fmt.Sprintf("sq_%d", q2ID)), nil
+}
+
+// handleRecoverSimQ2 verifies both answers and, on success, rebinds the account
+// to the dialing SIM. The user must still sign in with their existing PIN — the
+// rebind moves the account, it does not reset credentials.
+func (h *USSDHandler) handleRecoverSimQ2(ctx context.Context, session *Session, input string) (string, error) {
+	if h.pinService == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	userID, _ := session.Data["recover_user_id"].(string)
+	q1ID := toInt(session.Data["recover_sq1_id"])
+	a1, _ := session.Data["recover_sq1_answer"].(string)
+	q2ID := toInt(session.Data["recover_sq2_id"])
+
+	ok, err := h.pinService.VerifySecurityAnswers(ctx, userID, []pinPkg.QuestionAnswer{
+		{QuestionID: q1ID, Answer: a1},
+		{QuestionID: q2ID, Answer: input},
+	})
+	if err != nil {
+		log.Printf("handleRecoverSimQ2: VerifySecurityAnswers failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		return h.formatError(session.Language, "error"), nil
+	}
+	if !ok {
+		h.clearRecoverySession(session)
+		return h.formatResponse(session.Language, "END", "recovery_answers_wrong"), nil
+	}
+
+	if err := h.userService.RebindMobileNumber(ctx, userID, session.PhoneNumber); err != nil {
+		log.Printf("handleRecoverSimQ2: rebind failed for user %s: %v", userID, err)
+		return h.formatError(session.Language, "error"), nil
+	}
+	log.Printf("account recovered onto new SIM: user=%s phone=%s", userID, redactPhone(session.PhoneNumber))
+
+	h.clearRecoverySession(session)
+	session.UserID = userID
+	session.CurrentMenu = "main"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+	return h.formatResponse(session.Language, "END", "recover_success"), nil
+}
+
+// clearRecoverySession drops the transient new-SIM recovery data.
+func (h *USSDHandler) clearRecoverySession(session *Session) {
+	delete(session.Data, "recover_national_id")
+	delete(session.Data, "recover_user_id")
+	delete(session.Data, "recover_sq1_id")
+	delete(session.Data, "recover_sq1_answer")
+	delete(session.Data, "recover_sq2_id")
 }
 
 // bioFields is the ordered set of optional SEP-9 fields the registration bio
@@ -438,11 +592,11 @@ func (h *USSDHandler) handleRegistrationBio(ctx context.Context, session *Sessio
 			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 				return "", fmt.Errorf("failed to save session: %w", err)
 			}
-			return h.formatResponse(session.Language, "CON", bioFields[0].promptKey), nil
+			return h.conWithNav(session, "register_bio", bioFields[0].promptKey), nil
 		case "2":
-			return h.completeRegistration(ctx, session)
+			return h.finishBio(ctx, session)
 		default:
-			return h.formatResponse(session.Language, "CON", "reg_bio_gate"), nil
+			return h.conWithNav(session, "register_bio", "reg_bio_gate"), nil
 		}
 	}
 
@@ -450,7 +604,7 @@ func (h *USSDHandler) handleRegistrationBio(ctx context.Context, session *Sessio
 	field := bioFields[step-1]
 	if v := strings.TrimSpace(input); v != "" && v != "0" {
 		if field.key == "birth_date" && !isISODate(v) {
-			return h.formatResponse(session.Language, "CON", "reg_bio_invalid_date"), nil
+			return h.conWithNav(session, "register_bio", "reg_bio_invalid_date"), nil
 		}
 		session.Data["bio_"+field.key] = v
 	}
@@ -460,9 +614,9 @@ func (h *USSDHandler) handleRegistrationBio(ctx context.Context, session *Sessio
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
-		return h.formatResponse(session.Language, "CON", bioFields[step].promptKey), nil
+		return h.conWithNav(session, "register_bio", bioFields[step].promptKey), nil
 	}
-	return h.completeRegistration(ctx, session)
+	return h.finishBio(ctx, session)
 }
 
 // finishBio dispatches a completed bio wizard: an account-menu run updates the
@@ -960,6 +1114,16 @@ func (h *USSDHandler) handleMyAccount(ctx context.Context, session *Session, inp
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
 		return h.showLanguageMenu(session)
+	case "3": // Personal details — optional SEP-9 bio for faster cash pickup.
+		// Enter the wizard at the first field: the user already opted in by
+		// choosing this menu item, so the fill/skip gate is skipped.
+		session.Data["bio_update"] = true
+		session.Data["bio_step"] = 1
+		session.CurrentMenu = "register_bio"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.conWithNav(session, "register_bio", bioFields[0].promptKey), nil
 	case "0": // Main Menu
 		session.CurrentMenu = "main"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
@@ -967,7 +1131,7 @@ func (h *USSDHandler) handleMyAccount(ctx context.Context, session *Session, inp
 		}
 		return h.showMainMenu(session)
 	default:
-		return h.showAccountMenu(session)
+		return h.showAccountMenu(ctx, session)
 	}
 }
 
@@ -986,7 +1150,7 @@ func (h *USSDHandler) showLanguageMenu(session *Session) (string, error) {
 func (h *USSDHandler) showRegistrationMenu(session *Session) (string, error) {
 	session.CurrentMenu = "register"
 	menu, _ := h.menuRegistry.Get("register")
-	return "CON " + menu.Render(session.Language), nil
+	return "CON " + h.withNavHint(session, "register", menu.Render(session.Language)), nil
 }
 
 func (h *USSDHandler) showLoanAmountMenu(session *Session) (string, error) {
@@ -996,12 +1160,33 @@ func (h *USSDHandler) showLoanAmountMenu(session *Session) (string, error) {
 	}
 	minFiat := float64(cfg.MinAmountCents) / 100
 	maxFiat := float64(cfg.MaxAmountCents) / 100
-	return "CON " + Format(session.Language, "loan_amount_prompt", cfg.Currency, minFiat, maxFiat), nil
+	body := Format(session.Language, "loan_amount_prompt", cfg.Currency, minFiat, maxFiat)
+	return "CON " + h.withNavHint(session, "loan_amount", body), nil
 }
 
-func (h *USSDHandler) showAccountMenu(session *Session) (string, error) {
-	menu, _ := h.menuRegistry.Get("my_account")
-	return "CON " + menu.Render(session.Language), nil
+// showAccountMenu renders My Account, prefixed with a non-blocking nudge while
+// the account is missing security questions. The nudge is advisory only —
+// nothing is gated on it — and is the in-menu counterpart to the welcome SMS
+// for users who ignored it.
+func (h *USSDHandler) showAccountMenu(ctx context.Context, session *Session) (string, error) {
+	body, err := h.renderAccountMenu(session)
+	if err != nil {
+		return "", err
+	}
+	if h.pinService != nil && session.UserID != "" {
+		if ids, qErr := h.pinService.GetUserQuestionIDs(ctx, session.UserID); qErr == nil && len(ids) == 0 {
+			return "CON " + GetLocalizedMessage(session.Language, "badge_no_security_q") + "\n" + body, nil
+		}
+	}
+	return "CON " + body, nil
+}
+
+func (h *USSDHandler) renderAccountMenu(session *Session) (string, error) {
+	menu, err := h.menuRegistry.Get("my_account")
+	if err != nil {
+		return "", fmt.Errorf("render my_account menu: %w", err)
+	}
+	return menu.Render(session.Language), nil
 }
 
 // showLoanConfirmation displays a summary with principal amount and duration
@@ -1018,7 +1203,7 @@ func (h *USSDHandler) showLoanConfirmation(_ context.Context, session *Session) 
 	duration := cfg.DurationDays
 
 	summary := Format(session.Language, "loan_confirm_summary", cfg.Currency, localAmount, duration)
-	return "CON " + summary, nil
+	return "CON " + h.withNavHint(session, "loan_confirm", summary), nil
 }
 
 //
@@ -1033,7 +1218,7 @@ func (h *USSDHandler) handlePINCreate(ctx context.Context, session *Session, inp
 
 	// Validate PIN format/strength before confirming.
 	if err := pinPkg.ValidatePIN(input); err != nil {
-		return h.formatResponse(session.Language, "CON", "pin_invalid"), nil
+		return h.conNav(session, "pin_invalid"), nil
 	}
 
 	session.Data["new_pin"] = input
@@ -1058,7 +1243,7 @@ func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, in
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
-		return h.formatResponse(session.Language, "CON", "pin_mismatch"), nil
+		return h.conNav(session, "pin_mismatch"), nil
 	}
 
 	// Self-heal path: an existing PIN-less user (routed here by the
@@ -1212,7 +1397,7 @@ func (h *USSDHandler) handlePINVerifyLoan(ctx context.Context, session *Session,
 			return h.formatLockedMessage(ctx, session), nil
 		}
 		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
-		return "CON " + msg, nil
+		return h.conNavText(session, msg), nil
 	}
 
 	return h.submitLoan(ctx, session)
@@ -1239,7 +1424,7 @@ func (h *USSDHandler) handlePINVerifyRepay(ctx context.Context, session *Session
 			return h.formatLockedMessage(ctx, session), nil
 		}
 		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
-		return "CON " + msg, nil
+		return h.conNavText(session, msg), nil
 	}
 
 	session.CurrentMenu = "repay_loan"
@@ -1287,7 +1472,7 @@ func (h *USSDHandler) handlePINManager(ctx context.Context, session *Session, in
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
-		return h.showAccountMenu(session)
+		return h.showAccountMenu(ctx, session)
 	default:
 		return h.showMenu(session, "pin_manager")
 	}
@@ -1314,7 +1499,7 @@ func (h *USSDHandler) handlePINChangeOld(ctx context.Context, session *Session, 
 			return h.formatLockedMessage(ctx, session), nil
 		}
 		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
-		return "CON " + msg, nil
+		return h.conNavText(session, msg), nil
 	}
 
 	session.Data["old_pin"] = input
@@ -1329,7 +1514,7 @@ func (h *USSDHandler) handlePINChangeOld(ctx context.Context, session *Session, 
 // handlePINChangeNew validates the new PIN and prompts for confirmation.
 func (h *USSDHandler) handlePINChangeNew(ctx context.Context, session *Session, input string) (string, error) {
 	if err := pinPkg.ValidatePIN(input); err != nil {
-		return h.formatResponse(session.Language, "CON", "pin_invalid"), nil
+		return h.conNav(session, "pin_invalid"), nil
 	}
 
 	session.Data["new_pin"] = input
@@ -1354,7 +1539,7 @@ func (h *USSDHandler) handlePINChangeConfirm(ctx context.Context, session *Sessi
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
-		return h.formatResponse(session.Language, "CON", "pin_mismatch"), nil
+		return h.conNav(session, "pin_mismatch"), nil
 	}
 
 	oldPIN, _ := session.Data["old_pin"].(string)
@@ -1405,9 +1590,24 @@ func (h *USSDHandler) handlePINRecoveryNationalID(ctx context.Context, session *
 		}
 	}
 
-	// Bail out if no security questions were stored.
+	// Two-tier reset. The national ID has matched and the request physically
+	// originates from the registered SIM (the telco authenticates the MSISDN),
+	// so possession + knowledge is the baseline factor pair.
+	//
+	//   - security questions set -> they are REQUIRED (the stronger factor;
+	//     the national-ID-only path is closed for that user).
+	//   - not set -> proceed straight to a new PIN on this SIM.
+	//
+	// See ussd-registration-redesign: refusing a reset here used to strand any
+	// user who never completed the (previously unreachable) security-question
+	// step — a forgotten PIN meant a permanently unusable account.
 	if session.Data["recovery_q1_id"] == nil || session.Data["recovery_q2_id"] == nil {
-		return h.formatResponse(session.Language, "END", "recovery_no_questions"), nil
+		session.Data["recovery_no_sq"] = true
+		session.CurrentMenu = "pin_recovery_new"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.showMenu(session, "pin_recovery_new")
 	}
 
 	session.CurrentMenu = "pin_recovery_q1"
@@ -1471,7 +1671,7 @@ func (h *USSDHandler) handlePINRecoveryQ2(ctx context.Context, session *Session,
 // handlePINRecoveryNew validates the new PIN during recovery.
 func (h *USSDHandler) handlePINRecoveryNew(ctx context.Context, session *Session, input string) (string, error) {
 	if err := pinPkg.ValidatePIN(input); err != nil {
-		return h.formatResponse(session.Language, "CON", "pin_invalid"), nil
+		return h.conNav(session, "pin_invalid"), nil
 	}
 
 	session.Data["recovery_new_pin"] = input
@@ -1496,7 +1696,7 @@ func (h *USSDHandler) handlePINRecoveryConfirm(ctx context.Context, session *Ses
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
-		return h.formatResponse(session.Language, "CON", "pin_mismatch"), nil
+		return h.conNav(session, "pin_mismatch"), nil
 	}
 
 	if err := h.pinService.ResetPIN(ctx, session.UserID, newPIN); err != nil {
@@ -1508,6 +1708,15 @@ func (h *USSDHandler) handlePINRecoveryConfirm(ctx context.Context, session *Ses
 	delete(session.Data, "recovery_new_pin")
 	delete(session.Data, "recovery_q1_id")
 	delete(session.Data, "recovery_q2_id")
+
+	// This reset used only national ID + SIM possession. Nudge the user to add
+	// security questions, which closes that weaker path and is the only
+	// self-service way to recover if they ever lose this phone.
+	noSQ, _ := session.Data["recovery_no_sq"].(bool)
+	delete(session.Data, "recovery_no_sq")
+	if noSQ {
+		return h.formatResponse(session.Language, "END", "recovery_success_add_sq"), nil
+	}
 
 	return h.formatResponse(session.Language, "END", "recovery_success"), nil
 }
@@ -1522,7 +1731,7 @@ func (h *USSDHandler) showMenu(session *Session, menuID string) (string, error) 
 	if err != nil {
 		return h.formatError(session.Language, "error"), nil
 	}
-	return "CON " + menu.Render(session.Language), nil
+	return "CON " + h.withNavHint(session, menuID, menu.Render(session.Language)), nil
 }
 
 // getRemainingAttempts returns how many PIN attempts the user has left. If the

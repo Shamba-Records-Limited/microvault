@@ -48,6 +48,14 @@ type UserRepository interface {
 
 	// Update operations
 	Update(ctx context.Context, user *models.User) error
+
+	// UpdateMobileNumber rebinds a user to a new MSISDN. Deliberately separate
+	// from Update (which does not touch mobile_number) because this changes the
+	// account's identity anchor — it is only used by new-SIM account recovery,
+	// after the caller has verified ownership. The unique index on
+	// mobile_number is the final guard against binding a number twice.
+	UpdateMobileNumber(ctx context.Context, userID, mobileNumber string) error
+
 	Restore(ctx context.Context, id string) error
 
 	// Delete operations
@@ -285,6 +293,25 @@ func (r *userRepository) Update(ctx context.Context, user *models.User) error {
 }
 
 // Restore restores a soft-deleted user
+// UpdateMobileNumber rebinds the user to a new MSISDN. See the interface docs.
+func (r *userRepository) UpdateMobileNumber(ctx context.Context, userID, mobileNumber string) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("id = ? AND deleted_at IS NULL", userID).
+		Updates(map[string]interface{}{
+			"mobile_number": mobileNumber,
+			"updated_at":    time.Now(),
+		})
+	if result.Error != nil {
+		log.Printf("UpdateMobileNumber: database error: %v", result.Error)
+		return ErrFailedToUpdateUser
+	}
+	if result.RowsAffected == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
 func (r *userRepository) Restore(ctx context.Context, id string) error {
 	result := r.db.WithContext(ctx).
 		Unscoped().

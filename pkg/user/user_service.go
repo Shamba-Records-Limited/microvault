@@ -62,6 +62,11 @@ type Service interface {
 	GetByID(ctx context.Context, id string) (*UserResponse, error)
 	GetByMobileNumber(ctx context.Context, mobileNumber string) (*UserResponse, error)
 	GetByNationalID(ctx context.Context, nationalID string) (*UserResponse, error)
+
+	// RebindMobileNumber moves an account to a new MSISDN. Used only by
+	// new-SIM recovery, after ownership has been verified — it changes the
+	// account's identity anchor.
+	RebindMobileNumber(ctx context.Context, userID, mobileNumber string) error
 	List(ctx context.Context, filters UserFilters, pagination services.Pagination) (*services.PaginatedResponse[UserResponse], error)
 	Update(ctx context.Context, id string, req UpdateUserRequest) (*UserResponse, error)
 	Delete(ctx context.Context, requesterID, targetID string) error
@@ -247,6 +252,19 @@ func (s *service) GetByMobileNumber(ctx context.Context, mobileNumber string) (*
 }
 
 // GetByNationalID retrieves a user by national ID
+// RebindMobileNumber moves an account to a new MSISDN. See the interface docs.
+func (s *service) RebindMobileNumber(ctx context.Context, userID, mobileNumber string) error {
+	if mobileNumber == "" {
+		return ErrInvalidMobileNumber
+	}
+	if err := s.repo.UpdateMobileNumber(ctx, userID, mobileNumber); err != nil {
+		log.Printf("RebindMobileNumber: failed for user %s: %v", userID, err)
+		return err
+	}
+	log.Printf("RebindMobileNumber: user %s rebound to a new MSISDN", userID)
+	return nil
+}
+
 func (s *service) GetByNationalID(ctx context.Context, nationalID string) (*UserResponse, error) {
 	user, err := s.repo.GetByNationalID(ctx, nationalID)
 	if err != nil {

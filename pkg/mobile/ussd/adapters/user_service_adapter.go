@@ -268,6 +268,23 @@ func (a *UserServiceAdapter) UpdateBio(ctx context.Context, userID string, bio u
 	return err
 }
 
+// GetUserIDByNationalID resolves the account behind a national ID, or "" if none.
+func (a *UserServiceAdapter) GetUserIDByNationalID(ctx context.Context, nationalID string) (string, error) {
+	userResp, err := a.userService.GetByNationalID(ctx, nationalID)
+	if err != nil {
+		if errors.Is(err, user.ErrUserNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	return userResp.ID, nil
+}
+
+// RebindMobileNumber moves an account to a new MSISDN (new-SIM recovery).
+func (a *UserServiceAdapter) RebindMobileNumber(ctx context.Context, userID, mobileNumber string) error {
+	return a.userService.RebindMobileNumber(ctx, userID, mobileNumber)
+}
+
 // NationalIDExists reports whether a user is already registered with nationalID.
 func (a *UserServiceAdapter) NationalIDExists(ctx context.Context, nationalID string) (bool, error) {
 	if _, err := a.userService.GetByNationalID(ctx, nationalID); err != nil {
