@@ -35,6 +35,13 @@ type LoanTemplates struct {
 	CashPickupInitiated string
 	// CashPickupReady: args = (DisplayCurrency, DisplayAmount, CashPickupRef, LoanReference)
 	CashPickupReady string
+	// CashPickupCancelled: args = (LoanReference)
+	//
+	// Sent when MoneyGram refunds a cash-pickup loan, which usually means the
+	// borrower cancelled in MoneyGram's own app — sometimes by mistake. The
+	// wording has to reassure rather than alarm: nothing is owed and they can
+	// simply request again.
+	CashPickupCancelled string
 }
 
 // DefaultLoanTemplates returns ready-to-use loan templates, parameterized for
@@ -65,6 +72,8 @@ func DefaultLoanTemplates() *LoanTemplates {
 			"Final amount shown in the link.",
 		CashPickupReady: "Your loan of %s %.2f is ready for pickup at any MoneyGram agent. " +
 			"Reference: %s (Loan: %s). Bring valid ID.",
+		CashPickupCancelled: "Your cash-pickup loan (Ref: %s) was cancelled and the funds returned. " +
+			"You owe nothing. Dial *384*1234# to request again.",
 	}
 }
 
@@ -95,6 +104,8 @@ func swahiliLoanTemplates() *LoanTemplates {
 			"Kiasi cha mwisho kwenye kiungo.",
 		CashPickupReady: "Mkopo wako wa %s %.2f uko tayari kuchukuliwa kwa wakala yeyote wa MoneyGram. " +
 			"Kumbukumbu: %s (Mkopo: %s). Lete kitambulisho halali.",
+		CashPickupCancelled: "Mkopo wako wa kuchukua fedha (Kumb: %s) umeghairiwa na fedha zimerudishwa. " +
+			"Hudaiwi chochote. Piga *384*1234# kuomba tena.",
 	}
 }
 
@@ -125,6 +136,8 @@ func frenchLoanTemplates() *LoanTemplates {
 			"Montant final dans le lien.",
 		CashPickupReady: "Votre prêt de %s %.2f est prêt à être retiré chez tout agent MoneyGram. " +
 			"Référence: %s (Prêt: %s). Apportez une pièce d'identité valide.",
+		CashPickupCancelled: "Votre prêt à retrait espèces (Réf: %s) a été annulé et les fonds retournés. " +
+			"Vous ne devez rien. Composez *384*1234# pour redemander.",
 	}
 }
 

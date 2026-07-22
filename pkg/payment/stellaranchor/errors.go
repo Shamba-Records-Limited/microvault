@@ -21,4 +21,8 @@ var (
 	// ErrUnauthorized is returned for 401 responses from any authenticated
 	// anchor endpoint. Callers should evict cached tokens and retry once.
 	ErrUnauthorized = errors.New("unauthorized")
+
+	// ErrInvalidAmount is returned when an anchor sends a decimal amount
+	// string that cannot be parsed.
+	ErrInvalidAmount = errors.New("invalid amount")
 )

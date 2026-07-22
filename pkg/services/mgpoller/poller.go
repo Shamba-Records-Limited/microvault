@@ -81,6 +81,38 @@ type LoanRecorder interface {
 	// ClearSendAttempt releases the claim. Only called when the payment
 	// definitively did not move funds, so a later tick may safely retry.
 	ClearSendAttempt(ctx context.Context, loanID string) error
+
+	// RecordRefund persists the settled refund: the Stellar hash MG returned
+	// the USDC in, the net stroops received, and any shortfall against the
+	// principal we originally sent. Written before the vault repay so a crash
+	// mid-repay leaves evidence of what came back.
+	RecordRefund(ctx context.Context, loanID string, refund RefundRecord) error
+}
+
+// RefundRecord is the settled outcome of a MoneyGram refund.
+type RefundRecord struct {
+	// TxHash is the Stellar transaction the refund arrived in. When MG splits
+	// a refund across several payments this is the last one; the amount is
+	// always the total.
+	TxHash string
+
+	// NetStroops is what actually landed, gross refunded less MG's refund fee.
+	NetStroops int64
+
+	// ShortfallStroops is PrincipalStroops - NetStroops when MG returned less
+	// than we sent, otherwise zero. Non-zero means the treasury absorbed the
+	// difference and the loan needs a human to settle it.
+	ShortfallStroops int64
+}
+
+// PaymentVerifier confirms that a Stellar transaction an anchor claims to have
+// made actually succeeded on-ledger.
+//
+// Optional: a nil verifier skips confirmation and trusts the anchor, which is
+// logged. Supplying one means we never repay the vault against a refund that
+// did not land.
+type PaymentVerifier interface {
+	TransactionSucceeded(ctx context.Context, txHash string) (bool, error)
 }
 
 // DisbursementUpdater drives terminal state transitions and user
@@ -96,7 +128,18 @@ type DisbursementUpdater interface {
 	// pending_user_transfer_complete.
 	NotifyCashPickupReady(sequenceID string) error
 
+	// NotifyRefundReceived tells the borrower their cash pickup was cancelled
+	// and the funds returned. Distinct from NotifyDisbursementFailed because
+	// the usual cause is the borrower cancelling in MoneyGram's own UI,
+	// sometimes by mistake — the message has to say they can request again.
+	NotifyRefundReceived(sequenceID string) error
+
 	RepayVault(sequenceID string) error
+
+	// RepayVaultAmount repays an explicit stroop amount rather than the loan
+	// principal. Used for refunds, where MG may return less than we sent and
+	// repaying the full principal would overdraw the treasury.
+	RepayVaultAmount(sequenceID string, amountStroops int64) error
 }
 
 // AlertService is the same interface used by the YC refund poller —
@@ -114,10 +157,11 @@ type AlertService interface {
 // — added inline here to mirror what the existing YC flow writes; reconcile
 // in a follow-up that also fixes YC's "complete" vs the model's "completed".
 const (
-	statusProcessing    = "processing"
-	statusCompleted     = "completed"
-	statusFailed        = "failed"
-	statusRefundPending = "refund_pending"
+	statusProcessing     = "processing"
+	statusCompleted      = "completed"
+	statusFailed         = "failed"
+	statusRefundPending  = "refund_pending"
+	statusRefundReceived = "refund_received"
 )
 
 // PollerConfig configures cadence and drift detection.
@@ -150,20 +194,22 @@ type Poller struct {
 	recorder     LoanRecorder
 	disbursement DisbursementUpdater
 	treasury     offramp.TreasuryTransfer
+	verifier     PaymentVerifier
 	alerts       AlertService
 	cfg          PollerConfig
 	logger       *slog.Logger
 }
 
 // NewPoller validates the dependencies and returns a Poller. client,
-// fetcher, recorder, disbursement, and treasury are required; alerts and
-// logger may be nil.
+// fetcher, recorder, disbursement, and treasury are required; verifier,
+// alerts and logger may be nil.
 func NewPoller(
 	client *moneygram.Client,
 	fetcher LoanFetcher,
 	recorder LoanRecorder,
 	disbursement DisbursementUpdater,
 	treasury offramp.TreasuryTransfer,
+	verifier PaymentVerifier,
 	alerts AlertService,
 	cfg PollerConfig,
 	logger *slog.Logger,
@@ -201,6 +247,7 @@ func NewPoller(
 		recorder:     recorder,
 		disbursement: disbursement,
 		treasury:     treasury,
+		verifier:     verifier,
 		alerts:       alerts,
 		cfg:          cfg,
 		logger:       logger.With("component", "mgpoller"),
@@ -299,7 +346,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		p.handleCompleted(rec, tx)
 
 	case stellaranchor.StatusRefunded:
-		p.handleRefunded(rec, tx)
+		p.handleRefunded(ctx, rec, tx)
 
 	case stellaranchor.StatusExpired,
 		stellaranchor.StatusNoMarket,
@@ -497,17 +544,151 @@ func (p *Poller) handleCompleted(rec LoanRecord, _ *stellaranchor.Transaction) {
 	}
 }
 
-// handleRefunded: MG initiated a refund. Mark refund_pending — the
-// Stellar ingest worker watches for the inbound USDC payment by memo
-// and transitions to refund_received when it arrives. Vault repay
-// happens after the refund is observed (out of this poller's scope).
-func (p *Poller) handleRefunded(rec LoanRecord, _ *stellaranchor.Transaction) {
-	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusRefundPending); err != nil {
-		p.logger.Error("failed to mark refund_pending",
-			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
+// handleRefunded settles a MoneyGram refund. The usual cause is the borrower
+// cancelling in MG's own UI, so this is an expected path rather than a failure.
+//
+// It runs in two stages across ticks. First the loan is marked refund_pending,
+// which is not terminal for this poller — the loan keeps being fetched. Then,
+// once MG reports the refund payments, the funds are confirmed on-ledger, the
+// vault is repaid with what actually came back, and the loan reaches
+// refund_received.
+//
+// Splitting it this way means every step is retried on the next tick until it
+// succeeds. Nothing depends on a single observation.
+func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
+	if rec.DisbursementStatus != statusRefundPending {
+		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusRefundPending); err != nil {
+			p.logger.Error("failed to mark refund_pending",
+				"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
+			return
+		}
+		p.logger.Info("MoneyGram refunded — awaiting inbound USDC",
+			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID)
 	}
-	p.logger.Info("MoneyGram refunded — awaiting inbound USDC",
-		"loan_id", rec.LoanID, "sequence_id", rec.SequenceID)
+
+	payments := tx.Refunds.StellarPayments()
+	if len(payments) == 0 {
+		// MG has declared the refund but not yet published the payments that
+		// settle it. Stay in refund_pending and look again next tick.
+		return
+	}
+
+	net, err := tx.Refunds.NetRefundedStroops()
+	if err != nil {
+		p.logger.Error("refund amounts are unparseable; not repaying vault",
+			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "error", err)
+		p.alertOps("MoneyGram refund amount unparseable",
+			fmt.Sprintf("Loan %s: cannot parse MG refund amounts, vault repay withheld: %v",
+				rec.LoanID, err))
+		return
+	}
+	if net <= 0 {
+		p.logger.Error("refund settled to zero; not repaying vault",
+			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID)
+		p.alertOps("MoneyGram refund settled to zero",
+			fmt.Sprintf("Loan %s: MG reported a refund of 0 after we sent %d stroops. Needs manual review.",
+				rec.LoanID, rec.PrincipalStroops))
+		return
+	}
+
+	// Trust but verify: MG naming a Stellar hash is not proof the payment
+	// landed. Repaying the vault against a refund that never arrived would
+	// overdraw the treasury.
+	lastHash := payments[len(payments)-1].ID
+	if !p.refundLanded(ctx, rec, payments) {
+		return
+	}
+
+	var shortfall int64
+	if rec.PrincipalStroops > net {
+		shortfall = rec.PrincipalStroops - net
+	}
+
+	// Persist before repaying: if the repay crashes mid-flight, the row still
+	// records what came back and in which transaction.
+	if err := p.recorder.RecordRefund(ctx, rec.LoanID, RefundRecord{
+		TxHash:           lastHash,
+		NetStroops:       net,
+		ShortfallStroops: shortfall,
+	}); err != nil {
+		p.logger.Error("failed to record refund; not repaying vault",
+			"loan_id", rec.LoanID, "error", err)
+		return
+	}
+
+	if shortfall > 0 {
+		p.logger.Warn("REFUND SHORTFALL: MG returned less than we sent",
+			"loan_id", rec.LoanID,
+			"sent_stroops", rec.PrincipalStroops,
+			"returned_stroops", net,
+			"shortfall_stroops", shortfall)
+		p.alertOps("MoneyGram refund shortfall",
+			fmt.Sprintf("Loan %s: sent %d stroops, MG returned %d, shortfall %d. "+
+				"Vault repaid with what came back; treasury absorbed the difference.",
+				rec.LoanID, rec.PrincipalStroops, net, shortfall))
+	}
+
+	// Repay only what came back. Repaying the full principal would draw the
+	// difference from unrelated treasury funds.
+	if err := p.disbursement.RepayVaultAmount(rec.SequenceID, net); err != nil {
+		p.logger.Error("CRITICAL: vault repay failed after refund",
+			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID,
+			"amount_stroops", net, "error", err)
+		p.alertOps("Vault repay failed after MoneyGram refund",
+			fmt.Sprintf("Loan %s: refund of %d stroops landed but vault repay failed: %v",
+				rec.LoanID, net, err))
+		// Stay in refund_pending so the next tick retries the repay.
+		return
+	}
+
+	// Terminal only once the money is genuinely back in the vault.
+	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusRefundReceived); err != nil {
+		p.logger.Error("vault repaid but failed to mark refund_received",
+			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
+		return
+	}
+
+	p.logger.Info("MoneyGram refund settled",
+		"loan_id", rec.LoanID,
+		"sequence_id", rec.SequenceID,
+		"refund_tx_hash", lastHash,
+		"net_stroops", net,
+		"shortfall_stroops", shortfall)
+
+	if err := p.disbursement.NotifyRefundReceived(rec.SequenceID); err != nil {
+		p.logger.Warn("refund SMS failed",
+			"loan_id", rec.LoanID, "error", err)
+	}
+}
+
+// refundLanded confirms every refund payment succeeded on-ledger. A nil
+// verifier trusts the anchor, which is logged rather than silent.
+func (p *Poller) refundLanded(ctx context.Context, rec LoanRecord, payments []stellaranchor.RefundPayment) bool {
+	if p.verifier == nil {
+		p.logger.Warn("no payment verifier configured; trusting MoneyGram's refund unverified",
+			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID)
+		return true
+	}
+
+	for _, pay := range payments {
+		ok, err := p.verifier.TransactionSucceeded(ctx, pay.ID)
+		if err != nil {
+			// Unknown, not failed. Retry next tick rather than assuming either
+			// way — treating this as landed could overdraw the treasury.
+			p.logger.Warn("could not verify refund payment; will retry",
+				"loan_id", rec.LoanID, "refund_tx_hash", pay.ID, "error", err)
+			return false
+		}
+		if !ok {
+			p.logger.Error("MoneyGram named a refund transaction that did not succeed on-ledger",
+				"loan_id", rec.LoanID, "refund_tx_hash", pay.ID)
+			p.alertOps("MoneyGram refund not on ledger",
+				fmt.Sprintf("Loan %s: MG reported refund tx %s but it did not succeed on-ledger. "+
+					"Vault repay withheld.", rec.LoanID, pay.ID))
+			return false
+		}
+	}
+	return true
 }
 
 // handleTerminalFailure: expired/no_market/too_small/too_large/error.

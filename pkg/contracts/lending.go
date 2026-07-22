@@ -41,6 +41,12 @@ type LoanNotifier interface {
 	// MoneyGram has locked the payout. Template should include the
 	// reference, the locked amount, and the currency.
 	NotifyLoanCashPickupReady(ctx context.Context, n LoanNotification) error
+
+	// NotifyLoanCashPickupCancelled tells the borrower their cash pickup was
+	// cancelled and the funds returned. Distinct from NotifyLoanOffRampFailed:
+	// the usual cause is the borrower cancelling in MoneyGram's own app, so
+	// this reads as an acknowledgement rather than a failure.
+	NotifyLoanCashPickupCancelled(ctx context.Context, n LoanNotification) error
 }
 
 // EligibilityRequest contains the data needed to assess loan eligibility.

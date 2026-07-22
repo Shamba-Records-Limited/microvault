@@ -164,3 +164,105 @@ func TestStatusTerminal(t *testing.T) {
 		assert.False(t, s.Terminal(), "%s should NOT be terminal", s)
 	}
 }
+
+func TestRefunds_ParsedFromTransaction(t *testing.T) {
+	var payload struct {
+		Transaction Transaction `json:"transaction"`
+	}
+	raw := `{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"refunded",
+		"amount_in":"50.0000000","amount_in_asset":"USDC",
+		"refunds":{
+			"amount_refunded":"50.0000000",
+			"amount_fee":"1.5000000",
+			"payments":[{"id":"abc123","id_type":"stellar","amount":"50.0000000","fee":"1.5000000"}]
+		}
+	}}`
+	require.NoError(t, json.Unmarshal([]byte(raw), &payload))
+
+	r := payload.Transaction.Refunds
+	require.NotNil(t, r)
+	assert.Equal(t, "50.0000000", r.AmountRefunded)
+
+	payments := r.StellarPayments()
+	require.Len(t, payments, 1)
+	assert.Equal(t, "abc123", payments[0].ID)
+
+	net, err := r.NetRefundedStroops()
+	require.NoError(t, err)
+	assert.Equal(t, int64(485000000), net, "50 USDC less a 1.5 fee is 48.5, i.e. 485000000 stroops")
+}
+
+func TestRefunds_StellarPayments(t *testing.T) {
+	tests := []struct {
+		name    string
+		refunds *Refunds
+		want    int
+	}{
+		{"nil refunds", nil, 0},
+		{"no payments", &Refunds{}, 0},
+		{
+			name:    "missing id_type counts as stellar",
+			refunds: &Refunds{Payments: []RefundPayment{{ID: "abc", Amount: "1"}}},
+			want:    1,
+		},
+		{
+			name:    "external payments are excluded",
+			refunds: &Refunds{Payments: []RefundPayment{{ID: "abc", IDType: "external"}}},
+			want:    0,
+		},
+		{
+			name:    "blank id is skipped",
+			refunds: &Refunds{Payments: []RefundPayment{{IDType: "stellar"}}},
+			want:    0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Len(t, tt.refunds.StellarPayments(), tt.want)
+		})
+	}
+}
+
+func TestRefunds_NetRefundedStroops(t *testing.T) {
+	tests := []struct {
+		name    string
+		refunds *Refunds
+		want    int64
+		wantErr bool
+	}{
+		{"nil is zero", nil, 0, false},
+		{"empty fee is zero", &Refunds{AmountRefunded: "10.0000000"}, 100000000, false},
+		{
+			name:    "sub-stroop precision is preserved",
+			refunds: &Refunds{AmountRefunded: "49.9999999"},
+			want:    499999999,
+		},
+		{
+			name:    "full refund with fee",
+			refunds: &Refunds{AmountRefunded: "50", AmountFee: "0.5"},
+			want:    495000000,
+		},
+		{
+			name:    "fee exceeding refund is rejected",
+			refunds: &Refunds{AmountRefunded: "1", AmountFee: "2"},
+			wantErr: true,
+		},
+		{
+			name:    "unparseable amount is rejected",
+			refunds: &Refunds{AmountRefunded: "not-a-number"},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.refunds.NetRefundedStroops()
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

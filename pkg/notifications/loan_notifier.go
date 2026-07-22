@@ -101,6 +101,11 @@ func (s *SMSLoanNotifier) NotifyLoanCashPickupReady(ctx context.Context, n contr
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 
+func (s *SMSLoanNotifier) NotifyLoanCashPickupCancelled(ctx context.Context, n contracts.LoanNotification) error {
+	msg := fmt.Sprintf(s.tmpl(ctx, n).CashPickupCancelled, n.LoanReference)
+	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+}
+
 func (s *SMSLoanNotifier) NotifyRepaymentReminder(ctx context.Context, n contracts.LoanNotification) error {
 	if n.DueDate == nil {
 		return nil
@@ -158,5 +163,8 @@ func (*NoOpLoanNotifier) NotifyLoanCashPickupInitiated(context.Context, contract
 	return nil
 }
 func (*NoOpLoanNotifier) NotifyLoanCashPickupReady(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+func (*NoOpLoanNotifier) NotifyLoanCashPickupCancelled(context.Context, contracts.LoanNotification) error {
 	return nil
 }

@@ -68,4 +68,5 @@ const (
 	TxTypeOffRamp      = "off_ramp"      // Off-ramp initiated (crypto-to-fiat via YellowCard)
 	TxTypeFiatFailover = "fiat_failover" // Fiat failover after direct settlement refund
 	TxTypeVaultRepay   = "vault_repay"   // USDC repaid from treasury back to Stellar vault
+	TxTypeRefund       = "refund"        // USDC returned by an anchor after a cancelled off-ramp
 )

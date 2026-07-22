@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/stellar/go-stellar-sdk/amount"
 )
 
 // Status is the SEP-24 transaction status.
@@ -87,7 +89,98 @@ type Transaction struct {
 	WithdrawMemoType      string `json:"withdraw_memo_type,omitempty"` // typically "id"
 	MoreInfoURL           string `json:"more_info_url,omitempty"`
 	Message               string `json:"message,omitempty"`
-	Refunded              bool   `json:"refunded,omitempty"`
+
+	// Refunded is the deprecated SEP-24 boolean, kept because some anchors
+	// still emit it. Refunds is the authoritative field.
+	Refunded bool     `json:"refunded,omitempty"`
+	Refunds  *Refunds `json:"refunds,omitempty"`
+}
+
+// Refunds describes money returned to the user for a transaction. For a
+// withdrawal this is the anchor sending our USDC back on Stellar.
+//
+// Amounts are denominated in amount_in_asset (USDC for our withdrawals).
+// AmountRefunded is the gross returned and AmountFee the total charged to
+// process the refunds, so the amount that actually lands on-ledger is
+// AmountRefunded - AmountFee.
+type Refunds struct {
+	AmountRefunded string          `json:"amount_refunded"`
+	AmountFee      string          `json:"amount_fee"`
+	Payments       []RefundPayment `json:"payments"`
+}
+
+// RefundPayment is one individual refund payment within a Refunds object.
+type RefundPayment struct {
+	// ID is the Stellar transaction hash when IDType is "stellar", or an
+	// anchor-internal identifier when it is "external".
+	ID     string `json:"id"`
+	IDType string `json:"id_type"`
+	Amount string `json:"amount"`
+	Fee    string `json:"fee"`
+}
+
+// RefundIDTypeStellar marks a refund payment whose ID is a Stellar
+// transaction hash and can therefore be verified on-ledger.
+const RefundIDTypeStellar = "stellar"
+
+// StellarPayments returns the refund payments settled on Stellar, whose IDs
+// are transaction hashes.
+//
+// An empty IDType counts as Stellar: the field is required by SEP-24 but
+// anchors omit it in practice, and for a withdrawal refund the funds can only
+// come back over Stellar.
+func (r *Refunds) StellarPayments() []RefundPayment {
+	if r == nil {
+		return nil
+	}
+	out := make([]RefundPayment, 0, len(r.Payments))
+	for _, p := range r.Payments {
+		if p.ID == "" {
+			continue
+		}
+		if p.IDType == "" || p.IDType == RefundIDTypeStellar {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// NetRefundedStroops is the amount that actually reached us on-ledger, in
+// stroops: gross refunded less the anchor's refund fee.
+//
+// Parsing is exact — SEP-24 amounts are decimal strings and float conversion
+// would lose stroops on values like "49.9999999".
+func (r *Refunds) NetRefundedStroops() (int64, error) {
+	if r == nil {
+		return 0, nil
+	}
+	gross, err := parseAmountStroops(r.AmountRefunded)
+	if err != nil {
+		return 0, fmt.Errorf("amount_refunded: %w", err)
+	}
+	fee, err := parseAmountStroops(r.AmountFee)
+	if err != nil {
+		return 0, fmt.Errorf("amount_fee: %w", err)
+	}
+	net := gross - fee
+	if net < 0 {
+		return 0, fmt.Errorf("refund fee %s exceeds refunded amount %s", r.AmountFee, r.AmountRefunded)
+	}
+	return net, nil
+}
+
+// parseAmountStroops converts a SEP-24 decimal amount string to stroops.
+// An empty string is zero, which is how anchors represent "no fee".
+func parseAmountStroops(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	v, err := amount.ParseInt64(s)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %q", ErrInvalidAmount, s)
+	}
+	return v, nil
 }
 
 // AnchorConfig configures the SEP-24 client.
@@ -226,6 +319,17 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 	}
 	if envelope.Transaction.ID == "" {
 		return nil, fmt.Errorf("stellaranchor: transaction response missing id: %s", truncate(string(respBody), 200))
+	}
+
+	// Refund payloads are the least-exercised part of the protocol and anchors
+	// vary in what they populate, so log the raw body verbatim the first time
+	// we see one. This is what confirms an anchor's actual refunds shape
+	// against the spec.
+	if envelope.Transaction.Status == StatusRefunded {
+		c.logger.Info("SEP-24 refunded transaction raw payload",
+			"tx_id", envelope.Transaction.ID,
+			"body", truncate(string(respBody), 2000),
+		)
 	}
 	return &envelope.Transaction, nil
 }

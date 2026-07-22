@@ -3,6 +3,7 @@ package mgpoller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -134,12 +135,14 @@ func (f *fakeFetcher) GetActiveMoneyGramLoans(_ context.Context, _ int) ([]LoanR
 }
 
 type fakeRecorder struct {
-	updates  []*stellaranchor.Transaction
-	sendHash string
-	claims   int
-	releases int
-	claimErr error
-	mu       sync.Mutex
+	updates   []*stellaranchor.Transaction
+	sendHash  string
+	claims    int
+	releases  int
+	claimErr  error
+	refunds   []RefundRecord
+	refundErr error
+	mu        sync.Mutex
 }
 
 func (r *fakeRecorder) RecordSendAttempt(_ context.Context, _ string) error {
@@ -173,13 +176,31 @@ func (r *fakeRecorder) RecordSendUSDC(_ context.Context, _ string, h string) err
 	return nil
 }
 
+func (r *fakeRecorder) RecordRefund(_ context.Context, _ string, refund RefundRecord) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.refundErr != nil {
+		return r.refundErr
+	}
+	r.refunds = append(r.refunds, refund)
+	return nil
+}
+
 type fakeDisbursement struct {
 	statuses          []string
 	completedNotified []string
 	failedNotified    []string
 	pickupReady       []string
 	repays            []string
+	refundNotified    []string
+	amountRepays      []amountRepay
+	repayAmountErr    error
 	mu                sync.Mutex
+}
+
+type amountRepay struct {
+	seqID   string
+	stroops int64
 }
 
 func (d *fakeDisbursement) UpdateDisbursementStatus(seqID, status string) error {
@@ -215,6 +236,35 @@ func (d *fakeDisbursement) RepayVault(seqID string) error {
 	defer d.mu.Unlock()
 	d.repays = append(d.repays, seqID)
 	return nil
+}
+
+func (d *fakeDisbursement) NotifyRefundReceived(seqID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.refundNotified = append(d.refundNotified, seqID)
+	return nil
+}
+
+func (d *fakeDisbursement) RepayVaultAmount(seqID string, stroops int64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.repayAmountErr != nil {
+		return d.repayAmountErr
+	}
+	d.amountRepays = append(d.amountRepays, amountRepay{seqID: seqID, stroops: stroops})
+	return nil
+}
+
+// fakeVerifier stands in for on-ledger confirmation of an anchor's refund.
+type fakeVerifier struct {
+	ok    bool
+	err   error
+	calls []string
+}
+
+func (v *fakeVerifier) TransactionSucceeded(_ context.Context, txHash string) (bool, error) {
+	v.calls = append(v.calls, txHash)
+	return v.ok, v.err
 }
 
 type fakeTreasury struct {
@@ -276,7 +326,10 @@ func newTestPoller(t *testing.T) (*Poller, *mgFakeServer, *fakeFetcher, *fakeRec
 	treas := &fakeTreasury{hash: "stellar-tx-hash"}
 	alerts := &fakeAlerts{}
 
-	p, err := NewPoller(c, fetcher, recorder, disb, treas, alerts, DefaultConfig(), nil)
+	// Verification defaults to passing. Refund tests that care override
+	// p.verifier directly rather than widening this helper's return.
+	p, err := NewPoller(c, fetcher, recorder, disb, treas,
+		&fakeVerifier{ok: true}, alerts, DefaultConfig(), nil)
 	require.NoError(t, err)
 	return p, srv, fetcher, recorder, disb, treas, alerts
 }
@@ -539,6 +592,194 @@ func TestPoller_Refunded_MarksRefundPending(t *testing.T) {
 	assert.Empty(t, disb.repays, "vault repay is the ingest worker's job, not the poller's")
 }
 
+// refund_pending is not terminal for this poller, so a refunded loan keeps
+// being fetched every tick. The status transition has to be the guard.
+func TestPoller_Refunded_DoesNotRewriteStatusOnRepeatPoll(t *testing.T) {
+	p, srv, fetcher, _, disb, _, _ := newTestPoller(t)
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"refunded","refunded":true
+	}}`)
+
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+	}}
+	p.poll(context.Background())
+	require.Len(t, disb.statuses, 1)
+
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+		DisbursementStatus: statusRefundPending,
+	}}
+	p.poll(context.Background())
+
+	assert.Len(t, disb.statuses, 1, "status re-written while awaiting inbound USDC")
+}
+
+// refundedTxJSON is a MG transaction in refunded state carrying a settled
+// refund of the given gross amount and fee.
+func refundedTxJSON(gross, fee, hash string) string {
+	return `{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"refunded","refunded":true,
+		"amount_in":"50.0000000","amount_in_asset":"USDC",
+		"refunds":{
+			"amount_refunded":"` + gross + `","amount_fee":"` + fee + `",
+			"payments":[{"id":"` + hash + `","id_type":"stellar","amount":"` + gross + `","fee":"` + fee + `"}]
+		}
+	}}`
+}
+
+// refundPendingLoan is a loan already marked refund_pending, i.e. on the tick
+// after MG first reported the refund.
+func refundPendingLoan(principalStroops int64) LoanRecord {
+	return LoanRecord{
+		LoanID:             "L-1",
+		SequenceID:         "L-1",
+		MoneyGramTxID:      "mg-1",
+		PrincipalStroops:   principalStroops,
+		DisbursementStatus: statusRefundPending,
+	}
+}
+
+func TestPoller_Refunded_SettlesFullRefund(t *testing.T) {
+	p, srv, fetcher, recorder, disb, _, alerts := newTestPoller(t)
+	// Sent 50 USDC, MG returns all of it with no fee.
+	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+
+	p.poll(context.Background())
+
+	require.Len(t, recorder.refunds, 1)
+	assert.Equal(t, "refund-hash", recorder.refunds[0].TxHash)
+	assert.Equal(t, int64(500000000), recorder.refunds[0].NetStroops)
+	assert.Zero(t, recorder.refunds[0].ShortfallStroops)
+
+	require.Len(t, disb.amountRepays, 1)
+	assert.Equal(t, int64(500000000), disb.amountRepays[0].stroops)
+	assert.Empty(t, disb.repays, "principal-amount repay must not be used for refunds")
+
+	assert.Equal(t, []string{"L-1=" + statusRefundReceived}, disb.statuses)
+	assert.Equal(t, []string{"L-1"}, disb.refundNotified)
+	assert.Empty(t, alerts.calls)
+}
+
+// The anchor's own refund fee is money the treasury does not get back, so it
+// counts as a shortfall and pages ops like any other.
+func TestPoller_Refunded_AnchorFeeCountsAsShortfall(t *testing.T) {
+	p, srv, fetcher, recorder, disb, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(refundedTxJSON("50.0000000", "1.5000000", "refund-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+
+	p.poll(context.Background())
+
+	require.Len(t, recorder.refunds, 1)
+	assert.Equal(t, int64(485000000), recorder.refunds[0].NetStroops)
+	assert.Equal(t, int64(15000000), recorder.refunds[0].ShortfallStroops)
+
+	require.Len(t, disb.amountRepays, 1)
+	assert.Equal(t, int64(485000000), disb.amountRepays[0].stroops,
+		"vault must be repaid with what came back, not the full principal")
+	assert.Contains(t, alerts.calls, "MoneyGram refund shortfall")
+}
+
+func TestPoller_Refunded_ShortfallAlertsAndStillRepaysWhatArrived(t *testing.T) {
+	p, srv, fetcher, recorder, disb, _, alerts := newTestPoller(t)
+	// Sent 50 USDC but MG only returns 40.
+	srv.setTransactionJSON(refundedTxJSON("40.0000000", "0", "refund-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+
+	p.poll(context.Background())
+
+	require.Len(t, recorder.refunds, 1)
+	assert.Equal(t, int64(100000000), recorder.refunds[0].ShortfallStroops)
+
+	require.Len(t, disb.amountRepays, 1)
+	assert.Equal(t, int64(400000000), disb.amountRepays[0].stroops)
+	assert.Equal(t, []string{"L-1=" + statusRefundReceived}, disb.statuses)
+	assert.Contains(t, alerts.calls, "MoneyGram refund shortfall")
+}
+
+func TestPoller_Refunded_NoPaymentsYet_StaysPending(t *testing.T) {
+	p, srv, fetcher, recorder, disb, _, _ := newTestPoller(t)
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"refunded","refunded":true,
+		"refunds":{"amount_refunded":"50.0000000","amount_fee":"0","payments":[]}
+	}}`)
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+
+	p.poll(context.Background())
+
+	assert.Empty(t, recorder.refunds)
+	assert.Empty(t, disb.amountRepays)
+	assert.Empty(t, disb.statuses, "already refund_pending, nothing to advance yet")
+}
+
+func TestPoller_Refunded_NotOnLedger_WithholdsRepay(t *testing.T) {
+	p, srv, fetcher, recorder, disb, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "bogus-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	p.verifier = &fakeVerifier{ok: false}
+
+	p.poll(context.Background())
+
+	assert.Empty(t, disb.amountRepays, "must not repay against a refund that did not land")
+	assert.Empty(t, recorder.refunds)
+	assert.Empty(t, disb.statuses)
+	assert.Contains(t, alerts.calls, "MoneyGram refund not on ledger")
+}
+
+func TestPoller_Refunded_VerificationUnknown_RetriesWithoutAlerting(t *testing.T) {
+	p, srv, fetcher, _, disb, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	p.verifier = &fakeVerifier{err: errors.New("rpc unavailable")}
+
+	p.poll(context.Background())
+
+	assert.Empty(t, disb.amountRepays)
+	assert.Empty(t, disb.statuses)
+	assert.Empty(t, alerts.calls, "an unreachable RPC is not an anchor fault")
+}
+
+func TestPoller_Refunded_RepayFails_StaysPendingForRetry(t *testing.T) {
+	p, srv, fetcher, _, disb, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	disb.repayAmountErr = errors.New("vault unreachable")
+
+	p.poll(context.Background())
+
+	assert.Empty(t, disb.statuses, "must not reach refund_received when the vault was not repaid")
+	assert.Contains(t, alerts.calls, "Vault repay failed after MoneyGram refund")
+}
+
+func TestPoller_Refunded_RecordFails_WithholdsRepay(t *testing.T) {
+	p, srv, fetcher, recorder, disb, _, _ := newTestPoller(t)
+	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	recorder.refundErr = errors.New("db down")
+
+	p.poll(context.Background())
+
+	assert.Empty(t, disb.amountRepays, "no repay without a durable record of what came back")
+	assert.Empty(t, disb.statuses)
+}
+
+func TestPoller_Refunded_FirstTickMarksPendingThenSettles(t *testing.T) {
+	p, srv, fetcher, _, disb, _, _ := newTestPoller(t)
+	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
+
+	// First observation: loan is still mg_initiated.
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+		PrincipalStroops: 500000000, DisbursementStatus: "mg_initiated",
+	}}
+	p.poll(context.Background())
+
+	require.Len(t, disb.statuses, 2, "one tick can both open and settle the refund")
+	assert.Equal(t, "L-1="+statusRefundPending, disb.statuses[0])
+	assert.Equal(t, "L-1="+statusRefundReceived, disb.statuses[1])
+}
+
 func TestPoller_TerminalFailure_AfterUSDCSent_RepaysVault(t *testing.T) {
 	p, srv, fetcher, _, disb, _, alerts := newTestPoller(t)
 	srv.setTransactionJSON(`{"transaction":{
@@ -649,7 +890,7 @@ func TestPoller_PendingUser_LogsOnly(t *testing.T) {
 }
 
 func TestPoller_RejectsBadConfig(t *testing.T) {
-	_, err := NewPoller(nil, nil, nil, nil, nil, nil, DefaultConfig(), nil)
+	_, err := NewPoller(nil, nil, nil, nil, nil, nil, nil, DefaultConfig(), nil)
 	require.Error(t, err)
 }
 
