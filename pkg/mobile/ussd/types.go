@@ -163,6 +163,19 @@ type UserService interface {
 	// than at the final atomic insert (the DB unique constraint is the real
 	// guard; this is the fast, friendly path).
 	NationalIDExists(ctx context.Context, nationalID string) (bool, error)
+
+	// UpdateBio sets the optional SEP-9 bio fields on an existing user (added
+	// post-registration via the account menu for faster cash pickup). Empty
+	// fields are left unchanged; birthDate is YYYY-MM-DD.
+	UpdateBio(ctx context.Context, userID string, bio BioUpdate) error
+}
+
+// BioUpdate carries the optional SEP-9 fields set from the account menu.
+type BioUpdate struct {
+	BirthDate  string // YYYY-MM-DD
+	Address    string
+	City       string
+	PostalCode string
 }
 
 // RateService provides exchange rate lookups for local currency conversion.

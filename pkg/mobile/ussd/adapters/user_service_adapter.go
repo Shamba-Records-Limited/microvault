@@ -246,6 +246,28 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(userID string, req stel
 		userID, req.ChildKeypair.Address(), err)
 }
 
+// UpdateBio sets the optional SEP-9 bio fields on an existing user. Only
+// non-empty fields are applied; a malformed birth date is skipped.
+func (a *UserServiceAdapter) UpdateBio(ctx context.Context, userID string, bio ussd.BioUpdate) error {
+	req := user.UpdateUserRequest{}
+	if bio.Address != "" {
+		req.Address = &bio.Address
+	}
+	if bio.City != "" {
+		req.City = &bio.City
+	}
+	if bio.PostalCode != "" {
+		req.PostalCode = &bio.PostalCode
+	}
+	if bio.BirthDate != "" {
+		if t, err := time.Parse("2006-01-02", bio.BirthDate); err == nil {
+			req.BirthDate = &models.Date{Time: t}
+		}
+	}
+	_, err := a.userService.Update(ctx, userID, req)
+	return err
+}
+
 // NationalIDExists reports whether a user is already registered with nationalID.
 func (a *UserServiceAdapter) NationalIDExists(ctx context.Context, nationalID string) (bool, error) {
 	if _, err := a.userService.GetByNationalID(ctx, nationalID); err != nil {

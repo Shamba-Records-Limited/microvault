@@ -158,6 +158,22 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 			session.UserID = id
 		}
 	}
+
+	// Self-heal: a registered user with no PIN can't use the account and would
+	// otherwise be silently blocked at every PIN gate. The atomic-insert flow
+	// makes this impossible going forward, but guard against legacy/imported or
+	// manually-created rows by routing them to set a PIN.
+	if h.pinService != nil && session.UserID != "" {
+		if hasPIN, err := h.pinService.HasPIN(ctx, session.UserID); err == nil && !hasPIN {
+			session.Data["set_pin_only"] = true
+			session.CurrentMenu = "pin_create"
+			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+				return "", fmt.Errorf("failed to save session: %w", err)
+			}
+			return h.showMenu(session, "pin_create")
+		}
+	}
+
 	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
@@ -447,6 +463,46 @@ func (h *USSDHandler) handleRegistrationBio(ctx context.Context, session *Sessio
 		return h.formatResponse(session.Language, "CON", bioFields[step].promptKey), nil
 	}
 	return h.completeRegistration(ctx, session)
+}
+
+// finishBio dispatches a completed bio wizard: an account-menu run updates the
+// existing user; a registration run (not currently wired) would create one.
+func (h *USSDHandler) finishBio(ctx context.Context, session *Session) (string, error) {
+	if upd, _ := session.Data["bio_update"].(bool); upd {
+		return h.completeBioUpdate(ctx, session)
+	}
+	return h.completeRegistration(ctx, session)
+}
+
+// completeBioUpdate writes the collected SEP-9 bio onto the existing user
+// (account-menu path) and ends the session.
+func (h *USSDHandler) completeBioUpdate(ctx context.Context, session *Session) (string, error) {
+	birthDate, _ := session.Data["bio_birth_date"].(string)
+	address, _ := session.Data["bio_address"].(string)
+	city, _ := session.Data["bio_city"].(string)
+	postalCode, _ := session.Data["bio_postal_code"].(string)
+
+	if err := h.userService.UpdateBio(ctx, session.UserID, BioUpdate{
+		BirthDate:  birthDate,
+		Address:    address,
+		City:       city,
+		PostalCode: postalCode,
+	}); err != nil {
+		log.Printf("completeBioUpdate: UpdateBio failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	for _, f := range bioFields {
+		delete(session.Data, "bio_"+f.key)
+	}
+	delete(session.Data, "bio_step")
+	delete(session.Data, "bio_update")
+
+	session.CurrentMenu = "main"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+	return h.formatResponse(session.Language, "END", "bio_saved"), nil
 }
 
 // completeRegistration is the final step of registration: it creates the user,
@@ -1005,6 +1061,23 @@ func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, in
 		return h.formatResponse(session.Language, "CON", "pin_mismatch"), nil
 	}
 
+	// Self-heal path: an existing PIN-less user (routed here by the
+	// handleInitialRequest guard) is setting a PIN on their account, not
+	// registering a new one — so set it directly rather than re-creating.
+	if setOnly, _ := session.Data["set_pin_only"].(bool); setOnly {
+		if err := h.pinService.SetPIN(ctx, session.UserID, newPIN); err != nil {
+			log.Printf("handlePINConfirm: SetPIN (self-heal) failed for %s: %v", redactPhone(session.PhoneNumber), err)
+			return h.formatError(session.Language, "error"), nil
+		}
+		delete(session.Data, "new_pin")
+		delete(session.Data, "set_pin_only")
+		session.CurrentMenu = "main"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", fmt.Errorf("failed to save session: %w", err)
+		}
+		return h.formatResponse(session.Language, "END", "pin_changed"), nil
+	}
+
 	hash, err := pinPkg.HashPIN(newPIN)
 	if err != nil {
 		log.Printf("handlePINConfirm: hash PIN failed for %s: %v", redactPhone(session.PhoneNumber), err)
@@ -1098,31 +1171,19 @@ func (h *USSDHandler) handleSecurityQ2Answer(ctx context.Context, session *Sessi
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	// Clean up transient data.
+	// Clean up transient data. Security-question setup is only ever reached
+	// from the account menu (PIN Manager) now — registration no longer chains
+	// here — so completion always just ends with success.
 	delete(session.Data, "sq1_id")
 	delete(session.Data, "sq1_answer")
 	delete(session.Data, "sq2_id")
+	delete(session.Data, "from_pin_manager")
 
-	// Determine if this is registration completion or PIN manager update.
-	fromPINManager, _ := session.Data["from_pin_manager"].(bool)
-	if fromPINManager {
-		delete(session.Data, "from_pin_manager")
-		session.CurrentMenu = "pin_manager"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
-		}
-		return h.formatResponse(session.Language, "END", "security_q_success"), nil
+	session.CurrentMenu = "pin_manager"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
 	}
-
-	// Registration complete — send welcome SMS.
-	fullName, _ := session.Data["full_name"].(string)
-	_ = h.accountNotifier.NotifyRegistrationSuccess(ctx, contracts.AccountNotification{
-		PhoneNumber: session.PhoneNumber,
-		FullName:    fullName,
-		Language:    session.Language,
-	})
-
-	return h.formatResponse(session.Language, "END", "registration_complete"), nil
+	return h.formatResponse(session.Language, "END", "security_q_success"), nil
 }
 
 //
@@ -1140,6 +1201,7 @@ func (h *USSDHandler) handlePINVerifyLoan(ctx context.Context, session *Session,
 		if strings.Contains(err.Error(), "locked") {
 			return h.formatLockedMessage(ctx, session), nil
 		}
+		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, redactPhone(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -1167,6 +1229,7 @@ func (h *USSDHandler) handlePINVerifyRepay(ctx context.Context, session *Session
 		if strings.Contains(err.Error(), "locked") {
 			return h.formatLockedMessage(ctx, session), nil
 		}
+		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, redactPhone(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -1241,6 +1304,7 @@ func (h *USSDHandler) handlePINChangeOld(ctx context.Context, session *Session, 
 		if strings.Contains(err.Error(), "locked") {
 			return h.formatLockedMessage(ctx, session), nil
 		}
+		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, redactPhone(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -1386,7 +1450,11 @@ func (h *USSDHandler) handlePINRecoveryQ2(ctx context.Context, session *Session,
 		{QuestionID: q1ID, Answer: a1},
 		{QuestionID: q2ID, Answer: input},
 	})
-	if err != nil || !ok {
+	if err != nil {
+		log.Printf("handlePINRecoveryQ2: VerifySecurityAnswers failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		return h.formatError(session.Language, "error"), nil
+	}
+	if !ok {
 		return h.formatResponse(session.Language, "END", "recovery_answers_wrong"), nil
 	}
 
