@@ -6,9 +6,9 @@ import (
 	"log"
 	"slices"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/services"
-	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 )
 
 // Valid transaction status transitions
@@ -345,42 +345,27 @@ func (s *service) Update(ctx context.Context, id string, req UpdateTransactionRe
 		if !s.isValidStatusTransition(tx.Status, *req.Status) {
 			return nil, ErrInvalidStatusTransition
 		}
-		tx.Status = *req.Status
 	}
 
-	// Update fields
-	if req.StellarTxHash != nil {
-		tx.StellarTxHash = req.StellarTxHash
-	}
-	if req.StellarLedger != nil {
-		tx.StellarLedger = req.StellarLedger
-	}
-	if req.StellarStatus != nil {
-		tx.StellarStatus = req.StellarStatus
-	}
-	if req.ExternalID != nil {
-		tx.ExternalID = req.ExternalID
-	}
-	if req.ExternalProvider != nil {
-		tx.ExternalProvider = req.ExternalProvider
-	}
-	if req.ExternalStatus != nil {
-		tx.ExternalStatus = req.ExternalStatus
-	}
-	if req.Description != nil {
-		tx.Description = req.Description
-	}
-	if req.Metadata != nil {
-		tx.Metadata = req.Metadata
+	// Persist only the columns the request set. The validation above already
+	// ran against the current row; the write is partial to avoid rewriting the
+	// text `description` and jsonb `metadata` (and all 12 indexes) on a
+	// status-only change.
+	if fields := req.changedFields(); len(fields) > 0 {
+		if err := s.repo.UpdateFields(ctx, id, fields); err != nil {
+			log.Printf("Update: failed to update transaction: %v", err)
+			return nil, err
+		}
 	}
 
-	// Update in database
-	if err := s.repo.Update(ctx, tx); err != nil {
-		log.Printf("Update: failed to update transaction: %v", err)
+	// Read back so the response reflects committed state rather than a
+	// locally-mutated copy.
+	updated, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		log.Printf("Update: failed to reload transaction: %v", err)
 		return nil, err
 	}
-
-	return toTransactionResponse(tx), nil
+	return toTransactionResponse(updated), nil
 }
 
 // --- Helper functions ---

@@ -158,6 +158,11 @@ type UserService interface {
 	GetUserWithAccounts(ctx context.Context, userIDOrPhone string) (any, []any, error)
 	// RegisterUser creates a new user account based on the provided registration request.
 	RegisterUser(ctx context.Context, req *RegisterUserRequest) (any, []any, error)
+	// NationalIDExists reports whether a user is already registered with the
+	// given national ID, so registration can reject a duplicate up front rather
+	// than at the final atomic insert (the DB unique constraint is the real
+	// guard; this is the fast, friendly path).
+	NationalIDExists(ctx context.Context, nationalID string) (bool, error)
 }
 
 // RateService provides exchange rate lookups for local currency conversion.
@@ -263,12 +268,18 @@ type RegisterUserRequest struct {
 	NationalID        string
 	PreferredLanguage string
 
+	// PinHash is the pre-hashed PIN (from pin.HashPIN), written atomically with
+	// the user so no PIN-less account is ever persisted. Empty only when the
+	// deployment has no PIN service configured.
+	PinHash  string
+	PinSetAt *time.Time
+
 	// Optional SEP-9 bio (MoneyGram cash-pickup prefill). Empty when the user
 	// skips the bio step. BirthDate is YYYY-MM-DD.
-	BirthDate       string
-	Address         string
-	City            string
-	PostalCode      string
+	BirthDate  string
+	Address    string
+	City       string
+	PostalCode string
 }
 
 // LoanRequest represents a loan request from the USSD flow.

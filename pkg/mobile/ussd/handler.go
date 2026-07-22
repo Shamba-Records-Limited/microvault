@@ -361,21 +361,38 @@ func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, 
 }
 
 // handleRegistrationNationalID stores the (required) national ID and advances
-// to the optional bio wizard. User creation is deferred to completeRegistration
-// so all data — name, national ID, and any bio — is written in one call.
+// straight to PIN creation. Bio and security questions are deferred to the
+// account menu (see ussd-registration-redesign) to keep the flow inside the
+// USSD session budget. Nothing is persisted until the PIN is confirmed, so a
+// dropped session leaves no half-registered account.
 func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session *Session, input string) (string, error) {
 	nationalID := strings.TrimSpace(input)
 	if nationalID == "" {
 		return h.formatResponse(session.Language, "CON", "reg_national_id_required"), nil
 	}
 
+	// Reject an already-registered national ID up front, before the user spends
+	// the rest of the session on a PIN. Re-prompt (CON) so a mistyped digit can
+	// be corrected. The DB unique constraint remains the real guard.
+	if taken, err := h.userService.NationalIDExists(ctx, nationalID); err != nil {
+		log.Printf("handleRegistrationNationalID: national ID check failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		return h.formatError(session.Language, "error"), nil
+	} else if taken {
+		return h.formatResponse(session.Language, "CON", "reg_national_id_taken"), nil
+	}
+
 	session.Data["national_id"] = nationalID
-	session.Data["bio_step"] = 0
-	session.CurrentMenu = "register_bio"
+
+	// No PIN service configured — create the account immediately (no PIN).
+	if h.pinService == nil {
+		return h.completeRegistration(ctx, session)
+	}
+
+	session.CurrentMenu = "pin_create"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
-	return h.formatResponse(session.Language, "CON", "reg_bio_gate"), nil
+	return h.showMenu(session, "pin_create")
 }
 
 // bioFields is the ordered set of optional SEP-9 fields the registration bio
@@ -432,9 +449,12 @@ func (h *USSDHandler) handleRegistrationBio(ctx context.Context, session *Sessio
 	return h.completeRegistration(ctx, session)
 }
 
-// completeRegistration creates the user from the collected registration data
-// (name + national ID required, bio optional) and chains into PIN creation if
-// the PIN service is available, otherwise ends with success.
+// completeRegistration is the final step of registration: it creates the user,
+// account row, and PIN in a single atomic insert from the data collected in the
+// session (name, national ID, and — when a PIN service is configured — the
+// hashed PIN), fires the async on-chain account creation, sends the welcome
+// SMS, and ends the session. Reaching here means every prior step succeeded, so
+// no partial account is ever left behind.
 func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session) (string, error) {
 	if h.userService == nil {
 		return h.formatError(session.Language, "error"), nil
@@ -442,27 +462,31 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 
 	fullName, _ := session.Data["full_name"].(string)
 	nationalID, _ := session.Data["national_id"].(string)
-	birthDate, _ := session.Data["bio_birth_date"].(string)
-	address, _ := session.Data["bio_address"].(string)
-	city, _ := session.Data["bio_city"].(string)
-	postalCode, _ := session.Data["bio_postal_code"].(string)
+	pinHash, _ := session.Data["pin_hash"].(string)
 
-	user, _, err := h.userService.RegisterUser(ctx, &RegisterUserRequest{
+	regReq := &RegisterUserRequest{
 		MobileNumber:      session.PhoneNumber,
 		NetworkCode:       session.NetworkCode,
 		FullName:          fullName,
 		NationalID:        nationalID,
 		PreferredLanguage: session.Language,
-		BirthDate:         birthDate,
-		Address:           address,
-		City:              city,
-		PostalCode:        postalCode,
-	})
+	}
+	if pinHash != "" {
+		now := time.Now()
+		regReq.PinHash = pinHash
+		regReq.PinSetAt = &now
+	}
+
+	user, _, err := h.userService.RegisterUser(ctx, regReq)
 	if err != nil {
-		_ = h.accountNotifier.NotifyRegistrationFailed(ctx, contracts.AccountNotification{
+		log.Printf("completeRegistration: RegisterUser failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		failNote := contracts.AccountNotification{
 			PhoneNumber: session.PhoneNumber,
 			Reason:      "Account creation failed. Please try again.",
 			Language:    session.Language,
+		}
+		h.notifyAsync(func(bg context.Context) error {
+			return h.accountNotifier.NotifyRegistrationFailed(bg, failNote)
 		})
 		return h.formatError(session.Language, "error"), nil
 	}
@@ -473,19 +497,41 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 		}
 	}
 
-	if h.pinService != nil {
-		session.CurrentMenu = "pin_create"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
-		}
-		return h.showMenu(session, "pin_create")
+	// Clear transient registration data.
+	delete(session.Data, "pin_hash")
+	delete(session.Data, "national_id")
+
+	// Welcome SMS confirming the account is active. Fired off the request path:
+	// a slow SMS gateway must not delay the END screen (AT sandbox has timed out
+	// at 5s, which would breach the USSD turn deadline). Phase 5 enriches this
+	// with the deferred-step nudges (security questions, bio).
+	welcomeNote := contracts.AccountNotification{
+		PhoneNumber: session.PhoneNumber,
+		FullName:    fullName,
+		Language:    session.Language,
 	}
+	h.notifyAsync(func(bg context.Context) error {
+		return h.accountNotifier.NotifyRegistrationSuccess(bg, welcomeNote)
+	})
 
 	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
 	return h.formatResponse(session.Language, "END", "registration_success"), nil
+}
+
+// notifyAsync sends an account notification off the USSD request path. SMS
+// delivery must never block or delay a USSD response — a slow gateway can
+// breach the turn deadline. Uses a detached context (the request ctx is
+// cancelled the moment the handler returns) bounded by its own timeout;
+// the notification is fire-and-forget, so its error is intentionally dropped.
+func (h *USSDHandler) notifyAsync(send func(ctx context.Context) error) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_ = send(ctx)
+	}()
 }
 
 // isISODate is a light YYYY-MM-DD shape check — full validity is enforced by
@@ -943,13 +989,11 @@ func (h *USSDHandler) handlePINCreate(ctx context.Context, session *Session, inp
 	return h.showMenu(session, "pin_confirm")
 }
 
-// handlePINConfirm compares the confirmed PIN with the stored value, sets it
-// via the PIN service, and chains into security question setup.
+// handlePINConfirm compares the confirmed PIN with the stored value, hashes it,
+// and finalises registration by creating the account atomically (user + account
+// + PIN in one insert). Security questions and bio are deferred to the account
+// menu, so this is the last step of the shortened registration flow.
 func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, input string) (string, error) {
-	if h.pinService == nil {
-		return h.formatError(session.Language, "error"), nil
-	}
-
 	newPIN, _ := session.Data["new_pin"].(string)
 	if input != newPIN {
 		// Mismatch — go back to creation.
@@ -961,20 +1005,16 @@ func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, in
 		return h.formatResponse(session.Language, "CON", "pin_mismatch"), nil
 	}
 
-	// Set PIN.
-	if err := h.pinService.SetPIN(ctx, session.UserID, newPIN); err != nil {
+	hash, err := pinPkg.HashPIN(newPIN)
+	if err != nil {
+		log.Printf("handlePINConfirm: hash PIN failed for %s: %v", redactPhone(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
-
 	delete(session.Data, "new_pin")
+	session.Data["pin_hash"] = hash
 
-	// Chain into security question setup.
-	session.CurrentMenu = "security_q1_select"
-	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
-	}
-
-	return h.showMenu(session, "security_q1_select")
+	// PIN confirmed — persist the whole account in one atomic call.
+	return h.completeRegistration(ctx, session)
 }
 
 //

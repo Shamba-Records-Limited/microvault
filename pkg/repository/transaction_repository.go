@@ -41,6 +41,11 @@ type TransactionRepository interface {
 
 	// Update operations
 	Update(ctx context.Context, tx *models.Transaction) error
+
+	// UpdateFields writes only the supplied columns, validated against the same
+	// allow-list Update uses. Preferred for partial changes to avoid rewriting
+	// the text/jsonb columns and all indexes on every touch.
+	UpdateFields(ctx context.Context, id string, fields map[string]any) error
 }
 
 // transactionRepository represents a repository for managing transactions
@@ -184,29 +189,78 @@ func (r *transactionRepository) GetByStatus(ctx context.Context, status string, 
 
 // --- Update Operations ---
 
-// Update updates a transaction
-func (r *transactionRepository) Update(ctx context.Context, tx *models.Transaction) error {
-	result := r.db.WithContext(ctx).
-		Model(tx).
-		Where("id = ?", tx.ID).
-		Updates(map[string]interface{}{
-			"stellar_tx_hash":   tx.StellarTxHash,
-			"stellar_ledger":    tx.StellarLedger,
-			"stellar_status":    tx.StellarStatus,
-			"external_id":       tx.ExternalID,
-			"external_provider": tx.ExternalProvider,
-			"external_status":   tx.ExternalStatus,
-			"status":            tx.Status,
-			"description":       tx.Description,
-			"metadata":          tx.Metadata,
-			"updated_at":        time.Now(),
-		})
-	if result.RowsAffected == 0 {
-		return ErrTransactionNotFound
+// transactionUpdateMap is the single source of truth for which transaction
+// columns may be written. Both Update (full rewrite) and UpdateFields (partial)
+// derive from it, so the allow-list cannot drift from the writer.
+func transactionUpdateMap(tx *models.Transaction) map[string]interface{} {
+	return map[string]interface{}{
+		"stellar_tx_hash":   tx.StellarTxHash,
+		"stellar_ledger":    tx.StellarLedger,
+		"stellar_status":    tx.StellarStatus,
+		"external_id":       tx.ExternalID,
+		"external_provider": tx.ExternalProvider,
+		"external_status":   tx.ExternalStatus,
+		"status":            tx.Status,
+		"description":       tx.Description,
+		"metadata":          tx.Metadata,
 	}
+}
+
+// transactionUpdatableColumns is the set of columns transactionUpdateMap writes.
+var transactionUpdatableColumns = func() map[string]bool {
+	cols := make(map[string]bool)
+	for k := range transactionUpdateMap(&models.Transaction{}) {
+		cols[k] = true
+	}
+	return cols
+}()
+
+// IsTransactionUpdatableColumn reports whether col may be written via
+// UpdateFields. Exposed for test-guarding the service-layer partial-update
+// mapping against drift.
+func IsTransactionUpdatableColumn(col string) bool {
+	return transactionUpdatableColumns[col]
+}
+
+// Update rewrites every updatable column from the model. Prefer UpdateFields
+// for partial changes: this table carries a text `description` and jsonb
+// `metadata` plus 12 indexes, so a full rewrite is expensive for a one-field
+// change (e.g. a stellar_status transition).
+func (r *transactionRepository) Update(ctx context.Context, tx *models.Transaction) error {
+	fields := transactionUpdateMap(tx)
+	fields["updated_at"] = time.Now()
+	return r.updateColumns(ctx, tx.ID, fields)
+}
+
+// UpdateFields writes only the supplied columns. Unknown columns are rejected.
+func (r *transactionRepository) UpdateFields(ctx context.Context, id string, fields map[string]any) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(fields)+1)
+	for k, v := range fields {
+		if !transactionUpdatableColumns[k] {
+			log.Printf("UpdateFields: rejected non-updatable column %q", k)
+			return ErrFailedToUpdateTransaction
+		}
+		out[k] = v
+	}
+	out["updated_at"] = time.Now()
+	return r.updateColumns(ctx, id, out)
+}
+
+// updateColumns applies a pre-validated column map to one transaction row.
+func (r *transactionRepository) updateColumns(ctx context.Context, id string, fields map[string]interface{}) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.Transaction{}).
+		Where("id = ?", id).
+		Updates(fields)
 	if result.Error != nil {
 		log.Printf("Update: database error: %v", result.Error)
 		return ErrFailedToUpdateTransaction
+	}
+	if result.RowsAffected == 0 {
+		return ErrTransactionNotFound
 	}
 	return nil
 }

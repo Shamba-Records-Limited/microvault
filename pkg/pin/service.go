@@ -104,14 +104,25 @@ func NewService(
 // SetPIN creates a PIN for a user who does not yet have one. The PIN is
 // validated for strength, hashed with bcrypt, and stored. Returns a
 // validation error if the PIN is weak.
-func (s *Service) SetPIN(ctx context.Context, userID, pin string) error {
+// HashPIN validates a raw PIN and returns its bcrypt hash at the shared
+// BcryptCost. It is the single entry point for turning a PIN into a stored
+// hash — used by SetPIN, ResetPIN, and atomic registration — so PIN validation
+// and the cost factor live in one place.
+func HashPIN(pin string) (string, error) {
 	if err := ValidatePIN(pin); err != nil {
-		return fmt.Errorf("validate PIN: %w", err)
+		return "", fmt.Errorf("validate PIN: %w", err)
 	}
-
 	hash, err := bcrypt.GenerateFromPassword([]byte(pin), BcryptCost)
 	if err != nil {
-		return fmt.Errorf("hash PIN: %w", err)
+		return "", fmt.Errorf("hash PIN: %w", err)
+	}
+	return string(hash), nil
+}
+
+func (s *Service) SetPIN(ctx context.Context, userID, pin string) error {
+	hashStr, err := HashPIN(pin)
+	if err != nil {
+		return err
 	}
 
 	user, err := s.userRepo.GetByID(ctx, userID)
@@ -119,7 +130,6 @@ func (s *Service) SetPIN(ctx context.Context, userID, pin string) error {
 		return fmt.Errorf("get user %s: %w", userID, err)
 	}
 
-	hashStr := string(hash)
 	now := time.Now()
 	user.PinHash = &hashStr
 	user.PinSetAt = &now
@@ -220,10 +230,13 @@ func (s *Service) ChangePIN(ctx context.Context, userID, oldPin, newPin string) 
 		return fmt.Errorf("save new PIN for user %s: %w", userID, err)
 	}
 
-	// Notify success.
-	_ = s.notifier.NotifyPINChanged(ctx, contracts.AccountNotification{
+	// Notify success (off the request path — see notifyAsync).
+	changedNote := contracts.AccountNotification{
 		UserID:      userID,
 		PhoneNumber: user.MobileNumber,
+	}
+	s.notifyAsync(func(ctx context.Context) error {
+		return s.notifier.NotifyPINChanged(ctx, changedNote)
 	})
 
 	return nil
@@ -262,19 +275,15 @@ func (s *Service) ResetPIN(ctx context.Context, userID, newPin string) error {
 		return fmt.Errorf("save reset PIN for user %s: %w", userID, err)
 	}
 
-	slog.Info("pin: reset succeeded, sending SMS notification",
-		slog.String("user_id", userID),
-	)
+	slog.Info("pin: reset succeeded", slog.String("user_id", userID))
 
-	if err := s.notifier.NotifyPINReset(ctx, contracts.AccountNotification{
+	resetNote := contracts.AccountNotification{
 		UserID:      userID,
 		PhoneNumber: user.MobileNumber,
-	}); err != nil {
-		slog.Error("pin: reset SMS notification failed",
-			slog.String("user_id", userID),
-			slog.String("error", err.Error()),
-		)
 	}
+	s.notifyAsync(func(ctx context.Context) error {
+		return s.notifier.NotifyPINReset(ctx, resetNote)
+	})
 
 	return nil
 }
@@ -404,6 +413,19 @@ func formatLockDuration(until time.Time) string {
 
 // handleFailedAttempt increments the attempt counter, optionally locks the
 // account, persists the change, and sends the appropriate SMS notification.
+// notifyAsync sends an account notification off the caller's request path. PIN
+// operations run on the USSD turn, where a slow SMS gateway would otherwise
+// block the response and risk breaching the USSD deadline. Uses a detached
+// context (the request ctx is cancelled when the turn returns), bounded by its
+// own timeout; the send is best-effort and its error dropped.
+func (s *Service) notifyAsync(send func(ctx context.Context) error) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_ = send(ctx)
+	}()
+}
+
 func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (bool, error) {
 	user.PinAttempts++
 
@@ -415,10 +437,13 @@ func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (b
 			return false, fmt.Errorf("lock account for user %s: %w", user.ID, err)
 		}
 
-		_ = s.notifier.NotifyAccountLocked(ctx, contracts.AccountNotification{
+		lockedNote := contracts.AccountNotification{
 			UserID:      user.ID,
 			PhoneNumber: user.MobileNumber,
 			LockedUntil: formatLockDuration(lockUntil),
+		}
+		s.notifyAsync(func(ctx context.Context) error {
+			return s.notifier.NotifyAccountLocked(ctx, lockedNote)
 		})
 
 		return false, fmt.Errorf("%w: try again after %s",
@@ -429,10 +454,13 @@ func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (b
 		return false, fmt.Errorf("update PIN attempts for user %s: %w", user.ID, err)
 	}
 
-	_ = s.notifier.NotifyPINWrongAttempt(ctx, contracts.AccountNotification{
+	wrongNote := contracts.AccountNotification{
 		UserID:            user.ID,
 		PhoneNumber:       user.MobileNumber,
 		RemainingAttempts: s.maxAttempts - user.PinAttempts,
+	}
+	s.notifyAsync(func(ctx context.Context) error {
+		return s.notifier.NotifyPINWrongAttempt(ctx, wrongNote)
 	})
 
 	return false, nil
@@ -440,20 +468,26 @@ func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (b
 
 // notifyChangeFailed sends a PIN change failure notification, ignoring
 // delivery errors (best-effort).
-func (s *Service) notifyChangeFailed(ctx context.Context, user *models.User, reason string) {
-	_ = s.notifier.NotifyPINChangeFailed(ctx, contracts.AccountNotification{
+func (s *Service) notifyChangeFailed(_ context.Context, user *models.User, reason string) {
+	note := contracts.AccountNotification{
 		UserID:      user.ID,
 		PhoneNumber: user.MobileNumber,
 		Reason:      reason,
+	}
+	s.notifyAsync(func(ctx context.Context) error {
+		return s.notifier.NotifyPINChangeFailed(ctx, note)
 	})
 }
 
 // notifyResetFailed sends a PIN reset failure notification, ignoring
 // delivery errors (best-effort).
-func (s *Service) notifyResetFailed(ctx context.Context, user *models.User, reason string) {
-	_ = s.notifier.NotifyPINResetFailed(ctx, contracts.AccountNotification{
+func (s *Service) notifyResetFailed(_ context.Context, user *models.User, reason string) {
+	note := contracts.AccountNotification{
 		UserID:      user.ID,
 		PhoneNumber: user.MobileNumber,
 		Reason:      reason,
+	}
+	s.notifyAsync(func(ctx context.Context) error {
+		return s.notifier.NotifyPINResetFailed(ctx, note)
 	})
 }

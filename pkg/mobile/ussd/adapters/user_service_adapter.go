@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -245,6 +246,17 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(userID string, req stel
 		userID, req.ChildKeypair.Address(), err)
 }
 
+// NationalIDExists reports whether a user is already registered with nationalID.
+func (a *UserServiceAdapter) NationalIDExists(ctx context.Context, nationalID string) (bool, error) {
+	if _, err := a.userService.GetByNationalID(ctx, nationalID); err != nil {
+		if errors.Is(err, user.ErrUserNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // RegisterUser registers a new user and auto-creates a Stellar account
 func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.RegisterUserRequest) (any, []any, error) {
 	// Map Africa's Talking network code to MoMo network info
@@ -294,6 +306,10 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 		Address:           req.Address,
 		City:              req.City,
 		PostalCode:        req.PostalCode,
+	}
+	if req.PinHash != "" {
+		createReq.PinHash = &req.PinHash
+		createReq.PinSetAt = req.PinSetAt
 	}
 	if req.BirthDate != "" {
 		if t, err := time.Parse("2006-01-02", req.BirthDate); err == nil {

@@ -204,6 +204,11 @@ func (s *service) CreateWithTx(ctx context.Context, tx *gorm.DB, req CreateUserR
 	if req.PostalCode != "" {
 		user.PostalCode = &req.PostalCode
 	}
+	// Set the PIN atomically with creation so no PIN-less account is persisted.
+	if req.PinHash != nil && *req.PinHash != "" {
+		user.PinHash = req.PinHash
+		user.PinSetAt = req.PinSetAt
+	}
 
 	if err := s.repo.CreateWithTx(ctx, tx, user); err != nil {
 		log.Printf("CreateWithTx: failed to create user: %v", err)

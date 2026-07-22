@@ -225,6 +225,11 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Kitambulisho kinahitajika. Weka kitambulisho chako:",
 			"fr": "La pièce d'identité est requise. Entrez votre pièce d'identité:",
 		},
+		"reg_national_id_taken": {
+			"en": "This national ID is already registered. Re-enter, or contact support if this is you:",
+			"sw": "Kitambulisho hiki kimeshasajiliwa. Weka tena, au wasiliana na msaada kama ni chako:",
+			"fr": "Cette pièce d'identité est déjà enregistrée. Ressaisissez, ou contactez le support si c'est vous:",
+		},
 		"reg_bio_gate": {
 			"en": "Add optional details for faster cash pickup?\n1. Fill bio info\n2. Skip",
 			"sw": "Ongeza maelezo ya hiari kwa uchukuaji wa pesa haraka?\n1. Jaza maelezo\n2. Ruka",

@@ -22,6 +22,10 @@ type CreateUserRequest struct {
 	NationalID        string       `json:"national_id"`
 	PreferredLanguage string       `json:"preferred_language,omitempty"`
 	Role              string       `json:"role,omitempty"` // For admin creating users with specific roles
+	// PinHash + PinSetAt let a user be created with a PIN already set, in one
+	// atomic insert (USSD registration). Both nil for admin/API creation.
+	PinHash  *string    `json:"-"`
+	PinSetAt *time.Time `json:"-"`
 }
 
 // UpdateUserRequest represents the request to update user information
