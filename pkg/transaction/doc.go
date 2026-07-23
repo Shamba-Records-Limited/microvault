@@ -31,8 +31,14 @@
 //
 // # Uniqueness
 //
-// A Stellar hash or external ID, when supplied, must be unique across the ledger.
-// Create rejects a duplicate with ErrStellarHashAlreadyExists or
-// ErrExternalIDAlreadyExists, which keeps a single settlement from being recorded
-// twice.
+// A Stellar hash, when supplied, must be unique: Create rejects a duplicate with
+// ErrStellarHashAlreadyExists, so one on-chain payment cannot be recorded twice.
+// A genuine retry carries a different hash and is therefore still recordable.
+//
+// External IDs are deliberately not unique. One anchor transaction settles as
+// several legs — a MoneyGram cash pickup writes an anchor_transfer, an off_ramp
+// and possibly a refund — and all of them carry the provider's request ID, which
+// is what makes the reference reverse-lookupable when a provider quotes it.
+// Uniqueness for the off-chain legs is enforced instead by a partial unique index
+// on (loan_id, tx_type), stating the real invariant: one fiat payout per loan.
 package transaction

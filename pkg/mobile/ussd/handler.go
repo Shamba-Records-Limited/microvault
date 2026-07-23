@@ -734,13 +734,21 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 // notifyAsync sends an account notification off the USSD request path. SMS
 // delivery must never block or delay a USSD response — a slow gateway can
 // breach the turn deadline. Uses a detached context (the request ctx is
-// cancelled the moment the handler returns) bounded by its own timeout;
-// the notification is fire-and-forget, so its error is intentionally dropped.
+// cancelled the moment the handler returns).
+//
+// The timeout is a leak guard, not a delivery deadline — the notifier's retry
+// sequence is finite and self-bounding, so it decides when to give up. This
+// must never cancel a send mid-sequence, since that suppresses retries that
+// were meant to run (at 15s it cancelled during the first attempt and no retry
+// ever ran). Delivery stays best effort, but a give-up is logged rather than
+// dropped — a silently lost welcome SMS looks identical to one never sent.
 func (h *USSDHandler) notifyAsync(send func(ctx context.Context) error) {
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		_ = send(ctx)
+		if err := send(ctx); err != nil {
+			log.Printf("notifyAsync: notification delivery failed: %v", err)
+		}
 	}()
 }
 

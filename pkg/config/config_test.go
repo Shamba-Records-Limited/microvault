@@ -57,3 +57,35 @@ func TestMoneyGramSecretResolution(t *testing.T) {
 		})
 	}
 }
+
+// The two issuers must name the same asset: the vault is built with
+// USDC_ISSUER and refunds are repaid into it, so a MoneyGram override pointing
+// elsewhere means every refund fails its on-ledger issuer check and the loan
+// sits in refund_pending with no error explaining why.
+func TestUSDCIssuerAlignment(t *testing.T) {
+	const vault = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+	const other = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+
+	tests := []struct {
+		name      string
+		moneygram string
+		stellar   string
+		wantErr   bool
+	}{
+		{name: "override unset inherits the vault issuer", stellar: vault},
+		{name: "override matches", moneygram: vault, stellar: vault},
+		{name: "override diverges", moneygram: other, stellar: vault, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateUSDCIssuerAlignment(tt.moneygram, tt.stellar)
+			if tt.wantErr && err == nil {
+				t.Fatal("a divergent issuer must fail at startup, not at refund time")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}

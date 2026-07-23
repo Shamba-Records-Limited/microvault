@@ -34,7 +34,8 @@ type TransactionRepository interface {
 	// Read operations
 	GetByID(ctx context.Context, id string) (*models.Transaction, error)
 	GetByStellarHash(ctx context.Context, txHash string) (*models.Transaction, error)
-	GetByExternalID(ctx context.Context, externalID string) (*models.Transaction, error)
+	ListByExternalID(ctx context.Context, externalID string) ([]*models.Transaction, error)
+	GetByLoanIDAndType(ctx context.Context, loanID, txType string) (*models.Transaction, error)
 	GetByLoanID(ctx context.Context, loanID string, limit, offset int) ([]*models.Transaction, error)
 	GetByUserID(ctx context.Context, userID string, limit, offset int) ([]*models.Transaction, error)
 	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*models.Transaction, error)
@@ -122,18 +123,43 @@ func (r *transactionRepository) GetByStellarHash(ctx context.Context, txHash str
 	return &tx, nil
 }
 
-// GetByExternalID retrieves a transaction by its external ID
-func (r *transactionRepository) GetByExternalID(ctx context.Context, externalID string) (*models.Transaction, error) {
-	var tx models.Transaction
+// ListByExternalID retrieves every transaction sharing a provider reference.
+//
+// One anchor transaction produces several legs — a MoneyGram cash pickup writes
+// an anchor_transfer, an off_ramp and possibly a refund, all under the same
+// request ID — so this returns a set. It is the reverse lookup: a provider
+// quotes a reference and this finds what it touched.
+func (r *transactionRepository) ListByExternalID(ctx context.Context, externalID string) ([]*models.Transaction, error) {
+	var transactions []*models.Transaction
 	result := r.db.WithContext(ctx).
 		Session(&gorm.Session{Logger: r.db.Logger.LogMode(logger.Silent)}).
 		Where("external_id = ?", externalID).
+		Order("created_at ASC").
+		Find(&transactions)
+	if result.Error != nil {
+		log.Printf("ListByExternalID: database error: %v", result.Error)
+		return nil, ErrFailedToGetTransaction
+	}
+	return transactions, nil
+}
+
+// GetByLoanIDAndType retrieves the transaction of a given type for a loan,
+// returning nil when there is none.
+//
+// This is how a webhook finds the row it needs to update. It replaces a lookup
+// by external ID, which stopped identifying a single row once every leg of an
+// anchor transaction began carrying the same provider reference.
+func (r *transactionRepository) GetByLoanIDAndType(ctx context.Context, loanID, txType string) (*models.Transaction, error) {
+	var tx models.Transaction
+	result := r.db.WithContext(ctx).
+		Session(&gorm.Session{Logger: r.db.Logger.LogMode(logger.Silent)}).
+		Where("loan_id = ? AND tx_type = ?", loanID, txType).
 		First(&tx)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return nil, nil // Not found is not an error for idempotency checks
+		return nil, nil
 	}
 	if result.Error != nil {
-		log.Printf("GetByExternalID: database error: %v", result.Error)
+		log.Printf("GetByLoanIDAndType: database error: %v", result.Error)
 		return nil, ErrFailedToGetTransaction
 	}
 	return &tx, nil
@@ -196,7 +222,6 @@ func transactionUpdateMap(tx *models.Transaction) map[string]interface{} {
 	return map[string]interface{}{
 		"stellar_tx_hash":   tx.StellarTxHash,
 		"stellar_ledger":    tx.StellarLedger,
-		"stellar_status":    tx.StellarStatus,
 		"external_id":       tx.ExternalID,
 		"external_provider": tx.ExternalProvider,
 		"external_status":   tx.ExternalStatus,

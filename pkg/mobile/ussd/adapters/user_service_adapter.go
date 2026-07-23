@@ -38,6 +38,12 @@ type WalletConfig struct {
 	HighThreshold      uint32
 }
 
+// AlertService escalates conditions that need a human. Optional — a nil
+// service degrades to logging.
+type AlertService interface {
+	AlertOps(subject, message string) error
+}
+
 // UserServiceAdapter adapts the user and account services to implement the USSD UserService interface
 type UserServiceAdapter struct {
 	userService    user.Service
@@ -45,17 +51,22 @@ type UserServiceAdapter struct {
 	stellarService stellar.Service
 	networkMapper  *ussd.NetworkMapper
 	logger         *slog.Logger
+	alerts         AlertService
 	db             *gorm.DB
 	walletConfig   WalletConfig
 }
 
-// NewUserServiceAdapter creates a new user service adapter
+// NewUserServiceAdapter creates a new user service adapter. logger and alerts
+// may be nil; the logger then falls back to the default and alerts degrade to
+// log lines.
 func NewUserServiceAdapter(
 	userService user.Service,
 	accountService account.Service,
 	stellarService stellar.Service,
 	db *gorm.DB,
 	walletCfg WalletConfig,
+	logger *slog.Logger,
+	alerts AlertService,
 ) (*UserServiceAdapter, error) {
 	// Parse the treasury private key
 	treasuryKP := keypair.MustParseFull(walletCfg.TreasuryPrivateKey)
@@ -76,13 +87,31 @@ func NewUserServiceAdapter(
 	walletCfg.MasterKey = masterKey
 	walletCfg.TreasuryPublicKey = treasuryKP.Address()
 
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &UserServiceAdapter{
 		userService:    userService,
 		accountService: accountService,
 		stellarService: stellarService,
 		db:             db,
 		walletConfig:   walletCfg,
+		logger:         logger.With("component", "user_service_adapter"),
+		alerts:         alerts,
 	}, nil
+}
+
+// alertOps escalates to the ops team, falling back to a log line when no alert
+// service is wired.
+func (a *UserServiceAdapter) alertOps(subject, message string) {
+	if a.alerts == nil {
+		a.logger.Error("ops alert", "subject", subject, "message", message)
+		return
+	}
+	if err := a.alerts.AlertOps(subject, message); err != nil {
+		a.logger.Error("failed to send ops alert", "subject", subject, "error", err)
+	}
 }
 
 // GetUserWithAccounts retrieves a user and their accounts by ID or phone number
@@ -201,10 +230,13 @@ func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIn
 		return fmt.Errorf("check on-chain account %s: %w", address, err)
 	}
 	if exists {
+		// Settles rows left pending by a dropped goroutine, marked failed by an
+		// earlier attempt, or unknown because they predate the column.
+		a.confirmChainStatus(ctx, address)
 		return nil
 	}
 
-	childKP, err := a.deriveChildKeypair(accountIndex + 4)
+	childKP, err := a.deriveChildKeypair(accountIndex)
 	if err != nil {
 		return fmt.Errorf("derive child keypair for index %d: %w", accountIndex, err)
 	}
@@ -216,34 +248,91 @@ func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIn
 		// The account may have appeared between the check and the create (async
 		// registration finishing, a concurrent ensure) — re-check before failing.
 		if ok, e2 := a.stellarService.AccountExists(ctx, address); e2 == nil && ok {
+			a.confirmChainStatus(ctx, address)
 			return nil
 		}
 		return fmt.Errorf("create on-chain account %s: %w", address, err)
 	}
-	log.Printf("EnsureOnChainAccount: created missing account %s (index %d)", address, accountIndex)
+	a.confirmChainStatus(ctx, address)
+	a.logger.Info("created missing on-chain account",
+		"address", address, "account_index", accountIndex)
 	return nil
+}
+
+// confirmChainStatus marks the account behind address as present on-chain. Best
+// effort: the account genuinely exists at this point, so a bookkeeping failure
+// must not fail the caller — worst case a later ensure records it.
+func (a *UserServiceAdapter) confirmChainStatus(ctx context.Context, address string) {
+	if a.accountService == nil {
+		return
+	}
+	acct, err := a.accountService.GetByPublicKey(ctx, address)
+	if err != nil {
+		a.logger.Warn("could not resolve account to confirm chain status",
+			"address", address, "error", err)
+		return
+	}
+	if acct.ChainStatus == models.ChainStatusConfirmed {
+		return
+	}
+	a.setChainStatus(ctx, acct.ID, models.ChainStatusConfirmed)
 }
 
 // createSponsoredAccountAsync submits the child account's sponsored-creation
 // transaction off the USSD request path. It uses a background context so it
-// outlives the USSD turn, retries transient failures, and logs loudly on
-// permanent failure so the account can be reconciled.
-func (a *UserServiceAdapter) createSponsoredAccountAsync(userID string, req stellar.CreateAccountRequest) {
+// outlives the USSD turn, retries transient failures, and records the outcome
+// on accounts.chain_status so a failure is queryable rather than log-only.
+//
+// The row is already committed by the time this runs — a failure here is not
+// rolled back. accounts.chain_status is what marks it for reconciliation, and
+// EnsureOnChainAccount is what heals it before lending.
+func (a *UserServiceAdapter) createSponsoredAccountAsync(userID, accountID string, req stellar.CreateAccountRequest) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
+
+	address := req.ChildKeypair.Address()
 
 	const attempts = 3
 	var err error
 	for attempt := 1; attempt <= attempts; attempt++ {
 		if err = a.stellarService.CreateSponsoredAccount(ctx, req); err == nil {
-			log.Printf("Sponsored Stellar account created for user %s (%s)", userID, req.ChildKeypair.Address())
+			a.setChainStatus(ctx, accountID, models.ChainStatusConfirmed)
+			a.logger.Info("sponsored Stellar account created",
+				"user_id", userID, "account_id", accountID, "address", address)
 			return
 		}
-		log.Printf("Sponsored account creation attempt %d/%d failed for user %s: %v", attempt, attempts, userID, err)
+		a.logger.Warn("sponsored account creation attempt failed",
+			"user_id", userID, "account_id", accountID, "address", address,
+			"attempt", attempt, "attempts", attempts, "error", err)
 		time.Sleep(time.Duration(attempt) * 2 * time.Second)
 	}
-	log.Printf("ERROR: sponsored account creation permanently failed for user %s (%s): %v — needs reconciliation",
-		userID, req.ChildKeypair.Address(), err)
+
+	// Marked before alerting: the durable record is what a reconciler reads,
+	// and it must survive whether or not the alert is delivered.
+	a.setChainStatus(ctx, accountID, models.ChainStatusFailed)
+	a.logger.Error("sponsored account creation permanently failed — needs reconciliation",
+		"user_id", userID, "account_id", accountID, "address", address, "error", err)
+	a.alertOps("Stellar account creation failed",
+		fmt.Sprintf("User %s account %s (%s) has no on-chain account after %d attempts: %v. "+
+			"chain_status=failed; lending is blocked until it is healed.",
+			userID, accountID, address, attempts, err))
+}
+
+// setChainStatus persists an observed on-chain state. Uses its own context so
+// the write still lands when the caller's has expired mid-retry.
+func (a *UserServiceAdapter) setChainStatus(ctx context.Context, accountID, status string) {
+	if accountID == "" {
+		return
+	}
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+	}
+	if err := a.accountService.UpdateChainStatus(ctx, accountID, status); err != nil {
+		a.logger.Error("failed to record account chain status",
+			"account_id", accountID, "chain_status", status, "error", err)
+	}
 }
 
 // UpdateBio sets the optional SEP-9 bio fields on an existing user. Only
@@ -394,7 +483,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	log.Printf("Assigned global account index %d for user %s", accountIndex, userResp.ID)
 
 	// Derive child keypair using BIP44
-	childKP, err := a.deriveChildKeypair(accountIndex + 4) // Remove incremented index (used for testing)
+	childKP, err := a.deriveChildKeypair(accountIndex)
 	if err != nil {
 		tx.Rollback()
 		log.Printf("Failed to derive child keypair: %v", err)
@@ -408,9 +497,11 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 
 	// Create account record in database with transaction
 	accountResp, err := a.accountService.CreateWithTx(ctx, tx, account.CreateAccountRequest{
-		UserID:       userResp.ID,
-		PublicKey:    childKP.Address(),
-		AccountIndex: &accountIndex, // Use the same index we used for BIP44 derivation
+		UserID:    userResp.ID,
+		PublicKey: childKP.Address(),
+		// Stored verbatim: account_index is the BIP-44 derivation index, so
+		// public_key must always re-derive from it exactly.
+		AccountIndex: &accountIndex,
 	})
 	if err != nil {
 		tx.Rollback()
@@ -426,7 +517,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 
 	// Submit the on-chain sponsored-account creation off the USSD request path
 	// so the turn returns immediately and the gateway session survives.
-	go a.createSponsoredAccountAsync(userResp.ID, stellarReq)
+	go a.createSponsoredAccountAsync(userResp.ID, accountResp.ID, stellarReq)
 
 	log.Printf("Registered user %s with account %s (BIP44 index: %d); on-chain creation dispatched",
 		userResp.ID, childKP.Address(), accountIndex)
@@ -465,6 +556,12 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 }
 
 // deriveChildKeypair derives a child keypair using BIP44 path: m/44'/148'/accountIndex'
+//
+// accountIndex is `accounts.account_index` unmodified. Callers must not offset
+// it: the index is what identifies the key, so anything that shifts it derives
+// a valid keypair for the wrong account. Indices are also never reclaimed —
+// deleting a row does not delete the Stellar account it created — which is why
+// account_index_seq is monotonic.
 func (a *UserServiceAdapter) deriveChildKeypair(accountIndex int) (*keypair.Full, error) {
 	// BIP44 path for Stellar: m/44'/148'/accountIndex'/0'/0'
 	// All indices are hardened (') for security

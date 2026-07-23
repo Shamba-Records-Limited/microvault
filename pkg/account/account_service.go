@@ -30,6 +30,13 @@ var validStatuses = map[string]bool{
 	"closed":    true,
 }
 
+var validChainStatuses = map[string]bool{
+	models.ChainStatusPending:   true,
+	models.ChainStatusConfirmed: true,
+	models.ChainStatusFailed:    true,
+	models.ChainStatusUnknown:   true,
+}
+
 // Service defines the interface for account business logic operations
 type Service interface {
 	// Account management
@@ -45,6 +52,9 @@ type Service interface {
 
 	// Status management
 	UpdateStatus(ctx context.Context, id string, req UpdateAccountStatusRequest) (*AccountResponse, error)
+
+	// UpdateChainStatus records the account's on-chain lifecycle state.
+	UpdateChainStatus(ctx context.Context, id string, chainStatus string) error
 }
 
 // service implements the Service interface
@@ -95,12 +105,14 @@ func (s *service) Create(ctx context.Context, req CreateAccountRequest) (*Accoun
 		return nil, err
 	}
 
-	// Create account model
+	// Create account model. chain_status starts pending: the row commits before
+	// the Stellar account is submitted, so it is not on-chain yet.
 	account := &models.Account{
 		UserID:       req.UserID,
 		PublicKey:    req.PublicKey,
 		AccountIndex: accountIndex,
 		Status:       "active",
+		ChainStatus:  models.ChainStatusPending,
 	}
 
 	// Create account in database
@@ -156,12 +168,14 @@ func (s *service) CreateWithTx(ctx context.Context, tx *gorm.DB, req CreateAccou
 		log.Printf("CreateWithTx: fetched account index %d", accountIndex)
 	}
 
-	// Create account model
+	// Create account model. chain_status starts pending: the row commits before
+	// the Stellar account is submitted, so it is not on-chain yet.
 	account := &models.Account{
 		UserID:       req.UserID,
 		PublicKey:    req.PublicKey,
 		AccountIndex: accountIndex,
 		Status:       "active",
+		ChainStatus:  models.ChainStatusPending,
 	}
 
 	// Create account in database
@@ -299,6 +313,24 @@ func (s *service) UpdateStatus(ctx context.Context, id string, req UpdateAccount
 	return toAccountResponse(account), nil
 }
 
+// UpdateChainStatus records whether the account's keypair exists on the Stellar
+// network. Unlike UpdateStatus this does not read the row first: callers are
+// background reconcilers reporting an observation, and a stale read-modify-write
+// could clobber a concurrent one.
+func (s *service) UpdateChainStatus(ctx context.Context, id string, chainStatus string) error {
+	if !validChainStatuses[chainStatus] {
+		return ErrInvalidStatus
+	}
+	if err := s.repo.UpdateChainStatus(ctx, id, chainStatus); err != nil {
+		if errors.Is(err, repository.ErrAccountNotFound) {
+			return ErrAccountNotFound
+		}
+		log.Printf("UpdateChainStatus: failed to update account %s: %v", id, err)
+		return err
+	}
+	return nil
+}
+
 // Delete soft deletes an account
 func (s *service) Delete(ctx context.Context, id string) error {
 	// Get account
@@ -381,6 +413,7 @@ func toAccountResponse(account *models.Account) *AccountResponse {
 		PublicKey:    account.PublicKey,
 		AccountIndex: account.AccountIndex,
 		Status:       account.Status,
+		ChainStatus:  account.ChainStatus,
 		CreatedAt:    account.CreatedAt,
 		UpdatedAt:    account.UpdatedAt,
 	}

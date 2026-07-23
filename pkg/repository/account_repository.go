@@ -38,6 +38,7 @@ type AccountRepository interface {
 
 	// Update operations
 	Update(ctx context.Context, account *models.Account) error
+	UpdateChainStatus(ctx context.Context, id string, chainStatus string) error
 	Restore(ctx context.Context, id string) error
 
 	// Delete operations
@@ -185,6 +186,27 @@ func (r *accountRepository) Update(ctx context.Context, account *models.Account)
 	if result.Error != nil {
 		log.Printf("Update: database error: %v", result.Error)
 		return ErrFailedToUpdateAccount
+	}
+	return nil
+}
+
+// UpdateChainStatus sets only the on-chain lifecycle state. Kept separate from
+// Update so a background reconciler can record what it observed on the network
+// without racing the row's other columns.
+func (r *accountRepository) UpdateChainStatus(ctx context.Context, id string, chainStatus string) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.Account{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Updates(map[string]interface{}{
+			"chain_status": chainStatus,
+			"updated_at":   time.Now(),
+		})
+	if result.Error != nil {
+		log.Printf("UpdateChainStatus: database error: %v", result.Error)
+		return ErrFailedToUpdateAccount
+	}
+	if result.RowsAffected == 0 {
+		return ErrAccountNotFound
 	}
 	return nil
 }

@@ -108,6 +108,7 @@ type Account struct {
 	PublicKey    string     `json:"public_key" gorm:"type:varchar(56);uniqueIndex;not null"`
 	AccountIndex int        `json:"account_index" gorm:"not null"`
 	Status       string     `json:"status" gorm:"type:varchar(20);not null;default:'active'"`
+	ChainStatus  string     `json:"chain_status" gorm:"type:varchar(20);not null;default:'pending'"`
 	CreatedAt    time.Time  `json:"created_at" gorm:"autoCreateTime;not null"`
 	UpdatedAt    time.Time  `json:"updated_at" gorm:"autoUpdateTime;not null"`
 	DeletedAt    *time.Time `json:"deleted_at,omitempty" gorm:"index"`
@@ -119,6 +120,25 @@ type Account struct {
 func (Account) TableName() string {
 	return "accounts"
 }
+
+// Account.ChainStatus values. The account row is committed before the Stellar
+// account is submitted, so this is what distinguishes a row whose keypair
+// exists on-chain from one whose creation never landed.
+const (
+	// ChainStatusPending is set at registration: the sponsored-creation
+	// transaction has been dispatched but not confirmed.
+	ChainStatusPending = "pending"
+
+	// ChainStatusConfirmed means the account was observed on the network.
+	ChainStatusConfirmed = "confirmed"
+
+	// ChainStatusFailed means creation retries were exhausted. Lending is
+	// blocked for these until EnsureOnChainAccount heals them.
+	ChainStatusFailed = "failed"
+
+	// ChainStatusUnknown marks rows that predate this column.
+	ChainStatusUnknown = "unknown"
+)
 
 // BeforeCreate sets the ID before creating a new account
 func (account *Account) BeforeCreate(tx *gorm.DB) error {

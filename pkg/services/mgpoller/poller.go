@@ -27,11 +27,13 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
@@ -113,6 +115,12 @@ type RefundRecord struct {
 // did not land.
 type PaymentVerifier interface {
 	TransactionSucceeded(ctx context.Context, txHash string) (bool, error)
+
+	// PaymentsTo returns the payments in txHash addressed to destination in
+	// the named asset. Direction and amount both come from the ledger: an
+	// anchor's outbound refund and our own inbound payment to that anchor are
+	// both "successful transactions", so success alone cannot tell them apart.
+	PaymentsTo(ctx context.Context, txHash, destination, assetCode, assetIssuer string) ([]rpc.Payment, error)
 }
 
 // DisbursementUpdater drives terminal state transitions and user
@@ -164,6 +172,10 @@ const (
 	statusRefundReceived = "refund_received"
 )
 
+// refundAssetCode is the asset a MoneyGram refund must arrive in. A payment in
+// any other asset is not a settlement of this loan.
+const refundAssetCode = "USDC"
+
 // PollerConfig configures cadence and drift detection.
 type PollerConfig struct {
 	// PollInterval is how often the ticker fires. Default 30s.
@@ -176,14 +188,30 @@ type PollerConfig struct {
 	// amount_out diverges from RequestedLocalAmount by more than this
 	// fraction (e.g. 0.02 = 2 %). Default 0.02. Set to 0 to disable.
 	PayoutDriftAlertPct float64
+
+	// RefundSettleMaxAttempts caps how many ticks a loan may sit in
+	// refund_pending waiting for MoneyGram to publish the SEP-24 refunds
+	// object before ops are alerted. Observed MG behaviour is that it may
+	// never arrive, so without a ceiling the loan polls silently forever.
+	// Default 20 (10 minutes at the default interval).
+	RefundSettleMaxAttempts int
+
+	// RefundDestination is the account MoneyGram returns funds to — the
+	// wallet we withdraw from. Defaults to the client's SEP-10 account.
+	RefundDestination string
+
+	// RefundAssetIssuer is the USDC issuer a refund payment must carry.
+	// Defaults to the anchor client's configured issuer.
+	RefundAssetIssuer string
 }
 
 // DefaultConfig returns a sensible PollerConfig.
 func DefaultConfig() PollerConfig {
 	return PollerConfig{
-		PollInterval:        30 * time.Second,
-		MaxBatch:            100,
-		PayoutDriftAlertPct: 0.02,
+		PollInterval:            30 * time.Second,
+		MaxBatch:                100,
+		PayoutDriftAlertPct:     0.02,
+		RefundSettleMaxAttempts: 20,
 	}
 }
 
@@ -198,6 +226,11 @@ type Poller struct {
 	alerts       AlertService
 	cfg          PollerConfig
 	logger       *slog.Logger
+
+	// refundWaits counts consecutive ticks a loan has spent waiting for MG to
+	// publish refund payments. Guarded because Start runs in its own goroutine.
+	refundWaitMu sync.Mutex
+	refundWaits  map[string]int
 }
 
 // NewPoller validates the dependencies and returns a Poller. client,
@@ -238,8 +271,18 @@ func NewPoller(
 	if cfg.PayoutDriftAlertPct < 0 {
 		cfg.PayoutDriftAlertPct = 0
 	}
+	if cfg.RefundSettleMaxAttempts < 0 {
+		cfg.RefundSettleMaxAttempts = 0
+	}
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if cfg.RefundDestination == "" {
+		// Only safe where the SEP-10 auth wallet and the SEP-24 funds wallet
+		// share a secret. Where they differ the poller watches an account the
+		// refund never reaches, and settlement stalls without an obvious cause.
+		logger.Warn("mgpoller: no refund destination configured; falling back to the SEP-10 account",
+			"fallback", client.TreasuryAddress())
 	}
 	return &Poller{
 		client:       client,
@@ -250,6 +293,7 @@ func NewPoller(
 		verifier:     verifier,
 		alerts:       alerts,
 		cfg:          cfg,
+		refundWaits:  make(map[string]int),
 		logger:       logger.With("component", "mgpoller"),
 	}, nil
 }
@@ -568,10 +612,21 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 
 	payments := tx.Refunds.StellarPayments()
 	if len(payments) == 0 {
-		// MG has declared the refund but not yet published the payments that
-		// settle it. Stay in refund_pending and look again next tick.
+		// MoneyGram does not populate the SEP-24 refunds object, but it does
+		// move stellar_transaction_id onto the refund once one settles. Read
+		// the payment off the ledger rather than trusting the field's meaning.
+		if p.settleFromStellarTx(ctx, rec, tx) {
+			return
+		}
+		// MG has declared the refund but published no payments to settle it.
+		// Observed on testnet: status "refunded" arrives with no refunds object
+		// at all (and the deprecated `refunded` flag set false), so this is not
+		// always a transient gap — without a ceiling the loan polls forever and
+		// the vault is never repaid.
+		p.awaitRefundDetails(rec, tx)
 		return
 	}
+	p.clearRefundWait(rec.LoanID)
 
 	net, err := tx.Refunds.NetRefundedStroops()
 	if err != nil {
@@ -599,6 +654,16 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 		return
 	}
 
+	p.settleRefund(ctx, rec, lastHash, net)
+}
+
+// settleRefund records the refund, repays the vault with exactly what came
+// back, marks the loan terminal and notifies the borrower.
+//
+// Shared by both settlement routes — the SEP-24 refunds object and
+// stellar_transaction_id — so the money-moving sequence and its crash ordering
+// exist in one place regardless of how the refund was discovered.
+func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash string, net int64) {
 	var shortfall int64
 	if rec.PrincipalStroops > net {
 		shortfall = rec.PrincipalStroops - net
@@ -607,7 +672,7 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 	// Persist before repaying: if the repay crashes mid-flight, the row still
 	// records what came back and in which transaction.
 	if err := p.recorder.RecordRefund(ctx, rec.LoanID, RefundRecord{
-		TxHash:           lastHash,
+		TxHash:           refundHash,
 		NetStroops:       net,
 		ShortfallStroops: shortfall,
 	}); err != nil {
@@ -651,7 +716,7 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 	p.logger.Info("MoneyGram refund settled",
 		"loan_id", rec.LoanID,
 		"sequence_id", rec.SequenceID,
-		"refund_tx_hash", lastHash,
+		"refund_tx_hash", refundHash,
 		"net_stroops", net,
 		"shortfall_stroops", shortfall)
 
@@ -659,6 +724,119 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 		p.logger.Warn("refund SMS failed",
 			"loan_id", rec.LoanID, "error", err)
 	}
+}
+
+// settleFromStellarTx settles a refund using tx.stellar_transaction_id, which
+// MoneyGram repoints at the refund payment once one lands. Reports whether the
+// refund was found and settled.
+//
+// The hash alone proves nothing: before the refund exists this field names our
+// own outbound payment to the anchor, and that transaction also succeeded.
+// Requiring a payment *into* RefundDestination, in USDC, and taking the amount
+// from the ledger is what makes the distinction safe.
+func (p *Poller) settleFromStellarTx(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) bool {
+	hash := strings.TrimSpace(tx.StellarTransactionID)
+	if hash == "" || p.verifier == nil {
+		return false
+	}
+
+	dest := p.refundDestination()
+	if dest == "" {
+		p.logger.Warn("no refund destination configured; cannot settle from stellar_transaction_id",
+			"loan_id", rec.LoanID)
+		return false
+	}
+
+	received, err := p.verifier.PaymentsTo(ctx, hash, dest, refundAssetCode, p.refundAssetIssuer())
+	if err != nil {
+		p.logger.Warn("could not read stellar_transaction_id from ledger; will retry",
+			"loan_id", rec.LoanID, "tx_hash", hash, "error", err)
+		return false
+	}
+	if len(received) == 0 {
+		// Still pointing at our outbound payment: the refund has not landed.
+		return false
+	}
+
+	var net int64
+	for _, pay := range received {
+		net += pay.AmountStroops
+	}
+	p.clearRefundWait(rec.LoanID)
+	p.settleRefund(ctx, rec, hash, net)
+	return true
+}
+
+// refundDestination is the wallet MoneyGram returns funds to — the SEP-24
+// funds account the withdrawal was made from.
+//
+// The fallback to the SEP-10 auth account only holds where the two wallets are
+// configured to the same secret, which is true in development and not in
+// staging or production. Where they differ, an unset RefundDestination makes
+// this look for the refund at an account it will never arrive in, and the
+// refund never settles. Callers are expected to set it explicitly; New logs
+// when they have not.
+func (p *Poller) refundDestination() string {
+	if p.cfg.RefundDestination != "" {
+		return p.cfg.RefundDestination
+	}
+	return p.client.TreasuryAddress()
+}
+
+// refundAssetIssuer is the USDC issuer a refund must arrive from. Empty means
+// the issuer is unverified and only the asset code is matched — anyone can
+// issue an asset called USDC, so an empty issuer is a weaker check, not a
+// neutral one.
+func (p *Poller) refundAssetIssuer() string {
+	if p.cfg.RefundAssetIssuer != "" {
+		return p.cfg.RefundAssetIssuer
+	}
+	if p.client != nil {
+		return p.client.USDCIssuer()
+	}
+	return ""
+}
+
+// awaitRefundDetails counts consecutive ticks spent waiting for MoneyGram to
+// publish refund payments, and escalates once past the configured ceiling.
+//
+// The count is in memory: it drives alerting, not money movement, so losing it
+// on restart costs at most a repeated escalation. Polling continues after the
+// alert in case MG backfills the object later — what stops is the silence.
+func (p *Poller) awaitRefundDetails(rec LoanRecord, tx *stellaranchor.Transaction) {
+	p.refundWaitMu.Lock()
+	p.refundWaits[rec.LoanID]++
+	attempts := p.refundWaits[rec.LoanID]
+	p.refundWaitMu.Unlock()
+
+	max := p.cfg.RefundSettleMaxAttempts
+	if max <= 0 || attempts != max {
+		if attempts < max {
+			p.logger.Info("refund declared but no refund payments yet; waiting",
+				"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
+				"attempt", attempts, "max_attempts", max)
+		}
+		return
+	}
+
+	p.logger.Error("MoneyGram declared a refund but never published refund payments",
+		"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
+		"attempts", attempts,
+		"mg_stellar_tx_id", tx.StellarTransactionID,
+		"amount_in", tx.AmountIn)
+	p.alertOps("MoneyGram refund has no settlement details",
+		fmt.Sprintf("Loan %s (MG tx %s): status=refunded after %d polls but the SEP-24 refunds "+
+			"object is absent, so no refund transaction hash is available and the vault has not "+
+			"been repaid. We sent %d stroops. Verify on-chain whether the anchor returned funds "+
+			"and settle manually.", rec.LoanID, rec.MoneyGramTxID, attempts, rec.PrincipalStroops))
+}
+
+// clearRefundWait drops the wait counter once MG supplies refund payments, so
+// a later refund on the same loan starts from zero.
+func (p *Poller) clearRefundWait(loanID string) {
+	p.refundWaitMu.Lock()
+	delete(p.refundWaits, loanID)
+	p.refundWaitMu.Unlock()
 }
 
 // refundLanded confirms every refund payment succeeded on-ledger. A nil

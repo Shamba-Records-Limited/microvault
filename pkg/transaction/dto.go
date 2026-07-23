@@ -8,7 +8,6 @@ type CreateTransactionRequest struct {
 	AccountID        *string `json:"account_id,omitempty"`
 	LoanID           *string `json:"loan_id,omitempty"`
 	TxType           string  `json:"tx_type" validate:"required"`
-	TxCategory       string  `json:"tx_category,omitempty"`
 	Amount           int64   `json:"amount" validate:"required,gt=0"`
 	Asset            string  `json:"asset" validate:"required"`
 	StellarTxHash    *string `json:"stellar_tx_hash,omitempty"`
@@ -25,7 +24,6 @@ type CreateTransactionRequest struct {
 type UpdateTransactionRequest struct {
 	StellarTxHash    *string `json:"stellar_tx_hash,omitempty"`
 	StellarLedger    *int64  `json:"stellar_ledger,omitempty"`
-	StellarStatus    *string `json:"stellar_status,omitempty"`
 	ExternalID       *string `json:"external_id,omitempty"`
 	ExternalProvider *string `json:"external_provider,omitempty"`
 	ExternalStatus   *string `json:"external_status,omitempty"`
@@ -36,17 +34,17 @@ type UpdateTransactionRequest struct {
 
 // TransactionResponse represents the response containing transaction information
 type TransactionResponse struct {
-	ID               string    `json:"id"`
-	UserID           *string   `json:"user_id,omitempty"`
-	AccountID        *string   `json:"account_id,omitempty"`
-	LoanID           *string   `json:"loan_id,omitempty"`
-	TxType           string    `json:"tx_type"`
+	ID        string  `json:"id"`
+	UserID    *string `json:"user_id,omitempty"`
+	AccountID *string `json:"account_id,omitempty"`
+	LoanID    *string `json:"loan_id,omitempty"`
+	TxType    string  `json:"tx_type"`
+	// TxCategory is derived from TxType, not stored. See models.TxCategoryFor.
 	TxCategory       string    `json:"tx_category"`
 	Amount           int64     `json:"amount"`
 	Asset            string    `json:"asset"`
 	StellarTxHash    *string   `json:"stellar_tx_hash,omitempty"`
 	StellarLedger    *int64    `json:"stellar_ledger,omitempty"`
-	StellarStatus    *string   `json:"stellar_status,omitempty"`
 	ContractID       *string   `json:"contract_id,omitempty"`
 	ContractFunction *string   `json:"contract_function,omitempty"`
 	ExternalID       *string   `json:"external_id,omitempty"`
@@ -74,15 +72,12 @@ type TransactionFilters struct {
 // Callers must run any status-transition/immutability validation before using
 // this; it does no validation itself.
 func (r UpdateTransactionRequest) changedFields() map[string]any {
-	f := make(map[string]any, 9)
+	f := make(map[string]any, 8)
 	if r.StellarTxHash != nil {
 		f["stellar_tx_hash"] = r.StellarTxHash
 	}
 	if r.StellarLedger != nil {
 		f["stellar_ledger"] = r.StellarLedger
-	}
-	if r.StellarStatus != nil {
-		f["stellar_status"] = r.StellarStatus
 	}
 	if r.ExternalID != nil {
 		f["external_id"] = r.ExternalID

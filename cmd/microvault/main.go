@@ -160,6 +160,8 @@ func main() {
 			MediumThreshold:    uint32(cfg.Stellar.MultiSigMediumThreshold),
 			HighThreshold:      uint32(cfg.Stellar.MultiSigHighThreshold),
 		},
+		nil, // Logger — falls back to slog.Default()
+		nil, // AlertService — chain-status failures log-only for now
 	)
 	if err != nil {
 		log.Fatalf("Failed to initialize USSD user service adapter: %v", err)
@@ -171,6 +173,7 @@ func main() {
 		cfg.Mobile.AfricasTalking.Username,
 		cfg.Mobile.AfricasTalking.APIKey,
 		cfg.Mobile.AfricasTalking.BaseURL,
+		cfg.Mobile.AfricasTalking.HTTPTimeout,
 	)
 
 	// Register SMS providers

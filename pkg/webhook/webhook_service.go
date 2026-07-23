@@ -71,8 +71,11 @@ type AlertService interface {
 
 // TransactionRecorder records and updates transaction records for disbursement events.
 type TransactionRecorder interface {
-	// UpdateTransactionByExternalID updates an existing transaction found by its external ID.
-	UpdateTransactionByExternalID(ctx context.Context, externalID string, status string, externalStatus string) error
+	// UpdateOffRampTransaction syncs a loan's off-ramp row with the provider's
+	// reported status. Keyed by loan rather than by external ID, which no longer
+	// identifies a single row now that every leg of an anchor transaction shares
+	// the provider's request ID.
+	UpdateOffRampTransaction(ctx context.Context, loanID string, status string, externalStatus string) error
 
 	// RecordFiatFailover records a fiat failover transaction after a direct settlement refund.
 	RecordFiatFailover(ctx context.Context, rec RefundPendingRecord, newRequestID string) error

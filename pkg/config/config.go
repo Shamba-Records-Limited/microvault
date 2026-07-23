@@ -16,13 +16,13 @@ import (
 
 // Config holds all configuration for the application, composed of sub-configs.
 type Config struct {
-	Postgres PostgresConfig
-	Redis    RedisConfig
-	Server   ServerConfig
-	Stellar  StellarConfig
-	Payments PaymentsConfig
-	Mobile   MobileConfig
-	Auth     AuthConfig
+	Postgres  PostgresConfig
+	Redis     RedisConfig
+	Server    ServerConfig
+	Stellar   StellarConfig
+	Payments  PaymentsConfig
+	Mobile    MobileConfig
+	Auth      AuthConfig
 	Shortener ShortenerConfig
 }
 
@@ -179,6 +179,12 @@ type MoneyGramConfig struct {
 	// account and USDC send source. Both default to TREASURY_SECRET_KEY.
 	AuthSecret  string
 	FundsSecret string
+
+	// Poller cadence. Zero leaves mgpoller.DefaultConfig's value in place
+	// rather than config duplicating the defaults.
+	PollInterval            time.Duration // MONEYGRAM_POLL_INTERVAL (seconds)
+	PollMaxBatch            int           // MONEYGRAM_POLL_MAX_BATCH
+	RefundSettleMaxAttempts int           // MONEYGRAM_REFUND_MAX_ATTEMPTS
 }
 
 // PaymentsConfig bundles all payment provider configurations
@@ -195,6 +201,10 @@ type AfricasTalkingConfig struct {
 	BaseURL   string
 	SenderID  string // from AT_SENDER_ID (alphanumeric or shortcode)
 	Shortcode string // from AT_SHORTCODE (numeric shortcode)
+
+	// HTTPTimeout bounds a single SMS send attempt. From AT_HTTP_TIMEOUT
+	// (seconds); zero when unset, leaving the adapter to apply its default.
+	HTTPTimeout time.Duration
 }
 
 // ResolveSenderID returns the sender ID to use for SMS.
@@ -262,6 +272,19 @@ func New() (*Config, error) {
 	mgTransferServerURL := os.Getenv("MONEYGRAM_TRANSFER_SERVER_URL")
 	mgClientID := os.Getenv("MONEYGRAM_CLIENT_ID")
 	mgClientSecret := os.Getenv("MONEYGRAM_CLIENT_SECRET")
+	mgPollInterval, err := envSeconds("MONEYGRAM_POLL_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	mgPollMaxBatch, err := envPositiveInt("MONEYGRAM_POLL_MAX_BATCH")
+	if err != nil {
+		return nil, err
+	}
+	mgRefundMaxAttempts, err := envPositiveInt("MONEYGRAM_REFUND_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+
 	mgOAuthURL := os.Getenv("MONEYGRAM_OAUTH_URL")
 	mgFXRateURL := os.Getenv("MONEYGRAM_FX_RATE_URL")
 	mgAuthSecret := os.Getenv("MONEYGRAM_AUTH_SECRET")
@@ -352,6 +375,13 @@ func New() (*Config, error) {
 	mobileSenderID := os.Getenv("AT_SENDER_ID")
 	mobileShortcode := os.Getenv("AT_SHORTCODE")
 
+	// Left zero when unset so the adapter applies its own default rather than
+	// config duplicating the value.
+	mobileHTTPTimeout, err := envSeconds("AT_HTTP_TIMEOUT")
+	if err != nil {
+		return nil, err
+	}
+
 	// Determine network passphrase based on environment
 	networkPassphrase := network.PublicNetworkPassphrase
 	if serverEnvironment == "development" {
@@ -384,6 +414,10 @@ func New() (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid USDC_ISSUER: %w", err)
 		}
+	}
+
+	if err := validateUSDCIssuerAlignment(mgUSDCIssuer, usdcIssuer); err != nil {
+		return nil, err
 	}
 
 	if treasurySecretKey != "" {
@@ -481,15 +515,20 @@ func New() (*Config, error) {
 				FXRateURL:         mgFXRateURL,
 				AuthSecret:        firstNonEmpty(mgAuthSecret, treasurySecretKey),
 				FundsSecret:       firstNonEmpty(mgFundsSecret, treasurySecretKey),
+
+				PollInterval:            mgPollInterval,
+				PollMaxBatch:            mgPollMaxBatch,
+				RefundSettleMaxAttempts: mgRefundMaxAttempts,
 			},
 		},
 		Mobile: MobileConfig{
 			AfricasTalking: AfricasTalkingConfig{
-				Username:  mobileUsername,
-				APIKey:    mobileAPIKey,
-				BaseURL:   mobileBaseURL,
-				SenderID:  mobileSenderID,
-				Shortcode: mobileShortcode,
+				Username:    mobileUsername,
+				APIKey:      mobileAPIKey,
+				BaseURL:     mobileBaseURL,
+				SenderID:    mobileSenderID,
+				Shortcode:   mobileShortcode,
+				HTTPTimeout: mobileHTTPTimeout,
 			},
 			SessionTimeout: ussdSessionTimeout,
 		},
@@ -510,6 +549,36 @@ func parsePINLockout() time.Duration {
 		return time.Duration(s) * time.Second
 	}
 	return 15 * time.Minute
+}
+
+// envSeconds reads a bare integer count of seconds, matching the convention
+// used by USSD_SESSION_TIMEOUT and PIN_LOCKOUT_SECONDS. Returns zero when
+// unset so callers can fall back to their own default. A malformed value is
+// an error rather than a silent default: these exist to be tuned, and a typo
+// quietly ignored would look like the tuning had no effect.
+func envSeconds(key string) (time.Duration, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return 0, nil
+	}
+	secs, err := strconv.Atoi(raw)
+	if err != nil || secs <= 0 {
+		return 0, fmt.Errorf("error parsing %s: expected a positive number of seconds, got %q", key, raw)
+	}
+	return time.Duration(secs) * time.Second, nil
+}
+
+// envPositiveInt reads a bare positive integer, zero when unset.
+func envPositiveInt(key string) (int, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("error parsing %s: expected a positive integer, got %q", key, raw)
+	}
+	return n, nil
 }
 
 // firstNonEmpty returns the first non-empty argument, or "" if all are empty.
@@ -584,4 +653,26 @@ func (c *MoneyGramConfig) FundsAddress() (string, error) {
 // Callers should fall back to YC for FX rates when this returns false.
 func (c *MoneyGramConfig) HasRESTCredentials() bool {
 	return c.ClientID != "" && c.ClientSecret != "" && c.OAuthURL != "" && c.FXRateURL != ""
+}
+
+// validateUSDCIssuerAlignment rejects a MoneyGram issuer override that names a
+// different asset from the vault's.
+//
+// The vault is constructed with USDC_ISSUER and refunds are repaid into it, so
+// an override describes an asset the vault cannot accept. Startup is the only
+// place this surfaces loudly: at runtime it presents as refunds that silently
+// never settle, because the on-ledger issuer check rejects every payment and
+// the loan simply sits in refund_pending.
+//
+// An unset override is not a mismatch — it inherits USDC_ISSUER.
+func validateUSDCIssuerAlignment(moneygramIssuer, stellarIssuer string) error {
+	if moneygramIssuer == "" || stellarIssuer == "" {
+		return nil
+	}
+	if moneygramIssuer != stellarIssuer {
+		return fmt.Errorf(
+			"MONEYGRAM_USDC_ISSUER (%s) must equal USDC_ISSUER (%s): the vault only accepts the latter",
+			moneygramIssuer, stellarIssuer)
+	}
+	return nil
 }

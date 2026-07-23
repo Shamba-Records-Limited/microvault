@@ -97,7 +97,7 @@ func (s *SMSLoanNotifier) NotifyLoanCashPickupInitiated(ctx context.Context, n c
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupReady(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).CashPickupReady, n.DisplayCurrency, n.DisplayAmount, n.CashPickupRef, n.LoanReference)
+	msg := fmt.Sprintf(s.tmpl(ctx, n).CashPickupReady, n.DisplayCurrency, n.DisplayAmount, n.CashPickupRef, n.LoanReference, n.CashPickupInfoURL)
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
 }
 

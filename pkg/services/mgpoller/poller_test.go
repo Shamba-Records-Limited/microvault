@@ -19,6 +19,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
@@ -260,11 +261,26 @@ type fakeVerifier struct {
 	ok    bool
 	err   error
 	calls []string
+
+	// payments is what PaymentsTo returns for a matching destination+asset.
+	// Empty means the hash names no payment to us — the state before a refund
+	// lands, when stellar_transaction_id still points at our outbound send.
+	payments    []rpc.Payment
+	paymentsErr error
+	paymentsTo  []string
 }
 
 func (v *fakeVerifier) TransactionSucceeded(_ context.Context, txHash string) (bool, error) {
 	v.calls = append(v.calls, txHash)
 	return v.ok, v.err
+}
+
+func (v *fakeVerifier) PaymentsTo(_ context.Context, txHash, destination, assetCode, assetIssuer string) ([]rpc.Payment, error) {
+	v.paymentsTo = append(v.paymentsTo, txHash+"|"+destination+"|"+assetCode)
+	if v.paymentsErr != nil {
+		return nil, v.paymentsErr
+	}
+	return v.payments, nil
 }
 
 type fakeTreasury struct {
@@ -910,4 +926,64 @@ func TestPoller_StartShutsDownOnContextCancel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Start did not return after ctx cancel")
 	}
+}
+
+// MoneyGram's real testnet payload for a user-cancelled withdrawal: status
+// "refunded", the deprecated `refunded` flag false, and no refunds object at
+// all. The settlement path waits on refunds.payments, so before the attempt
+// ceiling this loan polled forever in silence and the vault was never repaid.
+const mgRealRefundedPayload = `{"transaction":{
+	"id":"mg-1","kind":"withdrawal","status":"refunded",
+	"withdraw_anchor_account":"GCU7KVTYEPCUZOQPJ6RLNWW64FS3IBHGZTEFWERO7ZZVDQYHMG7W5B6M",
+	"withdraw_memo_type":"id",
+	"amount_in":"7.8","amount_in_asset":"USDC",
+	"amount_out":"1004.0","amount_out_asset":"KES",
+	"amount_fee":"0.0","amount_fee_asset":"USDC",
+	"stellar_transaction_id":"225e86168268d5b22bb2863101460de4f4a29e9a65d5567fe0c8fb19b7307b38",
+	"external_transaction_id":"72540163","refunded":false
+}}`
+
+func TestPoller_Refunded_NoRefundsObject_DoesNotRepayVault(t *testing.T) {
+	p, srv, fetcher, recorder, disb, _, _ := newTestPoller(t)
+	srv.setTransactionJSON(mgRealRefundedPayload)
+	fetcher.loans = []LoanRecord{refundPendingLoan(78000000)}
+
+	p.poll(context.Background())
+
+	assert.Empty(t, recorder.refunds, "no refund hash is available to record")
+	assert.Empty(t, disb.amountRepays, "repaying without proof of return could overdraw the treasury")
+}
+
+// Without a ceiling this is a silent infinite loop: no alert, no state change,
+// every tick identical.
+func TestPoller_Refunded_NoRefundsObject_AlertsOnceAtCeiling(t *testing.T) {
+	p, srv, fetcher, _, _, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(mgRealRefundedPayload)
+	fetcher.loans = []LoanRecord{refundPendingLoan(78000000)}
+	p.cfg.RefundSettleMaxAttempts = 3
+
+	for range 3 {
+		p.poll(context.Background())
+	}
+	require.Len(t, alerts.calls, 1, "should escalate exactly once at the ceiling")
+	assert.Contains(t, alerts.calls[0], "MoneyGram refund has no settlement details")
+
+	// Polling continues in case MG backfills, but must not re-alert each tick.
+	for range 5 {
+		p.poll(context.Background())
+	}
+	assert.Len(t, alerts.calls, 1, "the ceiling must not re-fire on every later tick")
+}
+
+// A ceiling of zero disables escalation rather than alerting on every tick.
+func TestPoller_Refunded_NoRefundsObject_CeilingDisabled(t *testing.T) {
+	p, srv, fetcher, _, _, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(mgRealRefundedPayload)
+	fetcher.loans = []LoanRecord{refundPendingLoan(78000000)}
+	p.cfg.RefundSettleMaxAttempts = 0
+
+	for range 5 {
+		p.poll(context.Background())
+	}
+	assert.Empty(t, alerts.calls)
 }

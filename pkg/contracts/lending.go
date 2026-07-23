@@ -123,6 +123,12 @@ type LoanNotification struct {
 	// when collecting cash. Populated once MG locks the payout.
 	CashPickupRef string
 
+	// CashPickupInfoURL is MoneyGram's support deep-link for the transaction,
+	// sent alongside the reference so a borrower with a problem at the agent
+	// has somewhere to go. Unlike InteractiveURL it stays valid after the
+	// withdrawal settles.
+	CashPickupInfoURL string
+
 	// Language optionally pins the SMS language (ISO code: en/sw/fr). When
 	// empty the notifier resolves it from the recipient's stored preference.
 	Language string
