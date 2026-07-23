@@ -33,7 +33,7 @@
     "simple-icons": "^16.26.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss": "^4.3.2"
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
