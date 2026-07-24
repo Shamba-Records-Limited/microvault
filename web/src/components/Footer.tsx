@@ -2,12 +2,7 @@
  * Site footer with Shamba branding, contact info, and social links.
  * @module components/Footer
  */
-import { MapPin, Mail, Phone } from "lucide-react";
-import { siFacebook, siX } from "simple-icons";
-
-// LinkedIn was removed from simple-icons; path sourced from LinkedIn brand guidelines
-const siLinkedinPath =
-  "M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z";
+import { MapPin, Envelope, Phone, FacebookLogo, XLogo, LinkedinLogo } from "@phosphor-icons/react";
 import { Separator } from "@/components/ui/separator";
 import shambaLogo from "@/assets/shamba-logo.svg";
 
@@ -60,7 +55,7 @@ export function Footer() {
               href="mailto:info@shambarecords.com"
               className="flex items-center gap-2 hover:text-foreground transition-colors"
             >
-              <Mail className="h-3.5 w-3.5 shrink-0" />
+              <Envelope className="h-3.5 w-3.5 shrink-0" />
               <span>info@shambarecords.com</span>
             </a>
             <a
@@ -87,7 +82,7 @@ export function Footer() {
               aria-label="Shamba Records on Facebook"
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
-              <svg role="img" viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d={siFacebook.path} /></svg>
+              <FacebookLogo className="h-4 w-4" />
             </a>
             <a
               href="https://x.com/RecordsShamba"
@@ -96,7 +91,7 @@ export function Footer() {
               aria-label="Shamba Records on X"
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
-              <svg role="img" viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d={siX.path} /></svg>
+              <XLogo className="h-4 w-4" />
             </a>
             <a
               href="https://www.linkedin.com/company/shamba-records/"
@@ -105,7 +100,7 @@ export function Footer() {
               aria-label="Shamba Records on LinkedIn"
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
-              <svg role="img" viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d={siLinkedinPath} /></svg>
+              <LinkedinLogo className="h-4 w-4" />
             </a>
           </div>
         </div>
