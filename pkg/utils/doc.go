@@ -16,10 +16,4 @@
 //
 // pagination.go defines the shared Pagination input and the generic
 // PaginatedResponse[T] envelope that list endpoints return.
-//
-// # PDF
-//
-// pdf_parser.go wraps PDF handling behind PDFParser: decrypting a
-// password-protected document, extracting its text, and the combined
-// parse-with-password convenience.
 package utils
