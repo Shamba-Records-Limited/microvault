@@ -277,5 +277,9 @@ func (s *service) submitContractTransaction(
 		return txResp, fmt.Errorf("transaction failed with status: %s", txResp.Status)
 	}
 
+	// GetTransaction's response does not echo the hash it was queried with, so
+	// PollTransaction cannot supply it. sendResp.Hash is the canonical hash from
+	// submission — stamp it back on so callers return a real TxHash.
+	txResp.TransactionHash = sendResp.Hash
 	return txResp, nil
 }

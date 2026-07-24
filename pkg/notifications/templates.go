@@ -72,7 +72,7 @@ func DefaultLoanTemplates() *LoanTemplates {
 			"Open to verify:\n\n%s\n\n" +
 			"Final amount shown in the link.",
 		CashPickupReady: "Your loan of %s %.2f is ready for pickup at any MoneyGram agent. " +
-			"Reference: %s (Loan: %s). Bring valid ID.\nHelp: %s",
+			"Reference: %s (Loan: %s). Bring valid ID.\nMore info: %s",
 		CashPickupCancelled: "Your cash-pickup loan (Ref: %s) was cancelled and the funds returned. " +
 			"You owe nothing. Dial *384*1234# to request again.",
 	}
@@ -104,7 +104,7 @@ func swahiliLoanTemplates() *LoanTemplates {
 			"Fungua kuthibitisha:\n\n%s\n\n" +
 			"Kiasi cha mwisho kwenye kiungo.",
 		CashPickupReady: "Mkopo wako wa %s %.2f uko tayari kuchukuliwa kwa wakala yeyote wa MoneyGram. " +
-			"Kumbukumbu: %s (Mkopo: %s). Lete kitambulisho halali.\nMsaada: %s",
+			"Kumbukumbu: %s (Mkopo: %s). Lete kitambulisho halali.\nMaelezo zaidi: %s",
 		CashPickupCancelled: "Mkopo wako wa kuchukua fedha (Kumb: %s) umeghairiwa na fedha zimerudishwa. " +
 			"Hudaiwi chochote. Piga *384*1234# kuomba tena.",
 	}
@@ -136,7 +136,7 @@ func frenchLoanTemplates() *LoanTemplates {
 			"Ouvrez pour vérifier:\n\n%s\n\n" +
 			"Montant final dans le lien.",
 		CashPickupReady: "Votre prêt de %s %.2f est prêt à être retiré chez tout agent MoneyGram. " +
-			"Référence: %s (Prêt: %s). Apportez une pièce d'identité valide.\nAide: %s",
+			"Référence: %s (Prêt: %s). Apportez une pièce d'identité valide.\nPlus d'infos: %s",
 		CashPickupCancelled: "Votre prêt à retrait espèces (Réf: %s) a été annulé et les fonds retournés. " +
 			"Vous ne devez rien. Composez *384*1234# pour redemander.",
 	}
