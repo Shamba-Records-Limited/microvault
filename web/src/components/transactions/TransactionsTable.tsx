@@ -4,7 +4,7 @@
  * mobile-card renderers plus live-update highlighting and pagination.
  * @module components/transactions/TransactionsTable
  */
-import { ExternalLink, Info } from "lucide-react";
+import { ArrowSquareOut, Info } from "@phosphor-icons/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -230,7 +230,7 @@ function TxTableRow({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
           className="inline-flex items-center gap-1 text-sm font-mono text-foreground underline decoration-border hover:decoration-foreground transition-all duration-200"
         >
           {truncateHash(tx.txHash)}
-          <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+          <ArrowSquareOut className="h-3 w-3 text-muted-foreground shrink-0" />
         </a>
       </td>
       <td className="py-4 text-sm font-mono text-muted-foreground">{tx.ledger}</td>
@@ -260,7 +260,7 @@ function TxCard({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
       <CardContent className="grid grid-cols-2 gap-y-3 gap-x-4 p-5 text-xs">
         <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Time</span>
         <span className="text-foreground font-medium">{formatTime(tx.createdAt)}</span>
-        
+
         <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Status</span>
         <Badge
           variant={tx.successful ? "secondary" : "destructive"}
@@ -268,7 +268,7 @@ function TxCard({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
         >
           {tx.successful ? "Success" : "Failed"}
         </Badge>
-        
+
         <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Tx Hash</span>
         <a
           href={txExplorerUrl(tx.txHash)}
@@ -277,12 +277,12 @@ function TxCard({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
           className="inline-flex items-center gap-1 font-mono text-foreground underline decoration-border hover:decoration-foreground transition-all duration-200"
         >
           {truncateHash(tx.txHash)}
-          <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+          <ArrowSquareOut className="h-3 w-3 text-muted-foreground shrink-0" />
         </a>
-        
+
         <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Ledger</span>
         <span className="font-mono text-foreground">{tx.ledger}</span>
-        
+
         <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Operation</span>
         <Badge
           variant="outline"
@@ -290,7 +290,7 @@ function TxCard({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
         >
           {formatEventName(tx.type)}
         </Badge>
-        
+
         <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px] self-start mt-0.5">Details</span>
         <span className="font-mono text-[11px] text-foreground/90 break-all bg-muted/20 border border-border/30 rounded px-2 py-1.5">{tx.summary}</span>
       </CardContent>
@@ -323,7 +323,7 @@ function EventTableRow({ event, isNew }: { event: ContractEventEntry; isNew: boo
           className="font-mono text-xs text-foreground underline decoration-border/80 hover:decoration-foreground transition-all duration-200 break-all leading-relaxed"
         >
           {formatEventArgs(event.topics, event.value)}
-          <ExternalLink className="inline h-3.5 w-3.5 shrink-0 ml-1 text-muted-foreground align-text-bottom" />
+          <ArrowSquareOut className="inline h-3.5 w-3.5 shrink-0 ml-1 text-muted-foreground align-text-bottom" />
         </a>
       </td>
     </tr>
@@ -342,7 +342,7 @@ function EventCard({ event, isNew }: { event: ContractEventEntry; isNew: boolean
       <CardContent className="grid grid-cols-2 gap-y-3 gap-x-4 p-5 text-xs">
         <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Time</span>
         <span className="text-foreground font-medium">{formatTime(event.createdAt)}</span>
-        
+
         <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px]">Event</span>
         <Badge
           variant="secondary"
@@ -350,7 +350,7 @@ function EventCard({ event, isNew }: { event: ContractEventEntry; isNew: boolean
         >
           {formatEventName(event.eventName)}
         </Badge>
-        
+
         <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px] self-start mt-0.5">Details</span>
         <a
           href={opExplorerUrl(event.id)}
@@ -359,7 +359,7 @@ function EventCard({ event, isNew }: { event: ContractEventEntry; isNew: boolean
           className="font-mono text-[11px] text-foreground underline decoration-border hover:decoration-foreground transition-all duration-200 break-all bg-muted/20 border border-border/30 rounded px-2 py-1.5 leading-relaxed"
         >
           {formatEventArgs(event.topics, event.value)}
-          <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground inline-block ml-1 align-text-top" />
+          <ArrowSquareOut className="h-3.5 w-3.5 shrink-0 text-muted-foreground inline-block ml-1 align-text-top" />
         </a>
       </CardContent>
     </Card>

@@ -6,11 +6,7 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  ChevronDown,
-  ChevronUp,
-  Loader2,
-} from "lucide-react";
+import { CaretDown, CaretUp, CircleNotch } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -182,7 +178,7 @@ export function PoolCard({ pool }: PoolCardProps) {
                 {pool.address.slice(0, 8)}...{pool.address.slice(-6)}
               </a>
             </div>
-            
+
             {/* Mobile stats: rendered below name */}
             <div className="flex items-center gap-6 mt-3 sm:hidden border-t border-border/40 pt-3">
               <div>
@@ -215,9 +211,9 @@ export function PoolCard({ pool }: PoolCardProps) {
 
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background hover:bg-muted/10 transition-colors">
               {isExpanded ? (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                <CaretUp className="h-4 w-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                <CaretDown className="h-4 w-4 text-muted-foreground" />
               )}
             </div>
           </div>
@@ -235,7 +231,7 @@ export function PoolCard({ pool }: PoolCardProps) {
         <div className="overflow-hidden">
           <CardContent className="bg-muted/10 p-6 md:p-8">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-8 items-start">
-            
+
             {/* Left columns: Asset Allocation & Contract Authority (3/5 width) */}
             <div className="md:col-span-3 space-y-8">
               {/* Asset Allocation */}
@@ -454,12 +450,12 @@ export function PoolCard({ pool }: PoolCardProps) {
                       <span className="text-right text-foreground font-semibold">
                         {formatNumber(position.data.walletBalance, 4)} USDC
                       </span>
-                      
+
                       <span className="text-muted-foreground">Active Deposit</span>
                       <span className="text-right text-foreground font-semibold">
                         {formatNumber(position.data.assetsValue, 4)} USDC
                       </span>
-                      
+
                       <span className="text-muted-foreground">Shares Held</span>
                       <span className="text-right text-foreground font-semibold">
                         {formatNumber(position.data.shares, 4)} mvUSDC
@@ -525,7 +521,7 @@ export function PoolCard({ pool }: PoolCardProps) {
                     <div className="rounded-lg bg-muted/40 border border-border/30 p-4 transition-all duration-200">
                       {previewLoading ? (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          <CircleNotch className="h-3 w-3 animate-spin text-muted-foreground" />
                           <span>Recalculating conversion...</span>
                         </div>
                       ) : preview ? (
@@ -546,7 +542,7 @@ export function PoolCard({ pool }: PoolCardProps) {
                       disabled={!isValidAmount || isPending || !!validationError}
                       onClick={handleSubmit}
                     >
-                      {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 mr-1.5" />}
+                      {isPending && <CircleNotch className="h-3.5 w-3.5 animate-spin shrink-0 mr-1.5" />}
                       {isPending
                         ? "Confirming Transaction..."
                         : activeTab === "deposit"
