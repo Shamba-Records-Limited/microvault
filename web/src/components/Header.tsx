@@ -3,8 +3,7 @@
  * @module components/Header
  */
 import { Link } from "@tanstack/react-router";
-import { Wallet, LogOut } from "lucide-react";
-import { siGithub } from "simple-icons";
+import { Wallet, SignOut, GithubLogo } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/hooks/use-wallet";
 
@@ -96,7 +95,7 @@ export function Header() {
                   title="Disconnect wallet"
                   className="h-8 w-8 px-0 flex items-center justify-center shrink-0"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <SignOut className="h-4 w-4" />
                 </Button>
               </div>
             ) : (
@@ -113,7 +112,7 @@ export function Header() {
             className="h-9 w-9 rounded-xl bg-foreground flex items-center justify-center hover:opacity-80 transition-opacity shrink-0"
             title="GitHub Repository"
           >
-            <svg role="img" viewBox="0 0 24 24" className="h-5 w-5 fill-current text-background"><path d={siGithub.path} /></svg>
+            <GithubLogo className="h-5 w-5 text-background" />
           </a>
         </div>
       </div>

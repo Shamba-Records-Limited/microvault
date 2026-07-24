@@ -2,13 +2,12 @@
  * Static marketing page describing Microvault's approach, partners, and use case.
  * @module routes/our-approach
  */
-import {
-  ExternalLink,
-} from "lucide-react";
+import { ArrowSquareOut } from "@phosphor-icons/react";
 import stellarLogo from "@/assets/stellar-logo.png";
 import atLogo from "@/assets/at.png";
 import yellowCardLogo from "@/assets/yellowcard-logo.avif";
 import moneygramLogo from "@/assets/moneygram-logo.jpg";
+import fonbnkLogo from "@/assets/logo_fonbnk_green.webp";
 
 const stats = [
   { value: "2.5B", label: "Africa's population by 2050" },
@@ -201,7 +200,7 @@ export default function UseCasePage() {
                 loading="lazy"
                 className="h-7 w-7 object-contain"
               />
-              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              <ArrowSquareOut className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <h3 className="font-semibold text-sm text-foreground mb-1">Stellar Network</h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
@@ -223,7 +222,7 @@ export default function UseCasePage() {
                 loading="lazy"
                 className="h-7 w-7 object-contain"
               />
-              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              <ArrowSquareOut className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <h3 className="font-semibold text-sm text-foreground mb-1">MoneyGram</h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
@@ -245,7 +244,7 @@ export default function UseCasePage() {
                 loading="lazy"
                 className="h-7 object-contain"
               />
-              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              <ArrowSquareOut className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <h3 className="font-semibold text-sm text-foreground mb-1">
               Africa&apos;s Talking
@@ -269,12 +268,35 @@ export default function UseCasePage() {
                 loading="lazy"
                 className="h-7 object-contain"
               />
-              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              <ArrowSquareOut className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <h3 className="font-semibold text-sm text-foreground mb-1">Yellow Card</h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Fiat on/off-ramp infrastructure enabling last-mile loan
               disbursement and repayment through mobile money and bank transfer
+              across Africa.
+            </p>
+          </a>
+
+          <a
+            href="https://fonbnk.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group block border border-border/80 rounded-xl p-5 hover:bg-muted/10 transition-all duration-300"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <img
+                src={fonbnkLogo}
+                alt="Fonbnk"
+                loading="lazy"
+                className="h-7 object-contain"
+              />
+              <ArrowSquareOut className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <h3 className="font-semibold text-sm text-foreground mb-1">Fonbnk</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Fiat on/off-ramp bridging mobile money and airtime to stablecoins,
+              broadening how farmers receive disbursements and make repayments
               across Africa.
             </p>
           </a>
