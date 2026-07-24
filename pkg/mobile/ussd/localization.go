@@ -51,14 +51,14 @@ func (l *InMemoryLocalizer) AddTranslation(key, language, message string) {
 func (l *InMemoryLocalizer) LoadStandardTranslations() {
 	translations := map[string]map[string]string{
 		"welcome": {
-			"en": "Welcome to MicroVaulr!",
-			"sw": "Karibu MicroVaulr!",
-			"fr": "Bienvenue à MicroVaulr!",
+			"en": "Welcome to Microvault!",
+			"sw": "Karibu Microvault!",
+			"fr": "Bienvenue à Microvault!",
 		},
 		"goodbye": {
-			"en": "Thank you for using MicroVaulr",
-			"sw": "Asante kwa kutumia MicroVaulr",
-			"fr": "Merci d'utiliser MicroVaulr",
+			"en": "Thank you for using Microvault",
+			"sw": "Asante kwa kutumia Microvault",
+			"fr": "Merci d'utiliser Microvault",
 		},
 		"error": {
 			"en": "An error occurred. Please try again.",
