@@ -9,8 +9,7 @@
 // that decouples the rest of the package from any particular channel. SMSNotifier
 // implements it over an SMS provider; NoOpNotifier discards everything, for tests
 // and for environments where notifications are switched off. Phone numbers are
-// redacted in logs, and FormatPhoneNumber normalizes a raw number and prepends a
-// country code when one is missing.
+// redacted in logs via the shared pkg/phone helper.
 //
 // # Composition
 //

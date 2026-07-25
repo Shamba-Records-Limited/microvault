@@ -10,6 +10,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
+	"github.com/Shamba-Records-Limited/microvault/pkg/phone"
 	pinPkg "github.com/Shamba-Records-Limited/microvault/pkg/pin"
 )
 
@@ -32,23 +33,6 @@ var menus = map[string]bool{
 	"recover_sim_q2":           true, // security answer (new-SIM recovery)
 	"pin_recovery_new":         true,
 	"pin_recovery_confirm":     true,
-}
-
-// redactPhone masks the middle digits of a phone number.
-// e.g. "254799334972" to "254799XXX972", "+254799334972" to "+254799XXX972"
-func redactPhone(phone string) string {
-	digits := phone
-	prefix := ""
-	if strings.HasPrefix(phone, "+") {
-		prefix = "+"
-		digits = phone[1:]
-	}
-	if len(digits) <= 9 {
-		return phone // too short to redact meaningfully
-	}
-	// Keep first 6 (country + network) and last 3 digits, mask the rest
-	masked := digits[:6] + strings.Repeat("X", len(digits)-9) + digits[len(digits)-3:]
-	return prefix + masked
 }
 
 // toInt extracts an int from a session data value. JSON (Redis) round-trips
@@ -122,7 +106,7 @@ func (h *USSDHandler) HandleRequest(ctx context.Context, sessionID, phoneNumber,
 	}
 
 	log.Printf("USSD Session - ID: %s, ServiceCode: %s, NetworkCode: %s, Phone: %s, CurrentMenu: %s, Input: %s",
-		sessionID, serviceCode, networkCode, redactPhone(phoneNumber), session.CurrentMenu, safeInput(session.CurrentMenu, input))
+		sessionID, serviceCode, networkCode, phone.Redact(phoneNumber), session.CurrentMenu, safeInput(session.CurrentMenu, input))
 
 	// Handle empty input (first request)
 	if input == "" {
@@ -409,7 +393,7 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 	// the rest of the session on a PIN. Re-prompt (CON) so a mistyped digit can
 	// be corrected. The DB unique constraint remains the real guard.
 	if taken, err := h.userService.NationalIDExists(ctx, nationalID); err != nil {
-		log.Printf("handleRegistrationNationalID: national ID check failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		log.Printf("handleRegistrationNationalID: national ID check failed for %s: %v", phone.Redact(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	} else if taken {
 		// Usually this is the same person on a new SIM (lost phone), so offer
@@ -451,7 +435,7 @@ func (h *USSDHandler) handleRecoverOffer(ctx context.Context, session *Session, 
 		nationalID, _ := session.Data["recover_national_id"].(string)
 		userID, err := h.userService.GetUserIDByNationalID(ctx, nationalID)
 		if err != nil {
-			log.Printf("handleRecoverOffer: lookup by national ID failed for %s: %v", redactPhone(session.PhoneNumber), err)
+			log.Printf("handleRecoverOffer: lookup by national ID failed for %s: %v", phone.Redact(session.PhoneNumber), err)
 			return h.formatError(session.Language, "error"), nil
 		}
 		if userID == "" {
@@ -469,7 +453,7 @@ func (h *USSDHandler) handleRecoverOffer(ctx context.Context, session *Session, 
 		}
 		qIDs, err := h.pinService.GetUserQuestionIDs(ctx, userID)
 		if err != nil {
-			log.Printf("handleRecoverOffer: GetUserQuestionIDs failed for %s: %v", redactPhone(session.PhoneNumber), err)
+			log.Printf("handleRecoverOffer: GetUserQuestionIDs failed for %s: %v", phone.Redact(session.PhoneNumber), err)
 			return h.formatError(session.Language, "error"), nil
 		}
 		if len(qIDs) < 2 {
@@ -533,7 +517,7 @@ func (h *USSDHandler) handleRecoverSimQ2(ctx context.Context, session *Session, 
 		{QuestionID: q2ID, Answer: input},
 	})
 	if err != nil {
-		log.Printf("handleRecoverSimQ2: VerifySecurityAnswers failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		log.Printf("handleRecoverSimQ2: VerifySecurityAnswers failed for %s: %v", phone.Redact(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
 	if !ok {
@@ -545,7 +529,7 @@ func (h *USSDHandler) handleRecoverSimQ2(ctx context.Context, session *Session, 
 		log.Printf("handleRecoverSimQ2: rebind failed for user %s: %v", userID, err)
 		return h.formatError(session.Language, "error"), nil
 	}
-	log.Printf("account recovered onto new SIM: user=%s phone=%s", userID, redactPhone(session.PhoneNumber))
+	log.Printf("account recovered onto new SIM: user=%s phone=%s", userID, phone.Redact(session.PhoneNumber))
 
 	h.clearRecoverySession(session)
 	session.UserID = userID
@@ -642,7 +626,7 @@ func (h *USSDHandler) completeBioUpdate(ctx context.Context, session *Session) (
 		City:       city,
 		PostalCode: postalCode,
 	}); err != nil {
-		log.Printf("completeBioUpdate: UpdateBio failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		log.Printf("completeBioUpdate: UpdateBio failed for %s: %v", phone.Redact(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -689,7 +673,7 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 
 	user, _, err := h.userService.RegisterUser(ctx, regReq)
 	if err != nil {
-		log.Printf("completeRegistration: RegisterUser failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		log.Printf("completeRegistration: RegisterUser failed for %s: %v", phone.Redact(session.PhoneNumber), err)
 		failNote := contracts.AccountNotification{
 			PhoneNumber: session.PhoneNumber,
 			Reason:      "Account creation failed. Please try again.",
@@ -1259,7 +1243,7 @@ func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, in
 	// registering a new one — so set it directly rather than re-creating.
 	if setOnly, _ := session.Data["set_pin_only"].(bool); setOnly {
 		if err := h.pinService.SetPIN(ctx, session.UserID, newPIN); err != nil {
-			log.Printf("handlePINConfirm: SetPIN (self-heal) failed for %s: %v", redactPhone(session.PhoneNumber), err)
+			log.Printf("handlePINConfirm: SetPIN (self-heal) failed for %s: %v", phone.Redact(session.PhoneNumber), err)
 			return h.formatError(session.Language, "error"), nil
 		}
 		delete(session.Data, "new_pin")
@@ -1273,7 +1257,7 @@ func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, in
 
 	hash, err := pinPkg.HashPIN(newPIN)
 	if err != nil {
-		log.Printf("handlePINConfirm: hash PIN failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		log.Printf("handlePINConfirm: hash PIN failed for %s: %v", phone.Redact(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
 	delete(session.Data, "new_pin")
@@ -1394,7 +1378,7 @@ func (h *USSDHandler) handlePINVerifyLoan(ctx context.Context, session *Session,
 		if strings.Contains(err.Error(), "locked") {
 			return h.formatLockedMessage(ctx, session), nil
 		}
-		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, redactPhone(session.PhoneNumber), err)
+		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, phone.Redact(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -1422,7 +1406,7 @@ func (h *USSDHandler) handlePINVerifyRepay(ctx context.Context, session *Session
 		if strings.Contains(err.Error(), "locked") {
 			return h.formatLockedMessage(ctx, session), nil
 		}
-		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, redactPhone(session.PhoneNumber), err)
+		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, phone.Redact(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -1497,7 +1481,7 @@ func (h *USSDHandler) handlePINChangeOld(ctx context.Context, session *Session, 
 		if strings.Contains(err.Error(), "locked") {
 			return h.formatLockedMessage(ctx, session), nil
 		}
-		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, redactPhone(session.PhoneNumber), err)
+		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, phone.Redact(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -1659,7 +1643,7 @@ func (h *USSDHandler) handlePINRecoveryQ2(ctx context.Context, session *Session,
 		{QuestionID: q2ID, Answer: input},
 	})
 	if err != nil {
-		log.Printf("handlePINRecoveryQ2: VerifySecurityAnswers failed for %s: %v", redactPhone(session.PhoneNumber), err)
+		log.Printf("handlePINRecoveryQ2: VerifySecurityAnswers failed for %s: %v", phone.Redact(session.PhoneNumber), err)
 		return h.formatError(session.Language, "error"), nil
 	}
 	if !ok {

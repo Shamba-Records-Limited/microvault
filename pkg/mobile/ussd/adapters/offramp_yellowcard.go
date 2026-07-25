@@ -13,6 +13,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
+	phoneutil "github.com/Shamba-Records-Limited/microvault/pkg/phone"
 )
 
 // ycNameRegexp strips everything except letters and spaces.
@@ -538,17 +539,17 @@ func (a *YellowCardOffRampAdapter) buildPaymentRequest(p *disbursementParams) ye
 		recipientName = "Customer"
 	}
 
-	phone := normalizePhone(p.req.DestinationPhone)
+	phone := phoneutil.Normalize(p.req.DestinationPhone)
 
 	// Test-only override (see TestDestinationPhoneOverride on the config).
 	// Logged loud so it's visible in any production log greppinng.
 	if a.testDestinationPhone != "" {
 		a.logger.Warn("YC test phone override applied — using simulation number instead of user's",
 			"loan_id", p.req.LoanID,
-			"original_phone_redacted", redactPhoneForLog(phone),
+			"original_phone_redacted", phoneutil.Redact(phone),
 			"override_phone", a.testDestinationPhone,
 		)
-		phone = normalizePhone(a.testDestinationPhone)
+		phone = phoneutil.Normalize(a.testDestinationPhone)
 	}
 
 	return yellowcard.PaymentRequest{
@@ -578,34 +579,6 @@ func (a *YellowCardOffRampAdapter) buildPaymentRequest(p *disbursementParams) ye
 // to satisfy YellowCard's validation: "must be only characters and spaces".
 func sanitizeYCName(name string) string {
 	return strings.TrimSpace(ycNameRegexp.ReplaceAllString(name, ""))
-}
-
-// redactPhoneForLog masks the middle digits of a phone number for log output.
-// Matches the 6-prefix + 3-suffix pattern used elsewhere (see ussd/handler.go).
-func redactPhoneForLog(phone string) string {
-	digits := phone
-	prefix := ""
-	if strings.HasPrefix(phone, "+") {
-		prefix = "+"
-		digits = phone[1:]
-	}
-	if len(digits) <= 9 {
-		return phone
-	}
-	return prefix + digits[:6] + strings.Repeat("X", len(digits)-9) + digits[len(digits)-3:]
-}
-
-// normalizePhone ensures the phone number is in international format with a '+' prefix.
-// YellowCard requires "+254..." not "254...".
-func normalizePhone(phone string) string {
-	phone = strings.TrimSpace(phone)
-	if phone == "" {
-		return phone
-	}
-	if !strings.HasPrefix(phone, "+") {
-		phone = "+" + phone
-	}
-	return phone
 }
 
 // Status retrieves the status of a disbursement from YellowCard. ref.ID is

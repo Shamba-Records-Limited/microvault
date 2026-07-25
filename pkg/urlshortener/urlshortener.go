@@ -1,5 +1,3 @@
-// Package urlshortener turns long outbound links (e.g. MoneyGram cash-pickup
-// interactive URLs) into short, tappable SMS links via dub.co.
 package urlshortener
 
 import (
@@ -7,6 +5,7 @@ import (
 	"fmt"
 
 	dubgo "github.com/dubinc/dub-go"
+	"github.com/dubinc/dub-go/models/components"
 	"github.com/dubinc/dub-go/models/operations"
 )
 
@@ -15,17 +14,27 @@ type Shortener interface {
 	Shorten(ctx context.Context, longURL string) (string, error)
 }
 
+// linkCreator is the slice of the dub.co SDK that Dub depends on. Narrowing it
+// to the one method used keeps Shorten unit-testable with a fake, without a
+// live dub.co call. *dubgo.Links satisfies it.
+type linkCreator interface {
+	Create(ctx context.Context, request *operations.CreateLinkRequestBody, opts ...operations.Option) (*components.LinkSchema, error)
+}
+
+var _ linkCreator = (*dubgo.Links)(nil)
+
 // Dub is a [Shortener] backed by dub.co.
 type Dub struct {
-	client          *dubgo.Dub
+	links           linkCreator
 	imagePreviewURL string
 }
 
 // NewDub builds a dub.co-backed shortener. imagePreviewURL is optional; when
 // set, links use dub Custom Link Previews (og:image) for a rich SMS preview.
 func NewDub(apiKey, imagePreviewURL string) *Dub {
+	client := dubgo.New(dubgo.WithSecurity(apiKey))
 	return &Dub{
-		client:          dubgo.New(dubgo.WithSecurity(apiKey)),
+		links:           client.Links,
 		imagePreviewURL: imagePreviewURL,
 	}
 }
@@ -34,11 +43,11 @@ func NewDub(apiKey, imagePreviewURL string) *Dub {
 func (d *Dub) Shorten(ctx context.Context, longURL string) (string, error) {
 	body := &operations.CreateLinkRequestBody{URL: longURL}
 	if d.imagePreviewURL != "" {
-		body.Proxy = dubgo.Pointer(true)
-		body.Image = dubgo.Pointer(d.imagePreviewURL)
+		body.Proxy = new(true)
+		body.Image = new(d.imagePreviewURL)
 	}
 
-	link, err := d.client.Links.Create(ctx, body)
+	link, err := d.links.Create(ctx, body)
 	if err != nil {
 		return "", fmt.Errorf("dub create link: %w", err)
 	}

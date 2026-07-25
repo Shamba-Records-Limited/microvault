@@ -12,6 +12,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
+	phoneutil "github.com/Shamba-Records-Limited/microvault/pkg/phone"
 )
 
 // MoneyGramOffRampAdapter implements OffRampService for MoneyGram Ramps
@@ -119,13 +120,13 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 
 	first, last := stellaranchor.SplitFullName(req.RecipientName)
 	customer := stellaranchor.Customer{
-		FirstName:       first,
-		LastName:        last,
-		MobileNumber:    stellaranchor.E164(req.DestinationPhone),
-		BirthDate:       opts.BirthDate,
-		Address:         opts.Address,
-		PostalCode:      opts.PostalCode,
-		City:            opts.City,
+		FirstName:    first,
+		LastName:     last,
+		MobileNumber: phoneutil.E164(req.DestinationPhone),
+		BirthDate:    opts.BirthDate,
+		Address:      opts.Address,
+		PostalCode:   opts.PostalCode,
+		City:         opts.City,
 	}
 	if iso3 := stellaranchor.CountryISO3(req.CountryCode); iso3 != "" {
 		customer.AddressCountryCode = iso3
