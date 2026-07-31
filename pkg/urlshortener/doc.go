@@ -10,6 +10,14 @@
 // configured, links are created with dub Custom Link Previews (proxy plus
 // og:image) so the SMS renders a rich preview.
 //
+// dub ignores og:title, og:description and og:image unless proxy is set, and
+// falls back to its own branding when they are absent, so Shorten always sends
+// a title and description. DubOptions.PreviewTitle and PreviewDescription
+// override them; left empty they are derived from the destination — host as the
+// title, "Visit host/path" as the description. Derivation drops the query and
+// fragment: the MoneyGram interactive URL carries a session token there, and an
+// og:description is scraped and cached by carriers and link-preview bots.
+//
 // Shorten treats a nil or empty short link from dub as an error rather than
 // returning a broken link, so callers can fall back to the unshortened URL
 // rather than send something that does not resolve.

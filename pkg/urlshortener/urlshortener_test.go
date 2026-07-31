@@ -3,6 +3,7 @@ package urlshortener
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/dubinc/dub-go/models/components"
@@ -36,10 +37,102 @@ func TestShorten_Success(t *testing.T) {
 	if fake.gotBody.URL != "https://example.com/very/long/url" {
 		t.Errorf("request URL = %q, want the long URL", fake.gotBody.URL)
 	}
-	// No image preview configured: proxy/image must be left unset.
-	if fake.gotBody.Proxy != nil || fake.gotBody.Image != nil {
-		t.Errorf("proxy/image should be nil without an image preview URL, got proxy=%v image=%v",
-			fake.gotBody.Proxy, fake.gotBody.Image)
+	// No image configured, but derived title/description still need proxy on.
+	if fake.gotBody.Proxy == nil || !*fake.gotBody.Proxy {
+		t.Errorf("proxy should be true once a preview field is set, got %v", fake.gotBody.Proxy)
+	}
+	if fake.gotBody.Image != nil {
+		t.Errorf("image should be nil without an image preview URL, got %v", *fake.gotBody.Image)
+	}
+}
+
+func TestShorten_DerivedPreview(t *testing.T) {
+	// The MoneyGram interactive URL: host becomes the title, host+path the
+	// description, and the token in the query must not survive into either.
+	fake := &fakeLinks{resp: &components.LinkSchema{ShortLink: "https://shmb.us/abc"}}
+	d := &Dub{links: fake}
+
+	const mgURL = "https://extstellar.moneygram.com/?transaction_id=abc123&token=SECRET-JWT"
+	if _, err := d.Shorten(context.Background(), mgURL); err != nil {
+		t.Fatalf("Shorten() error = %v", err)
+	}
+	if fake.gotBody.Title == nil || *fake.gotBody.Title != "extstellar.moneygram.com" {
+		t.Errorf("title = %v, want the destination host", fake.gotBody.Title)
+	}
+	if fake.gotBody.Description == nil || *fake.gotBody.Description != "Visit extstellar.moneygram.com/" {
+		t.Errorf("description = %v, want %q", fake.gotBody.Description, "Visit extstellar.moneygram.com/")
+	}
+	for _, field := range []*string{fake.gotBody.Title, fake.gotBody.Description} {
+		if field != nil && strings.Contains(*field, "SECRET-JWT") {
+			t.Errorf("query token leaked into a preview field: %q", *field)
+		}
+	}
+}
+
+func TestShorten_PreviewOverrides(t *testing.T) {
+	fake := &fakeLinks{resp: &components.LinkSchema{ShortLink: "https://shmb.us/abc"}}
+	d := &Dub{links: fake, previewTitle: "MicroVault", previewDescription: "Collect your cash"}
+
+	if _, err := d.Shorten(context.Background(), "https://extstellar.moneygram.com/?t=x"); err != nil {
+		t.Fatalf("Shorten() error = %v", err)
+	}
+	if fake.gotBody.Title == nil || *fake.gotBody.Title != "MicroVault" {
+		t.Errorf("title = %v, want the override", fake.gotBody.Title)
+	}
+	if fake.gotBody.Description == nil || *fake.gotBody.Description != "Collect your cash" {
+		t.Errorf("description = %v, want the override", fake.gotBody.Description)
+	}
+}
+
+func TestPreview_PartialOverrideAndPaths(t *testing.T) {
+	for name, tc := range map[string]struct {
+		dub             Dub
+		longURL         string
+		wantTitle       string
+		wantDescription string
+	}{
+		"title override, description derived": {
+			dub: Dub{previewTitle: "MicroVault"}, longURL: "https://mg.example/support/x",
+			wantTitle: "MicroVault", wantDescription: "Visit mg.example/support/x",
+		},
+		"description override, title derived": {
+			dub: Dub{previewDescription: "Collect your cash"}, longURL: "https://mg.example/support/x",
+			wantTitle: "mg.example", wantDescription: "Collect your cash",
+		},
+		"path preserved": {
+			dub: Dub{}, longURL: "https://mg.example/a/b?q=1#frag",
+			wantTitle: "mg.example", wantDescription: "Visit mg.example/a/b",
+		},
+		"unparseable URL yields no preview": {
+			dub: Dub{}, longURL: "::not a url::",
+			wantTitle: "", wantDescription: "",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			title, description := tc.dub.preview(tc.longURL)
+			if title != tc.wantTitle {
+				t.Errorf("title = %q, want %q", title, tc.wantTitle)
+			}
+			if description != tc.wantDescription {
+				t.Errorf("description = %q, want %q", description, tc.wantDescription)
+			}
+		})
+	}
+}
+
+func TestTruncate_RespectsDubLimits(t *testing.T) {
+	// dub caps title at 120 and description at 240; over-long values must be
+	// cut by rune so multi-byte characters are not split.
+	d := NewDub(DubOptions{
+		APIKey:             "key",
+		PreviewTitle:       strings.Repeat("é", 200),
+		PreviewDescription: strings.Repeat("é", 300),
+	})
+	if got := len([]rune(d.previewTitle)); got != maxPreviewTitleLen {
+		t.Errorf("title runes = %d, want %d", got, maxPreviewTitleLen)
+	}
+	if got := len([]rune(d.previewDescription)); got != maxPreviewDescriptionLen {
+		t.Errorf("description runes = %d, want %d", got, maxPreviewDescriptionLen)
 	}
 }
 

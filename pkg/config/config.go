@@ -91,6 +91,13 @@ type ShortenerConfig struct {
 	// Domain is the short-link domain links are created under (from
 	// DUB_DOMAIN). Optional; empty lets the workspace default apply.
 	Domain string
+	// PreviewTitle overrides the og:title in dub Custom Link Previews (from
+	// DUB_PREVIEW_TITLE). Optional; empty derives it from the destination host.
+	PreviewTitle string
+	// PreviewDescription overrides the og:description (from
+	// DUB_PREVIEW_DESCRIPTION). Optional; empty derives it from the
+	// destination host and path.
+	PreviewDescription string
 	// ImagePreviewURL is the og:image shown in dub Custom Link Previews
 	// (from DUB_IMAGE_PREVIEW_URL). Optional.
 	ImagePreviewURL string
@@ -480,10 +487,12 @@ func New() (*Config, error) {
 			PublicBaseURL:     strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"),
 		},
 		Shortener: ShortenerConfig{
-			APIKey:          os.Getenv("DUB_API_KEY"),
-			BaseURL:         strings.TrimRight(os.Getenv("DUB_API_URL"), "/"),
-			Domain:          os.Getenv("DUB_DOMAIN"),
-			ImagePreviewURL: os.Getenv("DUB_IMAGE_PREVIEW_URL"),
+			APIKey:             os.Getenv("DUB_API_KEY"),
+			BaseURL:            strings.TrimRight(os.Getenv("DUB_API_URL"), "/"),
+			Domain:             os.Getenv("DUB_DOMAIN"),
+			PreviewTitle:       os.Getenv("DUB_PREVIEW_TITLE"),
+			PreviewDescription: os.Getenv("DUB_PREVIEW_DESCRIPTION"),
+			ImagePreviewURL:    os.Getenv("DUB_IMAGE_PREVIEW_URL"),
 		},
 		Stellar: StellarConfig{
 			RpcURL:                  stellarRpcURL,
