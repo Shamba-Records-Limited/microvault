@@ -58,6 +58,51 @@ func TestShorten_WithImagePreview(t *testing.T) {
 	}
 }
 
+func TestShorten_Domain(t *testing.T) {
+	fake := &fakeLinks{resp: &components.LinkSchema{ShortLink: "https://shmb.us/abc"}}
+	d := &Dub{links: fake, domain: "shmb.us"}
+
+	if _, err := d.Shorten(context.Background(), "https://example.com/long"); err != nil {
+		t.Fatalf("Shorten() error = %v", err)
+	}
+	if fake.gotBody.Domain == nil || *fake.gotBody.Domain != "shmb.us" {
+		t.Errorf("domain = %v, want the configured domain", fake.gotBody.Domain)
+	}
+}
+
+func TestShorten_NoDomain(t *testing.T) {
+	// An unset domain must be omitted so the workspace default applies, not
+	// sent as an empty string dub would reject.
+	fake := &fakeLinks{resp: &components.LinkSchema{ShortLink: "https://shmb.us/abc"}}
+	d := &Dub{links: fake}
+
+	if _, err := d.Shorten(context.Background(), "https://example.com/long"); err != nil {
+		t.Fatalf("Shorten() error = %v", err)
+	}
+	if fake.gotBody.Domain != nil {
+		t.Errorf("domain = %v, want nil when unconfigured", *fake.gotBody.Domain)
+	}
+}
+
+func TestNewDub_BaseURL(t *testing.T) {
+	// NewDub must not panic on either a self-hosted or a default base URL; the
+	// SDK server URL itself is not observable through the linkCreator seam.
+	for name, baseURL := range map[string]string{
+		"self-hosted": "https://api.shmb.us",
+		"default":     "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := NewDub(DubOptions{APIKey: "key", BaseURL: baseURL, Domain: "shmb.us"})
+			if d.links == nil {
+				t.Error("NewDub() left links nil")
+			}
+			if d.domain != "shmb.us" {
+				t.Errorf("domain = %q, want %q", d.domain, "shmb.us")
+			}
+		})
+	}
+}
+
 func TestShorten_ClientError(t *testing.T) {
 	fake := &fakeLinks{err: errors.New("boom")}
 	d := &Dub{links: fake}

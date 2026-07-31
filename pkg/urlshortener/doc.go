@@ -3,7 +3,10 @@
 // SMS segment.
 //
 // Shortener is the one-method port the rest of the platform depends on; Dub is
-// the only implementation, backed by dub.co. When an image preview URL is
+// the only implementation, backed by dub. DubOptions.BaseURL points it at a
+// self-hosted instance; left empty it uses the SDK default, https://api.dub.co.
+// Self-hosted instances have no dub.sh, so DubOptions.Domain normally names the
+// short-link domain registered in the workspace. When an image preview URL is
 // configured, links are created with dub Custom Link Previews (proxy plus
 // og:image) so the SMS renders a rich preview.
 //

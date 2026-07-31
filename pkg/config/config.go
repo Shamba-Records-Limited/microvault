@@ -78,19 +78,25 @@ type ServerConfig struct {
 	PublicBaseURL string
 }
 
-// ShortenerConfig configures the optional dub.co link shortener used for
+// ShortenerConfig configures the optional dub link shortener used for
 // outbound cash-pickup SMS links. When APIKey is empty the shortener is off
 // and links fall back to the self-hosted /r/{code} redirect.
 type ShortenerConfig struct {
-	// APIKey is the dub.co workspace API key (from DUB_API_KEY). Presence
+	// APIKey is the dub workspace API key (from DUB_API_KEY). Presence
 	// enables the shortener.
 	APIKey string
+	// BaseURL is the dub API origin (from DUB_API_URL), set to point at a
+	// self-hosted instance. Empty uses the SDK default, https://api.dub.co.
+	BaseURL string
+	// Domain is the short-link domain links are created under (from
+	// DUB_DOMAIN). Optional; empty lets the workspace default apply.
+	Domain string
 	// ImagePreviewURL is the og:image shown in dub Custom Link Previews
 	// (from DUB_IMAGE_PREVIEW_URL). Optional.
 	ImagePreviewURL string
 }
 
-// Enabled reports whether the dub.co shortener should be used.
+// Enabled reports whether the dub shortener should be used.
 func (c *ShortenerConfig) Enabled() bool {
 	return c.APIKey != ""
 }
@@ -475,6 +481,8 @@ func New() (*Config, error) {
 		},
 		Shortener: ShortenerConfig{
 			APIKey:          os.Getenv("DUB_API_KEY"),
+			BaseURL:         strings.TrimRight(os.Getenv("DUB_API_URL"), "/"),
+			Domain:          os.Getenv("DUB_DOMAIN"),
 			ImagePreviewURL: os.Getenv("DUB_IMAGE_PREVIEW_URL"),
 		},
 		Stellar: StellarConfig{

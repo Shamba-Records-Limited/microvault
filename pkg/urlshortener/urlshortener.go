@@ -26,22 +26,46 @@ var _ linkCreator = (*dubgo.Links)(nil)
 // Dub is a [Shortener] backed by dub.co.
 type Dub struct {
 	links           linkCreator
+	domain          string
 	imagePreviewURL string
 }
 
-// NewDub builds a dub.co-backed shortener. imagePreviewURL is optional; when
-// set, links use dub Custom Link Previews (og:image) for a rich SMS preview.
-func NewDub(apiKey, imagePreviewURL string) *Dub {
-	client := dubgo.New(dubgo.WithSecurity(apiKey))
+// DubOptions configures a [Dub] shortener. Only APIKey is required.
+type DubOptions struct {
+	// APIKey is the dub workspace API key.
+	APIKey string
+	// BaseURL points the SDK at a self-hosted dub instance. Empty uses the
+	// SDK default, https://api.dub.co.
+	BaseURL string
+	// Domain is the short-link domain to create links under. Empty lets the
+	// workspace default apply — self-hosted instances have no dub.sh, so this
+	// is normally set.
+	Domain string
+	// ImagePreviewURL is the og:image for dub Custom Link Previews, giving a
+	// rich SMS preview. Optional.
+	ImagePreviewURL string
+}
+
+// NewDub builds a dub-backed shortener.
+func NewDub(opts DubOptions) *Dub {
+	sdkOpts := []dubgo.SDKOption{dubgo.WithSecurity(opts.APIKey)}
+	if opts.BaseURL != "" {
+		sdkOpts = append(sdkOpts, dubgo.WithServerURL(opts.BaseURL))
+	}
+	client := dubgo.New(sdkOpts...)
 	return &Dub{
 		links:           client.Links,
-		imagePreviewURL: imagePreviewURL,
+		domain:          opts.Domain,
+		imagePreviewURL: opts.ImagePreviewURL,
 	}
 }
 
 // Shorten creates a dub.co short link for longURL and returns its full short URL.
 func (d *Dub) Shorten(ctx context.Context, longURL string) (string, error) {
 	body := &operations.CreateLinkRequestBody{URL: longURL}
+	if d.domain != "" {
+		body.Domain = new(d.domain)
+	}
 	if d.imagePreviewURL != "" {
 		body.Proxy = new(true)
 		body.Image = new(d.imagePreviewURL)
