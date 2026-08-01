@@ -49,5 +49,18 @@
   "engines": {
     "node": ">=24",
     "npm": ">=11"
+  },
+  "allowScripts": {
+    "@reown/appkit@1.8.21": true,
+    "@stellar/stellar-sdk@14.2.0": true,
+    "protobufjs@7.4.0": true,
+    "protobufjs@7.5.5": true,
+    "blake-hash@2.0.0": true,
+    "bufferutil@4.1.0": true,
+    "secp256k1@5.0.1": true,
+    "tiny-secp256k1@1.1.7": true,
+    "usb@2.18.0": true,
+    "utf-8-validate@6.0.6": true,
+    "@stellar/stellar-sdk@16.1.0": true
   }
 }
