@@ -120,7 +120,8 @@ func (c *ServerConfig) CreditAddr() string {
 
 // StellarConfig holds all stellar-related configuration.
 type StellarConfig struct {
-	RpcURL                  string
+	RpcURL string
+	// AdminPublicKey is derived from AdminSecretKey at load, not read from the environment.
 	AdminPublicKey          string
 	AdminSecretKey          string
 	TreasurySecretKey       string
@@ -470,11 +471,13 @@ func New() (*Config, error) {
 		}
 	}
 
+	var adminPublicKey string
 	if adminSecretKey != "" {
-		_, err := keypair.ParseFull(adminSecretKey)
+		kp, err := keypair.ParseFull(adminSecretKey)
 		if err != nil {
 			return nil, fmt.Errorf("invalid admin secret key: %w", err)
 		}
+		adminPublicKey = kp.Address()
 	}
 
 	if serverSecretKey != "" {
@@ -482,6 +485,10 @@ func New() (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid server secret key: %w", err)
 		}
+	}
+
+	if serverSecretKey != "" && serverSecretKey == adminSecretKey {
+		return nil, fmt.Errorf("SERVER_SECRET_KEY must differ from ADMIN_SECRET_KEY")
 	}
 
 	if contractID != "" {
@@ -527,6 +534,7 @@ func New() (*Config, error) {
 		Stellar: StellarConfig{
 			RpcURL:                  stellarRpcURL,
 			TreasurySecretKey:       treasurySecretKey,
+			AdminPublicKey:          adminPublicKey,
 			AdminSecretKey:          adminSecretKey,
 			ServerSecretKey:         serverSecretKey,
 			NetworkPassphrase:       networkPassphrase,

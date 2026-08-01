@@ -7,6 +7,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
 )
 
 const testPassphrase = "Test SDF Network ; September 2015"
@@ -30,15 +31,20 @@ func (s *memStore) Delete(id string) error { delete(s.m, id); return nil }
 
 func newChallengeSvc(t *testing.T, store ChallengeStore) (ChallengeService, *keypair.Full) {
 	t.Helper()
-	kp, err := keypair.Random()
+	admin, err := keypair.Random()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := keypair.Random()
 	if err != nil {
 		t.Fatal(err)
 	}
 	svc, err := NewChallengeService(
 		&config.AuthConfig{ChallengeExpiration: 5 * time.Minute},
 		&config.StellarConfig{
-			AdminPublicKey:    kp.Address(),
-			AdminSecretKey:    kp.Seed(),
+			AdminPublicKey:    admin.Address(),
+			AdminSecretKey:    admin.Seed(),
+			ServerSecretKey:   server.Seed(),
 			NetworkPassphrase: testPassphrase,
 		},
 		store,
@@ -46,17 +52,55 @@ func newChallengeSvc(t *testing.T, store ChallengeStore) (ChallengeService, *key
 	if err != nil {
 		t.Fatalf("NewChallengeService: %v", err)
 	}
-	return svc, kp
+	return svc, admin
+}
+
+// signChallenge countersigns a challenge the way a wallet would.
+func signChallenge(t *testing.T, txB64 string, kp *keypair.Full) string {
+	t.Helper()
+	gtx, err := txnbuild.TransactionFromXDR(txB64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, ok := gtx.Transaction()
+	if !ok {
+		t.Fatal("not a simple transaction")
+	}
+	tx, err = tx.Sign(testPassphrase, kp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := tx.Base64()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func TestNewChallengeService_InvalidSecret(t *testing.T) {
 	_, err := NewChallengeService(
 		&config.AuthConfig{},
-		&config.StellarConfig{AdminSecretKey: "not-a-secret"},
+		&config.StellarConfig{ServerSecretKey: "not-a-secret"},
 		newMemStore(),
 	)
 	if err == nil {
 		t.Error("expected error for invalid server secret")
+	}
+}
+
+func TestNewChallengeService_RejectsSharedKey(t *testing.T) {
+	kp, _ := keypair.Random()
+	_, err := NewChallengeService(
+		&config.AuthConfig{},
+		&config.StellarConfig{
+			AdminPublicKey:    kp.Address(),
+			ServerSecretKey:   kp.Seed(),
+			NetworkPassphrase: testPassphrase,
+		},
+		newMemStore(),
+	)
+	if err == nil {
+		t.Error("expected error when the signing key is the admin key")
 	}
 }
 
@@ -83,16 +127,34 @@ func TestGenerateChallenge(t *testing.T) {
 
 func TestVerify_HappyPath(t *testing.T) {
 	store := newMemStore()
-	svc, _ := newChallengeSvc(t, store)
+	svc, admin := newChallengeSvc(t, store)
 
 	ch, _ := svc.GenerateChallenge()
-	// The generated transaction is already admin-signed, so verifying it back succeeds.
-	if err := svc.VerifySignedChallenge(ch.ID, ch.Transaction); err != nil {
+	if err := svc.VerifySignedChallenge(ch.ID, signChallenge(t, ch.Transaction, admin)); err != nil {
 		t.Fatalf("VerifySignedChallenge: %v", err)
 	}
 	// Single-use: the challenge is deleted after a successful verify.
 	if store.m[ch.ID] != nil {
 		t.Error("challenge should be deleted after verification (replay guard)")
+	}
+}
+
+func TestVerify_RejectsUnsignedEcho(t *testing.T) {
+	svc, _ := newChallengeSvc(t, newMemStore())
+
+	ch, _ := svc.GenerateChallenge()
+	if err := svc.VerifySignedChallenge(ch.ID, ch.Transaction); !errors.Is(err, ErrInvalidSignature) {
+		t.Errorf("err = %v, want ErrInvalidSignature", err)
+	}
+}
+
+func TestVerify_RejectsForeignSigner(t *testing.T) {
+	svc, _ := newChallengeSvc(t, newMemStore())
+	attacker, _ := keypair.Random()
+
+	ch, _ := svc.GenerateChallenge()
+	if err := svc.VerifySignedChallenge(ch.ID, signChallenge(t, ch.Transaction, attacker)); !errors.Is(err, ErrInvalidSignature) {
+		t.Errorf("err = %v, want ErrInvalidSignature", err)
 	}
 }
 
@@ -124,7 +186,7 @@ func TestVerify_TransactionMismatch(t *testing.T) {
 	svc, _ := newChallengeSvc(t, newMemStore())
 	ch1, _ := svc.GenerateChallenge()
 	ch2, _ := svc.GenerateChallenge()
-	// A valid, admin-signed tx from a different challenge has a different hash.
+	// A valid tx from a different challenge has a different hash.
 	if err := svc.VerifySignedChallenge(ch1.ID, ch2.Transaction); !errors.Is(err, ErrTransactionMismatch) {
 		t.Errorf("err = %v, want ErrTransactionMismatch", err)
 	}
