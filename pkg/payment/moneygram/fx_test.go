@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
@@ -68,7 +69,7 @@ func TestFXOrchestrator_PrimarySuccess_AppliesPrimaryBuffer(t *testing.T) {
 	fb := &fakeFallback{rate: 999} // never used
 
 	o, err := NewFXOrchestrator(primary, fb, FXOrchestratorConfig{
-		EntryBufferPct: 0.01, EntryBufferPctFallback: 0.05,
+		EntryBufferPct: offramp.Fraction(0.01), EntryBufferPctFallback: offramp.Fraction(0.05),
 	}, nil)
 	require.NoError(t, err)
 
@@ -83,12 +84,45 @@ func TestFXOrchestrator_PrimarySuccess_AppliesPrimaryBuffer(t *testing.T) {
 	assert.Equal(t, 0, fb.hits, "fallback must not be consulted on primary success")
 }
 
+// A nil buffer means "use the default"; an explicit zero means no buffer at
+// all. Conflating the two is what the pointer fields exist to prevent.
+func TestFXOrchestrator_BufferConfiguration(t *testing.T) {
+	tests := []struct {
+		name       string
+		buffer     *float64
+		wantBuffer float64
+		wantRate   float64
+	}{
+		{"unset defaults", nil, DefaultEntryBufferPct, 153.50 * (1 - DefaultEntryBufferPct)},
+		{"explicit zero quotes raw", offramp.Fraction(0), 0, 153.50},
+		{"explicit value applies", offramp.Fraction(0.025), 0.025, 153.50 * 0.975},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o, err := NewFXOrchestrator(newPrimaryReturning(t, 153.50), nil,
+				FXOrchestratorConfig{EntryBufferPct: tt.buffer}, nil)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantBuffer, o.EntryBufferPct())
+
+			got, err := o.Quote(context.Background(), FXQuoteRequest{
+				OriginatingCountry: "USA", DestinationCountry: "KEN",
+				SendCurrency: "USD", ReceiveCurrency: "KES",
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantBuffer, got.BufferPct)
+			assert.InDelta(t, tt.wantRate, got.Rate, 0.01)
+		})
+	}
+}
+
 func TestFXOrchestrator_PrimaryFail_FallsBackToFallback(t *testing.T) {
 	primary := newPrimaryReturning(t, 0) // 500s
 	fb := &fakeFallback{rate: 150.00}
 
 	o, err := NewFXOrchestrator(primary, fb, FXOrchestratorConfig{
-		EntryBufferPct: 0.01, EntryBufferPctFallback: 0.015,
+		EntryBufferPct: offramp.Fraction(0.01), EntryBufferPctFallback: offramp.Fraction(0.015),
 	}, nil)
 	require.NoError(t, err)
 
@@ -108,7 +142,7 @@ func TestFXOrchestrator_BothFail_ServesStaleCache(t *testing.T) {
 	primary := newPrimaryReturning(t, 100.0)
 	fb := &fakeFallback{err: errors.New("yc down")}
 	o, err := NewFXOrchestrator(primary, fb, FXOrchestratorConfig{
-		EntryBufferPct: 0.01, StaleCacheMaxAge: time.Hour,
+		EntryBufferPct: offramp.Fraction(0.01), StaleCacheMaxAge: time.Hour,
 	}, nil)
 	require.NoError(t, err)
 
@@ -175,7 +209,7 @@ func TestFXOrchestrator_FallbackOnly(t *testing.T) {
 	// MG primary not configured (e.g. REST credentials missing).
 	fb := &fakeFallback{rate: 145.00}
 	o, err := NewFXOrchestrator(nil, fb, FXOrchestratorConfig{
-		EntryBufferPctFallback: 0.02,
+		EntryBufferPctFallback: offramp.Fraction(0.02),
 	}, nil)
 	require.NoError(t, err)
 
@@ -208,19 +242,4 @@ func TestFXOrchestrator_ValidateAmount(t *testing.T) {
 
 	require.ErrorIs(t, o.ValidateAmount(4.99), ErrAmountOutOfRange)
 	require.ErrorIs(t, o.ValidateAmount(1000.01), ErrAmountOutOfRange)
-}
-
-func TestApplyBuffer(t *testing.T) {
-	tests := []struct {
-		rate, buf, want float64
-	}{
-		{100, 0, 100},
-		{100, 0.01, 99},
-		{100, 0.05, 95},
-		{0, 0.5, 0},
-		{100, 1.5, 0}, // clamped, never negative
-	}
-	for _, tc := range tests {
-		assert.InDelta(t, tc.want, applyBuffer(tc.rate, tc.buf), 0.0001)
-	}
 }

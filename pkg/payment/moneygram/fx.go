@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
@@ -19,6 +20,12 @@ const (
 	RateSourceFallback      = "yellowcard_fallback"
 	RateSourceCachedPrimary = "cached_primary"
 	RateSourceCachedFall    = "cached_fallback"
+)
+
+// Default entry buffers, applied when FXOrchestratorConfig leaves them unset.
+const (
+	DefaultEntryBufferPct         = 0.01
+	DefaultEntryBufferPctFallback = 0.015
 )
 
 // ErrAmountOutOfRange is returned by FXOrchestrator.ValidateAmount when the
@@ -53,12 +60,17 @@ func (f FallbackRateFunc) Get(ctx context.Context, currency string) (float64, er
 type FXOrchestratorConfig struct {
 	// EntryBufferPct is applied as a deduction to the primary (MG) rate to
 	// hedge against drift between USSD entry and webview confirmation.
-	// Expressed as a fraction (0.01 = 1 %). Default 0.01.
-	EntryBufferPct float64
+	// Expressed as a fraction (0.01 = 1 %). Nil defaults to 0.01; an explicit
+	// 0 quotes the raw rate.
+	//
+	// A pointer because zero is a meaningful setting here and has to stay
+	// distinguishable from "not configured".
+	EntryBufferPct *float64
 
 	// EntryBufferPctFallback is the larger buffer applied to the YC fallback
-	// rate, since MG's locked rate may diverge further from YC's. Default 0.015.
-	EntryBufferPctFallback float64
+	// rate, since MG's locked rate may diverge further from YC's. Nil defaults
+	// to 0.015; an explicit 0 quotes the raw rate.
+	EntryBufferPctFallback *float64
 
 	// StaleCacheMaxAge bounds how old a cached rate may be before the
 	// orchestrator stops accepting it (last resort). Default 24h.
@@ -109,6 +121,9 @@ type FXOrchestrator struct {
 	cfg      FXOrchestratorConfig
 	logger   *slog.Logger
 
+	primaryBuffer  offramp.RateBuffer
+	fallbackBuffer offramp.RateBuffer
+
 	mu    sync.Mutex
 	cache map[string]FXQuoteResult // key = "send:receive"
 }
@@ -119,12 +134,6 @@ type FXOrchestrator struct {
 func NewFXOrchestrator(primary *FXRateClient, fallback FallbackRateSource, cfg FXOrchestratorConfig, logger *slog.Logger) (*FXOrchestrator, error) {
 	if primary == nil && fallback == nil {
 		return nil, fmt.Errorf("moneygram: %w: at least one of primary or fallback rate source must be configured", stellaranchor.ErrInvalidConfig)
-	}
-	if cfg.EntryBufferPct == 0 {
-		cfg.EntryBufferPct = 0.01
-	}
-	if cfg.EntryBufferPctFallback == 0 {
-		cfg.EntryBufferPctFallback = 0.015
 	}
 	if cfg.StaleCacheMaxAge == 0 {
 		cfg.StaleCacheMaxAge = 24 * time.Hour
@@ -139,11 +148,13 @@ func NewFXOrchestrator(primary *FXRateClient, fallback FallbackRateSource, cfg F
 		logger = slog.Default()
 	}
 	return &FXOrchestrator{
-		primary:  primary,
-		fallback: fallback,
-		cfg:      cfg,
-		logger:   logger.With("component", "moneygram_fx_orchestrator"),
-		cache:    make(map[string]FXQuoteResult),
+		primary:        primary,
+		fallback:       fallback,
+		cfg:            cfg,
+		primaryBuffer:  offramp.NewRateBuffer(cfg.EntryBufferPct, DefaultEntryBufferPct),
+		fallbackBuffer: offramp.NewRateBuffer(cfg.EntryBufferPctFallback, DefaultEntryBufferPctFallback),
+		logger:         logger.With("component", "moneygram_fx_orchestrator"),
+		cache:          make(map[string]FXQuoteResult),
 	}, nil
 }
 
@@ -171,9 +182,9 @@ func (o *FXOrchestrator) Quote(ctx context.Context, req FXQuoteRequest) (*FXQuot
 		})
 		if err == nil {
 			res := &FXQuoteResult{
-				Rate:      applyBuffer(fx.Rate, o.cfg.EntryBufferPct),
+				Rate:      o.primaryBuffer.Apply(fx.Rate),
 				Source:    RateSourceMoneyGram,
-				BufferPct: o.cfg.EntryBufferPct,
+				BufferPct: o.primaryBuffer.Pct(),
 				FetchedAt: fx.FetchedAt,
 			}
 			o.cachePut(req, *res)
@@ -188,9 +199,9 @@ func (o *FXOrchestrator) Quote(ctx context.Context, req FXQuoteRequest) (*FXQuot
 		raw, err := o.fallback.Get(ctx, req.ReceiveCurrency)
 		if err == nil && raw > 0 {
 			res := &FXQuoteResult{
-				Rate:      applyBuffer(raw, o.cfg.EntryBufferPctFallback),
+				Rate:      o.fallbackBuffer.Apply(raw),
 				Source:    RateSourceFallback,
-				BufferPct: o.cfg.EntryBufferPctFallback,
+				BufferPct: o.fallbackBuffer.Pct(),
 				FetchedAt: time.Now(),
 			}
 			o.cachePut(req, *res)
@@ -218,6 +229,14 @@ func (o *FXOrchestrator) Quote(ctx context.Context, req FXQuoteRequest) (*FXQuot
 
 	return nil, ErrNoRateAvailable
 }
+
+// EntryBufferPct reports the buffer applied to the primary leg, after
+// defaulting. Zero means rates are quoted raw.
+func (o *FXOrchestrator) EntryBufferPct() float64 { return o.primaryBuffer.Pct() }
+
+// EntryBufferPctFallback reports the buffer applied to the fallback leg, after
+// defaulting. Zero means rates are quoted raw.
+func (o *FXOrchestrator) EntryBufferPctFallback() float64 { return o.fallbackBuffer.Pct() }
 
 // ValidateAmount enforces the configured min/max USD caps. Caps come from
 // MG's documented corridor limits (typically $5 floor, $1000–$3000 ceiling
@@ -247,20 +266,6 @@ func (o *FXOrchestrator) cacheGet(req FXQuoteRequest) (FXQuoteResult, bool) {
 	defer o.mu.Unlock()
 	v, ok := o.cache[o.cacheKey(req)]
 	return v, ok
-}
-
-// applyBuffer returns rate * (1 - bufferPct), clamped to >= 0.
-//
-// Reducing the rate is conservative: at quote time we promise the user fewer
-// local units per USD than the source suggested, so the locked MG rate is
-// (almost always) more favourable when they actually pick up. Slippage in
-// the user's favour is fine; slippage against them is what we hedge against.
-func applyBuffer(rate, bufferPct float64) float64 {
-	r := rate * (1.0 - bufferPct)
-	if r < 0 {
-		return 0
-	}
-	return r
 }
 
 // stalenessLabel maps a fresh source label to its cached counterpart.

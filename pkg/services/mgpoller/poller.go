@@ -98,7 +98,8 @@ type RefundRecord struct {
 	// always the total.
 	TxHash string
 
-	// NetStroops is what actually landed, gross refunded less MG's refund fee.
+	// NetStroops is what actually landed, summed from the refund payments as
+	// they appear on-ledger rather than from the anchor's reported amounts.
 	NetStroops int64
 
 	// ShortfallStroops is PrincipalStroops - NetStroops when MG returned less
@@ -628,13 +629,16 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 	}
 	p.clearRefundWait(rec.LoanID)
 
-	net, err := tx.Refunds.NetRefundedStroops()
-	if err != nil {
-		p.logger.Error("refund amounts are unparseable; not repaying vault",
-			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "error", err)
-		p.alertOps("MoneyGram refund amount unparseable",
-			fmt.Sprintf("Loan %s: cannot parse MG refund amounts, vault repay withheld: %v",
-				rec.LoanID, err))
+	// Trust but verify: MG naming a Stellar hash is not proof the payment
+	// landed. Repaying the vault against a refund that never arrived would
+	// overdraw the treasury.
+	lastHash := payments[len(payments)-1].ID
+	if !p.refundLanded(ctx, rec, payments) {
+		return
+	}
+
+	net, ok := p.ledgerRefundTotal(ctx, rec, tx, payments)
+	if !ok {
 		return
 	}
 	if net <= 0 {
@@ -645,16 +649,86 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 				rec.LoanID, rec.PrincipalStroops))
 		return
 	}
-
-	// Trust but verify: MG naming a Stellar hash is not proof the payment
-	// landed. Repaying the vault against a refund that never arrived would
-	// overdraw the treasury.
-	lastHash := payments[len(payments)-1].ID
-	if !p.refundLanded(ctx, rec, payments) {
-		return
-	}
+	p.crossCheckReportedRefund(rec, tx, net)
 
 	p.settleRefund(ctx, rec, lastHash, net)
+}
+
+// ledgerRefundTotal sums the anchor's refund payments as they appear on-ledger.
+//
+// This is the only amount safe to repay the vault with. An anchor's own refund
+// arithmetic can disagree with what it actually sent: MoneyGram reports
+// amount_refunded already net of its withdrawal fee and then restates that fee
+// in amount_fee, so deriving the total from those fields subtracts it twice.
+//
+// Reports false when the total cannot be established, leaving the loan in
+// refund_pending for the next tick rather than guessing.
+func (p *Poller) ledgerRefundTotal(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction, payments []stellaranchor.RefundPayment) (int64, bool) {
+	dest := p.refundDestination()
+	if p.verifier == nil || dest == "" {
+		net, err := tx.Refunds.NetRefundedStroops()
+		if err != nil {
+			p.logger.Error("no ledger verification available and refund amounts are unparseable; not repaying vault",
+				"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "error", err)
+			p.alertOps("MoneyGram refund amount unparseable",
+				fmt.Sprintf("Loan %s: cannot parse MG refund amounts and cannot read the ledger, "+
+					"vault repay withheld: %v", rec.LoanID, err))
+			return 0, false
+		}
+		p.logger.Warn("settling refund on the anchor's reported amount; ledger unverified",
+			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "reported_stroops", net)
+		return net, true
+	}
+
+	// MG may list the same hash more than once when it splits a refund across
+	// payments; PaymentsTo already returns every payment in that transaction,
+	// so reading it twice would double the total.
+	seen := make(map[string]bool, len(payments))
+	var total int64
+	for _, pay := range payments {
+		if seen[pay.ID] {
+			continue
+		}
+		seen[pay.ID] = true
+
+		received, err := p.verifier.PaymentsTo(ctx, pay.ID, dest, refundAssetCode, p.refundAssetIssuer())
+		if err != nil {
+			p.logger.Warn("could not read refund payment from ledger; will retry",
+				"loan_id", rec.LoanID, "refund_tx_hash", pay.ID, "error", err)
+			return 0, false
+		}
+		if len(received) == 0 {
+			p.logger.Warn("refund transaction carries no payment to us; will retry",
+				"loan_id", rec.LoanID, "refund_tx_hash", pay.ID, "destination", dest)
+			return 0, false
+		}
+		for _, r := range received {
+			total += r.AmountStroops
+		}
+	}
+	return total, true
+}
+
+// crossCheckReportedRefund alerts when the anchor's stated refund total differs
+// from what the ledger shows. Settlement has already used the ledger figure;
+// this exists so a systematically wrong anchor payload is visible rather than
+// silently tolerated.
+func (p *Poller) crossCheckReportedRefund(rec LoanRecord, tx *stellaranchor.Transaction, ledger int64) {
+	reported, err := tx.Refunds.NetRefundedStroops()
+	if err != nil {
+		p.logger.Warn("anchor refund amounts unparseable; settled on the ledger regardless",
+			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "error", err)
+		return
+	}
+	if reported == ledger {
+		return
+	}
+	p.logger.Warn("anchor refund amount disagrees with the ledger",
+		"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
+		"reported_stroops", reported, "ledger_stroops", ledger)
+	p.alertOps("MoneyGram refund amount mismatch",
+		fmt.Sprintf("Loan %s: MG reported %d stroops refunded but the ledger shows %d. "+
+			"Settled on the ledger figure.", rec.LoanID, reported, ledger))
 }
 
 // settleRefund records the refund, repays the vault with exactly what came
@@ -664,9 +738,17 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 // stellar_transaction_id — so the money-moving sequence and its crash ordering
 // exist in one place regardless of how the refund was discovered.
 func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash string, net int64) {
-	var shortfall int64
-	if rec.PrincipalStroops > net {
+	// repay is capped at the principal: an anchor that returns more than we
+	// sent is not the vault's windfall, and pushing the excess in would credit
+	// the loan with money it never lent. The excess stays put for an admin.
+	var shortfall, excess int64
+	repay := net
+	switch {
+	case rec.PrincipalStroops > net:
 		shortfall = rec.PrincipalStroops - net
+	case net > rec.PrincipalStroops:
+		excess = net - rec.PrincipalStroops
+		repay = rec.PrincipalStroops
 	}
 
 	// Persist before repaying: if the repay crashes mid-flight, the row still
@@ -693,9 +775,22 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 				rec.LoanID, rec.PrincipalStroops, net, shortfall))
 	}
 
+	if excess > 0 {
+		p.logger.Warn("REFUND EXCESS: MG returned more than we sent",
+			"loan_id", rec.LoanID,
+			"sent_stroops", rec.PrincipalStroops,
+			"returned_stroops", net,
+			"excess_stroops", excess)
+		p.alertOps("MoneyGram refund excess",
+			fmt.Sprintf("Loan %s: sent %d stroops, MG returned %d, excess %d. "+
+				"Vault repaid the principal; the excess is held in the funds wallet "+
+				"for an admin to settle.",
+				rec.LoanID, rec.PrincipalStroops, net, excess))
+	}
+
 	// Repay only what came back. Repaying the full principal would draw the
 	// difference from unrelated treasury funds.
-	if err := p.disbursement.RepayVaultAmount(rec.SequenceID, net); err != nil {
+	if err := p.disbursement.RepayVaultAmount(rec.SequenceID, repay); err != nil {
 		p.logger.Error("CRITICAL: vault repay failed after refund",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID,
 			"amount_stroops", net, "error", err)
@@ -718,7 +813,9 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 		"sequence_id", rec.SequenceID,
 		"refund_tx_hash", refundHash,
 		"net_stroops", net,
-		"shortfall_stroops", shortfall)
+		"repaid_stroops", repay,
+		"shortfall_stroops", shortfall,
+		"excess_stroops", excess)
 
 	if err := p.disbursement.NotifyRefundReceived(rec.SequenceID); err != nil {
 		p.logger.Warn("refund SMS failed",

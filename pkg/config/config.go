@@ -188,6 +188,14 @@ type MoneyGramConfig struct {
 	OAuthURL     string // token endpoint
 	FXRateURL    string // GET /fx-rate/v1/rates
 
+	// Entry-rate buffers applied by the FX orchestrator, as fractions
+	// (0.01 = 1 %). Nil leaves the orchestrator's own defaults in place;
+	// an explicit 0 quotes raw source rates with no buffer at all.
+	// From MONEYGRAM_FX_ENTRY_BUFFER_PCT and
+	// MONEYGRAM_FX_ENTRY_BUFFER_PCT_FALLBACK.
+	FXEntryBufferPct         *float64
+	FXEntryBufferPctFallback *float64
+
 	// Custodial wallets. AuthSecret co-signs SEP-10; FundsSecret is the SEP-24
 	// account and USDC send source. Both default to TREASURY_SECRET_KEY.
 	AuthSecret  string
@@ -205,6 +213,15 @@ type PaymentsConfig struct {
 	YellowCard YellowCardConfig
 	Fonbnk     FonbnkConfig
 	MoneyGram  MoneyGramConfig
+
+	// EntryFXBufferPct is the flat safety margin the loan adapter applies when
+	// it re-quotes the entry rate from a provider's own Quoter, as a fraction
+	// (0.02 = 2 %). Nil leaves the adapter's default in place; an explicit 0
+	// persists the quoted rate unbuffered. From LOAN_ENTRY_FX_BUFFER_PCT.
+	//
+	// Distinct from the MoneyGram orchestrator's buffers, which apply on the
+	// cascade path and carry their own per-leg settings.
+	EntryFXBufferPct *float64
 }
 
 // AfricasTalkingConfig holds all SMS/USSD-related configuration for Africa's Talking
@@ -294,6 +311,19 @@ func New() (*Config, error) {
 		return nil, err
 	}
 	mgRefundMaxAttempts, err := envPositiveInt("MONEYGRAM_REFUND_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+
+	entryFXBuffer, err := envFraction("LOAN_ENTRY_FX_BUFFER_PCT")
+	if err != nil {
+		return nil, err
+	}
+	mgFXBuffer, err := envFraction("MONEYGRAM_FX_ENTRY_BUFFER_PCT")
+	if err != nil {
+		return nil, err
+	}
+	mgFXBufferFallback, err := envFraction("MONEYGRAM_FX_ENTRY_BUFFER_PCT_FALLBACK")
 	if err != nil {
 		return nil, err
 	}
@@ -508,6 +538,7 @@ func New() (*Config, error) {
 			ContractID:              contractID,
 		},
 		Payments: PaymentsConfig{
+			EntryFXBufferPct: entryFXBuffer,
 			YellowCard: YellowCardConfig{
 				PublicKey:    ycPublicKey,
 				SecretKey:    ycSecretKey,
@@ -532,6 +563,9 @@ func New() (*Config, error) {
 				FXRateURL:         mgFXRateURL,
 				AuthSecret:        firstNonEmpty(mgAuthSecret, treasurySecretKey),
 				FundsSecret:       firstNonEmpty(mgFundsSecret, treasurySecretKey),
+
+				FXEntryBufferPct:         mgFXBuffer,
+				FXEntryBufferPctFallback: mgFXBufferFallback,
 
 				PollInterval:            mgPollInterval,
 				PollMaxBatch:            mgPollMaxBatch,
@@ -596,6 +630,21 @@ func envPositiveInt(key string) (int, error) {
 		return 0, fmt.Errorf("error parsing %s: expected a positive integer, got %q", key, raw)
 	}
 	return n, nil
+}
+
+// envFraction reads a fraction in [0,1] — 0.01 being 1 % — and returns nil
+// when unset. A pointer rather than a bare float because zero is a meaningful
+// value here (no buffer) and must stay distinguishable from "not configured".
+func envFraction(key string) (*float64, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil, nil
+	}
+	f, err := strconv.ParseFloat(raw, 64)
+	if err != nil || f < 0 || f > 1 {
+		return nil, fmt.Errorf("error parsing %s: expected a fraction between 0 and 1, got %q", key, raw)
+	}
+	return &f, nil
 }
 
 // firstNonEmpty returns the first non-empty argument, or "" if all are empty.

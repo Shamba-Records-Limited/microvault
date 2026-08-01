@@ -283,6 +283,16 @@ func (v *fakeVerifier) PaymentsTo(_ context.Context, txHash, destination, assetC
 	return v.payments, nil
 }
 
+// ledgerRefund is a verifier that confirms the refund transaction and reports
+// stroops as the amount actually paid to us on-ledger. Settlement reads this,
+// not the anchor's own account of the refund.
+func ledgerRefund(stroops int64) *fakeVerifier {
+	return &fakeVerifier{
+		ok:       true,
+		payments: []rpc.Payment{{AmountStroops: stroops}},
+	}
+}
+
 type fakeTreasury struct {
 	calls []sendCall
 	hash  string
@@ -661,6 +671,7 @@ func TestPoller_Refunded_SettlesFullRefund(t *testing.T) {
 	// Sent 50 USDC, MG returns all of it with no fee.
 	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
 	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	p.verifier = ledgerRefund(500000000)
 
 	p.poll(context.Background())
 
@@ -684,6 +695,7 @@ func TestPoller_Refunded_AnchorFeeCountsAsShortfall(t *testing.T) {
 	p, srv, fetcher, recorder, disb, _, alerts := newTestPoller(t)
 	srv.setTransactionJSON(refundedTxJSON("50.0000000", "1.5000000", "refund-hash"))
 	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	p.verifier = ledgerRefund(485000000)
 
 	p.poll(context.Background())
 
@@ -702,6 +714,7 @@ func TestPoller_Refunded_ShortfallAlertsAndStillRepaysWhatArrived(t *testing.T) 
 	// Sent 50 USDC but MG only returns 40.
 	srv.setTransactionJSON(refundedTxJSON("40.0000000", "0", "refund-hash"))
 	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	p.verifier = ledgerRefund(400000000)
 
 	p.poll(context.Background())
 
@@ -712,6 +725,65 @@ func TestPoller_Refunded_ShortfallAlertsAndStillRepaysWhatArrived(t *testing.T) 
 	assert.Equal(t, int64(400000000), disb.amountRepays[0].stroops)
 	assert.Equal(t, []string{"L-1=" + statusRefundReceived}, disb.statuses)
 	assert.Contains(t, alerts.calls, "MoneyGram refund shortfall")
+}
+
+// Regression: MoneyGram reports amount_refunded already net of its withdrawal
+// fee and then restates that fee in amount_fee, so the anchor's own arithmetic
+// understates the refund by one fee. Observed on testnet 2026-08-01, where MG
+// reported 20.43 less a 3.00 fee against a 23.43 payment that had actually
+// landed in full, and the vault was repaid 17.43.
+func TestPoller_Refunded_AnchorUnderReports_SettlesOnLedgerAmount(t *testing.T) {
+	p, srv, fetcher, recorder, disb, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(refundedTxJSON("20.4300000", "3.0000000", "refund-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(234301780)}
+	p.verifier = ledgerRefund(234300000)
+
+	p.poll(context.Background())
+
+	require.Len(t, recorder.refunds, 1)
+	assert.Equal(t, int64(234300000), recorder.refunds[0].NetStroops,
+		"the ledger amount settles, not the anchor's 17.43")
+
+	require.Len(t, disb.amountRepays, 1)
+	assert.Equal(t, int64(234300000), disb.amountRepays[0].stroops)
+
+	assert.Equal(t, int64(1780), recorder.refunds[0].ShortfallStroops,
+		"only MG's 2dp truncation is genuinely short")
+	assert.Contains(t, alerts.calls, "MoneyGram refund amount mismatch")
+}
+
+func TestPoller_Refunded_AnchorOverpays_CapsRepayAtPrincipal(t *testing.T) {
+	p, srv, fetcher, recorder, disb, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(refundedTxJSON("60.0000000", "0", "refund-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	p.verifier = ledgerRefund(600000000)
+
+	p.poll(context.Background())
+
+	require.Len(t, recorder.refunds, 1)
+	assert.Equal(t, int64(600000000), recorder.refunds[0].NetStroops, "the record keeps what arrived")
+	assert.Zero(t, recorder.refunds[0].ShortfallStroops)
+
+	require.Len(t, disb.amountRepays, 1)
+	assert.Equal(t, int64(500000000), disb.amountRepays[0].stroops,
+		"the vault is owed the principal, not the anchor's overpayment")
+	assert.Contains(t, alerts.calls, "MoneyGram refund excess")
+}
+
+// A hash that succeeded but carries no payment to our refund destination is not
+// a settled refund — most likely it still names our own outbound send.
+func TestPoller_Refunded_LedgerShowsNoPaymentToUs_WithholdsRepay(t *testing.T) {
+	p, srv, fetcher, recorder, disb, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	p.verifier = &fakeVerifier{ok: true}
+
+	p.poll(context.Background())
+
+	assert.Empty(t, disb.amountRepays)
+	assert.Empty(t, recorder.refunds)
+	assert.Empty(t, disb.statuses)
+	assert.Empty(t, alerts.calls, "an unsettled refund is not yet an anchor fault")
 }
 
 func TestPoller_Refunded_NoPaymentsYet_StaysPending(t *testing.T) {
@@ -760,6 +832,7 @@ func TestPoller_Refunded_RepayFails_StaysPendingForRetry(t *testing.T) {
 	p, srv, fetcher, _, disb, _, alerts := newTestPoller(t)
 	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
 	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	p.verifier = ledgerRefund(500000000)
 	disb.repayAmountErr = errors.New("vault unreachable")
 
 	p.poll(context.Background())
@@ -772,6 +845,7 @@ func TestPoller_Refunded_RecordFails_WithholdsRepay(t *testing.T) {
 	p, srv, fetcher, recorder, disb, _, _ := newTestPoller(t)
 	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
 	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	p.verifier = ledgerRefund(500000000)
 	recorder.refundErr = errors.New("db down")
 
 	p.poll(context.Background())
@@ -783,6 +857,7 @@ func TestPoller_Refunded_RecordFails_WithholdsRepay(t *testing.T) {
 func TestPoller_Refunded_FirstTickMarksPendingThenSettles(t *testing.T) {
 	p, srv, fetcher, _, disb, _, _ := newTestPoller(t)
 	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
+	p.verifier = ledgerRefund(500000000)
 
 	// First observation: loan is still mg_initiated.
 	fetcher.loans = []LoanRecord{{

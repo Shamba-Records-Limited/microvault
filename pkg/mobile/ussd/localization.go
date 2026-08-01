@@ -322,6 +322,11 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Kiasi ulichoomba kinazidi kikomo kilichoidhinishwa cha %s %.0f",
 			"fr": "Le montant demandé dépasse la limite approuvée de %s %.0f",
 		},
+		"loan_cash_pickup_min": {
+			"en": "Cash pickup needs at least %s %.0f. Choose mobile money instead:",
+			"sw": "Kuchukua pesa kunahitaji angalau %s %.0f. Chagua pesa ya simu badala yake:",
+			"fr": "Le retrait en espèces exige au moins %s %.0f. Choisissez plutôt mobile money:",
+		},
 		"loan_confirm_summary": {
 			"en": "Loan of %s %.0f for %d days\n1. Confirm\n0. Cancel",
 			"sw": "Mkopo wa %s %.0f kwa siku %d\n1. Thibitisha\n0. Ghairi",

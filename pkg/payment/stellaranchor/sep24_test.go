@@ -190,7 +190,8 @@ func TestRefunds_ParsedFromTransaction(t *testing.T) {
 
 	net, err := r.NetRefundedStroops()
 	require.NoError(t, err)
-	assert.Equal(t, int64(485000000), net, "50 USDC less a 1.5 fee is 48.5, i.e. 485000000 stroops")
+	assert.Equal(t, int64(485000000), net,
+		"the anchor's stated total is 50 less a 1.5 fee; it is a cross-check, not what settles")
 }
 
 func TestRefunds_StellarPayments(t *testing.T) {

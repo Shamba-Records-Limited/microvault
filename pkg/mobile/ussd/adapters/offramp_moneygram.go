@@ -250,6 +250,8 @@ func (a *MoneyGramOffRampAdapter) SupportedProviders(ctx context.Context, countr
 		ID:               "moneygram_cash_pickup",
 		Name:             "MoneyGram Cash Pickup",
 		SupportedMethods: []string{"cash_pickup"},
+		MinAmount:        moneygram.MinWithdrawUSD,
+		MaxAmount:        moneygram.MaxWithdrawUSD,
 		Currency:         "USD", // payout currency is chosen in MG's webview
 		Status:           "active",
 	}}, nil
@@ -266,9 +268,9 @@ func (a *MoneyGramOffRampAdapter) Quote(ctx context.Context, q offramp.QuoteRequ
 	// Default originating country is USA — matches MoneyGram's primary corridor
 	// and is what's documented for the FX Rate endpoint.
 	got, err := a.client.FXRate.Get(ctx, moneygram.FXRateRequest{
-		OriginatingCountry: "USA",
-		SendCurrency:       "USD",
-		DestinationCountry: "KEN", // hardcoded for now — extend when corridors broaden
+		OriginatingCountry: moneygram.DefaultOriginatingCountry,
+		SendCurrency:       moneygram.DefaultSendCurrency,
+		DestinationCountry: moneygram.CountryISO3ForCurrency(q.Currency),
 		ServiceOption:      moneygram.ServiceOptionCashPickup,
 	})
 	if err != nil {

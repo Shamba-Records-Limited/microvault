@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/phone"
 	pinPkg "github.com/Shamba-Records-Limited/microvault/pkg/pin"
 )
@@ -789,10 +791,15 @@ func (h *USSDHandler) handleLoanAmount(ctx context.Context, session *Session, in
 }
 
 // handlePayoutMethod stores the chosen disbursement rail (mobile money or cash
-// pickup) and advances to confirmation.
+// pickup) and advances to confirmation. Cash pickup carries an anchor-side
+// minimum that mobile money does not, so it is enforced here rather than
+// against the loan product.
 func (h *USSDHandler) handlePayoutMethod(ctx context.Context, session *Session, input string) (string, error) {
 	switch input {
 	case "1":
+		if body, ok := h.cashPickupBelowMinimum(ctx, session); ok {
+			return body, nil
+		}
 		session.Data["payout_method"] = "cash_pickup"
 	case "2":
 		session.Data["payout_method"] = "mobile_money"
@@ -804,6 +811,53 @@ func (h *USSDHandler) handlePayoutMethod(ctx context.Context, session *Session, 
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
 	return h.showLoanConfirmation(ctx, session)
+}
+
+// payoutOptionCashPickup is the payout menu key for the MoneyGram rail.
+const payoutOptionCashPickup = "1"
+
+// cashPickupBelowMinimum reports whether the pending loan converts to less than
+// the anchor's withdraw minimum, returning the payout menu re-rendered without
+// the cash-pickup option so the borrower can switch rails instead of losing the
+// session. Leaving the option on screen would just loop them back here.
+//
+// It fails open: without a usable rate the loan proceeds and the anchor
+// rejects it downstream, which beats blocking every cash pickup during an FX
+// outage.
+func (h *USSDHandler) cashPickupBelowMinimum(ctx context.Context, session *Session) (string, bool) {
+	if h.rateService == nil {
+		return "", false
+	}
+	currency, _ := session.Data["local_currency"].(string)
+	rate, err := h.rateService.GetExchangeRate(ctx, currency)
+	if err != nil || rate <= 0 {
+		log.Printf("cashPickupBelowMinimum: exchange rate unavailable for %s: %v", currency, err)
+		return "", false
+	}
+
+	fiatAmount := float64(toInt64(session.Data["loan_amount_local"])) / 100.0
+	if fiatAmount/rate >= moneygram.MinWithdrawUSD {
+		return "", false
+	}
+
+	menu, err := h.menuRegistry.Get("payout_method")
+	if err != nil {
+		return h.formatError(session.Language, "error"), true
+	}
+
+	// Option keys are preserved, not renumbered: the handler and the borrower's
+	// session both key off "2" for mobile money.
+	remaining := *menu
+	remaining.Options = nil
+	for _, opt := range menu.Options {
+		if opt.Key == payoutOptionCashPickup {
+			continue
+		}
+		remaining.Options = append(remaining.Options, opt)
+	}
+
+	msg := Format(session.Language, "loan_cash_pickup_min", currency, math.Ceil(moneygram.MinWithdrawUSD*rate))
+	return "CON " + h.withNavHint(session, "payout_method", msg+"\n"+remaining.Render(session.Language)), true
 }
 
 // handleLoanConfirm handles loan confirmation. When PIN service is available,

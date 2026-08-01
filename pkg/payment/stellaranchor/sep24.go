@@ -99,10 +99,9 @@ type Transaction struct {
 // Refunds describes money returned to the user for a transaction. For a
 // withdrawal this is the anchor sending our USDC back on Stellar.
 //
-// Amounts are denominated in amount_in_asset (USDC for our withdrawals).
-// AmountRefunded is the gross returned and AmountFee the total charged to
-// process the refunds, so the amount that actually lands on-ledger is
-// AmountRefunded - AmountFee.
+// Amounts are denominated in amount_in_asset (USDC for our withdrawals) and
+// are the anchor's own account of what it did. They are not reliable enough to
+// settle against — read NetRefundedStroops before using them.
 type Refunds struct {
 	AmountRefunded string          `json:"amount_refunded"`
 	AmountFee      string          `json:"amount_fee"`
@@ -145,8 +144,14 @@ func (r *Refunds) StellarPayments() []RefundPayment {
 	return out
 }
 
-// NetRefundedStroops is the amount that actually reached us on-ledger, in
-// stroops: gross refunded less the anchor's refund fee.
+// NetRefundedStroops is the anchor's stated refund total in stroops, taken as
+// AmountRefunded less AmountFee.
+//
+// Treat this as a cross-check, never as the amount to settle against. It is
+// only as good as the anchor's bookkeeping, and MoneyGram's does not hold:
+// it reports AmountRefunded already net of the withdrawal fee and then repeats
+// that fee in AmountFee, so this subtracts it twice and understates what MG
+// actually sent. Take the figure that moves money from the ledger.
 //
 // Parsing is exact — SEP-24 amounts are decimal strings and float conversion
 // would lose stroops on values like "49.9999999".
