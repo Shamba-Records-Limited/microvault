@@ -50,7 +50,11 @@ func (f *fakeRepo) GetByUserID(context.Context, string, int, int) ([]*models.Tra
 func (f *fakeRepo) GetByStatus(context.Context, string, int, int) ([]*models.Transaction, error) {
 	return f.list, f.listErr
 }
-func (f *fakeRepo) Update(context.Context, *models.Transaction) error { return nil }
+func (f *fakeRepo) List(context.Context, string, string, int, int) ([]*models.Transaction, error) {
+	return f.list, f.listErr
+}
+func (f *fakeRepo) Count(context.Context, string, string) (int64, error) { return 0, nil }
+func (f *fakeRepo) Update(context.Context, *models.Transaction) error    { return nil }
 func (f *fakeRepo) UpdateFields(_ context.Context, _ string, fields map[string]any) error {
 	f.updatedFields = fields
 	return f.updateErr

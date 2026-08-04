@@ -53,8 +53,14 @@ func (f *usrRepo) GetByKYCStatus(context.Context, string, int, int) ([]*models.U
 func (f *usrRepo) GetByRole(context.Context, string, int, int) ([]*models.User, error) {
 	return nil, nil
 }
-func (f *usrRepo) List(context.Context, int, int) ([]*models.User, error)   { return nil, nil }
-func (f *usrRepo) Count(context.Context) (int64, error)                     { return 0, nil }
+func (f *usrRepo) List(context.Context, int, int) ([]*models.User, error) { return nil, nil }
+func (f *usrRepo) ListFiltered(context.Context, string, string, int, int) ([]*models.User, error) {
+	return nil, nil
+}
+func (f *usrRepo) Count(context.Context) (int64, error) { return 0, nil }
+func (f *usrRepo) CountFiltered(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
 func (f *usrRepo) CountByKYCStatus(context.Context, string) (int64, error)  { return 0, nil }
 func (f *usrRepo) CountByRole(context.Context, string) (int64, error)       { return 0, nil }
 func (f *usrRepo) CountAdmins(context.Context) (int, error)                 { return 1, nil }

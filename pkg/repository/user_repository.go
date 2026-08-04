@@ -40,8 +40,15 @@ type UserRepository interface {
 	GetByRole(ctx context.Context, role string, limit, offset int) ([]*models.User, error)
 	List(ctx context.Context, limit, offset int) ([]*models.User, error)
 
+	// ListFiltered returns users newest first, filtered by status and/or KYC
+	// status when either is given. Empty filters return every non-deleted user.
+	ListFiltered(ctx context.Context, status, kycStatus string, limit, offset int) ([]*models.User, error)
+
 	// Count operations
 	Count(ctx context.Context) (int64, error)
+
+	// CountFiltered returns the number of users matching ListFiltered's filters.
+	CountFiltered(ctx context.Context, status, kycStatus string) (int64, error)
 	CountByKYCStatus(ctx context.Context, kycStatus string) (int64, error)
 	CountByRole(ctx context.Context, role string) (int64, error)
 	CountAdmins(ctx context.Context) (int, error)
@@ -199,6 +206,45 @@ func (r *userRepository) List(ctx context.Context, limit, offset int) ([]*models
 		return nil, ErrFailedToGetUsers
 	}
 	return users, nil
+}
+
+// ListFiltered returns users newest first, filtered by status and/or KYC status.
+func (r *userRepository) ListFiltered(ctx context.Context, status, kycStatus string, limit, offset int) ([]*models.User, error) {
+	var users []*models.User
+	query := r.db.WithContext(ctx).Where("deleted_at IS NULL")
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if kycStatus != "" {
+		query = query.Where("kyc_status = ?", kycStatus)
+	}
+	result := query.
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&users)
+	if result.Error != nil {
+		log.Printf("ListFiltered: database error: %v", result.Error)
+		return nil, ErrFailedToGetUsers
+	}
+	return users, nil
+}
+
+// CountFiltered returns the number of users matching ListFiltered's filters.
+func (r *userRepository) CountFiltered(ctx context.Context, status, kycStatus string) (int64, error) {
+	var count int64
+	query := r.db.WithContext(ctx).Model(&models.User{}).Where("deleted_at IS NULL")
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if kycStatus != "" {
+		query = query.Where("kyc_status = ?", kycStatus)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		log.Printf("CountFiltered: database error: %v", err)
+		return 0, ErrFailedToCountUsers
+	}
+	return count, nil
 }
 
 // Count counts the total number of users in the database

@@ -16,8 +16,8 @@ require (
 	github.com/govalues/money v0.2.4
 	github.com/hibiken/asynq v0.26.0
 	github.com/joho/godotenv v1.5.1
-	github.com/redis/go-redis/v9 v9.21.0
-	github.com/stellar/go-stellar-sdk v0.6.0
+	github.com/redis/go-redis/v9 v9.22.0
+	github.com/stellar/go-stellar-sdk v0.7.1
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/swag v1.16.6
 	github.com/tyler-smith/go-bip32 v1.0.0

@@ -23,6 +23,8 @@ var (
 	ErrFailedToGetTransactionsByUserID = errors.New("failed to get transactions by user ID")
 	ErrFailedToGetTransactionsByStatus = errors.New("failed to get transactions by status")
 	ErrFailedToUpdateTransaction       = errors.New("failed to update transaction")
+	ErrFailedToListTransactions        = errors.New("failed to list transactions")
+	ErrFailedToCountTransactions       = errors.New("failed to count transactions")
 )
 
 // TransactionRepository defines the interface for transaction data access
@@ -39,6 +41,13 @@ type TransactionRepository interface {
 	GetByLoanID(ctx context.Context, loanID string, limit, offset int) ([]*models.Transaction, error)
 	GetByUserID(ctx context.Context, userID string, limit, offset int) ([]*models.Transaction, error)
 	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*models.Transaction, error)
+
+	// List returns transactions newest first, filtered by status and/or type
+	// when either is given. Empty filters return everything.
+	List(ctx context.Context, status, txType string, limit, offset int) ([]*models.Transaction, error)
+
+	// Count returns the number of transactions matching the same filters List applies.
+	Count(ctx context.Context, status, txType string) (int64, error)
 
 	// Update operations
 	Update(ctx context.Context, tx *models.Transaction) error
@@ -211,6 +220,45 @@ func (r *transactionRepository) GetByStatus(ctx context.Context, status string, 
 		return nil, ErrFailedToGetTransactionsByStatus
 	}
 	return transactions, nil
+}
+
+// List returns transactions newest first, filtered by status and/or tx_type.
+func (r *transactionRepository) List(ctx context.Context, status, txType string, limit, offset int) ([]*models.Transaction, error) {
+	var transactions []*models.Transaction
+	query := r.db.WithContext(ctx)
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if txType != "" {
+		query = query.Where("tx_type = ?", txType)
+	}
+	result := query.
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&transactions)
+	if result.Error != nil {
+		log.Printf("List: database error: %v", result.Error)
+		return nil, ErrFailedToListTransactions
+	}
+	return transactions, nil
+}
+
+// Count returns the number of transactions matching List's filters.
+func (r *transactionRepository) Count(ctx context.Context, status, txType string) (int64, error) {
+	var count int64
+	query := r.db.WithContext(ctx).Model(&models.Transaction{})
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if txType != "" {
+		query = query.Where("tx_type = ?", txType)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		log.Printf("Count: database error: %v", err)
+		return 0, ErrFailedToCountTransactions
+	}
+	return count, nil
 }
 
 // --- Update Operations ---
