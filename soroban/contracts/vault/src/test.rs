@@ -1336,7 +1336,7 @@ fn test_deposit_does_not_shorten_existing_longer_lock() {
     client.deposit(&100_000i128, &user, &user, &user);
     assert_eq!(client.get_unlock_time(&user), seven_days);
 
-    // Advance only 1 day; 6 days of lock remain.
+    // Advance 1 day; 6 days of lock remain.
     let one_day: u64 = 86400;
     env.ledger().set(LedgerInfo {
         timestamp: one_day,
@@ -1349,11 +1349,14 @@ fn test_deposit_does_not_shorten_existing_longer_lock() {
         max_entry_ttl: 10000,
     });
 
-    // Large second deposit. `now + lock_period` = 1 day + 7 days = 8 days,
-    // which is *later* than the existing 7-day unlock, so the lock extends.
+    // Shrink the period so the second deposit proposes an *earlier* unlock
+    // (1 day + 1 day) than the 7 days already on record. Reducing the period
+    // is the only way `now + lock_period` lands before `current_unlock`.
+    client.set_lock_period(&one_day);
+
     client.deposit(&10_000_000i128, &user, &user, &user);
-    assert_eq!(client.get_unlock_time(&user), one_day + seven_days);
-    assert_eq!(client.remaining_lock_time(&user), seven_days);
+    assert_eq!(client.get_unlock_time(&user), seven_days);
+    assert_eq!(client.remaining_lock_time(&user), seven_days - one_day);
 }
 
 #[test]
