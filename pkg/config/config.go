@@ -394,7 +394,7 @@ func New() (*Config, error) {
 		ussdSessionTimeout = time.Duration(secs) * time.Second
 	}
 
-	ycBaseURL := os.Getenv("YELLOWCARD_BASE_URL")
+	ycBaseURL := firstNonEmpty(os.Getenv("YELLOW_CARD_BASE_URL"), os.Getenv("YELLOWCARD_BASE_URL"))
 	if ycBaseURL == "" {
 		ycBaseURL = "https://sandbox.api.yellowcard.io/business"
 	}
