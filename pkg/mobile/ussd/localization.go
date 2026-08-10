@@ -1,4 +1,3 @@
-// Package ussd provides multi-language string localization and formatting.
 package ussd
 
 import "fmt"
@@ -52,14 +51,14 @@ func (l *InMemoryLocalizer) AddTranslation(key, language, message string) {
 func (l *InMemoryLocalizer) LoadStandardTranslations() {
 	translations := map[string]map[string]string{
 		"welcome": {
-			"en": "Welcome to MicroVaulr!",
-			"sw": "Karibu MicroVaulr!",
-			"fr": "Bienvenue à MicroVaulr!",
+			"en": "Welcome to Microvault!",
+			"sw": "Karibu Microvault!",
+			"fr": "Bienvenue à Microvault!",
 		},
 		"goodbye": {
-			"en": "Thank you for using MicroVaulr",
-			"sw": "Asante kwa kutumia MicroVaulr",
-			"fr": "Merci d'utiliser MicroVaulr",
+			"en": "Thank you for using Microvault",
+			"sw": "Asante kwa kutumia Microvault",
+			"fr": "Merci d'utiliser Microvault",
 		},
 		"error": {
 			"en": "An error occurred. Please try again.",
@@ -70,6 +69,21 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"en": "Invalid input. Please try again.",
 			"sw": "Ingizo batili. Tafadhali jaribu tena.",
 			"fr": "Entrée invalide. Veuillez réessayer.",
+		},
+		"nav_hint_both": {
+			"en": "0 Back  00 Home",
+			"sw": "0 Rudi  00 Mwanzo",
+			"fr": "0 Retour  00 Accueil",
+		},
+		"nav_hint_back": {
+			"en": "0 Back",
+			"sw": "0 Rudi",
+			"fr": "0 Retour",
+		},
+		"nav_hint_home": {
+			"en": "00 Home",
+			"sw": "00 Mwanzo",
+			"fr": "00 Accueil",
 		},
 		"session_expired": {
 			"en": "Your session has expired. Please dial again.",
@@ -192,6 +206,11 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "PIN yako imewekwa upya. Sasa unaweza kutumia PIN yako mpya.",
 			"fr": "Votre PIN a été réinitialisé. Vous pouvez maintenant utiliser votre nouveau PIN.",
 		},
+		"recovery_success_add_sq": {
+			"en": "PIN reset. Add security questions (My Account > PIN Manager) to protect your account and recover it if you lose this phone.",
+			"sw": "PIN imewekwa upya. Weka maswali ya usalama (Akaunti Yangu > Dhibiti PIN) kulinda akaunti yako na kuirejesha ukipoteza simu hii.",
+			"fr": "PIN réinitialisé. Ajoutez des questions de sécurité (Mon Compte > Gérer PIN) pour protéger et récupérer votre compte.",
+		},
 		"recovery_answers_wrong": {
 			"en": "Security answer incorrect. PIN reset failed.",
 			"sw": "Jibu la usalama si sahihi. Kuweka upya PIN kumeshindikana.",
@@ -209,6 +228,138 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Usajili umekamilika! Piga tena kuanza.",
 			"fr": "Inscription terminée! Composez à nouveau pour commencer.",
 		},
+
+		// ── Registration Flow ───────────────────────────────────────
+		"reg_name_required": {
+			"en": "Name is required. Enter your full name:",
+			"sw": "Jina linahitajika. Weka jina lako kamili:",
+			"fr": "Le nom est requis. Entrez votre nom complet:",
+		},
+		"reg_enter_national_id": {
+			"en": "Enter your national ID:",
+			"sw": "Weka kitambulisho chako:",
+			"fr": "Entrez votre pièce d'identité:",
+		},
+		"reg_national_id_required": {
+			"en": "National ID is required. Enter your national ID:",
+			"sw": "Kitambulisho kinahitajika. Weka kitambulisho chako:",
+			"fr": "La pièce d'identité est requise. Entrez votre pièce d'identité:",
+		},
+		"recover_offer": {
+			"en": "This ID is already registered. Is this your account?\n1. Recover it on this phone\n2. Re-enter ID",
+			"sw": "Kitambulisho hiki kimeshasajiliwa. Je, ni akaunti yako?\n1. Irejeshe kwenye simu hii\n2. Weka tena",
+			"fr": "Cette pièce est déjà enregistrée. Est-ce votre compte?\n1. Récupérer sur ce téléphone\n2. Ressaisir",
+		},
+		"recover_contact_support": {
+			"en": "This account has no security questions, so it cannot be moved to a new phone here. Please contact support.",
+			"sw": "Akaunti hii haina maswali ya usalama, haiwezi kuhamishwa hapa. Tafadhali wasiliana na msaada.",
+			"fr": "Ce compte n'a pas de questions de sécurité, il ne peut pas être transféré ici. Contactez le support.",
+		},
+		"recover_success": {
+			"en": "Account recovered to this phone. Dial again and sign in with your existing PIN.",
+			"sw": "Akaunti imerejeshwa kwenye simu hii. Piga tena na uingie na PIN yako ya sasa.",
+			"fr": "Compte récupéré sur ce téléphone. Composez à nouveau et connectez-vous avec votre PIN.",
+		},
+		"reg_national_id_taken": {
+			"en": "This national ID is already registered. Re-enter, or contact support if this is you:",
+			"sw": "Kitambulisho hiki kimeshasajiliwa. Weka tena, au wasiliana na msaada kama ni chako:",
+			"fr": "Cette pièce d'identité est déjà enregistrée. Ressaisissez, ou contactez le support si c'est vous:",
+		},
+		"reg_bio_gate": {
+			"en": "Add optional details for faster cash pickup?\n1. Fill bio info\n2. Skip",
+			"sw": "Ongeza maelezo ya hiari kwa uchukuaji wa pesa haraka?\n1. Jaza maelezo\n2. Ruka",
+			"fr": "Ajouter des détails facultatifs pour un retrait plus rapide?\n1. Remplir les infos\n2. Ignorer",
+		},
+		"reg_bio_birth_date": {
+			"en": "Date of birth YYYY-MM-DD (optional, reply 0 to skip):",
+			"sw": "Tarehe ya kuzaliwa YYYY-MM-DD (hiari, jibu 0 kuruka):",
+			"fr": "Date de naissance YYYY-MM-DD (facultatif, répondez 0 pour ignorer):",
+		},
+		"reg_bio_address": {
+			"en": "Street address (optional, reply 0 to skip):",
+			"sw": "Anwani ya mtaa (hiari, jibu 0 kuruka):",
+			"fr": "Adresse (facultatif, répondez 0 pour ignorer):",
+		},
+		"reg_bio_city": {
+			"en": "City/town (optional, reply 0 to skip):",
+			"sw": "Jiji/mji (hiari, jibu 0 kuruka):",
+			"fr": "Ville (facultatif, répondez 0 pour ignorer):",
+		},
+		"reg_bio_postal_code": {
+			"en": "Postal code (optional, reply 0 to skip):",
+			"sw": "Msimbo wa posta (hiari, jibu 0 kuruka):",
+			"fr": "Code postal (facultatif, répondez 0 pour ignorer):",
+		},
+		"badge_no_security_q": {
+			"en": "! Add security questions to protect your account.",
+			"sw": "! Weka maswali ya usalama kulinda akaunti yako.",
+			"fr": "! Ajoutez des questions de sécurité pour protéger votre compte.",
+		},
+		"bio_saved": {
+			"en": "Your details have been saved. Cash pickup will be faster next time.",
+			"sw": "Maelezo yako yamehifadhiwa. Kuchukua pesa kutakuwa haraka zaidi.",
+			"fr": "Vos informations sont enregistrées. Le retrait sera plus rapide.",
+		},
+		"reg_bio_invalid_date": {
+			"en": "Invalid date. Enter date of birth as YYYY-MM-DD (or 0 to skip):",
+			"sw": "Tarehe batili. Weka tarehe ya kuzaliwa kama YYYY-MM-DD (au 0 kuruka):",
+			"fr": "Date invalide. Entrez la date de naissance YYYY-MM-DD (ou 0 pour ignorer):",
+		},
+
+		// ── Loan Flow ───────────────────────────────────────────────
+		"loan_amount_prompt": {
+			"en": "Enter amount to borrow in %s (min %.0f, max %.0f):",
+			"sw": "Weka kiasi cha kukopa kwa %s (chini %.0f, juu %.0f):",
+			"fr": "Entrez le montant à emprunter en %s (min %.0f, max %.0f):",
+		},
+		"loan_min_amount": {
+			"en": "Minimum loan amount is %s %.0f",
+			"sw": "Kiasi cha chini cha mkopo ni %s %.0f",
+			"fr": "Le montant minimum du prêt est %s %.0f",
+		},
+		"loan_max_amount": {
+			"en": "The amount requested exceeds the auto-approved limit of %s %.0f",
+			"sw": "Kiasi ulichoomba kinazidi kikomo kilichoidhinishwa cha %s %.0f",
+			"fr": "Le montant demandé dépasse la limite approuvée de %s %.0f",
+		},
+		"loan_cash_pickup_min": {
+			"en": "Cash pickup needs at least %s %.0f. Choose mobile money instead:",
+			"sw": "Kuchukua pesa kunahitaji angalau %s %.0f. Chagua pesa ya simu badala yake:",
+			"fr": "Le retrait en espèces exige au moins %s %.0f. Choisissez plutôt mobile money:",
+		},
+		"loan_confirm_summary": {
+			"en": "Loan of %s %.0f for %d days\n1. Confirm\n0. Cancel",
+			"sw": "Mkopo wa %s %.0f kwa siku %d\n1. Thibitisha\n0. Ghairi",
+			"fr": "Prêt de %s %.0f pour %d jours\n1. Confirmer\n0. Annuler",
+		},
+		"loan_processing": {
+			"en": "Your loan of %s %.0f is being processed. You will receive a notification when disbursement is successful.",
+			"sw": "Mkopo wako wa %s %.0f unashughulikiwa. Utapokea arifa mara utakapotolewa.",
+			"fr": "Votre prêt de %s %.0f est en cours de traitement. Vous recevrez une notification une fois le décaissement effectué.",
+		},
+		"my_loans_header": {
+			"en": "Your Loans:",
+			"sw": "Mikopo Yako:",
+			"fr": "Vos Prêts:",
+		},
+		"repay_header": {
+			"en": "Repay via M-Pesa:\nPayBill: 123456\nAccount: Your Loan Number\n\nActive Loans:",
+			"sw": "Lipa kupitia M-Pesa:\nPayBill: 123456\nAkaunti: Nambari ya Mkopo Wako\n\nMikopo Inayoendelea:",
+			"fr": "Remboursez via M-Pesa:\nPayBill: 123456\nCompte: Votre Numéro de Prêt\n\nPrêts Actifs:",
+		},
+		"repay_loan_line": {
+			"en": "Loan: %s\nDue: %s",
+			"sw": "Mkopo: %s\nInayodaiwa: %s",
+			"fr": "Prêt: %s\nDû: %s",
+		},
+
+		// ── Loan Status ─────────────────────────────────────────────
+		"loan_status_pending":   {"en": "Pending", "sw": "Inasubiri", "fr": "En attente"},
+		"loan_status_approved":  {"en": "Approved", "sw": "Imeidhinishwa", "fr": "Approuvé"},
+		"loan_status_disbursed": {"en": "Disbursed", "sw": "Imetolewa", "fr": "Décaissé"},
+		"loan_status_repaid":    {"en": "Repaid", "sw": "Imelipwa", "fr": "Remboursé"},
+		"loan_status_defaulted": {"en": "Defaulted", "sw": "Imeshindwa kulipwa", "fr": "En défaut"},
+		"loan_status_unknown":   {"en": "Unknown", "sw": "Haijulikani", "fr": "Inconnu"},
 
 		// ── Security Question Text (by ID) ──────────────────────────
 		"sq_1": {

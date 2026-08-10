@@ -1,4 +1,3 @@
-// Package ussd provides the types and interfaces for the USSD application flow.
 package ussd
 
 import (
@@ -16,17 +15,17 @@ import (
 
 // Session represents a single interactive USSD session with a mobile user.
 type Session struct {
-	SessionID     string                 `json:"session_id"`
-	PhoneNumber   string                 `json:"phone_number"`
-	ServiceCode   string                 `json:"service_code"`
-	NetworkCode   string                 `json:"network_code"`
-	UserID        string                 `json:"user_id,omitempty"`
-	CurrentMenu   string                 `json:"current_menu"`
-	PreviousMenus []string               `json:"previous_menus"`
-	Language      string                 `json:"language"`
+	SessionID     string         `json:"session_id"`
+	PhoneNumber   string         `json:"phone_number"`
+	ServiceCode   string         `json:"service_code"`
+	NetworkCode   string         `json:"network_code"`
+	UserID        string         `json:"user_id,omitempty"`
+	CurrentMenu   string         `json:"current_menu"`
+	PreviousMenus []string       `json:"previous_menus"`
+	Language      string         `json:"language"`
 	Data          map[string]any `json:"data"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
 }
 
 // SessionManager handles the storage, retrieval, and lifecycle of USSD sessions.
@@ -159,16 +158,44 @@ type UserService interface {
 	GetUserWithAccounts(ctx context.Context, userIDOrPhone string) (any, []any, error)
 	// RegisterUser creates a new user account based on the provided registration request.
 	RegisterUser(ctx context.Context, req *RegisterUserRequest) (any, []any, error)
+	// NationalIDExists reports whether a user is already registered with the
+	// given national ID, so registration can reject a duplicate up front rather
+	// than at the final atomic insert (the DB unique constraint is the real
+	// guard; this is the fast, friendly path).
+	NationalIDExists(ctx context.Context, nationalID string) (bool, error)
+
+	// UpdateBio sets the optional SEP-9 bio fields on an existing user (added
+	// post-registration via the account menu for faster cash pickup). Empty
+	// fields are left unchanged; birthDate is YYYY-MM-DD.
+	UpdateBio(ctx context.Context, userID string, bio BioUpdate) error
+
+	// GetUserIDByNationalID resolves the account behind a national ID. Used by
+	// new-SIM recovery to find the existing account when registration hits the
+	// duplicate-ID case. Returns "" when no user holds that ID.
+	GetUserIDByNationalID(ctx context.Context, nationalID string) (string, error)
+
+	// RebindMobileNumber moves an account to the dialing SIM. Only called after
+	// the caller has verified ownership via security questions — it changes the
+	// account's identity anchor.
+	RebindMobileNumber(ctx context.Context, userID, mobileNumber string) error
+}
+
+// BioUpdate carries the optional SEP-9 fields set from the account menu.
+type BioUpdate struct {
+	BirthDate  string // YYYY-MM-DD
+	Address    string
+	City       string
+	PostalCode string
 }
 
 // RateService provides exchange rate lookups for local currency conversion.
 type RateService interface {
-	// GetExchangeRate returns the current buying rate for the specified currency.
-	GetExchangeRate(ctx context.Context, currency string) (buyRate float64, err error)
+	// GetExchangeRate returns the current sell rate for the specified currency.
+	GetExchangeRate(ctx context.Context, currency string) (sellRate float64, err error)
 }
 
 // LoanService defines the interface for loan-related operations.
-// Implementations live in microvault-credit; the USSD handler depends only on
+// Implementations live in the lending module; the USSD handler depends only on
 // this consumer-defined interface.
 type LoanService interface {
 	// GetUserLoans returns all loans for the given user, formatted for USSD display.
@@ -183,6 +210,28 @@ type LoanService interface {
 	// GetProductConfig returns the active loan product parameters used by the
 	// USSD flow (limits, duration, schedule). Returns nil when no product is configured.
 	GetProductConfig() *LoanProductConfig
+
+	// GetRepaymentQuote returns the amount currently owed on a loan, in both
+	// USDC stroops and local currency cents. The USDC figure is derived from
+	// the vault's current borrow_index relative to the index at origination;
+	// the local figure applies the latest FX. Returns an error (hard-fail —
+	// no stale fallback) when the vault or FX is unavailable.
+	GetRepaymentQuote(ctx context.Context, loanID string) (*RepaymentQuote, error)
+}
+
+// RepaymentQuote is the live amount owed on a loan, computed from the vault
+// borrow_index + current FX. Stored repayment quotes are advisory only — this
+// is the figure to show on USSD screens, in SMS reminders, and to validate
+// borrower payments against (with ±2 % tolerance).
+type RepaymentQuote struct {
+	LoanID             string
+	AmountUSDCStroops  int64   // What the borrower owes in USDC, stroops.
+	AmountLocalCents   int64   // Same, converted at the FX rate below.
+	LocalCurrency      string  // ISO 4217 (e.g. "KES").
+	BorrowIndexAtQuote int64   // WAD scale (1e18).
+	FXRate             float64 // local-per-USD at quote time.
+	QuoteSource        string  // "mg_primary" | "yc_fallback" | "stale_cache".
+	AsOf               time.Time
 }
 
 // LoanProductConfig provides loan product parameters for the USSD flow.
@@ -195,6 +244,7 @@ type LoanProductConfig struct {
 	DurationDays      int    // Fixed loan term in days (e.g. 30).
 	RepaymentSchedule string // Repayment cadence (e.g. "lump_sum").
 	InterestRateBps   int32  // Fallback annual rate in basis points; vault APR takes precedence.
+	OriginationFeeBps int32  // One-off fee in bps (1 bps = 0.01 %). Zero when product has none.
 }
 
 // PINService defines the interface for PIN management operations used by the
@@ -240,6 +290,19 @@ type RegisterUserRequest struct {
 	FullName          string
 	NationalID        string
 	PreferredLanguage string
+
+	// PinHash is the pre-hashed PIN (from pin.HashPIN), written atomically with
+	// the user so no PIN-less account is ever persisted. Empty only when the
+	// deployment has no PIN service configured.
+	PinHash  string
+	PinSetAt *time.Time
+
+	// Optional SEP-9 bio (MoneyGram cash-pickup prefill). Empty when the user
+	// skips the bio step. BirthDate is YYYY-MM-DD.
+	BirthDate  string
+	Address    string
+	City       string
+	PostalCode string
 }
 
 // LoanRequest represents a loan request from the USSD flow.
@@ -261,6 +324,21 @@ type LoanRequest struct {
 	LocalAmount     int64   // Local currency amount in cents (e.g. KES cents).
 	LocalCurrency   string  // ISO 4217 currency code (e.g. "KES").
 	ConversionRate  float64 // YellowCard buy rate at quote time (e.g. 153.50).
+
+	// Off-ramp routing — selects the provider (mobile money vs cash pickup).
+	// Empty defaults to mobile money for back-compat with menus that don't
+	// expose the cash-pickup branch yet.
+	PayoutMethod string
+
+	// Cash-pickup-only KYC fields (MoneyGram). Ignored by mobile-money flows.
+	FirstName          string
+	LastName           string
+	BirthDate          string // ISO-8601 (YYYY-MM-DD)
+	Address            string
+	PostalCode         string
+	City               string
+	AddressCountryCode string
+	ChildAccountIndex  uint32 // per-user Stellar derivation index for SEP-10 memo
 }
 
 // LoanApproval contains the result of a loan eligibility check, including approval status and terms.

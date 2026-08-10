@@ -59,26 +59,28 @@ func (ctrl *WebhookController) HandleYellowCardWebhook(c *fiber.Ctx) error {
 	}
 
 	// 2. Parse the webhook event.
+	// Log the raw body for debugging.
+	log.Printf("yellowcard webhook: raw body: %s", c.Body())
 	var event yellowcard.WebhookEvent
 	if err := c.BodyParser(&event); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid webhook payload")
 	}
 
-	if event.Event == "" || event.Data.PaymentID == "" {
+	if event.Event == "" || event.PaymentID == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "missing required webhook fields")
 	}
 
 	// 3. Process the event asynchronously (return 200 quickly to YC).
 	if ctrl.eventHandler == nil {
 		log.Printf("yellowcard webhook: received event %s for payment %s but no event handler configured",
-			event.Event, event.Data.PaymentID)
+			event.Event, event.PaymentID)
 		return c.SendString("ok")
 	}
 
 	go func() {
 		if err := ctrl.eventHandler.ProcessYellowCardEvent(event); err != nil {
 			log.Printf("yellowcard webhook: failed to process event %s for payment %s: %v",
-				event.Event, event.Data.PaymentID, err)
+				event.Event, event.PaymentID, err)
 		}
 	}()
 

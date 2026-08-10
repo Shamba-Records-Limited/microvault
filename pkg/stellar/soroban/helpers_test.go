@@ -234,7 +234,7 @@ func TestU64ToScVal_RoundTrip(t *testing.T) {
 }
 
 // ============================================================================
-// Decoding Tests (Soroban → Go)
+// Decoding Tests (Soroban to Go)
 // ============================================================================
 
 func TestScValToI128(t *testing.T) {

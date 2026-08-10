@@ -31,14 +31,25 @@ var _ RPCClient = (*rpcclient.Client)(nil)
 
 // Service defines the interface for Stellar classic operations.
 type Service interface {
-	// CreateSponsoredAccount creates a new child account with sponsorship and USDC trustline.
+	// CreateSponsoredAccount creates a new sponsored child account.
 	CreateSponsoredAccount(ctx context.Context, req types.CreateAccountRequest) error
+
+	// EstablishSponsoredTrustline adds a treasury-sponsored USDC trustline to an existing child account.
+	EstablishSponsoredTrustline(ctx context.Context, req types.EstablishTrustlineRequest) error
 
 	// SponsoredPaymentTransaction executes a sponsored payment from a child account.
 	SponsoredPaymentTransaction(ctx context.Context, req types.SponsoredPaymentTransactionRequest) (*types.SponsoredPaymentTransactionResponse, error)
 
 	// SendUSDC sends USDC directly from the treasury wallet to an external Stellar address with a memo.
 	SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error)
+
+	// CheckUSDCTrustline checks if an external address has a trustline for our USDC asset.
+	CheckUSDCTrustline(ctx context.Context, address string) (bool, error)
+
+	// AccountExists reports whether the given address is a funded/created account
+	// on the Stellar network. A failed load is reported as "not present" so the
+	// caller can attempt creation.
+	AccountExists(ctx context.Context, address string) (bool, error)
 }
 
 type service struct {
@@ -81,7 +92,7 @@ func NewServiceWithClient(
 	}
 }
 
-// CreateSponsoredAccount implements the classic create account operation and establishes a trustline for provided asset through sponsorship
+// CreateSponsoredAccount implements the classic create account operation through sponsorship.
 func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAccountRequest) error {
 	// 1. Parse sponsor keypair
 	sponsorKP := keypair.MustParseFull(s.treasurySecretKey)
@@ -92,19 +103,7 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 		return types.ErrFailedToLoadAccount
 	}
 
-	// 3. Define asset configuration
-	usdcAsset := txnbuild.CreditAsset{
-		Code:   "USDC",
-		Issuer: s.usdcIssuer,
-	}
-
-	// Convert to ChangeTrustAsset
-	changeTrustAsset, err := usdcAsset.ToChangeTrustAsset()
-	if err != nil {
-		return types.ErrFailedToConvertCreditAsset
-	}
-
-	// 4. Bundle operations
+	// 3. Bundle operations
 	childPublicKey := req.ChildKeypair.Address()
 	ops := []txnbuild.Operation{
 		// Begin sponsorship of future reserves
@@ -116,13 +115,6 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 		&txnbuild.CreateAccount{
 			Destination: childPublicKey,
 			Amount:      req.StartingBalance,
-		},
-
-		// Add USDC trustline
-		&txnbuild.ChangeTrust{
-			Line:          changeTrustAsset,
-			Limit:         txnbuild.MaxTrustlineLimit,
-			SourceAccount: childPublicKey,
 		},
 	}
 
@@ -151,7 +143,7 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 		SourceAccount: childPublicKey,
 	})
 
-	// 5. Build transaction
+	// 4. Build transaction
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
 			SourceAccount:        sponsorAccount,
@@ -168,28 +160,28 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 		return types.ErrFailedToBuildTransaction
 	}
 
-	// 6. Sign transaction with network passphrase and sponsor keypair
+	// 5. Sign transaction with network passphrase and sponsor keypair
 	tx, err = tx.Sign(s.networkPassphrase, sponsorKP)
 	if err != nil {
 		log.Printf("CreateSponsoredAccount: failed to sign transaction with sponsor key: %v", err)
 		return types.ErrFailedToSignWithSponsorKey
 	}
 
-	// 7. Sign with child keypair
+	// 6. Sign with child keypair
 	tx, err = tx.Sign(s.networkPassphrase, req.ChildKeypair)
 	if err != nil {
 		log.Printf("CreateSponsoredAccount: failed to sign transaction with child key: %v", err)
 		return types.ErrFailedToSignTransaction
 	}
 
-	// 8. Convert transaction to XDR format
+	// 7. Convert transaction to XDR format
 	xdrTx, err := tx.Base64()
 	if err != nil {
 		log.Println("CreateSponsoredAccount: failed to convert transaction to XDR: %w", err)
 		return types.ErrFailedToConvertTransaction
 	}
 
-	// 9. Submit to Stellar network using RPC client
+	// 8. Submit to Stellar network using RPC client
 	txResponse, err := s.rpcClient.SendTransaction(ctx, protocol.SendTransactionRequest{
 		Transaction: xdrTx,
 	})
@@ -198,7 +190,7 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 		return types.ErrFailedToSubmitTransaction
 	}
 
-	// 10. Check submission status
+	// 9. Check submission status
 	log.Printf("CreateSponsoredAccount: transaction submission status: %s, hash: %s", txResponse.Status, txResponse.Hash)
 
 	// Handle different submission statuses
@@ -227,7 +219,7 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 		slog.String("tx_hash", txHash),
 	)
 
-	// 11. Wait for transaction to be applied to the ledger
+	// 10. Wait for transaction to be applied to the ledger
 	pollCfg := rpc.DefaultPollConfig()
 	pollCfg.Logger = s.logger
 	txResult, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
@@ -257,7 +249,153 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 	return nil
 }
 
-// SponsoredPaymentTransaction implements the classic payment operation using sponsorship
+// EstablishSponsoredTrustline adds a USDC trustline to an existing child account, with the
+// treasury sponsoring the trustline's reserve.
+func (s *service) EstablishSponsoredTrustline(ctx context.Context, req types.EstablishTrustlineRequest) error {
+	// 1. Parse sponsor keypair
+	sponsorKP := keypair.MustParseFull(s.treasurySecretKey)
+
+	// 2. Get sponsor account from network
+	sponsorAccount, err := s.rpcClient.LoadAccount(ctx, sponsorKP.Address())
+	if err != nil {
+		return types.ErrFailedToLoadAccount
+	}
+
+	// 3. Define asset configuration
+	usdcAsset := txnbuild.CreditAsset{
+		Code:   "USDC",
+		Issuer: s.usdcIssuer,
+	}
+
+	changeTrustAsset, err := usdcAsset.ToChangeTrustAsset()
+	if err != nil {
+		return types.ErrFailedToConvertCreditAsset
+	}
+
+	// 4. Bundle sponsored trustline operations
+	childPublicKey := req.ChildKeypair.Address()
+	ops := []txnbuild.Operation{
+		&txnbuild.BeginSponsoringFutureReserves{
+			SponsoredID: childPublicKey,
+		},
+		&txnbuild.ChangeTrust{
+			Line:          changeTrustAsset,
+			Limit:         txnbuild.MaxTrustlineLimit,
+			SourceAccount: childPublicKey,
+		},
+		&txnbuild.EndSponsoringFutureReserves{
+			SourceAccount: childPublicKey,
+		},
+	}
+
+	// 5. Build transaction
+	tx, err := txnbuild.NewTransaction(
+		txnbuild.TransactionParams{
+			SourceAccount:        sponsorAccount,
+			IncrementSequenceNum: true,
+			BaseFee:              txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{
+				TimeBounds: txnbuild.NewTimeout(300),
+			},
+			Operations: ops,
+		},
+	)
+	if err != nil {
+		log.Printf("EstablishSponsoredTrustline: failed to build transaction: %v", err)
+		return types.ErrFailedToBuildTransaction
+	}
+
+	// 6. Sign with sponsor keypair
+	tx, err = tx.Sign(s.networkPassphrase, sponsorKP)
+	if err != nil {
+		log.Printf("EstablishSponsoredTrustline: failed to sign transaction with sponsor key: %v", err)
+		return types.ErrFailedToSignWithSponsorKey
+	}
+
+	// 7. Sign with child keypair
+	tx, err = tx.Sign(s.networkPassphrase, req.ChildKeypair)
+	if err != nil {
+		log.Printf("EstablishSponsoredTrustline: failed to sign transaction with child key: %v", err)
+		return types.ErrFailedToSignTransaction
+	}
+
+	// 8. Convert transaction to XDR format
+	xdrTx, err := tx.Base64()
+	if err != nil {
+		log.Printf("EstablishSponsoredTrustline: failed to convert transaction to XDR: %v", err)
+		return types.ErrFailedToConvertTransaction
+	}
+
+	// 9. Submit to Stellar network using RPC client
+	txResponse, err := s.rpcClient.SendTransaction(ctx, protocol.SendTransactionRequest{
+		Transaction: xdrTx,
+	})
+	if err != nil {
+		log.Printf("EstablishSponsoredTrustline: failed to submit transaction: %v", err)
+		return types.ErrFailedToSubmitTransaction
+	}
+
+	// 10. Check submission status
+	log.Printf("EstablishSponsoredTrustline: transaction submission status: %s, hash: %s", txResponse.Status, txResponse.Hash)
+
+	switch txResponse.Status {
+	case stellarcore.TXStatusError:
+		if txResponse.ErrorResultXDR != "" {
+			log.Printf("EstablishSponsoredTrustline: transaction rejected: %s", txResponse.ErrorResultXDR)
+		} else {
+			log.Printf("EstablishSponsoredTrustline: transaction rejected by stellar-core")
+		}
+		return types.ErrTransactionRejected
+	case stellarcore.TXStatusTryAgainLater:
+		log.Printf("EstablishSponsoredTrustline: stellar-core is overloaded, try again later")
+		return types.ErrStellarCoreOverloaded
+	case stellarcore.TXStatusDuplicate:
+		log.Printf("EstablishSponsoredTrustline: duplicate transaction detected")
+	case stellarcore.TXStatusPending:
+		log.Printf("EstablishSponsoredTrustline: transaction pending")
+	default:
+		log.Printf("EstablishSponsoredTrustline: unknown submission status: %s", txResponse.Status)
+	}
+
+	txHash := txResponse.Hash
+	s.logger.Info("transaction submitted, waiting for confirmation",
+		slog.String("operation", "EstablishSponsoredTrustline"),
+		slog.String("tx_hash", txHash),
+	)
+
+	// 11. Wait for transaction to be applied to the ledger
+	pollCfg := rpc.DefaultPollConfig()
+	pollCfg.Logger = s.logger
+	txResult, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
+	if err != nil {
+		s.logger.Error("transaction failed",
+			slog.String("operation", "EstablishSponsoredTrustline"),
+			slog.String("tx_hash", txHash),
+			slog.String("error", err.Error()),
+		)
+		return types.ErrTransactionFailed
+	}
+
+	if txResult.Status != protocol.TransactionStatusSuccess {
+		s.logger.Error("transaction not successful",
+			slog.String("operation", "EstablishSponsoredTrustline"),
+			slog.String("tx_hash", txHash),
+			slog.String("status", txResult.Status),
+		)
+		return types.ErrTransactionNotSuccessful
+	}
+
+	s.logger.Info("sponsored USDC trustline established",
+		slog.String("operation", "EstablishSponsoredTrustline"),
+		slog.String("account", childPublicKey),
+		slog.String("tx_hash", txHash),
+	)
+	return nil
+}
+
+// SponsoredPaymentTransaction implements the classic payment operation using sponsorship.
+// Sourcing from a child account requires that child to already hold the asset, which means a
+// trustline established via EstablishSponsoredTrustline first — child accounts are created without one.
 func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.SponsoredPaymentTransactionRequest) (*types.SponsoredPaymentTransactionResponse, error) {
 	// 1. Validate request
 	destination, err := keypair.ParseAddress(req.Destination)
@@ -419,6 +557,37 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 	}, nil
 }
 
+// CheckUSDCTrustline checks if an external address has a trustline for our USDC asset.
+func (s *service) CheckUSDCTrustline(ctx context.Context, address string) (bool, error) {
+	destination, err := keypair.ParseAddress(address)
+	if err != nil {
+		s.logger.Error("CheckUSDCTrustline: invalid address", slog.String("address", address))
+		return false, types.ErrInvalidStellarAddress
+	}
+
+	destinationAccount, err := s.rpcClient.LoadAccount(ctx, destination.Address())
+	if err != nil {
+		s.logger.Error("CheckUSDCTrustline: failed to load account", slog.String("address", address))
+		return false, types.ErrFailedToLoadAccount
+	}
+
+	return hasAssetTrustline(ctx, s.rpcClient, destinationAccount.GetAccountID(), "USDC", s.usdcIssuer)
+}
+
+// AccountExists reports whether address is a created account on the network.
+// A load failure is treated as "not present" (false, nil) so callers can
+// attempt sponsored creation; genuine outages surface downstream when the
+// create is attempted and also fails.
+func (s *service) AccountExists(ctx context.Context, address string) (bool, error) {
+	if _, err := keypair.ParseAddress(address); err != nil {
+		return false, types.ErrInvalidStellarAddress
+	}
+	if _, err := s.rpcClient.LoadAccount(ctx, address); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
 // SendUSDC sends USDC directly from the treasury wallet to a destination Stellar address
 // with a text memo.
 func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error) {
@@ -542,7 +711,11 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 			slog.String("tx_hash", txHash),
 			slog.String("error", err.Error()),
 		)
-		return nil, types.ErrTransactionFailed
+		// Preserve the underlying reason: callers must distinguish a
+		// definitive on-ledger failure (nothing moved, safe to retry) from an
+		// unknown outcome such as a poll timeout, where retrying risks a
+		// duplicate payment.
+		return nil, fmt.Errorf("%w: %w", types.ErrTransactionFailed, err)
 	}
 
 	if txResult.Status != protocol.TransactionStatusSuccess {

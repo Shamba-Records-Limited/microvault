@@ -62,6 +62,14 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 		eventRecipient, _ = extractBorrowedRecipient(txResp.ResultMetaXDR, s.contractID)
 	}
 
+	// Fallback protection: if event_recipient is not found or empty, fall back to the recipient address from request
+	if eventRecipient == "" {
+		log.Printf("BorrowFromVault: event recipient not found in on-chain events, using request fallback: %s", req.RecipientAddress)
+		eventRecipient = req.RecipientAddress
+	} else {
+		log.Printf("BorrowFromVault: event recipient successfully extracted from on-chain event: %s", eventRecipient)
+	}
+
 	// Fetch current borrow index after the borrow has been processed.
 	borrowIndex, err := s.GetBorrowIndex(ctx)
 	if err != nil {
@@ -72,12 +80,23 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 	log.Printf("BorrowFromVault: %d to %s (tx: %s, event_recipient: %s, borrow_index: %d)",
 		req.Amount, req.RecipientAddress, txResp.TransactionHash, eventRecipient, borrowIndex)
 
+	contractID, functionName, err := ExtractContractInfo(txResp.EnvelopeXDR)
+	if err != nil {
+		log.Printf("BorrowFromVault: failed to extract contract info: %v", err)
+		contractID = s.contractID
+		functionName = "borrow"
+	}
+
 	return &types.BorrowResponse{
 		TxHash:           txResp.TransactionHash,
 		AmountBorrowed:   req.Amount,
 		RecipientAddress: req.RecipientAddress,
 		EventRecipient:   eventRecipient,
 		BorrowIndex:      borrowIndex,
+		Ledger:           int64(txResp.Ledger),
+		Status:           txResp.Status,
+		ContractID:       contractID,
+		ContractFunction: functionName,
 	}, nil
 }
 
@@ -119,9 +138,20 @@ func (s *service) RepayToVault(ctx context.Context, req types.RepayRequest) (*ty
 
 	log.Printf("RepayToVault: %d repaid (tx: %s)", req.Amount, txResp.TransactionHash)
 
+	contractID, functionName, err := ExtractContractInfo(txResp.EnvelopeXDR)
+	if err != nil {
+		log.Printf("RepayToVault: failed to extract contract info: %v", err)
+		contractID = s.contractID
+		functionName = "repay"
+	}
+
 	return &types.RepayResponse{
 		TxHash:       txResp.TransactionHash,
 		AmountRepaid: req.Amount,
+		Ledger:       int64(txResp.Ledger),
+		Status:       txResp.Status,
+		ContractID:   contractID,
+		ContractFunction: functionName,
 	}, nil
 }
 

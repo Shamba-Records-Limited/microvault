@@ -1,4 +1,4 @@
-//! Integration tests for the MicroVault TimelockController contract.
+//! Integration tests for the Microvault TimelockController contract.
 //!
 //! Covers constructor configuration, role assignment, operation scheduling,
 //! execution, cancellation, state transitions, salt uniqueness, role

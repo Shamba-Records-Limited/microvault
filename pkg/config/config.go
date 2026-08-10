@@ -16,13 +16,14 @@ import (
 
 // Config holds all configuration for the application, composed of sub-configs.
 type Config struct {
-	Postgres PostgresConfig
-	Redis    RedisConfig
-	Server   ServerConfig
-	Stellar  StellarConfig
-	Payments PaymentsConfig
-	Mobile   MobileConfig
-	Auth     AuthConfig
+	Postgres  PostgresConfig
+	Redis     RedisConfig
+	Server    ServerConfig
+	Stellar   StellarConfig
+	Payments  PaymentsConfig
+	Mobile    MobileConfig
+	Auth      AuthConfig
+	Shortener ShortenerConfig
 }
 
 // PostgresConfig holds all database-related configuration.
@@ -72,6 +73,39 @@ type ServerConfig struct {
 	ServerHost        string
 	CoreServerPort    string
 	CreditServerPort  string
+	// PublicBaseURL is the externally-reachable origin used to build SMS
+	// short-links (e.g. https://microvault.outray.app). No trailing slash.
+	PublicBaseURL string
+}
+
+// ShortenerConfig configures the optional dub link shortener used for
+// outbound cash-pickup SMS links. When APIKey is empty the shortener is off
+// and links fall back to the self-hosted /r/{code} redirect.
+type ShortenerConfig struct {
+	// APIKey is the dub workspace API key (from DUB_API_KEY). Presence
+	// enables the shortener.
+	APIKey string
+	// BaseURL is the dub API origin (from DUB_API_URL), set to point at a
+	// self-hosted instance. Empty uses the SDK default, https://api.dub.co.
+	BaseURL string
+	// Domain is the short-link domain links are created under (from
+	// DUB_DOMAIN). Optional; empty lets the workspace default apply.
+	Domain string
+	// PreviewTitle overrides the og:title in dub Custom Link Previews (from
+	// DUB_PREVIEW_TITLE). Optional; empty derives it from the destination host.
+	PreviewTitle string
+	// PreviewDescription overrides the og:description (from
+	// DUB_PREVIEW_DESCRIPTION). Optional; empty derives it from the
+	// destination host and path.
+	PreviewDescription string
+	// ImagePreviewURL is the og:image shown in dub Custom Link Previews
+	// (from DUB_IMAGE_PREVIEW_URL). Optional.
+	ImagePreviewURL string
+}
+
+// Enabled reports whether the dub shortener should be used.
+func (c *ShortenerConfig) Enabled() bool {
+	return c.APIKey != ""
 }
 
 // CoreAddr returns the host:port address for the core server to listen on.
@@ -86,7 +120,8 @@ func (c *ServerConfig) CreditAddr() string {
 
 // StellarConfig holds all stellar-related configuration.
 type StellarConfig struct {
-	RpcURL                  string
+	RpcURL string
+	// AdminPublicKey is derived from AdminSecretKey at load, not read from the environment.
 	AdminPublicKey          string
 	AdminSecretKey          string
 	TreasurySecretKey       string
@@ -129,10 +164,65 @@ type FonbnkConfig struct {
 	BaseURL      string
 }
 
+// MoneyGramConfig holds all MoneyGram-related configuration.
+//
+// MoneyGram acts as both a Stellar SEP-1/9/10/24 anchor (for the cash-pickup
+// off-ramp flow) and a REST API provider (for FX rates). The two sets of
+// credentials are independent: HomeDomain + ServerSigningKey are derived
+// from MG's published TOML and used for SEP-10 auth; ClientID + ClientSecret
+// are issued through the MG developer portal for OAuth 2.0 client_credentials
+// against the REST API.
+//
+// MoneyGram is the platform's default cash-pickup anchor — there is no
+// enable flag; the credentials below are always required at boot.
+type MoneyGramConfig struct {
+	// SEP-1 / 9 / 10 / 24 — Stellar anchor protocol
+	HomeDomain        string // e.g. "stellar.moneygram.com"
+	ServerSigningKey  string // pinned from TOML, validated at boot
+	NetworkPassphrase string // matches StellarConfig.NetworkPassphrase
+	USDCIssuer        string // matches StellarConfig.USDCIssuer
+	TransferServerURL string // override, otherwise resolved from TOML
+
+	// REST API — OAuth 2.0 client_credentials (FX rates)
+	ClientID     string
+	ClientSecret string
+	OAuthURL     string // token endpoint
+	FXRateURL    string // GET /fx-rate/v1/rates
+
+	// Entry-rate buffers applied by the FX orchestrator, as fractions
+	// (0.01 = 1 %). Nil leaves the orchestrator's own defaults in place;
+	// an explicit 0 quotes raw source rates with no buffer at all.
+	// From MONEYGRAM_FX_ENTRY_BUFFER_PCT and
+	// MONEYGRAM_FX_ENTRY_BUFFER_PCT_FALLBACK.
+	FXEntryBufferPct         *float64
+	FXEntryBufferPctFallback *float64
+
+	// Custodial wallets. AuthSecret co-signs SEP-10; FundsSecret is the SEP-24
+	// account and USDC send source. Both default to TREASURY_SECRET_KEY.
+	AuthSecret  string
+	FundsSecret string
+
+	// Poller cadence. Zero leaves mgpoller.DefaultConfig's value in place
+	// rather than config duplicating the defaults.
+	PollInterval            time.Duration // MONEYGRAM_POLL_INTERVAL (seconds)
+	PollMaxBatch            int           // MONEYGRAM_POLL_MAX_BATCH
+	RefundSettleMaxAttempts int           // MONEYGRAM_REFUND_MAX_ATTEMPTS
+}
+
 // PaymentsConfig bundles all payment provider configurations
 type PaymentsConfig struct {
 	YellowCard YellowCardConfig
 	Fonbnk     FonbnkConfig
+	MoneyGram  MoneyGramConfig
+
+	// EntryFXBufferPct is the flat safety margin the loan adapter applies when
+	// it re-quotes the entry rate from a provider's own Quoter, as a fraction
+	// (0.02 = 2 %). Nil leaves the adapter's default in place; an explicit 0
+	// persists the quoted rate unbuffered. From LOAN_ENTRY_FX_BUFFER_PCT.
+	//
+	// Distinct from the MoneyGram orchestrator's buffers, which apply on the
+	// cascade path and carry their own per-leg settings.
+	EntryFXBufferPct *float64
 }
 
 // AfricasTalkingConfig holds all SMS/USSD-related configuration for Africa's Talking
@@ -142,6 +232,10 @@ type AfricasTalkingConfig struct {
 	BaseURL   string
 	SenderID  string // from AT_SENDER_ID (alphanumeric or shortcode)
 	Shortcode string // from AT_SHORTCODE (numeric shortcode)
+
+	// HTTPTimeout bounds a single SMS send attempt. From AT_HTTP_TIMEOUT
+	// (seconds); zero when unset, leaving the adapter to apply its default.
+	HTTPTimeout time.Duration
 }
 
 // ResolveSenderID returns the sender ID to use for SMS.
@@ -159,6 +253,9 @@ func (c *AfricasTalkingConfig) ResolveSenderID() string {
 // MobileConfig holds all mobile-related configuration
 type MobileConfig struct {
 	AfricasTalking AfricasTalkingConfig
+	// SessionTimeout is the Redis TTL for a USSD session, refreshed on each
+	// request. From USSD_SESSION_TIMEOUT (seconds); defaults to 5 minutes.
+	SessionTimeout time.Duration
 }
 
 type AuthConfig struct {
@@ -198,6 +295,44 @@ func New() (*Config, error) {
 
 	fonbnkClientID := os.Getenv("FONBNK_CLIENT_ID")
 	fonbnkClientSecret := os.Getenv("FONBNK_CLIENT_SECRET")
+
+	// MoneyGram is the default cash-pickup anchor — always wired.
+	mgHomeDomain := os.Getenv("MONEYGRAM_HOME_DOMAIN")
+	mgServerSigningKey := os.Getenv("MONEYGRAM_SERVER_SIGNING_KEY")
+	mgUSDCIssuer := os.Getenv("MONEYGRAM_USDC_ISSUER")
+	mgTransferServerURL := os.Getenv("MONEYGRAM_TRANSFER_SERVER_URL")
+	mgClientID := os.Getenv("MONEYGRAM_CLIENT_ID")
+	mgClientSecret := os.Getenv("MONEYGRAM_CLIENT_SECRET")
+	mgPollInterval, err := envSeconds("MONEYGRAM_POLL_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	mgPollMaxBatch, err := envPositiveInt("MONEYGRAM_POLL_MAX_BATCH")
+	if err != nil {
+		return nil, err
+	}
+	mgRefundMaxAttempts, err := envPositiveInt("MONEYGRAM_REFUND_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+
+	entryFXBuffer, err := envFraction("LOAN_ENTRY_FX_BUFFER_PCT")
+	if err != nil {
+		return nil, err
+	}
+	mgFXBuffer, err := envFraction("MONEYGRAM_FX_ENTRY_BUFFER_PCT")
+	if err != nil {
+		return nil, err
+	}
+	mgFXBufferFallback, err := envFraction("MONEYGRAM_FX_ENTRY_BUFFER_PCT_FALLBACK")
+	if err != nil {
+		return nil, err
+	}
+
+	mgOAuthURL := os.Getenv("MONEYGRAM_OAUTH_URL")
+	mgFXRateURL := os.Getenv("MONEYGRAM_FX_RATE_URL")
+	mgAuthSecret := os.Getenv("MONEYGRAM_AUTH_SECRET")
+	mgFundsSecret := os.Getenv("MONEYGRAM_FUNDS_SECRET")
 
 	mobileUsername := os.Getenv("AT_USERNAME")
 	mobileAPIKey := os.Getenv("AT_API_KEY")
@@ -253,6 +388,12 @@ func New() (*Config, error) {
 		idempotencyTTL = time.Duration(ttlSeconds) * time.Second
 	}
 
+	// Parse USSD session timeout in seconds, default to 5 minutes (300 seconds)
+	ussdSessionTimeout := 5 * time.Minute
+	if secs, err := strconv.Atoi(os.Getenv("USSD_SESSION_TIMEOUT")); err == nil && secs > 0 {
+		ussdSessionTimeout = time.Duration(secs) * time.Second
+	}
+
 	ycBaseURL := os.Getenv("YELLOWCARD_BASE_URL")
 	if ycBaseURL == "" {
 		ycBaseURL = "https://sandbox.api.yellowcard.io/business"
@@ -277,6 +418,13 @@ func New() (*Config, error) {
 
 	mobileSenderID := os.Getenv("AT_SENDER_ID")
 	mobileShortcode := os.Getenv("AT_SHORTCODE")
+
+	// Left zero when unset so the adapter applies its own default rather than
+	// config duplicating the value.
+	mobileHTTPTimeout, err := envSeconds("AT_HTTP_TIMEOUT")
+	if err != nil {
+		return nil, err
+	}
 
 	// Determine network passphrase based on environment
 	networkPassphrase := network.PublicNetworkPassphrase
@@ -312,6 +460,10 @@ func New() (*Config, error) {
 		}
 	}
 
+	if err := validateUSDCIssuerAlignment(mgUSDCIssuer, usdcIssuer); err != nil {
+		return nil, err
+	}
+
 	if treasurySecretKey != "" {
 		_, err := keypair.ParseFull(treasurySecretKey)
 		if err != nil {
@@ -319,11 +471,13 @@ func New() (*Config, error) {
 		}
 	}
 
+	var adminPublicKey string
 	if adminSecretKey != "" {
-		_, err := keypair.ParseFull(adminSecretKey)
+		kp, err := keypair.ParseFull(adminSecretKey)
 		if err != nil {
 			return nil, fmt.Errorf("invalid admin secret key: %w", err)
 		}
+		adminPublicKey = kp.Address()
 	}
 
 	if serverSecretKey != "" {
@@ -331,6 +485,10 @@ func New() (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid server secret key: %w", err)
 		}
+	}
+
+	if serverSecretKey != "" && serverSecretKey == adminSecretKey {
+		return nil, fmt.Errorf("SERVER_SECRET_KEY must differ from ADMIN_SECRET_KEY")
 	}
 
 	if contractID != "" {
@@ -363,10 +521,20 @@ func New() (*Config, error) {
 			ServerHost:        serverHost,
 			CoreServerPort:    coreServerPort,
 			CreditServerPort:  creditServerPort,
+			PublicBaseURL:     strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"),
+		},
+		Shortener: ShortenerConfig{
+			APIKey:             os.Getenv("DUB_API_KEY"),
+			BaseURL:            strings.TrimRight(os.Getenv("DUB_API_URL"), "/"),
+			Domain:             os.Getenv("DUB_DOMAIN"),
+			PreviewTitle:       os.Getenv("DUB_PREVIEW_TITLE"),
+			PreviewDescription: os.Getenv("DUB_PREVIEW_DESCRIPTION"),
+			ImagePreviewURL:    os.Getenv("DUB_IMAGE_PREVIEW_URL"),
 		},
 		Stellar: StellarConfig{
 			RpcURL:                  stellarRpcURL,
 			TreasurySecretKey:       treasurySecretKey,
+			AdminPublicKey:          adminPublicKey,
 			AdminSecretKey:          adminSecretKey,
 			ServerSecretKey:         serverSecretKey,
 			NetworkPassphrase:       networkPassphrase,
@@ -378,6 +546,7 @@ func New() (*Config, error) {
 			ContractID:              contractID,
 		},
 		Payments: PaymentsConfig{
+			EntryFXBufferPct: entryFXBuffer,
 			YellowCard: YellowCardConfig{
 				PublicKey:    ycPublicKey,
 				SecretKey:    ycSecretKey,
@@ -390,15 +559,37 @@ func New() (*Config, error) {
 				ClientSecret: fonbnkClientSecret,
 				BaseURL:      fonbnkBaseURL,
 			},
+			MoneyGram: MoneyGramConfig{
+				HomeDomain:        mgHomeDomain,
+				ServerSigningKey:  mgServerSigningKey,
+				NetworkPassphrase: networkPassphrase, // share with StellarConfig — must match anchor's TOML
+				USDCIssuer:        firstNonEmpty(mgUSDCIssuer, usdcIssuer),
+				TransferServerURL: mgTransferServerURL,
+				ClientID:          mgClientID,
+				ClientSecret:      mgClientSecret,
+				OAuthURL:          mgOAuthURL,
+				FXRateURL:         mgFXRateURL,
+				AuthSecret:        firstNonEmpty(mgAuthSecret, treasurySecretKey),
+				FundsSecret:       firstNonEmpty(mgFundsSecret, treasurySecretKey),
+
+				FXEntryBufferPct:         mgFXBuffer,
+				FXEntryBufferPctFallback: mgFXBufferFallback,
+
+				PollInterval:            mgPollInterval,
+				PollMaxBatch:            mgPollMaxBatch,
+				RefundSettleMaxAttempts: mgRefundMaxAttempts,
+			},
 		},
 		Mobile: MobileConfig{
 			AfricasTalking: AfricasTalkingConfig{
-				Username:  mobileUsername,
-				APIKey:    mobileAPIKey,
-				BaseURL:   mobileBaseURL,
-				SenderID:  mobileSenderID,
-				Shortcode: mobileShortcode,
+				Username:    mobileUsername,
+				APIKey:      mobileAPIKey,
+				BaseURL:     mobileBaseURL,
+				SenderID:    mobileSenderID,
+				Shortcode:   mobileShortcode,
+				HTTPTimeout: mobileHTTPTimeout,
 			},
+			SessionTimeout: ussdSessionTimeout,
 		},
 		Auth: AuthConfig{
 			JWTSecret:           jwtSecret,
@@ -417,4 +608,145 @@ func parsePINLockout() time.Duration {
 		return time.Duration(s) * time.Second
 	}
 	return 15 * time.Minute
+}
+
+// envSeconds reads a bare integer count of seconds, matching the convention
+// used by USSD_SESSION_TIMEOUT and PIN_LOCKOUT_SECONDS. Returns zero when
+// unset so callers can fall back to their own default. A malformed value is
+// an error rather than a silent default: these exist to be tuned, and a typo
+// quietly ignored would look like the tuning had no effect.
+func envSeconds(key string) (time.Duration, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return 0, nil
+	}
+	secs, err := strconv.Atoi(raw)
+	if err != nil || secs <= 0 {
+		return 0, fmt.Errorf("error parsing %s: expected a positive number of seconds, got %q", key, raw)
+	}
+	return time.Duration(secs) * time.Second, nil
+}
+
+// envPositiveInt reads a bare positive integer, zero when unset.
+func envPositiveInt(key string) (int, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("error parsing %s: expected a positive integer, got %q", key, raw)
+	}
+	return n, nil
+}
+
+// envFraction reads a fraction in [0,1] — 0.01 being 1 % — and returns nil
+// when unset. A pointer rather than a bare float because zero is a meaningful
+// value here (no buffer) and must stay distinguishable from "not configured".
+func envFraction(key string) (*float64, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil, nil
+	}
+	f, err := strconv.ParseFloat(raw, 64)
+	if err != nil || f < 0 || f > 1 {
+		return nil, fmt.Errorf("error parsing %s: expected a fraction between 0 and 1, got %q", key, raw)
+	}
+	return &f, nil
+}
+
+// firstNonEmpty returns the first non-empty argument, or "" if all are empty.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// Validate checks that all fields required to construct a working MoneyGram
+// client are set.
+//
+// Validate intentionally does not require REST API credentials (ClientID /
+// ClientSecret / OAuthURL / FXRateURL): the SEP-1/10/24 anchor flow can run
+// without them, and those credentials are gated on Open Q #6 confirming MG
+// issues REST API access to Ramps partners.
+func (c *MoneyGramConfig) Validate() error {
+	missing := []string{}
+	if c.HomeDomain == "" {
+		missing = append(missing, "MONEYGRAM_HOME_DOMAIN")
+	}
+	if c.ServerSigningKey == "" {
+		missing = append(missing, "MONEYGRAM_SERVER_SIGNING_KEY")
+	}
+	if c.NetworkPassphrase == "" {
+		missing = append(missing, "STELLAR network passphrase (set on StellarConfig)")
+	}
+	if c.USDCIssuer == "" {
+		missing = append(missing, "MONEYGRAM_USDC_ISSUER or USDC_ISSUER")
+	}
+	if c.AuthSecret == "" {
+		missing = append(missing, "MONEYGRAM_AUTH_SECRET or TREASURY_SECRET_KEY")
+	}
+	if c.FundsSecret == "" {
+		missing = append(missing, "MONEYGRAM_FUNDS_SECRET or TREASURY_SECRET_KEY")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("moneygram config missing required values: %s", strings.Join(missing, ", "))
+	}
+	if _, err := keypair.ParseFull(c.AuthSecret); err != nil {
+		return fmt.Errorf("moneygram MONEYGRAM_AUTH_SECRET is not a valid Stellar secret: %w", err)
+	}
+	if _, err := keypair.ParseFull(c.FundsSecret); err != nil {
+		return fmt.Errorf("moneygram MONEYGRAM_FUNDS_SECRET is not a valid Stellar secret: %w", err)
+	}
+	return nil
+}
+
+// AuthAddress returns the public G... address of the SEP-10 auth wallet.
+func (c *MoneyGramConfig) AuthAddress() (string, error) {
+	kp, err := keypair.ParseFull(c.AuthSecret)
+	if err != nil {
+		return "", err
+	}
+	return kp.Address(), nil
+}
+
+// FundsAddress returns the public G... address of the funds wallet — the
+// SEP-24 account and USDC send source.
+func (c *MoneyGramConfig) FundsAddress() (string, error) {
+	kp, err := keypair.ParseFull(c.FundsSecret)
+	if err != nil {
+		return "", err
+	}
+	return kp.Address(), nil
+}
+
+// HasRESTCredentials reports whether the REST API credentials are populated.
+// Callers should fall back to YC for FX rates when this returns false.
+func (c *MoneyGramConfig) HasRESTCredentials() bool {
+	return c.ClientID != "" && c.ClientSecret != "" && c.OAuthURL != "" && c.FXRateURL != ""
+}
+
+// validateUSDCIssuerAlignment rejects a MoneyGram issuer override that names a
+// different asset from the vault's.
+//
+// The vault is constructed with USDC_ISSUER and refunds are repaid into it, so
+// an override describes an asset the vault cannot accept. Startup is the only
+// place this surfaces loudly: at runtime it presents as refunds that silently
+// never settle, because the on-ledger issuer check rejects every payment and
+// the loan simply sits in refund_pending.
+//
+// An unset override is not a mismatch — it inherits USDC_ISSUER.
+func validateUSDCIssuerAlignment(moneygramIssuer, stellarIssuer string) error {
+	if moneygramIssuer == "" || stellarIssuer == "" {
+		return nil
+	}
+	if moneygramIssuer != stellarIssuer {
+		return fmt.Errorf(
+			"MONEYGRAM_USDC_ISSUER (%s) must equal USDC_ISSUER (%s): the vault only accepts the latter",
+			moneygramIssuer, stellarIssuer)
+	}
+	return nil
 }

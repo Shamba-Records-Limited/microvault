@@ -9,15 +9,30 @@ The system is deployed as **two contracts**:
 
 ## Architecture
 
-```
-Depositors ─── deposit/withdraw ──▶ Vault ─── borrow (on behalf of Child Accounts) ──▶ Treasury
-                                    │
-                                    │ owner = TimelockController
-                                    ▼
-Proposer ─── schedule_op ──▶ TimelockController ─── execute_op (after delay) ──▶ Vault.<admin_fn>
+```mermaid
+flowchart LR
+    Depositors -->|"deposit/withdraw"| Vault["Vault"]
+    Vault -->|"borrow on behalf of<br/>Child Accounts"| Treasury["Treasury"]
+    Proposer -->|"schedule_op"| TL["TimelockController"]
+    TL -->|"execute_op after delay"| VaultAdmin["Vault.admin_fn"]
+    Vault -. "owner" .-> TL
 ```
 
 Day-to-day depositor and treasury calls hit the Vault directly. Anything privileged — changing limits, replacing the treasury, upgrading WASM, unpausing — is routed through the TimelockController, so every change is publicly visible during the delay window before it takes effect.
+
+## Dependencies
+
+Both contracts are built on the [OpenZeppelin Stellar Contracts](https://docs.openzeppelin.com/stellar-contracts) library, pinned to `=0.7.2` against `soroban-sdk` `26.1.0` (see [`soroban/Cargo.toml`](../../soroban/Cargo.toml)):
+
+| Crate | Provides | Used by |
+|---|---|---|
+| [`stellar-access`](https://crates.io/crates/stellar-access/0.7.2) | `Ownable`, `AccessControl` (role-based auth), `ensure_role`, `set_admin` | Vault, TimelockController |
+| [`stellar-governance`](https://crates.io/crates/stellar-governance/0.7.2) | `timelock` module — `Operation`, `OperationState`, `schedule`/`execute`/`cancel`, `TimelockError` ([OZ docs](https://docs.openzeppelin.com/stellar-contracts/governance/timelock-controller)) | TimelockController |
+| [`stellar-tokens`](https://crates.io/crates/stellar-tokens/0.7.2) | `fungible::FungibleToken`, `vault::{FungibleVault, Vault}` (SEP-56 base) | Vault |
+| [`stellar-contract-utils`](https://crates.io/crates/stellar-contract-utils/0.7.2) | `math::wad::{Wad, WAD_SCALE}` (18-decimal fixed-point), `pausable::Pausable` | Vault |
+| [`stellar-macros`](https://crates.io/crates/stellar-macros/0.7.2) | `#[only_owner]`, `#[only_admin]`, `#[only_role]`, `#[when_not_paused]` auth-gate macros | Vault, TimelockController |
+
+For the authoritative reference on each crate, see its crates.io page (linked above), the [OpenZeppelin Stellar Contracts docs](https://docs.openzeppelin.com/stellar-contracts), or the crate's own `rustdoc`. When extending either contract, prefer composing these primitives over rolling your own — the macros in particular wire auth checks into the host's `require_auth` flow in ways that are easy to get wrong by hand. See each contract's source for the import shape.
 
 ## Deployed Contracts (Testnet)
 

@@ -1,4 +1,3 @@
-// Package yellowcard provides types and client for the YellowCard payment API.
 package yellowcard
 
 import "encoding/json"
@@ -183,15 +182,18 @@ type PaymentResponse struct {
 	Destination           Destination     `json:"destination"`
 	SettlementInfo        *SettlementInfo `json:"settlementInfo,omitempty"`
 	Reference             string          `json:"reference,omitempty"`
-	NetworkFeeAmountUSD   float64         `json:"networkFeeAmountUSD,omitempty"`
-	NetworkFeeAmountLocal float64         `json:"networkFeeAmountLocal,omitempty"`
 	ServiceFeeAmountUSD   float64         `json:"serviceFeeAmountUSD,omitempty"`
 	ServiceFeeAmountLocal float64         `json:"serviceFeeAmountLocal,omitempty"`
 	PartnerFeeAmountUSD   float64         `json:"partnerFeeAmountUSD,omitempty"`
 	PartnerFeeAmountLocal float64         `json:"partnerFeeAmountLocal,omitempty"`
-	CreatedAt             string          `json:"createdAt"`
-	UpdatedAt             string          `json:"updatedAt"`
-	ExpiresAt             string          `json:"expiresAt"`
+	// TotalCryptoReceived tracks how much crypto YellowCard has received against
+	// a direct-settlement request. It starts at 0 and increments toward
+	// SettlementInfo.CryptoAmount as the treasury's USDC deposit is detected.
+	TotalCryptoReceived float64 `json:"totalCryptoReceived,omitempty"`
+	FiatSettlement      bool    `json:"fiatSettlement,omitempty"`
+	CreatedAt           string  `json:"createdAt"`
+	UpdatedAt           string  `json:"updatedAt"`
+	ExpiresAt           string  `json:"expiresAt"`
 }
 
 // PaymentDetails contains full details of a payment retrieved by ID.
@@ -209,6 +211,14 @@ type PaymentDetails struct {
 	Reason           string          `json:"reason"`
 	Status           string          `json:"status"`
 	DirectSettlement bool            `json:"directSettlement"`
+
+	ServiceFeeAmountUSD   float64 `json:"serviceFeeAmountUSD,omitempty"`
+	ServiceFeeAmountLocal float64 `json:"serviceFeeAmountLocal,omitempty"`
+	ServiceFeeID          string  `json:"serviceFeeId,omitempty"`
+	PartnerFeeAmountUSD   float64 `json:"partnerFeeAmountUSD,omitempty"`
+	PartnerFeeAmountLocal float64 `json:"partnerFeeAmountLocal,omitempty"`
+	PartnerFeeID          string  `json:"partnerFeeId,omitempty"`
+
 	Sender           Sender          `json:"sender"`
 	Destination      Destination     `json:"destination"`
 	SettlementInfo   *SettlementInfo `json:"settlementInfo,omitempty"`
@@ -218,26 +228,41 @@ type PaymentDetails struct {
 }
 
 // WebhookEvent represents an incoming webhook payload from YellowCard.
+//
+// YC delivers payment data and event metadata together at the top level —
+// there is no nested "data" envelope. Settlement structure (amount,
+// directSettlement, etc.) is NOT included in the webhook; consumers that
+// need those details must call LookupPayment(PaymentID).
 type WebhookEvent struct {
-	Event     string         `json:"event"`
-	Timestamp string         `json:"timestamp"`
-	Data      WebhookPayload `json:"data"`
+	PaymentID      string          `json:"id"`
+	SequenceID     string          `json:"sequenceId"`
+	Status         string          `json:"status"`
+	APIKey         string          `json:"apiKey"`
+	Event          string          `json:"event"`
+	SettlementInfo *SettlementInfo `json:"settlementInfo,omitempty"`
+	ErrorCode      string          `json:"errorCode,omitempty"`
+	SessionID      string          `json:"sessionId,omitempty"`
+	ExecutedAt     int64           `json:"executedAt"`
 }
 
-// WebhookPayload contains the payment data embedded in a webhook event.
-type WebhookPayload struct {
-	PaymentID        string          `json:"id"`
-	SequenceID       string          `json:"sequenceId"`
-	Status           string          `json:"status"`
-	Amount           float64         `json:"amount"`
-	ConvertedAmount  float64         `json:"convertedAmount"`
-	Currency         string          `json:"currency"`
-	Country          string          `json:"country"`
-	Rate             float64         `json:"rate"`
-	DirectSettlement bool            `json:"directSettlement"`
-	SettlementInfo   *SettlementInfo `json:"settlementInfo,omitempty"`
-	CreatedAt        string          `json:"createdAt"`
-	UpdatedAt        string          `json:"updatedAt"`
+// UnmarshalJSON ensures SettlementInfo is always a non-nil pointer after
+// decoding, even when the JSON omits settlementInfo entirely or contains
+// an empty object. Callers can safely check fields like CryptoCurrency or
+// WalletAddress to determine whether real settlement data was provided.
+func (e *WebhookEvent) UnmarshalJSON(data []byte) error {
+	type Alias WebhookEvent
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(e),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if e.SettlementInfo == nil {
+		e.SettlementInfo = &SettlementInfo{}
+	}
+	return nil
 }
 
 // Account represents a YellowCard business account balance.
@@ -256,17 +281,6 @@ type AccountsResponse struct {
 type APIError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
-}
-
-// Options contains YellowCard-specific payment options passed via InitializePaymentRequest.
-type Options struct {
-	ChannelID      string      `json:"channel_id"`
-	Destination    Destination `json:"destination"`
-	Sender         Sender      `json:"sender"`
-	Reason         string      `json:"reason"`
-	CustomerUID    string      `json:"customer_uid"`
-	CustomerType   string      `json:"customer_type"`
-	IdempotencyKey string      `json:"idempotency_key"`
 }
 
 // YellowCard payment event statuses (full lifecycle).

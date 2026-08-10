@@ -1,4 +1,3 @@
-// Package ussd provides the core USSD gateway, session management, and menu routing logic.
 package ussd
 
 import (

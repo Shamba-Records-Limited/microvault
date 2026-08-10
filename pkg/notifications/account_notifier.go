@@ -11,25 +11,47 @@ import (
 // notification messages from [AccountTemplates] and delivering them through
 // a [Notifier] transport (typically SMS).
 type SMSAccountNotifier struct {
-	notifier  Notifier
-	templates *AccountTemplates
+	notifier    Notifier
+	templates   map[string]*AccountTemplates
+	resolveLang LanguageResolver
 }
 
 // Compile-time interface satisfaction check.
 var _ contracts.AccountNotifier = (*SMSAccountNotifier)(nil)
 
 // NewSMSAccountNotifier creates a new SMSAccountNotifier. If templates is nil,
-// [DefaultAccountTemplates] is used.
+// the built-in localized templates (en/sw/fr) are used. A non-nil templates
+// value is used for every language (single-language override).
 func NewSMSAccountNotifier(notifier Notifier, templates *AccountTemplates) *SMSAccountNotifier {
-	if templates == nil {
-		templates = DefaultAccountTemplates()
+	set := localizedAccountTemplates()
+	if templates != nil {
+		set = map[string]*AccountTemplates{"en": templates, "sw": templates, "fr": templates}
 	}
-	return &SMSAccountNotifier{notifier: notifier, templates: templates}
+	return &SMSAccountNotifier{notifier: notifier, templates: set}
+}
+
+// SetLanguageResolver injects a resolver consulted when a notification leaves
+// Language empty. Pass nil to fall back to English.
+func (s *SMSAccountNotifier) SetLanguageResolver(r LanguageResolver) {
+	s.resolveLang = r
+}
+
+// tmpl selects the template set for a notification: its pinned Language, else
+// the resolved recipient preference, else English.
+func (s *SMSAccountNotifier) tmpl(ctx context.Context, n contracts.AccountNotification) *AccountTemplates {
+	lang := n.Language
+	if lang == "" && s.resolveLang != nil {
+		lang = s.resolveLang(ctx, n.PhoneNumber)
+	}
+	if t, ok := s.templates[lang]; ok {
+		return t
+	}
+	return s.templates["en"]
 }
 
 // NotifyRegistrationSuccess sends a welcome message after successful registration.
 func (s *SMSAccountNotifier) NotifyRegistrationSuccess(ctx context.Context, n contracts.AccountNotification) error {
-	msg := fmt.Sprintf(s.templates.RegistrationSuccess, n.FullName)
+	msg := fmt.Sprintf(s.tmpl(ctx, n).RegistrationSuccess, n.FullName)
 	if err := s.notifier.Send(ctx, n.PhoneNumber, msg); err != nil {
 		return fmt.Errorf("notify registration success for %s: %w", n.UserID, err)
 	}
@@ -38,7 +60,7 @@ func (s *SMSAccountNotifier) NotifyRegistrationSuccess(ctx context.Context, n co
 
 // NotifyRegistrationFailed sends an alert when registration cannot be completed.
 func (s *SMSAccountNotifier) NotifyRegistrationFailed(ctx context.Context, n contracts.AccountNotification) error {
-	msg := fmt.Sprintf(s.templates.RegistrationFailed, n.Reason)
+	msg := fmt.Sprintf(s.tmpl(ctx, n).RegistrationFailed, n.Reason)
 	if err := s.notifier.Send(ctx, n.PhoneNumber, msg); err != nil {
 		return fmt.Errorf("notify registration failed for %s: %w", n.UserID, err)
 	}
@@ -47,7 +69,7 @@ func (s *SMSAccountNotifier) NotifyRegistrationFailed(ctx context.Context, n con
 
 // NotifyPINWrongAttempt sends a warning after an incorrect PIN entry.
 func (s *SMSAccountNotifier) NotifyPINWrongAttempt(ctx context.Context, n contracts.AccountNotification) error {
-	msg := fmt.Sprintf(s.templates.WrongAttempt, n.RemainingAttempts)
+	msg := fmt.Sprintf(s.tmpl(ctx, n).WrongAttempt, n.RemainingAttempts)
 	if err := s.notifier.Send(ctx, n.PhoneNumber, msg); err != nil {
 		return fmt.Errorf("notify PIN wrong attempt for %s: %w", n.UserID, err)
 	}
@@ -56,7 +78,7 @@ func (s *SMSAccountNotifier) NotifyPINWrongAttempt(ctx context.Context, n contra
 
 // NotifyAccountLocked sends a security alert when the account is locked.
 func (s *SMSAccountNotifier) NotifyAccountLocked(ctx context.Context, n contracts.AccountNotification) error {
-	msg := fmt.Sprintf(s.templates.AccountLocked, n.LockedUntil)
+	msg := fmt.Sprintf(s.tmpl(ctx, n).AccountLocked, n.LockedUntil)
 	if err := s.notifier.Send(ctx, n.PhoneNumber, msg); err != nil {
 		return fmt.Errorf("notify account locked for %s: %w", n.UserID, err)
 	}
@@ -65,7 +87,7 @@ func (s *SMSAccountNotifier) NotifyAccountLocked(ctx context.Context, n contract
 
 // NotifyPINChanged sends a confirmation after a successful PIN change.
 func (s *SMSAccountNotifier) NotifyPINChanged(ctx context.Context, n contracts.AccountNotification) error {
-	if err := s.notifier.Send(ctx, n.PhoneNumber, s.templates.PINChanged); err != nil {
+	if err := s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).PINChanged); err != nil {
 		return fmt.Errorf("notify PIN changed for %s: %w", n.UserID, err)
 	}
 	return nil
@@ -73,7 +95,7 @@ func (s *SMSAccountNotifier) NotifyPINChanged(ctx context.Context, n contracts.A
 
 // NotifyPINChangeFailed sends an alert when a PIN change attempt is unsuccessful.
 func (s *SMSAccountNotifier) NotifyPINChangeFailed(ctx context.Context, n contracts.AccountNotification) error {
-	msg := fmt.Sprintf(s.templates.PINChangeFailed, n.Reason)
+	msg := fmt.Sprintf(s.tmpl(ctx, n).PINChangeFailed, n.Reason)
 	if err := s.notifier.Send(ctx, n.PhoneNumber, msg); err != nil {
 		return fmt.Errorf("notify PIN change failed for %s: %w", n.UserID, err)
 	}
@@ -82,7 +104,7 @@ func (s *SMSAccountNotifier) NotifyPINChangeFailed(ctx context.Context, n contra
 
 // NotifyPINReset sends a confirmation after a successful PIN reset.
 func (s *SMSAccountNotifier) NotifyPINReset(ctx context.Context, n contracts.AccountNotification) error {
-	if err := s.notifier.Send(ctx, n.PhoneNumber, s.templates.PINReset); err != nil {
+	if err := s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).PINReset); err != nil {
 		return fmt.Errorf("notify PIN reset for %s: %w", n.UserID, err)
 	}
 	return nil
@@ -90,7 +112,7 @@ func (s *SMSAccountNotifier) NotifyPINReset(ctx context.Context, n contracts.Acc
 
 // NotifyPINResetFailed sends an alert when a PIN reset attempt fails.
 func (s *SMSAccountNotifier) NotifyPINResetFailed(ctx context.Context, n contracts.AccountNotification) error {
-	msg := fmt.Sprintf(s.templates.PINResetFailed, n.Reason)
+	msg := fmt.Sprintf(s.tmpl(ctx, n).PINResetFailed, n.Reason)
 	if err := s.notifier.Send(ctx, n.PhoneNumber, msg); err != nil {
 		return fmt.Errorf("notify PIN reset failed for %s: %w", n.UserID, err)
 	}

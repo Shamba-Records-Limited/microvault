@@ -63,7 +63,7 @@ For integration, deploy, and upgrade workflows, see [`../docs/soroban/`](../docs
 
 - [Vault](../docs/soroban/vault.md) — contract reference (functionality, events, errors, constants)
 - [TimelockController](../docs/soroban/timelock-controller.md) — governance reference (operation lifecycle, roles)
-- [Operations](../docs/soroban/operations.md) — CLI cookbook (build, deploy, upgrade, schedule → execute, ownership flows)
+- [Operations](../docs/soroban/operations.md) — CLI cookbook (build, deploy, upgrade, schedule to execute, ownership flows)
 
 ## SDK Versions
 

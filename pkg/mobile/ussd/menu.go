@@ -1,4 +1,3 @@
-// Package ussd provides the domain models, definitions and registry for USSD menus.
 package ussd
 
 import (

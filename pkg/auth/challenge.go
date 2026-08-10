@@ -33,12 +33,16 @@ type challengeService struct {
 }
 
 // NewChallengeService creates a new ChallengeService with the provided configuration.
-// The serverSecret is the Stellar private key used to sign challenges, proving they originated
-// from the server. Returns an error if the serverSecret is not a valid Stellar private key.
+// Challenges are signed with StellarConfig.ServerSecretKey, which must differ from the
+// admin key it authenticates. Returns an error if that key is not a valid Stellar private key.
 func NewChallengeService(authConfig *config.AuthConfig, stellarConfig *config.StellarConfig, store ChallengeStore) (ChallengeService, error) {
-	serverKP, err := keypair.ParseFull(stellarConfig.AdminSecretKey)
+	serverKP, err := keypair.ParseFull(stellarConfig.ServerSecretKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid server secret: %w", err)
+	}
+
+	if serverKP.Address() == stellarConfig.AdminPublicKey {
+		return nil, fmt.Errorf("server signing key must differ from the admin key")
 	}
 
 	return &challengeService{
@@ -79,7 +83,7 @@ func (s *challengeService) GenerateChallenge() (*Challenge, error) {
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
-				AccountID: s.stellarConfig.AdminPublicKey,
+				AccountID: s.serverKP.Address(),
 				Sequence:  0,
 			},
 			IncrementSequenceNum: false,
@@ -187,7 +191,7 @@ func (s *challengeService) VerifySignedChallenge(challengeID, signedTxB64 string
 		return ErrTransactionMismatch
 	}
 
-	// Verify the admin's signature is present
+	// Verify the admin's signature is present, ignoring the server's own countersignature.
 	adminKP, err := keypair.ParseAddress(s.stellarConfig.AdminPublicKey)
 	if err != nil {
 		return fmt.Errorf("invalid admin public key: %w", err)
@@ -197,8 +201,10 @@ func (s *challengeService) VerifySignedChallenge(challengeID, signedTxB64 string
 	adminSigned := false
 
 	for _, sig := range signatures {
-		err := adminKP.Verify(signedHash[:], sig.Signature)
-		if err == nil {
+		if s.serverKP.Verify(signedHash[:], sig.Signature) == nil {
+			continue
+		}
+		if adminKP.Verify(signedHash[:], sig.Signature) == nil {
 			adminSigned = true
 			break
 		}

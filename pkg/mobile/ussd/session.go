@@ -1,4 +1,3 @@
-// Package ussd provides session state management for the USSD application.
 package ussd
 
 import (
@@ -8,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/phone"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -43,13 +43,13 @@ func (sm *SessionManager) GetSession(ctx context.Context, sessionID string) (*Se
 		return nil, fmt.Errorf("failed to unmarshal session: %v", err)
 	}
 
-	log.Printf("GetSession successful - Key: %s, CurrentMenu: %s, Phone: %s", key, session.CurrentMenu, redactPhone(session.PhoneNumber))
+	log.Printf("GetSession successful - Key: %s, CurrentMenu: %s, Phone: %s", key, session.CurrentMenu, phone.Redact(session.PhoneNumber))
 	return &session, nil
 }
 
 // CreateSession creates a new USSD session
 func (sm *SessionManager) CreateSession(ctx context.Context, sessionID, phoneNumber, serviceCode, networkCode string) (*Session, error) {
-	log.Printf("CreateSession - Creating new session for SessionID: %s, Phone: %s", sessionID, redactPhone(phoneNumber))
+	log.Printf("CreateSession - Creating new session for SessionID: %s, Phone: %s", sessionID, phone.Redact(phoneNumber))
 
 	session := &Session{
 		SessionID:     sessionID,

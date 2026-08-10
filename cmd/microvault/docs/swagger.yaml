@@ -56,38 +56,23 @@ definitions:
     type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.WebhookEvent:
     properties:
-      data:
-        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.WebhookPayload'
+      apiKey:
+        type: string
+      errorCode:
+        type: string
       event:
         type: string
-      timestamp:
-        type: string
-    type: object
-  github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.WebhookPayload:
-    properties:
-      amount:
-        type: number
-      convertedAmount:
-        type: number
-      country:
-        type: string
-      createdAt:
-        type: string
-      currency:
-        type: string
-      directSettlement:
-        type: boolean
+      executedAt:
+        type: integer
       id:
         type: string
-      rate:
-        type: number
       sequenceId:
+        type: string
+      sessionId:
         type: string
       settlementInfo:
         $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.SettlementInfo'
       status:
-        type: string
-      updatedAt:
         type: string
     type: object
   middleware.Response:

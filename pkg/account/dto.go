@@ -21,6 +21,7 @@ type AccountResponse struct {
 	PublicKey    string    `json:"public_key"`
 	AccountIndex int       `json:"account_index"`
 	Status       string    `json:"status"`
+	ChainStatus  string    `json:"chain_status"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

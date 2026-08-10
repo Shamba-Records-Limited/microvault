@@ -5,12 +5,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
-	"github.com/Shamba-Records-Limited/microvault/pkg/payment"
-	"github.com/Shamba-Records-Limited/microvault/pkg/payment/fonbnk"
-	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 
 	routes "github.com/Shamba-Records-Limited/microvault/internal/core/pkg/routes"
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
@@ -119,52 +115,6 @@ func main() {
 	)
 	log.Println("Stellar service initialized")
 
-	// ---- Initialize payments service ----
-	// Initialize providers
-	fonbnkProvider := fonbnk.NewFonbnkAdapter(
-		cfg.Payments.Fonbnk.ClientID,
-		cfg.Payments.Fonbnk.ClientSecret,
-		cfg.Payments.Fonbnk.BaseURL,
-	)
-
-	yellowCardProvider := yellowcard.NewYellowcardAdapter(
-		cfg.Payments.YellowCard.PublicKey,
-		cfg.Payments.YellowCard.SecretKey,
-		cfg.Payments.YellowCard.BaseURL,
-	)
-
-	// Register providers
-	paymentService := payment.NewService()
-
-	paymentService.RegisterProvider("yellowcard", yellowCardProvider)
-	paymentService.RegisterProvider("fonbnk", fonbnkProvider)
-
-	// ---- Initialize YellowCard OffRamp Service (for loan disbursement) ----
-	// This service handles Mobile Money disbursements via YellowCard
-	// Uncomment when ready to integrate with loan disbursement flow
-	//
-	// yellowCardOffRampAdapter := ussdadapters.NewYellowCardOffRampAdapter(
-	// 	ussdadapters.YellowCardOffRampConfig{
-	// 		Adapter:      yellowCardProvider,
-	// 		BusinessID:   cfg.Payments.YellowCard.BusinessID,
-	// 		BusinessName: cfg.Payments.YellowCard.BusinessName,
-	// 	},
-	// )
-	// log.Println("YellowCard OffRamp adapter initialized")
-	//
-	// Usage in loan disbursement:
-	// result, err := yellowCardOffRampAdapter.InitiateOffRamp(ctx, ussdadapters.OffRampRequest{
-	// 	LoanID:           loan.ID,
-	// 	UserID:           user.ID,
-	// 	RecipientName:    user.FullName,
-	// 	AmountUSD:        loan.Amount,
-	// 	DestinationPhone: user.MobileNumber,
-	// 	CountryCode:      user.CountryCode,
-	// 	NetworkCode:      user.MomoNetworkCode,
-	// 	NetworkName:      user.MomoNetworkName,
-	// 	IdempotencyKey:   fmt.Sprintf("loan_%s", loan.ID),
-	// })
-
 	// ---- Initialize Repositories ----
 	db, err := database.GetConnection("core", &cfg.Postgres)
 	if err != nil {
@@ -185,8 +135,7 @@ func main() {
 
 	// ---- Initialize Mobile Providers ----
 	// Initialize USSD providers
-	timeout := time.Duration(3 * time.Minute)
-	sessionMgr := ussd.NewSessionManager(redisClient, timeout)
+	sessionMgr := ussd.NewSessionManager(redisClient, cfg.Mobile.SessionTimeout)
 	menuRegistry := ussd.NewMenuRegistry()
 	preset := ussd.NewStandardLoanMenuPreset()
 	preset.Initialize(menuRegistry)
@@ -211,6 +160,8 @@ func main() {
 			MediumThreshold:    uint32(cfg.Stellar.MultiSigMediumThreshold),
 			HighThreshold:      uint32(cfg.Stellar.MultiSigHighThreshold),
 		},
+		nil, // Logger — falls back to slog.Default()
+		nil, // AlertService — chain-status failures log-only for now
 	)
 	if err != nil {
 		log.Fatalf("Failed to initialize USSD user service adapter: %v", err)
@@ -222,6 +173,7 @@ func main() {
 		cfg.Mobile.AfricasTalking.Username,
 		cfg.Mobile.AfricasTalking.APIKey,
 		cfg.Mobile.AfricasTalking.BaseURL,
+		cfg.Mobile.AfricasTalking.HTTPTimeout,
 	)
 
 	// Register SMS providers

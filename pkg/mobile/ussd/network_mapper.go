@@ -1,4 +1,3 @@
-// Package ussd provides network mapping utilities for resolving telco codes to mobile money networks.
 package ussd
 
 import "fmt"

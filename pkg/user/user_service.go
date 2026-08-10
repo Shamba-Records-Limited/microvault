@@ -7,9 +7,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/services"
-	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"gorm.io/gorm"
 )
 
@@ -62,6 +62,11 @@ type Service interface {
 	GetByID(ctx context.Context, id string) (*UserResponse, error)
 	GetByMobileNumber(ctx context.Context, mobileNumber string) (*UserResponse, error)
 	GetByNationalID(ctx context.Context, nationalID string) (*UserResponse, error)
+
+	// RebindMobileNumber moves an account to a new MSISDN. Used only by
+	// new-SIM recovery, after ownership has been verified — it changes the
+	// account's identity anchor.
+	RebindMobileNumber(ctx context.Context, userID, mobileNumber string) error
 	List(ctx context.Context, filters UserFilters, pagination services.Pagination) (*services.PaginatedResponse[UserResponse], error)
 	Update(ctx context.Context, id string, req UpdateUserRequest) (*UserResponse, error)
 	Delete(ctx context.Context, requesterID, targetID string) error
@@ -192,6 +197,23 @@ func (s *service) CreateWithTx(ctx context.Context, tx *gorm.DB, req CreateUserR
 	if req.NationalID != "" {
 		user.NationalID = &req.NationalID
 	}
+	if req.BirthDate != nil {
+		user.BirthDate = req.BirthDate
+	}
+	if req.Address != "" {
+		user.Address = &req.Address
+	}
+	if req.City != "" {
+		user.City = &req.City
+	}
+	if req.PostalCode != "" {
+		user.PostalCode = &req.PostalCode
+	}
+	// Set the PIN atomically with creation so no PIN-less account is persisted.
+	if req.PinHash != nil && *req.PinHash != "" {
+		user.PinHash = req.PinHash
+		user.PinSetAt = req.PinSetAt
+	}
 
 	if err := s.repo.CreateWithTx(ctx, tx, user); err != nil {
 		log.Printf("CreateWithTx: failed to create user: %v", err)
@@ -230,6 +252,19 @@ func (s *service) GetByMobileNumber(ctx context.Context, mobileNumber string) (*
 }
 
 // GetByNationalID retrieves a user by national ID
+// RebindMobileNumber moves an account to a new MSISDN. See the interface docs.
+func (s *service) RebindMobileNumber(ctx context.Context, userID, mobileNumber string) error {
+	if mobileNumber == "" {
+		return ErrInvalidMobileNumber
+	}
+	if err := s.repo.UpdateMobileNumber(ctx, userID, mobileNumber); err != nil {
+		log.Printf("RebindMobileNumber: failed for user %s: %v", userID, err)
+		return err
+	}
+	log.Printf("RebindMobileNumber: user %s rebound to a new MSISDN", userID)
+	return nil
+}
+
 func (s *service) GetByNationalID(ctx context.Context, nationalID string) (*UserResponse, error) {
 	user, err := s.repo.GetByNationalID(ctx, nationalID)
 	if err != nil {
@@ -358,6 +393,18 @@ func (s *service) Update(ctx context.Context, id string, req UpdateUserRequest) 
 	}
 	if req.PreferredLanguage != nil {
 		user.PreferredLanguage = *req.PreferredLanguage
+	}
+	if req.BirthDate != nil {
+		user.BirthDate = req.BirthDate
+	}
+	if req.Address != nil {
+		user.Address = req.Address
+	}
+	if req.City != nil {
+		user.City = req.City
+	}
+	if req.PostalCode != nil {
+		user.PostalCode = req.PostalCode
 	}
 
 	// Update in database
@@ -737,6 +784,18 @@ func toUserResponse(user *models.User) *UserResponse {
 	}
 	if user.NationalID != nil {
 		resp.NationalID = *user.NationalID
+	}
+	if user.BirthDate != nil {
+		resp.BirthDate = user.BirthDate
+	}
+	if user.Address != nil {
+		resp.Address = *user.Address
+	}
+	if user.City != nil {
+		resp.City = *user.City
+	}
+	if user.PostalCode != nil {
+		resp.PostalCode = *user.PostalCode
 	}
 
 	return resp
