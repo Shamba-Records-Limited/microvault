@@ -243,7 +243,7 @@ func main() {
 	})
 
 	// Initialize webhook controller (event handler will be wired when disbursement service is ready)
-	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.WebhookSecret)
+	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.PublicKey, cfg.Payments.YellowCard.SecretKey)
 
 	// Initialize SMS delivery report callback controller
 	smsCallbackHandler := sms.NewDeliveryReportHandler()

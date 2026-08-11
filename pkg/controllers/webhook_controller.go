@@ -3,7 +3,7 @@ package controllers
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"log"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,15 +14,18 @@ import (
 
 // WebhookController handles webhook endpoints for payment providers.
 type WebhookController struct {
-	eventHandler  webhook.WebhookEventHandler
-	webhookSecret string
+	eventHandler webhook.WebhookEventHandler
+	apiKey       string
+	secretKey    string
 }
 
-// NewWebhookController creates a new WebhookController with the provided dependencies.
-func NewWebhookController(eventHandler webhook.WebhookEventHandler, webhookSecret string) *WebhookController {
+// NewWebhookController creates a new WebhookController with the provided
+// dependencies. apiKey and secretKey are the YellowCard API credentials.
+func NewWebhookController(eventHandler webhook.WebhookEventHandler, apiKey, secretKey string) *WebhookController {
 	return &WebhookController{
-		eventHandler:  eventHandler,
-		webhookSecret: webhookSecret,
+		eventHandler: eventHandler,
+		apiKey:       apiKey,
+		secretKey:    secretKey,
 	}
 }
 
@@ -40,17 +43,16 @@ func NewWebhookController(eventHandler webhook.WebhookEventHandler, webhookSecre
 // @Failure 500 {object} fiber.Error "Failed to process webhook"
 // @Router /api/v1/webhooks/yellowcard [post]
 func (ctrl *WebhookController) HandleYellowCardWebhook(c *fiber.Ctx) error {
-	// 1. Verify HMAC signature if webhook secret is configured.
-	if ctrl.webhookSecret != "" {
+	// 1. Verify HMAC signature if the secret key is configured.
+	if ctrl.secretKey != "" {
 		signature := c.Get("X-YC-Signature")
 		if signature == "" {
 			return fiber.NewError(fiber.StatusUnauthorized, "missing webhook signature")
 		}
 
-		body := c.Body()
-		mac := hmac.New(sha256.New, []byte(ctrl.webhookSecret))
-		mac.Write(body)
-		expected := hex.EncodeToString(mac.Sum(nil))
+		mac := hmac.New(sha256.New, []byte(ctrl.secretKey))
+		mac.Write(c.Body())
+		expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
 		if !hmac.Equal([]byte(signature), []byte(expected)) {
 			log.Printf("yellowcard webhook: signature mismatch")
@@ -59,11 +61,14 @@ func (ctrl *WebhookController) HandleYellowCardWebhook(c *fiber.Ctx) error {
 	}
 
 	// 2. Parse the webhook event.
-	// Log the raw body for debugging.
-	log.Printf("yellowcard webhook: raw body: %s", c.Body())
 	var event yellowcard.WebhookEvent
 	if err := c.BodyParser(&event); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid webhook payload")
+	}
+
+	if ctrl.apiKey != "" && event.APIKey != ctrl.apiKey {
+		log.Printf("yellowcard webhook: unrecognised apiKey")
+		return fiber.NewError(fiber.StatusUnauthorized, "unrecognised apiKey")
 	}
 
 	if event.Event == "" || event.PaymentID == "" {

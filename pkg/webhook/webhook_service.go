@@ -106,8 +106,8 @@ var _ WebhookEventHandler = (*Service)(nil)
 //
 // Event to Action mapping:
 //
-//	DISBURSEMENT.COMPLETE / PAYMENT.COMPLETE to DisbursementComplete + notify user
-//	DISBURSEMENT.FAILED / PAYMENT.FAILED to if direct: DisbursementRefundPending; if fiat: DisbursementFailed + alert ops
+//	DISBURSEMENT.COMPLETE / PAYMENT.COMPLETE / SEND.COMPLETE to DisbursementComplete + notify user
+//	DISBURSEMENT.FAILED / PAYMENT.FAILED / SEND.FAILED to if direct: DisbursementRefundPending; if fiat: DisbursementFailed + alert ops
 //	PENDING_LIQUIDITY to alert ops (YC balance low, auto-retries for 2hrs)
 //	REFUNDED to DisbursementRefundReceived (RefundPoller handles fiat failover)
 //	REFUND_FAILED to DisbursementFailed + alert ops
@@ -128,10 +128,12 @@ func (s *Service) ProcessYellowCardEvent(event yellowcard.WebhookEvent) error {
 	}
 
 	switch event.Event {
-	case yellowcard.EventDisbursementComplete, yellowcard.EventPaymentComplete:
+	case yellowcard.EventDisbursementComplete, yellowcard.EventPaymentComplete,
+		yellowcard.EventSendComplete:
 		return s.handleComplete(seqID, paymentID)
 
-	case yellowcard.EventDisbursementFailed, yellowcard.EventPaymentFailed:
+	case yellowcard.EventDisbursementFailed, yellowcard.EventPaymentFailed,
+		yellowcard.EventSendFailed:
 		isDirect, err := directSettlementLookup()
 		if err != nil {
 			return fmt.Errorf("look up settlement method for %s: %w", seqID, err)

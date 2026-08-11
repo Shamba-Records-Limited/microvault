@@ -51,9 +51,9 @@ func (l *InMemoryLocalizer) AddTranslation(key, language, message string) {
 func (l *InMemoryLocalizer) LoadStandardTranslations() {
 	translations := map[string]map[string]string{
 		"welcome": {
-			"en": "Welcome to Microvault!",
-			"sw": "Karibu Microvault!",
-			"fr": "Bienvenue à Microvault!",
+			"en": "Welcome to Microvault",
+			"sw": "Karibu Microvault",
+			"fr": "Bienvenue à Microvault",
 		},
 		"goodbye": {
 			"en": "Thank you for using Microvault",
@@ -291,9 +291,9 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"fr": "Code postal (facultatif, répondez 0 pour ignorer):",
 		},
 		"badge_no_security_q": {
-			"en": "! Add security questions to protect your account.",
-			"sw": "! Weka maswali ya usalama kulinda akaunti yako.",
-			"fr": "! Ajoutez des questions de sécurité pour protéger votre compte.",
+			"en": "Add security questions to protect your account.",
+			"sw": "Weka maswali ya usalama kulinda akaunti yako.",
+			"fr": "Ajoutez des questions de sécurité pour protéger votre compte.",
 		},
 		"bio_saved": {
 			"en": "Your details have been saved. Cash pickup will be faster next time.",

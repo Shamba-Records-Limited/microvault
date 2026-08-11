@@ -149,12 +149,11 @@ func (c *StellarConfig) NewRpcClient() *rpcclient.Client {
 
 // YellowCardConfig holds all YellowCard-related configuration
 type YellowCardConfig struct {
-	PublicKey     string
-	SecretKey     string
-	BaseURL       string
-	WebhookSecret string
-	BusinessID    string // Registered business ID with YellowCard
-	BusinessName  string // Registered business name with YellowCard
+	PublicKey    string
+	SecretKey    string
+	BaseURL      string
+	BusinessID   string // Registered business ID with YellowCard
+	BusinessName string // Registered business name with YellowCard
 }
 
 // FonbnkConfig holds all Fonbnk-related configuration
