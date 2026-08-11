@@ -1063,7 +1063,7 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 			if kesAmt, ok := loanMap["delivered_amount_kes"].(*int64); ok && kesAmt != nil {
 				displayAmount = fmt.Sprintf("KES %.0f", float64(*kesAmt)/100.0)
 			} else {
-				displayAmount = "—"
+				displayAmount = "-"
 			}
 		}
 
@@ -1114,7 +1114,7 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, inp
 
 		var loanRef = "N/A"
 		var loanID string
-		var displayAmount = "—"
+		var displayAmount = "-"
 
 		if loanMap, ok := loan.(map[string]any); ok {
 			if ref, ok := loanMap["loan_reference"].(*string); ok && ref != nil {

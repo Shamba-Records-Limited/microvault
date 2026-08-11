@@ -93,12 +93,12 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 		"registration_success": {
 			"en": "Registration successful! You can now request loans.",
 			"sw": "Usajili umefanikiwa! Sasa unaweza kuomba mikopo.",
-			"fr": "Inscription réussie! Vous pouvez maintenant demander des prêts.",
+			"fr": "Inscription réussie! Vous pouvez maintenant demander des prets.",
 		},
 		"loan_request_submitted": {
 			"en": "Loan request submitted successfully. You will receive an SMS confirmation.",
 			"sw": "Ombi la mkopo limewasilishwa. Utapokea ujumbe wa SMS.",
-			"fr": "Demande de prêt soumise avec succès. Vous recevrez un SMS de confirmation.",
+			"fr": "Demande de pret soumise avec succès. Vous recevrez un SMS de confirmation.",
 		},
 		"insufficient_credit": {
 			"en": "Your credit score is too low for this loan amount.",
@@ -113,12 +113,12 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 		"no_active_loans": {
 			"en": "You have no active loans to repay",
 			"sw": "Huna mikopo ya kulipa",
-			"fr": "Vous n'avez pas de prêts actifs à rembourser",
+			"fr": "Vous n'avez pas de prets actifs à rembourser",
 		},
 		"no_loans": {
 			"en": "You have no loans",
 			"sw": "Huna mikopo",
-			"fr": "Vous n'avez pas de prêts",
+			"fr": "Vous n'avez pas de prets",
 		},
 
 		// ── PIN Flow Messages ───────────────────────────────────────
@@ -253,7 +253,7 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 		"recover_contact_support": {
 			"en": "This account has no security questions, so it cannot be moved to a new phone here. Please contact support.",
 			"sw": "Akaunti hii haina maswali ya usalama, haiwezi kuhamishwa hapa. Tafadhali wasiliana na msaada.",
-			"fr": "Ce compte n'a pas de questions de sécurité, il ne peut pas être transféré ici. Contactez le support.",
+			"fr": "Ce compte n'a pas de questions de sécurité, il ne peut pas etre transféré ici. Contactez le support.",
 		},
 		"recover_success": {
 			"en": "Account recovered to this phone. Dial again and sign in with your existing PIN.",
@@ -315,7 +315,7 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 		"loan_min_amount": {
 			"en": "Minimum loan amount is %s %.0f",
 			"sw": "Kiasi cha chini cha mkopo ni %s %.0f",
-			"fr": "Le montant minimum du prêt est %s %.0f",
+			"fr": "Le montant minimum du pret est %s %.0f",
 		},
 		"loan_max_amount": {
 			"en": "The amount requested exceeds the auto-approved limit of %s %.0f",
@@ -325,32 +325,32 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 		"loan_cash_pickup_min": {
 			"en": "Cash pickup needs at least %s %.0f. Choose mobile money instead:",
 			"sw": "Kuchukua pesa kunahitaji angalau %s %.0f. Chagua pesa ya simu badala yake:",
-			"fr": "Le retrait en espèces exige au moins %s %.0f. Choisissez plutôt mobile money:",
+			"fr": "Le retrait en espèces exige au moins %s %.0f. Choisissez plutot mobile money:",
 		},
 		"loan_confirm_summary": {
 			"en": "Loan of %s %.0f for %d days\n1. Confirm\n0. Cancel",
 			"sw": "Mkopo wa %s %.0f kwa siku %d\n1. Thibitisha\n0. Ghairi",
-			"fr": "Prêt de %s %.0f pour %d jours\n1. Confirmer\n0. Annuler",
+			"fr": "Pret de %s %.0f pour %d jours\n1. Confirmer\n0. Annuler",
 		},
 		"loan_processing": {
 			"en": "Your loan of %s %.0f is being processed. You will receive a notification when disbursement is successful.",
 			"sw": "Mkopo wako wa %s %.0f unashughulikiwa. Utapokea arifa mara utakapotolewa.",
-			"fr": "Votre prêt de %s %.0f est en cours de traitement. Vous recevrez une notification une fois le décaissement effectué.",
+			"fr": "Votre pret de %s %.0f est en cours de traitement. Vous recevrez une notification une fois le décaissement effectué.",
 		},
 		"my_loans_header": {
 			"en": "Your Loans:",
 			"sw": "Mikopo Yako:",
-			"fr": "Vos Prêts:",
+			"fr": "Vos Prets:",
 		},
 		"repay_header": {
 			"en": "Repay via M-Pesa:\nPayBill: 123456\nAccount: Your Loan Number\n\nActive Loans:",
 			"sw": "Lipa kupitia M-Pesa:\nPayBill: 123456\nAkaunti: Nambari ya Mkopo Wako\n\nMikopo Inayoendelea:",
-			"fr": "Remboursez via M-Pesa:\nPayBill: 123456\nCompte: Votre Numéro de Prêt\n\nPrêts Actifs:",
+			"fr": "Remboursez via M-Pesa:\nPayBill: 123456\nCompte: Votre Numéro de Pret\n\nPrets Actifs:",
 		},
 		"repay_loan_line": {
 			"en": "Loan: %s\nDue: %s",
 			"sw": "Mkopo: %s\nInayodaiwa: %s",
-			"fr": "Prêt: %s\nDû: %s",
+			"fr": "Pret: %s\nDu: %s",
 		},
 
 		// ── Loan Status ─────────────────────────────────────────────
