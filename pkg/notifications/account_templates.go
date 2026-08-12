@@ -45,7 +45,7 @@ func DefaultAccountTemplates() *AccountTemplates {
 		RegistrationSuccess: "Welcome to Shamba Records, %s! " +
 			"Your account is active and your PIN is set. " +
 			"Dial *384# to request your first loan.\n\n" +
-			"Next: My Account > PIN Manager > Security Questions — so you can " +
+			"Next: My Account > PIN Manager > Security Questions - so you can " +
 			"recover your account if you lose your phone. " +
 			"Add My Details for faster cash pickup.",
 		RegistrationFailed: "Your Shamba Records registration could not be completed. " +
@@ -71,7 +71,7 @@ func swahiliAccountTemplates() *AccountTemplates {
 		RegistrationSuccess: "Karibu Shamba Records, %s! " +
 			"Akaunti yako iko hai na PIN yako imewekwa. " +
 			"Piga *384# kuomba mkopo wako wa kwanza.\n\n" +
-			"Ifuatayo: Akaunti Yangu > Dhibiti PIN > Maswali ya Usalama — ili " +
+			"Ifuatayo: Akaunti Yangu > Dhibiti PIN > Maswali ya Usalama - ili " +
 			"uweze kurejesha akaunti yako ukipoteza simu. " +
 			"Weka Maelezo Yangu kwa kuchukua pesa haraka.",
 		RegistrationFailed: "Usajili wako wa Shamba Records haukukamilika. " +
@@ -96,18 +96,18 @@ func frenchAccountTemplates() *AccountTemplates {
 	return &AccountTemplates{
 		RegistrationSuccess: "Bienvenue à Shamba Records, %s! " +
 			"Votre compte est actif et votre PIN est défini. " +
-			"Composez *384# pour demander votre premier prêt.\n\n" +
-			"Ensuite: Mon Compte > Gérer PIN > Questions de Sécurité — pour " +
+			"Composez *384# pour demander votre premier pret.\n\n" +
+			"Ensuite: Mon Compte > Gérer PIN > Questions de Sécurité - pour " +
 			"récupérer votre compte si vous perdez votre téléphone. " +
 			"Ajoutez Mes Infos pour un retrait plus rapide.",
-		RegistrationFailed: "Votre inscription à Shamba Records n'a pas pu être complétée. " +
+		RegistrationFailed: "Votre inscription à Shamba Records n'a pas pu etre complétée. " +
 			"Raison: %s. Veuillez réessayer ou contacter le support.",
 		WrongAttempt: "ALERTE: Un PIN incorrect a été saisi sur votre compte Shamba Records. " +
 			"%d tentative(s) restante(s) avant le verrouillage de votre compte.",
 		AccountLocked: "SÉCURITÉ: Votre compte Shamba Records a été temporairement verrouillé " +
 			"suite à plusieurs échecs de PIN. Réessayez dans %s ou composez pour réinitialiser votre PIN.",
 		PINChanged: "Votre PIN Shamba Records a été modifié avec succès. " +
-			"Si vous n'êtes pas à l'origine de ce changement, composez *384*1234# immédiatement pour réinitialiser votre PIN.",
+			"Si vous n'etes pas à l'origine de ce changement, composez *384*1234# immédiatement pour réinitialiser votre PIN.",
 		PINChangeFailed: "Une tentative de changement de PIN sur votre compte Shamba Records a échoué. " +
 			"Raison: %s. Si ce n'était pas vous, réinitialisez votre PIN immédiatement.",
 		PINReset: "Votre PIN Shamba Records a été réinitialisé avec succès. " +

@@ -68,9 +68,8 @@ func DefaultLoanTemplates() *LoanTemplates {
 		RepaymentSoon: "Reminder: Your loan payment of %s %.2f is due in %d days (Ref: %s). " +
 			"Dial *384*1234# to pay.",
 		RepaymentUpcoming: "Reminder: Your loan payment of %s %.2f is due on %s (Ref: %s).",
-		CashPickupInitiated: "Cash-pickup loan (Ref: %s) ready.\n\n" +
-			"Open to verify:\n\n%s\n\n" +
-			"Final amount shown in the link.",
+		CashPickupInitiated: "Cash-pickup loan (Ref: %s) ready. Final amount shown in the link.\n" +
+			"Open to verify:\n%s",
 		CashPickupReady: "Your loan of %s %.2f is ready for pickup at any MoneyGram agent. " +
 			"Reference: %s (Loan: %s). Bring valid ID.\nMore info: %s",
 		CashPickupCancelled: "Your cash-pickup loan (Ref: %s) was cancelled and the funds returned. " +
@@ -100,9 +99,8 @@ func swahiliLoanTemplates() *LoanTemplates {
 		RepaymentSoon: "Kumbusho: Malipo yako ya mkopo ya %s %.2f yanastahili kwa siku %d (Kumb: %s). " +
 			"Piga *384*1234# kulipa.",
 		RepaymentUpcoming: "Kumbusho: Malipo yako ya mkopo ya %s %.2f yanastahili tarehe %s (Kumb: %s).",
-		CashPickupInitiated: "Mkopo (Kumb: %s) tayari.\n\n" +
-			"Fungua kuthibitisha:\n\n%s\n\n" +
-			"Kiasi cha mwisho kwenye kiungo.",
+		CashPickupInitiated: "Mkopo (Kumb: %s) tayari. Kiasi cha mwisho kwenye kiungo.\n" +
+			"Fungua kuthibitisha:\n%s",
 		CashPickupReady: "Mkopo wako wa %s %.2f uko tayari kuchukuliwa kwa wakala yeyote wa MoneyGram. " +
 			"Kumbukumbu: %s (Mkopo: %s). Lete kitambulisho halali.\nMaelezo zaidi: %s",
 		CashPickupCancelled: "Mkopo wako wa kuchukua fedha (Kumb: %s) umeghairiwa na fedha zimerudishwa. " +
@@ -113,31 +111,30 @@ func swahiliLoanTemplates() *LoanTemplates {
 // frenchLoanTemplates returns the French loan templates.
 func frenchLoanTemplates() *LoanTemplates {
 	return &LoanTemplates{
-		Approved: "Félicitations! Votre prêt de %s %.2f a été approuvé (Réf: %s). " +
+		Approved: "Félicitations! Votre pret de %s %.2f a été approuvé (Réf: %s). " +
 			"Nous le traitons et vous serez notifié lors du décaissement.",
-		Rejected: "Votre demande de prêt de %s %.2f n'a pas été approuvée. Raison: %s. " +
+		Rejected: "Votre demande de pret de %s %.2f n'a pas été approuvée. Raison: %s. " +
 			"Composez *384*1234# pour plus d'informations.",
-		Disbursed: "Votre prêt de %s %.2f a été décaissé (Réf: %s). " +
+		Disbursed: "Votre pret de %s %.2f a été décaissé (Réf: %s). " +
 			"Les fonds sont maintenant disponibles sur votre compte.",
-		Failed: "Votre prêt (Réf: %s) a été marqué comme défaillant. " +
+		Failed: "Votre pret (Réf: %s) a été marqué comme défaillant. " +
 			"Cela affectera votre score de crédit. Veuillez contacter le support.",
-		OffRampFailed: "Nous n'avons pas pu décaisser votre prêt de %s %.2f (Réf: %s). " +
+		OffRampFailed: "Nous n'avons pas pu décaisser votre pret de %s %.2f (Réf: %s). " +
 			"Aucun fonds n'a quitté votre compte et vous ne devez rien. Réessayez ou contactez le support.",
-		CashPickupApproved: "Votre prêt à retrait en espèces de %s %.2f a été approuvé (Réf: %s). " +
-			"Vous recevrez bientôt un lien de vérification pour compléter le retrait chez un agent MoneyGram.",
-		RepaymentReceived: "Paiement de %s %.2f reçu pour le prêt %s. " +
+		CashPickupApproved: "Votre pret à retrait en espèces de %s %.2f a été approuvé (Réf: %s). " +
+			"Vous recevrez bientot un lien de vérification pour compléter le retrait chez un agent MoneyGram.",
+		RepaymentReceived: "Paiement de %s %.2f recu pour le pret %s. " +
 			"Solde restant: %s %.2f. Merci!",
-		RepaymentOverdue: "URGENT: Votre paiement de prêt de %s %.2f est en retard (Réf: %s). " +
+		RepaymentOverdue: "URGENT: Votre paiement de pret de %s %.2f est en retard (Réf: %s). " +
 			"Veuillez payer immédiatement pour éviter des pénalités.",
-		RepaymentSoon: "Rappel: Votre paiement de prêt de %s %.2f est dû dans %d jours (Réf: %s). " +
+		RepaymentSoon: "Rappel: Votre paiement de pret de %s %.2f est à payer dans %d jours (Réf: %s). " +
 			"Composez *384*1234# pour payer.",
-		RepaymentUpcoming: "Rappel: Votre paiement de prêt de %s %.2f est dû le %s (Réf: %s).",
-		CashPickupInitiated: "Prêt (Réf: %s) prêt.\n\n" +
-			"Ouvrez pour vérifier:\n\n%s\n\n" +
-			"Montant final dans le lien.",
-		CashPickupReady: "Votre prêt de %s %.2f est prêt à être retiré chez tout agent MoneyGram. " +
-			"Référence: %s (Prêt: %s). Apportez une pièce d'identité valide.\nPlus d'infos: %s",
-		CashPickupCancelled: "Votre prêt à retrait espèces (Réf: %s) a été annulé et les fonds retournés. " +
+		RepaymentUpcoming: "Rappel: Votre paiement de pret de %s %.2f est à payer le %s (Réf: %s).",
+		CashPickupInitiated: "Pret (Réf: %s) disponible. Montant final dans le lien.\n" +
+			"Ouvrez pour vérifier:\n%s",
+		CashPickupReady: "Votre pret de %s %.2f est disponible chez tout agent MoneyGram. " +
+			"Référence: %s (Pret: %s). Apportez une pièce d'identité valide.\nPlus d'infos: %s",
+		CashPickupCancelled: "Votre pret à retrait espèces (Réf: %s) a été annulé et les fonds retournés. " +
 			"Vous ne devez rien. Composez *384*1234# pour redemander.",
 	}
 }
