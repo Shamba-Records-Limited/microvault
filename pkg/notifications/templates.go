@@ -54,7 +54,7 @@ func DefaultLoanTemplates() *LoanTemplates {
 		Rejected: "Your loan request for %s %.2f was not approved. Reason: %s. " +
 			"Dial *384*1234# for more info.",
 		Disbursed: "Your loan of %s %.2f has been disbursed (Ref: %s). " +
-			"The funds are now available in your account.",
+			"The funds are now available in your mobile money account.",
 		Failed: "Your loan (Ref: %s) has been marked as defaulted. " +
 			"This will affect your credit score. Please contact support.",
 		OffRampFailed: "We could not disburse your loan of %s %.2f (Ref: %s). " +
@@ -85,7 +85,7 @@ func swahiliLoanTemplates() *LoanTemplates {
 		Rejected: "Ombi lako la mkopo wa %s %.2f halikuidhinishwa. Sababu: %s. " +
 			"Piga *384*1234# kwa maelezo zaidi.",
 		Disbursed: "Mkopo wako wa %s %.2f umetolewa (Kumb: %s). " +
-			"Fedha sasa zinapatikana kwenye akaunti yako.",
+			"Fedha sasa zinapatikana kwenye akaunti yako ya pesa za simu.",
 		Failed: "Mkopo wako (Kumb: %s) umewekwa alama ya kutolipwa. " +
 			"Hii itaathiri alama yako ya mkopo. Tafadhali wasiliana na msaada.",
 		OffRampFailed: "Hatukuweza kutoa mkopo wako wa %s %.2f (Kumb: %s). " +
@@ -116,7 +116,7 @@ func frenchLoanTemplates() *LoanTemplates {
 		Rejected: "Votre demande de pret de %s %.2f n'a pas été approuvée. Raison: %s. " +
 			"Composez *384*1234# pour plus d'informations.",
 		Disbursed: "Votre pret de %s %.2f a été décaissé (Réf: %s). " +
-			"Les fonds sont maintenant disponibles sur votre compte.",
+			"Les fonds sont maintenant disponibles sur votre compte mobile money.",
 		Failed: "Votre pret (Réf: %s) a été marqué comme défaillant. " +
 			"Cela affectera votre score de crédit. Veuillez contacter le support.",
 		OffRampFailed: "Nous n'avons pas pu décaisser votre pret de %s %.2f (Réf: %s). " +
