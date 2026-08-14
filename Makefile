@@ -1,4 +1,6 @@
-.PHONY: help migrate-up migrate-down migrate-version migrate-force build build-core build-migrate run test test-coverage test-coverage-html test-integration docs clean
+.PHONY: help migrate-up migrate-down migrate-version migrate-force build build-core build-migrate run up up-build down test test-coverage test-coverage-html test-integration docs clean
+
+COMPOSE := docker compose
 
 help:
 	@echo "Microvault Makefile Commands"
@@ -16,6 +18,11 @@ help:
 	@echo ""
 	@echo "Run Commands:"
 	@echo "  make run                 - Run core application"
+	@echo ""
+	@echo "Docker Commands:"
+	@echo "  make up                  - Start the dev stack in the background"
+	@echo "  make up-build            - Rebuild images, then start the dev stack"
+	@echo "  make down                - Stop the dev stack"
 	@echo ""
 	@echo "Test Commands:"
 	@echo "  make test                - Run all tests"
@@ -61,6 +68,16 @@ build-migrate:
 # Run commands
 run:
 	@go run cmd/microvault/main.go
+
+# Docker commands
+up:
+	@$(COMPOSE) up -d
+
+up-build:
+	@$(COMPOSE) up -d --build
+
+down:
+	@$(COMPOSE) down
 
 # Test commands
 test:
