@@ -44,7 +44,7 @@ func DefaultAccountTemplates() *AccountTemplates {
 	return &AccountTemplates{
 		RegistrationSuccess: "Welcome to Shamba Records, %s! " +
 			"Your account is active and your PIN is set. " +
-			"Dial *384# to request your first loan.\n\n" +
+			"Dial *789*10# to request your first loan.\n\n" +
 			"Next: My Account > PIN Manager > Security Questions - so you can " +
 			"recover your account if you lose your phone. " +
 			"Add My Details for faster cash pickup.",

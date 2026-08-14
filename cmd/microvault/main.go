@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -126,6 +127,15 @@ func main() {
 		log.Fatalf("Failed to initialize repositories: %v", err)
 	}
 	log.Println("Repositories initialized successfully")
+
+	// On testnet the DB may be rebuilt while on-chain child accounts persist;
+	// floor the derivation-index sequence so fresh rows never collide with them.
+	if cfg.Stellar.AccountIndexBase > 0 {
+		if err := repos.Account.EnsureAccountIndexFloor(context.Background(), cfg.Stellar.AccountIndexBase); err != nil {
+			log.Fatalf("Failed to floor account index sequence: %v", err)
+		}
+		log.Printf("Account index sequence floored at %d", cfg.Stellar.AccountIndexBase)
+	}
 
 	// ---- Initialize Core Services ----
 	// User and Account services

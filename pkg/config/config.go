@@ -133,6 +133,12 @@ type StellarConfig struct {
 	MultiSigHighThreshold   uint32
 	USDCIssuer              string
 	ContractID              string
+
+	// AccountIndexBase advances account_index_seq at boot so a freshly rebuilt
+	// (testnet) database hands out BIP44 derivation indices above any burned
+	// on-chain. 0 (the default) leaves the sequence untouched. From
+	// ACCOUNT_INDEX_BASE.
+	AccountIndexBase int64
 }
 
 // NewRpcClient creates a new instance of Stellar RPC Client to connect with Stellar's RPC Server
@@ -343,6 +349,14 @@ func New() (*Config, error) {
 	usdcIssuer := os.Getenv("USDC_ISSUER")
 	contractID := os.Getenv("CONTRACT_ID")
 
+	// Optional floor for account_index_seq — set on testnet after a DB rebuild
+	// so derivation indices don't collide with on-chain child accounts created
+	// before the reset.
+	accountIndexBase, err := envNonNegativeInt64("ACCOUNT_INDEX_BASE")
+	if err != nil {
+		return nil, err
+	}
+
 	// Create a map of required variables to check
 	required := map[string]string{
 		"SERVER_ENVIRONMENT":        serverEnvironment,
@@ -543,6 +557,7 @@ func New() (*Config, error) {
 			MultiSigHighThreshold:   uint32(multiSigHighThreshold),
 			USDCIssuer:              usdcIssuer,
 			ContractID:              contractID,
+			AccountIndexBase:        accountIndexBase,
 		},
 		Payments: PaymentsConfig{
 			EntryFXBufferPct: entryFXBuffer,
@@ -635,6 +650,19 @@ func envPositiveInt(key string) (int, error) {
 	n, err := strconv.Atoi(raw)
 	if err != nil || n <= 0 {
 		return 0, fmt.Errorf("error parsing %s: expected a positive integer, got %q", key, raw)
+	}
+	return n, nil
+}
+
+// envNonNegativeInt64 reads a bare non-negative integer, zero when unset.
+func envNonNegativeInt64(key string) (int64, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("error parsing %s: expected a non-negative integer, got %q", key, raw)
 	}
 	return n, nil
 }
