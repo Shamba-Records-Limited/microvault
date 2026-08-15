@@ -1,4 +1,3 @@
-// Package adapters provides core implementation for USSD integration for stellar treasury transfers.
 package adapters
 
 import (
@@ -6,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
@@ -13,6 +13,8 @@ import (
 type StellarSendUSDC interface {
 	// SendUSDC sends USDC from the treasury wallet to the destination specified in the request.
 	SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error)
+	// CheckUSDCTrustline checks if an address has a trustline for our USDC asset.
+	CheckUSDCTrustline(ctx context.Context, address string) (bool, error)
 }
 
 // StellarTreasuryTransfer adapts the Stellar service's SendUSDC method
@@ -33,7 +35,7 @@ func NewStellarTreasuryTransfer(stellar StellarSendUSDC, logger *slog.Logger) *S
 	}
 }
 
-var _ TreasuryTransfer = (*StellarTreasuryTransfer)(nil)
+var _ offramp.TreasuryTransfer = (*StellarTreasuryTransfer)(nil)
 
 // SendUSDC sends USDC from the treasury wallet to a destination address with a memo.
 func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination string, memo string, amount int64) (string, error) {
@@ -69,4 +71,9 @@ func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination stri
 		"amount_usdc", float64(amount)/1e7,
 	)
 	return resp.TxHash, nil
+}
+
+// CheckUSDCTrustline checks if an external address has a trustline for our USDC asset.
+func (t *StellarTreasuryTransfer) CheckUSDCTrustline(ctx context.Context, address string) (bool, error) {
+	return t.stellar.CheckUSDCTrustline(ctx, address)
 }

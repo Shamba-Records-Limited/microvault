@@ -13,6 +13,7 @@ import (
 // Re-export types from the types package for external consumers
 type (
 	CreateAccountRequest                = types.CreateAccountRequest
+	EstablishTrustlineRequest           = types.EstablishTrustlineRequest
 	MultiSigConfig                      = types.MultiSigConfig
 	SponsoredPaymentTransactionRequest  = types.SponsoredPaymentTransactionRequest
 	SponsoredPaymentTransactionResponse = types.SponsoredPaymentTransactionResponse
@@ -75,12 +76,24 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req CreateAccountR
 	return s.classicService.CreateSponsoredAccount(ctx, req)
 }
 
+func (s *service) EstablishSponsoredTrustline(ctx context.Context, req EstablishTrustlineRequest) error {
+	return s.classicService.EstablishSponsoredTrustline(ctx, req)
+}
+
 func (s *service) SponsoredPaymentTransaction(ctx context.Context, req SponsoredPaymentTransactionRequest) (*SponsoredPaymentTransactionResponse, error) {
 	return s.classicService.SponsoredPaymentTransaction(ctx, req)
 }
 
 func (s *service) SendUSDC(ctx context.Context, req SendUSDCRequest) (*SendUSDCResponse, error) {
 	return s.classicService.SendUSDC(ctx, req)
+}
+
+func (s *service) CheckUSDCTrustline(ctx context.Context, address string) (bool, error) {
+	return s.classicService.CheckUSDCTrustline(ctx, address)
+}
+
+func (s *service) AccountExists(ctx context.Context, address string) (bool, error) {
+	return s.classicService.AccountExists(ctx, address)
 }
 
 // Soroban view method delegation

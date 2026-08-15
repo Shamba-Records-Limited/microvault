@@ -16,8 +16,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, Address, BytesN, Env, MuxedAddress,
-    String,
+    contract, contracterror, contractevent, contractimpl, panic_with_error, Address, BytesN, Env,
+    MuxedAddress, String,
 };
 use stellar_access::ownable::{self, Ownable};
 use stellar_contract_utils::math::wad::{Wad, WAD_SCALE};
@@ -31,7 +31,7 @@ use stellar_tokens::{
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
-pub enum MicroVaultError {
+pub enum MicrovaultError {
     Unauthorized = 1,
     CannotSweepUnderlyingAsset = 2,
     InvalidAmount = 3,
@@ -42,6 +42,7 @@ pub enum MicroVaultError {
     InsufficientLiquidity = 10,
     RepayExceedsDebt = 11,
     SharesLocked = 12,
+    ExceedsMaxRedeem = 13,
 }
 
 /// Emitted when the treasury address is changed.
@@ -188,12 +189,12 @@ const SLOPE2: i128 = 5_000_000_000_000_000_000;
 /// Seconds per year, used for APR-to-per-second rate conversion.
 const SECONDS_PER_YEAR: u64 = 31_536_000;
 
-/// MicroVault SEP-56 tokenized vault contract.
+/// Microvault SEP-56 tokenized vault contract.
 #[contract]
-pub struct MicroVaultContract;
+pub struct MicrovaultContract;
 
 #[contractimpl]
-impl MicroVaultContract {
+impl MicrovaultContract {
     /// Initialize the vault with the underlying asset and initial configuration.
     ///
     /// # Arguments
@@ -202,7 +203,7 @@ impl MicroVaultContract {
     /// * `guardian` - Guardian address that can pause the vault immediately.
     /// * `asset` - Underlying asset address (e.g. USDC).
     /// * `treasury` - Treasury wallet for credit delegation operations.
-    /// * `name` - Share token name (e.g. "MicroVault USDC Shares").
+    /// * `name` - Share token name (e.g. "Microvault USDC Shares").
     /// * `symbol` - Share token symbol (e.g. "mvUSDC").
     pub fn __constructor(
         e: &Env,
@@ -239,11 +240,11 @@ impl MicroVaultContract {
     // ─────────────────────────────────────────────────────────────────────
 
     /// Returns the treasury address.
-    pub fn treasury(e: &Env) -> Result<Address, MicroVaultError> {
+    pub fn treasury(e: &Env) -> Result<Address, MicrovaultError> {
         e.storage()
             .instance()
             .get(&DataKey::Treasury)
-            .ok_or(MicroVaultError::TreasuryNotSet)
+            .ok_or(MicrovaultError::TreasuryNotSet)
     }
 
     /// Returns the guardian address, if set.
@@ -479,42 +480,31 @@ impl MicroVaultContract {
     // Lock Management (Internal)
     // ─────────────────────────────────────────────────────────────────────
 
-    /// Compute a weighted-average unlock time when a user deposits additional
-    /// shares on top of existing ones.
+    /// Reset the user's lock to `now + lock_period` on every deposit.
     ///
-    /// Formula: `new_unlock = now + (remaining * existing + lock_period * new) / total`
-    fn update_lock_time(e: &Env, user: &Address, existing_shares: i128, new_shares: i128) {
+    /// Any deposit made while a lock period is configured re-locks the
+    /// user's full balance for the entire `lock_period`. This deliberately
+    /// replaces the previous weighted-average scheme, which truncated to zero
+    /// for small deposits on large balances (audit MV-04) and allowed new
+    /// deposits to inherit an unlocked state.
+    ///
+    /// The new unlock time is `max(current_unlock, now + lock_period)`, so an
+    /// earlier deposit with a longer remaining lock is never shortened by a
+    /// later one.
+    fn update_lock_time(e: &Env, user: &Address, _existing_shares: i128, _new_shares: i128) {
         let lock_period = Self::get_lock_period(e);
         if lock_period == 0 {
             return;
         }
 
         let current_time = e.ledger().timestamp();
+        let proposed_unlock = current_time + lock_period;
         let current_unlock: u64 = e
             .storage()
             .persistent()
             .get(&DataKey::UserUnlockTime(user.clone()))
-            .unwrap_or(current_time);
-        let remaining_lock = current_unlock.saturating_sub(current_time);
-
-        if existing_shares == 0 {
-            let unlock_time = current_time + lock_period;
-            e.storage()
-                .persistent()
-                .set(&DataKey::UserUnlockTime(user.clone()), &unlock_time);
-            UserLockUpdated {
-                user: user.clone(),
-                unlock_time,
-            }
-            .publish(e);
-            return;
-        }
-
-        let total_shares = existing_shares + new_shares;
-        let weighted_lock = ((remaining_lock as i128 * existing_shares)
-            + (lock_period as i128 * new_shares))
-            / total_shares;
-        let new_unlock = current_time + (weighted_lock as u64);
+            .unwrap_or(0);
+        let new_unlock = current_unlock.max(proposed_unlock);
 
         e.storage()
             .persistent()
@@ -565,24 +555,24 @@ impl MicroVaultContract {
         token_to_recover: Address,
         recipient: Address,
         amount: i128,
-    ) -> Result<(), MicroVaultError> {
+    ) -> Result<(), MicrovaultError> {
         current_treasury.require_auth();
 
         let treasury: Address = e
             .storage()
             .instance()
             .get(&DataKey::Treasury)
-            .ok_or(MicroVaultError::TreasuryNotSet)?;
+            .ok_or(MicrovaultError::TreasuryNotSet)?;
         if current_treasury != treasury {
-            return Err(MicroVaultError::Unauthorized);
+            return Err(MicrovaultError::Unauthorized);
         }
 
         let underlying_asset = Vault::query_asset(e);
         if token_to_recover == underlying_asset {
-            return Err(MicroVaultError::CannotSweepUnderlyingAsset);
+            return Err(MicrovaultError::CannotSweepUnderlyingAsset);
         }
         if amount <= 0 {
-            return Err(MicroVaultError::InvalidAmount);
+            return Err(MicrovaultError::InvalidAmount);
         }
 
         let token_client = soroban_sdk::token::Client::new(e, &token_to_recover);
@@ -696,19 +686,19 @@ impl MicroVaultContract {
         treasury_caller: Address,
         recipient: Address,
         amount: i128,
-    ) -> Result<(), MicroVaultError> {
+    ) -> Result<(), MicrovaultError> {
         treasury_caller.require_auth();
 
         let treasury: Address = e
             .storage()
             .instance()
             .get(&DataKey::Treasury)
-            .ok_or(MicroVaultError::TreasuryNotSet)?;
+            .ok_or(MicrovaultError::TreasuryNotSet)?;
         if treasury_caller != treasury {
-            return Err(MicroVaultError::Unauthorized);
+            return Err(MicrovaultError::Unauthorized);
         }
         if amount <= 0 {
-            return Err(MicroVaultError::InvalidAmount);
+            return Err(MicrovaultError::InvalidAmount);
         }
 
         Self::accrue_interest(e);
@@ -720,15 +710,15 @@ impl MicroVaultContract {
         let new_utilization = if total_managed > 0 {
             Wad::from_ratio(e, new_borrowed, total_managed).raw()
         } else {
-            return Err(MicroVaultError::InvalidAmount);
+            return Err(MicrovaultError::InvalidAmount);
         };
         if new_utilization > UTILIZATION_CAP {
-            return Err(MicroVaultError::ExceedsUtilizationCap);
+            return Err(MicrovaultError::ExceedsUtilizationCap);
         }
 
         let available = Self::available_liquidity(e);
         if amount > available {
-            return Err(MicroVaultError::InsufficientLiquidity);
+            return Err(MicrovaultError::InsufficientLiquidity);
         }
 
         e.storage()
@@ -755,26 +745,26 @@ impl MicroVaultContract {
     /// Accrues interest before processing. Panics if `amount` exceeds
     /// outstanding debt.
     #[when_not_paused]
-    pub fn repay(e: &Env, treasury_caller: Address, amount: i128) -> Result<(), MicroVaultError> {
+    pub fn repay(e: &Env, treasury_caller: Address, amount: i128) -> Result<(), MicrovaultError> {
         treasury_caller.require_auth();
 
         let treasury: Address = e
             .storage()
             .instance()
             .get(&DataKey::Treasury)
-            .ok_or(MicroVaultError::TreasuryNotSet)?;
+            .ok_or(MicrovaultError::TreasuryNotSet)?;
         if treasury_caller != treasury {
-            return Err(MicroVaultError::Unauthorized);
+            return Err(MicrovaultError::Unauthorized);
         }
         if amount <= 0 {
-            return Err(MicroVaultError::InvalidAmount);
+            return Err(MicrovaultError::InvalidAmount);
         }
 
         Self::accrue_interest(e);
 
         let current_borrowed = Self::total_borrowed(e);
         if amount > current_borrowed {
-            return Err(MicroVaultError::RepayExceedsDebt);
+            return Err(MicrovaultError::RepayExceedsDebt);
         }
 
         let underlying_asset = Vault::query_asset(e);
@@ -803,16 +793,38 @@ impl MicroVaultContract {
 }
 
 #[contractimpl(contracttrait)]
-impl FungibleToken for MicroVaultContract {
+impl FungibleToken for MicrovaultContract {
     type ContractType = Vault;
 
     fn decimals(e: &Env) -> u32 {
         Vault::decimals(e)
     }
+
+    /// Block transfers while the sender's shares are locked (audit MV-01).
+    ///
+    /// The lock is keyed on `UserUnlockTime(from)`. Without this override the
+    /// default `Base::transfer` would move balances freely, letting a depositor
+    /// bypass the lock by transferring shares to a clean address and redeeming
+    /// there.
+    fn transfer(e: &Env, from: Address, to: MuxedAddress, amount: i128) {
+        if MicrovaultContract::is_locked(e, from.clone()) {
+            panic_with_error!(e, MicrovaultError::SharesLocked);
+        }
+        Base::transfer(e, &from, &to, amount);
+    }
+
+    /// Same lock enforcement as `transfer`, applied to the spender-authorized
+    /// path. The lock is on the `from` (owner) balance, not the spender.
+    fn transfer_from(e: &Env, spender: Address, from: Address, to: Address, amount: i128) {
+        if MicrovaultContract::is_locked(e, from.clone()) {
+            panic_with_error!(e, MicrovaultError::SharesLocked);
+        }
+        Base::transfer_from(e, &spender, &from, &to, amount);
+    }
 }
 
 #[contractimpl]
-impl FungibleVault for MicroVaultContract {
+impl FungibleVault for MicrovaultContract {
     #[when_not_paused]
     fn deposit(e: &Env, assets: i128, receiver: Address, from: Address, operator: Address) -> i128 {
         let max_deposit: i128 = e
@@ -826,7 +838,7 @@ impl FungibleVault for MicroVaultContract {
 
         let existing_shares = Base::balance(e, &receiver);
         let new_shares = Vault::deposit(e, assets, receiver.clone(), from, operator);
-        MicroVaultContract::update_lock_time(e, &receiver, existing_shares, new_shares);
+        MicrovaultContract::update_lock_time(e, &receiver, existing_shares, new_shares);
         new_shares
     }
 
@@ -834,7 +846,7 @@ impl FungibleVault for MicroVaultContract {
     fn mint(e: &Env, shares: i128, receiver: Address, from: Address, operator: Address) -> i128 {
         let existing_shares = Base::balance(e, &receiver);
         let assets_used = Vault::mint(e, shares, receiver.clone(), from, operator);
-        MicroVaultContract::update_lock_time(e, &receiver, existing_shares, shares);
+        MicrovaultContract::update_lock_time(e, &receiver, existing_shares, shares);
         assets_used
     }
 
@@ -846,7 +858,7 @@ impl FungibleVault for MicroVaultContract {
         owner: Address,
         operator: Address,
     ) -> i128 {
-        if MicroVaultContract::is_locked(e, owner.clone()) {
+        if MicrovaultContract::is_locked(e, owner.clone()) {
             panic!("Shares are locked");
         }
 
@@ -859,7 +871,7 @@ impl FungibleVault for MicroVaultContract {
             panic!("Withdrawal exceeds maximum limit");
         }
 
-        let available = MicroVaultContract::available_liquidity(e);
+        let available = MicrovaultContract::available_liquidity(e);
         if assets > available {
             panic!("Insufficient liquidity for withdrawal");
         }
@@ -869,12 +881,24 @@ impl FungibleVault for MicroVaultContract {
 
     #[when_not_paused]
     fn redeem(e: &Env, shares: i128, receiver: Address, owner: Address, operator: Address) -> i128 {
-        if MicroVaultContract::is_locked(e, owner.clone()) {
+        if MicrovaultContract::is_locked(e, owner.clone()) {
             panic!("Shares are locked");
         }
 
         let assets_to_receive = Vault::preview_redeem(e, shares);
-        let available = MicroVaultContract::available_liquidity(e);
+
+        // Enforce the per-transaction withdrawal cap on the asset equivalent of
+        // the redeemed shares.
+        let max_withdraw: i128 = e
+            .storage()
+            .instance()
+            .get(&DataKey::MaxWithdraw)
+            .unwrap_or(DEFAULT_MAX_WITHDRAW);
+        if assets_to_receive > max_withdraw {
+            panic!("Redemption exceeds maximum limit");
+        }
+
+        let available = MicrovaultContract::available_liquidity(e);
         if assets_to_receive > available {
             panic!("Insufficient liquidity for redemption");
         }
@@ -897,7 +921,7 @@ impl FungibleVault for MicroVaultContract {
     /// Returns total assets including outstanding borrows so that share
     /// holders benefit from accrued interest.
     fn total_assets(e: &Env) -> i128 {
-        MicroVaultContract::total_managed_assets(e)
+        MicrovaultContract::total_managed_assets(e)
     }
 
     fn max_deposit(e: &Env, _receiver: Address) -> i128 {
@@ -927,7 +951,7 @@ impl FungibleVault for MicroVaultContract {
             .get(&DataKey::MaxWithdraw)
             .unwrap_or(DEFAULT_MAX_WITHDRAW);
         let owner_max = Vault::max_withdraw(e, owner);
-        let available = MicroVaultContract::available_liquidity(e);
+        let available = MicrovaultContract::available_liquidity(e);
         owner_max.min(limit).min(available)
     }
 
@@ -937,7 +961,7 @@ impl FungibleVault for MicroVaultContract {
         }
         let owner_max_shares = Vault::max_redeem(e, owner);
         let owner_max_assets = Vault::preview_redeem(e, owner_max_shares);
-        let available = MicroVaultContract::available_liquidity(e);
+        let available = MicrovaultContract::available_liquidity(e);
         if owner_max_assets <= available {
             owner_max_shares
         } else {
@@ -963,10 +987,10 @@ impl FungibleVault for MicroVaultContract {
 }
 
 #[contractimpl(contracttrait)]
-impl Ownable for MicroVaultContract {}
+impl Ownable for MicrovaultContract {}
 
 #[contractimpl]
-impl Pausable for MicroVaultContract {
+impl Pausable for MicrovaultContract {
     fn paused(e: &Env) -> bool {
         pausable_mod::paused(e)
     }

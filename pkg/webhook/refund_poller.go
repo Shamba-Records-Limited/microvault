@@ -1,4 +1,3 @@
-// Package webhook provides services for polling for refund pending loans.
 package webhook
 
 import (
@@ -7,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 )
 
@@ -54,12 +53,12 @@ func DefaultRefundPollerConfig() RefundPollerConfig {
 // Flow:
 //  1. Fetch loans in DisbursementRefundPending status from local DB
 //  2. For each, call YC API to check current status
-//  3. On "refunded" → update to DisbursementRefundReceived, attempt fiat failover
-//  4. On "refund_failed" → update to DisbursementFailed, alert ops
-//  5. On "pending_refund" / "refund_processing" → skip, poll again next cycle
+//  3. On "refunded" to update to DisbursementRefundReceived, attempt fiat failover
+//  4. On "refund_failed" to update to DisbursementFailed, alert ops
+//  5. On "pending_refund" / "refund_processing" to skip, poll again next cycle
 type RefundPoller struct {
 	ycAdapter    *yellowcard.YellowcardAdapter
-	offRamp      adapters.OffRampService
+	offRamp      offramp.Provider
 	fetcher      RefundPendingFetcher
 	disbursement DisbursementUpdater
 	alerts       AlertService
@@ -70,7 +69,7 @@ type RefundPoller struct {
 // NewRefundPoller creates a new RefundPoller.
 func NewRefundPoller(
 	ycAdapter *yellowcard.YellowcardAdapter,
-	offRamp adapters.OffRampService,
+	offRamp offramp.Provider,
 	fetcher RefundPendingFetcher,
 	disbursement DisbursementUpdater,
 	alerts AlertService,
@@ -171,7 +170,7 @@ func (p *RefundPoller) checkRefund(ctx context.Context, rec RefundPendingRecord)
 // attemptFiatFailover triggers a fiat-mode disbursement for a refunded direct settlement.
 // This is a best-effort operation — if it fails, the ops team is alerted.
 func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendingRecord) {
-	fiatResult, err := p.offRamp.InitiateOffRamp(ctx, adapters.OffRampRequest{
+	fiatResult, err := p.offRamp.Initiate(ctx, offramp.Request{
 		LoanID:           rec.LoanID,
 		UserID:           rec.UserID,
 		RecipientName:    rec.RecipientName,
@@ -181,8 +180,10 @@ func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendin
 		CountryCode:      rec.CountryCode,
 		NetworkCode:      rec.NetworkCode,
 		NetworkName:      rec.NetworkName,
-		SettlementMethod: "fiat",
 		IdempotencyKey:   rec.SequenceID + "_fiat",
+		Options: yellowcard.Options{
+			SettlementMethod: yellowcard.SettlementMethodFiat,
+		},
 	})
 	if err != nil {
 		log.Printf("refund_poller: fiat failover failed for %s: %v", rec.PaymentID, err)
@@ -198,6 +199,13 @@ func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendin
 			log.Printf("refund_poller: failed to repay vault for %s: %v", rec.SequenceID, repayErr)
 		}
 		return
+	}
+
+	// Flip settlement_method first so the eventual DisbursementComplete
+	// event sees "fiat" and triggers the vault repay (the original "direct"
+	// stamp would silently skip it).
+	if err := p.disbursement.SetSettlementMethod(rec.SequenceID, "fiat"); err != nil {
+		log.Printf("refund_poller: failed to flip settlement_method to fiat for %s: %v", rec.SequenceID, err)
 	}
 
 	fiatStatus := "fiat_submitted"

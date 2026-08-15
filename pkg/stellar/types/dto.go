@@ -26,6 +26,12 @@ type MultiSigConfig struct {
 	HighThreshold  uint32 // Set to 1
 }
 
+// EstablishTrustlineRequest represents a request to add a sponsored USDC trustline
+// to an existing child account whose reserves are covered by the treasury.
+type EstablishTrustlineRequest struct {
+	ChildKeypair *keypair.Full
+}
+
 // SponsoredPaymentTransactionRequest represents a request to perform a classic sponsored payment transaction
 // used for use cases such as off-ramping USDC from child account to off-ramp account
 type SponsoredPaymentTransactionRequest struct {
@@ -75,6 +81,10 @@ type BorrowResponse struct {
 	RecipientAddress string
 	EventRecipient   string // Child account address extracted from the on-chain Borrowed event
 	BorrowIndex      int64  // Borrow index at time of borrow (WAD scale, 1e18 = 1.0)
+	Ledger           int64
+	Status           string
+	ContractID       string
+	ContractFunction string
 }
 
 // RepayRequest represents a request to repay borrowed funds
@@ -84,8 +94,12 @@ type RepayRequest struct {
 
 // RepayResponse represents the result of a repay operation
 type RepayResponse struct {
-	TxHash       string
-	AmountRepaid int64
+	TxHash           string
+	AmountRepaid     int64
+	Ledger           int64
+	Status           string
+	ContractID       string
+	ContractFunction string
 }
 
 // VaultStatus represents the current state of the vault

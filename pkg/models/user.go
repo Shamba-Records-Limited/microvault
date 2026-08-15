@@ -1,11 +1,60 @@
 package models
 
 import (
+	"database/sql/driver"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+type Date struct{ time.Time }
+
+func (d Date) MarshalJSON() ([]byte, error) {
+	if d.IsZero() {
+		return []byte("null"), nil
+	}
+	return []byte(`"` + d.Format("2006-01-02") + `"`), nil
+}
+
+// Value renders the date as a DATE literal for the database driver. Without
+// this, GORM serializes the embedded time.Time via String(), which Postgres
+// rejects for a DATE column.
+func (d Date) Value() (driver.Value, error) {
+	if d.IsZero() {
+		return nil, nil
+	}
+	return d.Format("2006-01-02"), nil
+}
+
+// Scan reads a DATE value from the database into d.
+func (d *Date) Scan(value any) error {
+	if value == nil {
+		d.Time = time.Time{}
+		return nil
+	}
+	switch v := value.(type) {
+	case time.Time:
+		d.Time = v
+		return nil
+	case []byte:
+		return d.parse(string(v))
+	case string:
+		return d.parse(v)
+	default:
+		return fmt.Errorf("cannot scan %T into Date", value)
+	}
+}
+
+func (d *Date) parse(s string) error {
+	t, err := time.Parse("2006-01-02", s[:min(len(s), 10)])
+	if err != nil {
+		return fmt.Errorf("parse date %q: %w", s, err)
+	}
+	d.Time = t
+	return nil
+}
 
 // User represents a system user
 type User struct {
@@ -17,13 +66,17 @@ type User struct {
 	MomoNetworkName   string     `json:"momo_network_name" gorm:"type:varchar(20);not null;default:'Sandbox Network'"`
 	TelcoName         string     `json:"telco_name" gorm:"type:varchar(20);not null;default:'Athena'"`
 	FullName          *string    `json:"full_name,omitempty" gorm:"type:varchar(255)"`
+	BirthDate         *Date      `json:"birth_date,omitempty" gorm:"type:date"`
+	Address           *string    `json:"address,omitempty" gorm:"type:varchar(255)"`
+	City              *string    `json:"city,omitempty" gorm:"type:varchar(255)"`
+	PostalCode        *string    `json:"postal_code,omitempty" gorm:"type:varchar(20)"`
 	NationalID        *string    `json:"national_id,omitempty" gorm:"type:varchar(50);uniqueIndex"`
 	KYCStatus         string     `json:"kyc_status" gorm:"type:varchar(20);not null;default:'pending'"`
 	KYCVerifiedAt     *time.Time `json:"kyc_verified_at,omitempty" gorm:"type:timestamp"`
-	PinHash        *string    `json:"-" gorm:"type:varchar(72)"`
-	PinAttempts    int        `json:"-" gorm:"not null;default:0"`
-	PinLockedUntil *time.Time `json:"-" gorm:"type:timestamp"`
-	PinSetAt       *time.Time `json:"-" gorm:"type:timestamp"`
+	PinHash           *string    `json:"-" gorm:"type:varchar(72)"`
+	PinAttempts       int        `json:"-" gorm:"not null;default:0"`
+	PinLockedUntil    *time.Time `json:"-" gorm:"type:timestamp"`
+	PinSetAt          *time.Time `json:"-" gorm:"type:timestamp"`
 
 	PreferredLanguage string     `json:"preferred_language" gorm:"type:varchar(10);not null;default:'en'"`
 	Status            string     `json:"status" gorm:"type:varchar(20);not null;default:'active'"`
@@ -55,6 +108,7 @@ type Account struct {
 	PublicKey    string     `json:"public_key" gorm:"type:varchar(56);uniqueIndex;not null"`
 	AccountIndex int        `json:"account_index" gorm:"not null"`
 	Status       string     `json:"status" gorm:"type:varchar(20);not null;default:'active'"`
+	ChainStatus  string     `json:"chain_status" gorm:"type:varchar(20);not null;default:'pending'"`
 	CreatedAt    time.Time  `json:"created_at" gorm:"autoCreateTime;not null"`
 	UpdatedAt    time.Time  `json:"updated_at" gorm:"autoUpdateTime;not null"`
 	DeletedAt    *time.Time `json:"deleted_at,omitempty" gorm:"index"`
@@ -66,6 +120,25 @@ type Account struct {
 func (Account) TableName() string {
 	return "accounts"
 }
+
+// Account.ChainStatus values. The account row is committed before the Stellar
+// account is submitted, so this is what distinguishes a row whose keypair
+// exists on-chain from one whose creation never landed.
+const (
+	// ChainStatusPending is set at registration: the sponsored-creation
+	// transaction has been dispatched but not confirmed.
+	ChainStatusPending = "pending"
+
+	// ChainStatusConfirmed means the account was observed on the network.
+	ChainStatusConfirmed = "confirmed"
+
+	// ChainStatusFailed means creation retries were exhausted. Lending is
+	// blocked for these until EnsureOnChainAccount heals them.
+	ChainStatusFailed = "failed"
+
+	// ChainStatusUnknown marks rows that predate this column.
+	ChainStatusUnknown = "unknown"
+)
 
 // BeforeCreate sets the ID before creating a new account
 func (account *Account) BeforeCreate(tx *gorm.DB) error {

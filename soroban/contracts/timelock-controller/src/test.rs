@@ -1,4 +1,4 @@
-//! Integration tests for the MicroVault TimelockController contract.
+//! Integration tests for the Microvault TimelockController contract.
 //!
 //! Covers constructor configuration, role assignment, operation scheduling,
 //! execution, cancellation, state transitions, salt uniqueness, role
@@ -149,7 +149,7 @@ fn test_schedule_and_execute_operation() {
     // Advance ledger sequence past delay
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 101,
         network_id: Default::default(),
         base_reserve: 10,
@@ -239,7 +239,7 @@ fn test_operation_state_transitions() {
     // Advance ledger sequence past delay -> Ready
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 51,
         network_id: Default::default(),
         base_reserve: 10,
@@ -282,7 +282,7 @@ fn test_schedule_with_larger_delay_than_min() {
     // At sequence 101 (past min_delay but not custom delay), should still be Waiting
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 101,
         network_id: Default::default(),
         base_reserve: 10,
@@ -295,7 +295,7 @@ fn test_schedule_with_larger_delay_than_min() {
     // At sequence 501 (past custom delay), should be Ready
     env.ledger().set(LedgerInfo {
         timestamp: 2000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 501,
         network_id: Default::default(),
         base_reserve: 10,

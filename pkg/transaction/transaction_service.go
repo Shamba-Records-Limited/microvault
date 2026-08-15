@@ -6,9 +6,9 @@ import (
 	"log"
 	"slices"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/services"
-	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 )
 
 // Valid transaction status transitions
@@ -29,13 +29,6 @@ var validStatuses = map[string]bool{
 	models.TxStatusCancelled: true,
 }
 
-// Valid transaction categories
-var validCategories = map[string]bool{
-	models.TxCategoryOnChain:  true,
-	models.TxCategoryOffChain: true,
-	models.TxCategoryInternal: true,
-}
-
 // Service defines the interface for transaction business logic operations
 type Service interface {
 	// Transaction management
@@ -43,7 +36,8 @@ type Service interface {
 	BatchCreate(ctx context.Context, reqs []CreateTransactionRequest) ([]*TransactionResponse, error)
 	GetByID(ctx context.Context, id string) (*TransactionResponse, error)
 	GetByStellarHash(ctx context.Context, txHash string) (*TransactionResponse, error)
-	GetByExternalID(ctx context.Context, externalID string) (*TransactionResponse, error)
+	ListByExternalID(ctx context.Context, externalID string) ([]*TransactionResponse, error)
+	GetByLoanIDAndType(ctx context.Context, loanID, txType string) (*TransactionResponse, error)
 	GetByLoanID(ctx context.Context, loanID string, pagination services.Pagination) (*services.PaginatedResponse[TransactionResponse], error)
 	GetByUserID(ctx context.Context, userID string, pagination services.Pagination) (*services.PaginatedResponse[TransactionResponse], error)
 	GetByStatus(ctx context.Context, status string, pagination services.Pagination) (*services.PaginatedResponse[TransactionResponse], error)
@@ -81,31 +75,12 @@ func (s *service) Create(ctx context.Context, req CreateTransactionRequest) (*Tr
 		}
 	}
 
-	// Check external ID uniqueness if provided
-	if req.ExternalID != nil && *req.ExternalID != "" {
-		existing, err := s.repo.GetByExternalID(ctx, *req.ExternalID)
-		if err != nil && !errors.Is(err, repository.ErrTransactionNotFound) {
-			log.Printf("Create: failed to check external ID uniqueness: %v", err)
-			return nil, err
-		}
-		if existing != nil {
-			return nil, ErrExternalIDAlreadyExists
-		}
-	}
-
-	// Set defaults
-	category := req.TxCategory
-	if category == "" {
-		category = models.TxCategoryOnChain
-	}
-
 	// Create transaction model
 	tx := &models.Transaction{
 		UserID:           req.UserID,
 		AccountID:        req.AccountID,
 		LoanID:           req.LoanID,
 		TxType:           req.TxType,
-		TxCategory:       category,
 		Amount:           req.Amount,
 		Asset:            req.Asset,
 		StellarTxHash:    req.StellarTxHash,
@@ -140,17 +115,11 @@ func (s *service) BatchCreate(ctx context.Context, reqs []CreateTransactionReque
 			return nil, err
 		}
 
-		category := req.TxCategory
-		if category == "" {
-			category = models.TxCategoryOnChain
-		}
-
 		txs[i] = &models.Transaction{
 			UserID:           req.UserID,
 			AccountID:        req.AccountID,
 			LoanID:           req.LoanID,
 			TxType:           req.TxType,
-			TxCategory:       category,
 			Amount:           req.Amount,
 			Asset:            req.Asset,
 			StellarTxHash:    req.StellarTxHash,
@@ -206,11 +175,26 @@ func (s *service) GetByStellarHash(ctx context.Context, txHash string) (*Transac
 	return toTransactionResponse(tx), nil
 }
 
-// GetByExternalID retrieves a transaction by external ID
-func (s *service) GetByExternalID(ctx context.Context, externalID string) (*TransactionResponse, error) {
-	tx, err := s.repo.GetByExternalID(ctx, externalID)
+// ListByExternalID retrieves every transaction sharing a provider reference.
+func (s *service) ListByExternalID(ctx context.Context, externalID string) ([]*TransactionResponse, error) {
+	txs, err := s.repo.ListByExternalID(ctx, externalID)
 	if err != nil {
-		log.Printf("GetByExternalID: failed to get transaction: %v", err)
+		log.Printf("ListByExternalID: failed to get transactions: %v", err)
+		return nil, err
+	}
+
+	out := make([]*TransactionResponse, len(txs))
+	for i, tx := range txs {
+		out[i] = toTransactionResponse(tx)
+	}
+	return out, nil
+}
+
+// GetByLoanIDAndType retrieves the transaction of a given type for a loan.
+func (s *service) GetByLoanIDAndType(ctx context.Context, loanID, txType string) (*TransactionResponse, error) {
+	tx, err := s.repo.GetByLoanIDAndType(ctx, loanID, txType)
+	if err != nil {
+		log.Printf("GetByLoanIDAndType: failed to get transaction: %v", err)
 		return nil, err
 	}
 	if tx == nil {
@@ -345,42 +329,27 @@ func (s *service) Update(ctx context.Context, id string, req UpdateTransactionRe
 		if !s.isValidStatusTransition(tx.Status, *req.Status) {
 			return nil, ErrInvalidStatusTransition
 		}
-		tx.Status = *req.Status
 	}
 
-	// Update fields
-	if req.StellarTxHash != nil {
-		tx.StellarTxHash = req.StellarTxHash
-	}
-	if req.StellarLedger != nil {
-		tx.StellarLedger = req.StellarLedger
-	}
-	if req.StellarStatus != nil {
-		tx.StellarStatus = req.StellarStatus
-	}
-	if req.ExternalID != nil {
-		tx.ExternalID = req.ExternalID
-	}
-	if req.ExternalProvider != nil {
-		tx.ExternalProvider = req.ExternalProvider
-	}
-	if req.ExternalStatus != nil {
-		tx.ExternalStatus = req.ExternalStatus
-	}
-	if req.Description != nil {
-		tx.Description = req.Description
-	}
-	if req.Metadata != nil {
-		tx.Metadata = req.Metadata
+	// Persist only the columns the request set. The validation above already
+	// ran against the current row; the write is partial to avoid rewriting the
+	// text `description` and jsonb `metadata` (and all 12 indexes) on a
+	// status-only change.
+	if fields := req.changedFields(); len(fields) > 0 {
+		if err := s.repo.UpdateFields(ctx, id, fields); err != nil {
+			log.Printf("Update: failed to update transaction: %v", err)
+			return nil, err
+		}
 	}
 
-	// Update in database
-	if err := s.repo.Update(ctx, tx); err != nil {
-		log.Printf("Update: failed to update transaction: %v", err)
+	// Read back so the response reflects committed state rather than a
+	// locally-mutated copy.
+	updated, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		log.Printf("Update: failed to reload transaction: %v", err)
 		return nil, err
 	}
-
-	return toTransactionResponse(tx), nil
+	return toTransactionResponse(updated), nil
 }
 
 // --- Helper functions ---
@@ -397,10 +366,6 @@ func (s *service) validateCreateRequest(req CreateTransactionRequest) error {
 
 	if req.Asset == "" {
 		return ErrInvalidInput
-	}
-
-	if req.TxCategory != "" && !validCategories[req.TxCategory] {
-		return ErrInvalidCategory
 	}
 
 	return nil
@@ -428,12 +393,11 @@ func toTransactionResponse(tx *models.Transaction) *TransactionResponse {
 		AccountID:        tx.AccountID,
 		LoanID:           tx.LoanID,
 		TxType:           tx.TxType,
-		TxCategory:       tx.TxCategory,
+		TxCategory:       models.TxCategoryFor(tx.TxType),
 		Amount:           tx.Amount,
 		Asset:            tx.Asset,
 		StellarTxHash:    tx.StellarTxHash,
 		StellarLedger:    tx.StellarLedger,
-		StellarStatus:    tx.StellarStatus,
 		ContractID:       tx.ContractID,
 		ContractFunction: tx.ContractFunction,
 		ExternalID:       tx.ExternalID,

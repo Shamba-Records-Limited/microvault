@@ -1,4 +1,3 @@
-// Package ussd provides predefined menu flows, layouts, and registration sequences.
 package ussd
 
 // NewStandardLoanMenuPreset creates a new instance of StandardLoanMenuPreset.
@@ -23,17 +22,17 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithOption("1", map[string]string{
 			"en": "Request Loan",
 			"sw": "Omba Mkopo",
-			"fr": "Demander Prêt",
+			"fr": "Demander Pret",
 		}, "request_loan").
 		WithOption("2", map[string]string{
 			"en": "Repay Loan",
 			"sw": "Lipa Mkopo",
-			"fr": "Rembourser Prêt",
+			"fr": "Rembourser Pret",
 		}, "repay_loan").
 		WithOption("3", map[string]string{
 			"en": "My Loans",
 			"sw": "Mikopo Yangu",
-			"fr": "Mes Prêts",
+			"fr": "Mes Prets",
 		}, "my_loans").
 		WithOption("4", map[string]string{
 			"en": "My Account",
@@ -49,7 +48,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Select Language / Chagua Lugha / Choisir Langue").
 		WithOption("1", map[string]string{"en": "English"}, "main").
 		WithOption("2", map[string]string{"en": "Kiswahili"}, "main").
-		WithOption("3", map[string]string{"en": "Français"}, "main").
+		WithOption("3", map[string]string{"en": "Francais"}, "main").
 		WithOption("0", map[string]string{"en": "Back / Rudi / Retour"}, "main").
 		WithAuth(false).
 		Build()
@@ -71,12 +70,33 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 	loanAmountMenu := NewMenuBuilder("loan_amount").
 		WithTitle("en", "Enter loan amount:").
 		WithTitle("sw", "Weka kiasi cha mkopo:").
-		WithTitle("fr", "Entrez montant du prêt:").
+		WithTitle("fr", "Entrez montant du pret:").
 		WithAuth(true).
 		Build()
 	registry.Register(loanAmountMenu)
 
-	// My Account (PIN Manager + Change Language)
+	// Payout method picker — shown after the user enters an amount. Mobile
+	// Money routes to YellowCard; Cash Pickup routes to MoneyGram. Both go
+	// straight to confirmation.
+	payoutMethodMenu := NewMenuBuilder("payout_method").
+		WithTitle("en", "How would you like to receive your loan?").
+		WithTitle("sw", "Ungependa kupokea mkopo wako vipi?").
+		WithTitle("fr", "Comment souhaitez-vous recevoir votre pret?").
+		WithOption("1", map[string]string{
+			"en": "Cash Pickup (MoneyGram)",
+			"sw": "Kuchukua Pesa (MoneyGram)",
+			"fr": "Retrait en Espèces (MoneyGram)",
+		}, "loan_confirm").
+		WithOption("2", map[string]string{
+			"en": "Mobile Money",
+			"sw": "Pesa za Simu",
+			"fr": "Mobile Money",
+		}, "loan_confirm").
+		WithAuth(true).
+		Build()
+	registry.Register(payoutMethodMenu)
+
+	// My Account (PIN Manager + Change Language + optional bio details)
 	accountMenu := NewMenuBuilder("my_account").
 		WithTitle("en", "My Account").
 		WithTitle("sw", "Akaunti Yangu").
@@ -91,6 +111,11 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 			"sw": "Badilisha Lugha",
 			"fr": "Changer Langue",
 		}, "language_select").
+		WithOption("3", map[string]string{
+			"en": "My Details",
+			"sw": "Maelezo Yangu",
+			"fr": "Mes Infos",
+		}, "register_bio").
 		WithOption("0", map[string]string{
 			"en": "Main Menu",
 			"sw": "Menyu Kuu",
@@ -168,7 +193,7 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 	pinVerifyLoanMenu := NewMenuBuilder("pin_verify_loan").
 		WithTitle("en", "Enter your 4-digit PIN to confirm loan:").
 		WithTitle("sw", "Weka PIN yako ya tarakimu 4 kuthibitisha mkopo:").
-		WithTitle("fr", "Entrez votre PIN à 4 chiffres pour confirmer le prêt:").
+		WithTitle("fr", "Entrez votre PIN à 4 chiffres pour confirmer le pret:").
 		WithAuth(true).
 		Build()
 	registry.Register(pinVerifyLoanMenu)

@@ -5,13 +5,14 @@ useDefault = true
 [allowlist]
 # Exclude test files with mock/test keys
 paths = [
-    '''pkg/services/stellar/testing/mock_rpc_client\.go''',
-    '''pkg/services/stellar/testing/fixtures\.go''',
+  '''pkg/services/stellar/testing/mock_rpc_client\.go''',
+  '''pkg/services/stellar/testing/fixtures\.go''',
+  '''pkg/payment/moneygram/.*_test\.go''',
 ]
 
 # Or exclude specific test key patterns
 regexes = [
-    '''SBMSVD4KKELKGZXHBUQTIROWUAPQASDX7KEJITARP4VMZ6KLUHOGPTYW''',
-    '''SBPOVRVKTTV7W3IOX2FJPVR3OS6DWWCQ5CTHBRX34IXRCXMXQNL2MPQC''',
-    '''SC5O7VZUXDJ6JBDSZ74DSERXL7W3Y5LTOAMRF7RQRL3TAGAPS7LUVG3L''',
+  '''SBMSVD4KKELKGZXHBUQTIROWUAPQASDX7KEJITARP4VMZ6KLUHOGPTYW''',
+  '''SBPOVRVKTTV7W3IOX2FJPVR3OS6DWWCQ5CTHBRX34IXRCXMXQNL2MPQC''',
+  '''SC5O7VZUXDJ6JBDSZ74DSERXL7W3Y5LTOAMRF7RQRL3TAGAPS7LUVG3L''',
 ]

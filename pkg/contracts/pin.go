@@ -62,4 +62,8 @@ type AccountNotification struct {
 
 	// Reason provides a human-readable explanation for failure notifications.
 	Reason string
+
+	// Language optionally pins the SMS language (ISO code: en/sw/fr). When
+	// empty the notifier resolves it from the recipient's stored preference.
+	Language string
 }

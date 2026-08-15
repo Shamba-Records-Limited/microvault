@@ -3,7 +3,8 @@ package sms
 import (
 	"context"
 	"log/slog"
-	"strings"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/phone"
 )
 
 // DeliveryReportHandler processes SMS delivery report callbacks.
@@ -42,7 +43,7 @@ func defaultReportHandler(_ context.Context, report DeliveryReport) {
 	attrs := []any{
 		slog.String("message_id", report.ID),
 		slog.String("status", report.Status),
-		slog.String("phone_number", redactPhone(report.PhoneNumber)),
+		slog.String("phone_number", phone.Redact(report.PhoneNumber)),
 		slog.String("network_code", report.NetworkCode),
 		slog.Bool("final", report.IsFinalStatus()),
 	}
@@ -50,18 +51,4 @@ func defaultReportHandler(_ context.Context, report DeliveryReport) {
 		attrs = append(attrs, slog.String("failure_reason", report.FailureReason))
 	}
 	slog.Info("sms delivery report received", attrs...)
-}
-
-// redactPhone masks the middle digits of a phone number for safe logging.
-func redactPhone(phone string) string {
-	digits := phone
-	prefix := ""
-	if strings.HasPrefix(phone, "+") {
-		prefix = "+"
-		digits = phone[1:]
-	}
-	if len(digits) <= 6 {
-		return phone
-	}
-	return prefix + digits[:4] + strings.Repeat("X", len(digits)-7) + digits[len(digits)-3:]
 }

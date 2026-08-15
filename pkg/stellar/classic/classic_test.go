@@ -172,6 +172,102 @@ func TestCreateSponsoredAccount(t *testing.T) {
 }
 
 // ============================================================================
+// EstablishSponsoredTrustline Tests
+// ============================================================================
+
+func TestEstablishSponsoredTrustline(t *testing.T) {
+	keys := stellartesting.NewTestKeys()
+	childKP := keypair.MustParseFull(keys.UserSecret)
+
+	tests := []struct {
+		name        string
+		req         types.EstablishTrustlineRequest
+		setupMock   func(*stellartesting.MockRPCClient)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "successful trustline establishment",
+			req:  types.EstablishTrustlineRequest{ChildKeypair: childKP},
+			setupMock: func(m *stellartesting.MockRPCClient) {
+				m.SendTransactionFunc = func(ctx context.Context, req protocol.SendTransactionRequest) (protocol.SendTransactionResponse, error) {
+					return stellartesting.NewSendTransactionResponse().
+						WithHash("establish_trustline_tx_hash").
+						WithStatus("PENDING").
+						Build(), nil
+				}
+				m.GetTransactionFunc = func(ctx context.Context, req protocol.GetTransactionRequest) (protocol.GetTransactionResponse, error) {
+					return stellartesting.NewGetTransactionResponse().
+						WithStatus(protocol.TransactionStatusSuccess).
+						WithLedger(12345).
+						Build(), nil
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "failed to load sponsor account",
+			req:  types.EstablishTrustlineRequest{ChildKeypair: childKP},
+			setupMock: func(m *stellartesting.MockRPCClient) {
+				m.LoadAccountFunc = func(ctx context.Context, address string) (txnbuild.Account, error) {
+					return nil, assert.AnError
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "transaction rejected",
+			req:  types.EstablishTrustlineRequest{ChildKeypair: childKP},
+			setupMock: func(m *stellartesting.MockRPCClient) {
+				m.SendTransactionFunc = func(ctx context.Context, req protocol.SendTransactionRequest) (protocol.SendTransactionResponse, error) {
+					return protocol.SendTransactionResponse{
+						Status: "ERROR",
+					}, nil
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "transaction failed on ledger",
+			req:  types.EstablishTrustlineRequest{ChildKeypair: childKP},
+			setupMock: func(m *stellartesting.MockRPCClient) {
+				m.SendTransactionFunc = func(ctx context.Context, req protocol.SendTransactionRequest) (protocol.SendTransactionResponse, error) {
+					return stellartesting.NewSendTransactionResponse().
+						WithHash("failed_tx").
+						Build(), nil
+				}
+				m.GetTransactionFunc = func(ctx context.Context, req protocol.GetTransactionRequest) (protocol.GetTransactionResponse, error) {
+					return stellartesting.NewGetTransactionResponse().
+						WithStatus(protocol.TransactionStatusFailed).
+						Build(), nil
+				}
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := stellartesting.NewMockRPCClient()
+			tt.setupMock(mockClient)
+
+			svc := newTestService(mockClient)
+			err := svc.EstablishSponsoredTrustline(context.Background(), tt.req)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+// ============================================================================
 // SponsoredPaymentTransaction Tests
 // ============================================================================
 

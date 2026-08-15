@@ -35,9 +35,13 @@ type AccountRepository interface {
 	GetByPublicKey(ctx context.Context, publicKey string) (*models.Account, error)
 	GetNextAccountIndex(ctx context.Context, userID string) (int, error)
 	GetNextAccountIndexWithTx(ctx context.Context, tx *gorm.DB) (int, error)
+	// EnsureAccountIndexFloor advances account_index_seq so the next handed-out
+	// index is >= floor. No-op when the sequence is already at or past floor.
+	EnsureAccountIndexFloor(ctx context.Context, floor int64) error
 
 	// Update operations
 	Update(ctx context.Context, account *models.Account) error
+	UpdateChainStatus(ctx context.Context, id string, chainStatus string) error
 	Restore(ctx context.Context, id string) error
 
 	// Delete operations
@@ -142,56 +146,57 @@ func (r *accountRepository) GetByStatus(ctx context.Context, status string) (*mo
 	return &account, nil
 }
 
-// GetNextAccountIndex retrieves the next available account index globally
-// This ensures unique BIP44 derivation paths when using a single master seed
-// Note: Index 0 is reserved for the admin/master account at m/44'/148'/0'
-// User accounts start from index 1
+// GetNextAccountIndex allocates the next BIP44 derivation index from
+// account_index_seq. The sequence is monotonic and never rewinds on row
+// deletion or transaction rollback, so an index whose Stellar account may
+// already exist on-chain is never reused. Index 0 is reserved for the
+// admin/master account at m/44'/148'/0'.
 func (r *accountRepository) GetNextAccountIndex(ctx context.Context, userID string) (int, error) {
-	var maxIndex *int64
-	result := r.db.WithContext(ctx).
-		Model(&models.Account{}).
-		Where("deleted_at IS NULL").
-		Select("COALESCE(MAX(account_index), 0)").
-		Scan(&maxIndex)
-	if result.Error != nil {
-		log.Printf("GetNextAccountIndex: database error: %v", result.Error)
+	var idx int64
+	if err := r.db.WithContext(ctx).Raw("SELECT nextval('account_index_seq')").Scan(&idx).Error; err != nil {
+		log.Printf("GetNextAccountIndex: database error: %v", err)
 		return 0, ErrFailedToGetNextIndex
 	}
-
-	if maxIndex != nil {
-		nextIndex := int(*maxIndex)
-		log.Printf("GetNextAccountIndex: returning global index %d (max was %d)", nextIndex, *maxIndex)
-		return nextIndex, nil
-	}
-
-	log.Printf("GetNextAccountIndex: no accounts exist, returning index 1 (0 reserved for admin)")
-	return 1, nil
+	return int(idx), nil
 }
 
-// GetNextAccountIndexWithTx retrieves the next available account index globally within a transaction
-// This ensures unique BIP44 derivation paths when using a single master seed
-// Note: Index 0 is reserved for the admin/master account at m/44'/148'/0'
-// User accounts start from index 1
+// GetNextAccountIndexWithTx is [GetNextAccountIndex] scoped to tx. nextval is
+// not rolled back with the surrounding transaction, which is intended: a
+// failed registration burns its index rather than handing it to the next user.
 func (r *accountRepository) GetNextAccountIndexWithTx(ctx context.Context, tx *gorm.DB) (int, error) {
-	var maxIndex *int64
-	result := tx.WithContext(ctx).
-		Model(&models.Account{}).
-		Where("deleted_at IS NULL").
-		Select("COALESCE(MAX(account_index), 0)").
-		Scan(&maxIndex)
-	if result.Error != nil {
-		log.Printf("GetNextAccountIndexWithTx: database error: %v", result.Error)
+	var idx int64
+	if err := tx.WithContext(ctx).Raw("SELECT nextval('account_index_seq')").Scan(&idx).Error; err != nil {
+		log.Printf("GetNextAccountIndexWithTx: database error: %v", err)
 		return 0, ErrFailedToGetNextIndex
 	}
+	return int(idx), nil
+}
 
-	if maxIndex != nil {
-		nextIndex := int(*maxIndex) + 1
-		log.Printf("GetNextAccountIndexWithTx: returning global index %d (max was %d)", nextIndex, *maxIndex)
-		return nextIndex, nil
+// EnsureAccountIndexFloor implements the interface — see its contract.
+//
+// The next handed-out index must be >= floor regardless of whether the
+// sequence has ever been called. We compute the value to setval such that the
+// following nextval returns floor, taking the current position into account so
+// the call is a no-op (never rewinds) when the sequence is already ahead.
+//
+//	never called (is_called=false): next nextval returns last_value; set
+//		last_value=floor, is_called=false so next returns floor.
+//	already called: set last_value=GREATEST(last_value, floor-1),
+//		is_called=true so next returns at least floor.
+func (r *accountRepository) EnsureAccountIndexFloor(ctx context.Context, floor int64) error {
+	if floor <= 0 {
+		return nil
 	}
-
-	log.Printf("GetNextAccountIndexWithTx: no accounts exist, returning index 1 (0 reserved for admin)")
-	return 1, nil
+	sql := `SELECT CASE
+		WHEN NOT (SELECT is_called FROM account_index_seq)
+			THEN setval('account_index_seq', GREATEST((SELECT last_value FROM account_index_seq), ?), false)
+		ELSE setval('account_index_seq', GREATEST((SELECT last_value FROM account_index_seq), ? - 1), true)
+	END`
+	if err := r.db.WithContext(ctx).Exec(sql, floor, floor).Error; err != nil {
+		log.Printf("EnsureAccountIndexFloor: database error: %v", err)
+		return ErrFailedToGetNextIndex
+	}
+	return nil
 }
 
 // --- Update Operations ---
@@ -211,6 +216,27 @@ func (r *accountRepository) Update(ctx context.Context, account *models.Account)
 	if result.Error != nil {
 		log.Printf("Update: database error: %v", result.Error)
 		return ErrFailedToUpdateAccount
+	}
+	return nil
+}
+
+// UpdateChainStatus sets only the on-chain lifecycle state. Kept separate from
+// Update so a background reconciler can record what it observed on the network
+// without racing the row's other columns.
+func (r *accountRepository) UpdateChainStatus(ctx context.Context, id string, chainStatus string) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.Account{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Updates(map[string]interface{}{
+			"chain_status": chainStatus,
+			"updated_at":   time.Now(),
+		})
+	if result.Error != nil {
+		log.Printf("UpdateChainStatus: database error: %v", result.Error)
+		return ErrFailedToUpdateAccount
+	}
+	if result.RowsAffected == 0 {
+		return ErrAccountNotFound
 	}
 	return nil
 }

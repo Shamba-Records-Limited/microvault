@@ -1,10 +1,10 @@
-//! Integration tests for the MicroVault SEP-56 tokenized vault contract.
+//! Integration tests for the Microvault SEP-56 tokenized vault contract.
 //!
 //! Covers initialization, deposits, withdrawals, pause/unpause, treasury
 //! management, credit delegation (borrow/repay), interest accrual, lock
 //! periods, operator patterns, and contract upgrades.
 
-use crate::{MicroVaultContract, MicroVaultContractClient, MicroVaultError};
+use crate::{MicrovaultContract, MicrovaultContractClient, MicrovaultError};
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
     token::{self, StellarAssetClient, TokenClient},
@@ -29,7 +29,7 @@ fn create_token_contract<'a>(
 fn setup_vault<'a>(
     env: &'a Env,
 ) -> (
-    MicroVaultContractClient<'a>,
+    MicrovaultContractClient<'a>,
     Address,
     TokenClient<'a>,
     StellarAssetClient<'a>,
@@ -43,7 +43,7 @@ fn setup_vault<'a>(
     let (asset_address, token_client, token_admin) = create_token_contract(env, &owner);
 
     let contract_id = env.register(
-        MicroVaultContract,
+        MicrovaultContract,
         (
             &owner,
             &guardian,
@@ -53,7 +53,7 @@ fn setup_vault<'a>(
             String::from_str(env, "mvUSDC"),
         ),
     );
-    let client = MicroVaultContractClient::new(env, &contract_id);
+    let client = MicrovaultContractClient::new(env, &contract_id);
 
     (
         client,
@@ -74,7 +74,7 @@ fn setup_vault_with_user<'a>(
     env: &'a Env,
     initial_balance: i128,
 ) -> (
-    MicroVaultContractClient<'a>,
+    MicrovaultContractClient<'a>,
     Address,
     TokenClient<'a>,
     StellarAssetClient<'a>,
@@ -337,7 +337,7 @@ fn test_sweep_underlying_asset_fails() {
     let result =
         client.try_sweep_foreign_asset(&treasury, &asset_address, &recipient, &1_000_000i128);
 
-    assert_eq!(result, Err(Ok(MicroVaultError::CannotSweepUnderlyingAsset)));
+    assert_eq!(result, Err(Ok(MicrovaultError::CannotSweepUnderlyingAsset)));
 }
 
 #[test]
@@ -366,7 +366,7 @@ fn test_sweep_unauthorized() {
         &1_000_000i128,
     );
 
-    assert_eq!(result, Err(Ok(MicroVaultError::Unauthorized)));
+    assert_eq!(result, Err(Ok(MicrovaultError::Unauthorized)));
 }
 
 #[test]
@@ -390,12 +390,12 @@ fn test_sweep_invalid_amount() {
     // Try to sweep zero amount
     let result =
         client.try_sweep_foreign_asset(&treasury, &foreign_token_address, &recipient, &0i128);
-    assert_eq!(result, Err(Ok(MicroVaultError::InvalidAmount)));
+    assert_eq!(result, Err(Ok(MicrovaultError::InvalidAmount)));
 
     // Try to sweep negative amount
     let result =
         client.try_sweep_foreign_asset(&treasury, &foreign_token_address, &recipient, &(-100i128));
-    assert_eq!(result, Err(Ok(MicroVaultError::InvalidAmount)));
+    assert_eq!(result, Err(Ok(MicrovaultError::InvalidAmount)));
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -615,7 +615,7 @@ fn test_borrow_exceeds_utilization_cap() {
 
     // Try to borrow more than 80% - should fail
     let result = client.try_borrow(&treasury, &child_account, &9_000_000i128);
-    assert_eq!(result, Err(Ok(MicroVaultError::ExceedsUtilizationCap)));
+    assert_eq!(result, Err(Ok(MicrovaultError::ExceedsUtilizationCap)));
 }
 
 #[test]
@@ -659,7 +659,7 @@ fn test_borrow_unauthorized() {
 
     // Non-treasury tries to borrow
     let result = client.try_borrow(&attacker, &child_account, &1_000_000i128);
-    assert_eq!(result, Err(Ok(MicroVaultError::Unauthorized)));
+    assert_eq!(result, Err(Ok(MicrovaultError::Unauthorized)));
 }
 
 #[test]
@@ -679,11 +679,11 @@ fn test_borrow_invalid_amount() {
 
     // Zero amount
     let result = client.try_borrow(&treasury, &child_account, &0i128);
-    assert_eq!(result, Err(Ok(MicroVaultError::InvalidAmount)));
+    assert_eq!(result, Err(Ok(MicrovaultError::InvalidAmount)));
 
     // Negative amount
     let result = client.try_borrow(&treasury, &child_account, &(-100i128));
-    assert_eq!(result, Err(Ok(MicroVaultError::InvalidAmount)));
+    assert_eq!(result, Err(Ok(MicrovaultError::InvalidAmount)));
 }
 
 #[test]
@@ -707,7 +707,7 @@ fn test_borrow_checks_utilization_before_liquidity() {
     // Try to borrow 5M more - would be 120% utilization
     // Utilization cap (80%) is checked before liquidity
     let result = client.try_borrow(&treasury, &child_account, &5_000_000i128);
-    assert_eq!(result, Err(Ok(MicroVaultError::ExceedsUtilizationCap)));
+    assert_eq!(result, Err(Ok(MicrovaultError::ExceedsUtilizationCap)));
 }
 
 #[test]
@@ -781,7 +781,7 @@ fn test_repay_exceeds_debt() {
     // Try to repay more than owed
     token_admin.mint(&treasury, &5_000_000i128);
     let result = client.try_repay(&treasury, &5_000_000i128);
-    assert_eq!(result, Err(Ok(MicroVaultError::RepayExceedsDebt)));
+    assert_eq!(result, Err(Ok(MicrovaultError::RepayExceedsDebt)));
 }
 
 #[test]
@@ -805,7 +805,7 @@ fn test_repay_unauthorized() {
     let attacker = Address::generate(&env);
     token_admin.mint(&attacker, &5_000_000i128);
     let result = client.try_repay(&attacker, &5_000_000i128);
-    assert_eq!(result, Err(Ok(MicroVaultError::Unauthorized)));
+    assert_eq!(result, Err(Ok(MicrovaultError::Unauthorized)));
 }
 
 #[test]
@@ -830,7 +830,7 @@ fn test_interest_accrual() {
     // Advance time by 1 year (for significant interest accrual)
     env.ledger().set(LedgerInfo {
         timestamp: 31_536_000, // 1 year in seconds
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1015,7 +1015,7 @@ fn test_full_credit_delegation_lifecycle() {
     // 3. Time passes, interest accrues
     env.ledger().set(LedgerInfo {
         timestamp: 2_592_000, // 30 days
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1110,7 +1110,7 @@ fn test_lock_applied_on_deposit() {
     // Set initial timestamp
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1143,7 +1143,7 @@ fn test_withdraw_blocked_when_locked() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1173,7 +1173,7 @@ fn test_redeem_blocked_when_locked() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1202,7 +1202,7 @@ fn test_withdraw_allowed_after_lock_expires() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1224,7 +1224,7 @@ fn test_withdraw_allowed_after_lock_expires() {
     // Advance time past lock period
     env.ledger().set(LedgerInfo {
         timestamp: 1000 + seven_days + 1,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1243,14 +1243,23 @@ fn test_withdraw_allowed_after_lock_expires() {
     assert!(token_client.balance(&user) > initial_balance);
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Lock Period — deposit resets lock (audit MV-04 fix)
+// ─────────────────────────────────────────────────────────────────────
+//
+// The previous weighted-average scheme truncated to zero for small deposits
+// on large balances, letting new deposits inherit an unlocked state. The
+// fix is simpler: any deposit while a lock period is configured resets the
+// user's unlock time to `max(current_unlock, now + lock_period)`.
+
 #[test]
-fn test_weighted_lock_calculation() {
+fn test_deposit_resets_lock_to_full_period() {
     let env = Env::default();
     env.mock_all_auths();
 
     env.ledger().set(LedgerInfo {
         timestamp: 0,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1274,7 +1283,7 @@ fn test_weighted_lock_calculation() {
     let six_days: u64 = 518400;
     env.ledger().set(LedgerInfo {
         timestamp: six_days,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1283,30 +1292,32 @@ fn test_weighted_lock_calculation() {
         max_entry_ttl: 10000,
     });
 
-    // Remaining lock should be ~1 day
+    // Remaining lock should be ~1 day before the second deposit
     let remaining = client.remaining_lock_time(&user);
     assert!(remaining > 0 && remaining <= 86400 + 1); // ~1 day
 
-    // Second deposit: 100 USDC (small compared to existing 1000)
-    // Weighted lock = (1_day * 1000_shares + 7_days * ~100_shares) / 1100_shares
-    // Should be closer to 1 day than 7 days
+    // Second deposit: 100 USDC (small compared to existing 1000).
+    // Under the old weighted-average scheme this would truncate the new
+    // lock contribution and leave the user ~1 day from unlocking. Under the
+    // fix, the lock is reset to the full 7 days from now.
     client.deposit(&100_000i128, &user, &user, &user);
 
     let new_remaining = client.remaining_lock_time(&user);
-    // New lock should be weighted - much less than 7 days
-    assert!(new_remaining < seven_days);
-    // But more than original 1 day remaining due to new deposit
-    assert!(new_remaining > remaining / 2);
+    // Lock is reset to the full period from the second deposit's timestamp.
+    assert_eq!(new_remaining, seven_days);
+    assert_eq!(client.get_unlock_time(&user), six_days + seven_days);
 }
 
 #[test]
-fn test_weighted_lock_with_large_new_deposit() {
+fn test_deposit_does_not_shorten_existing_longer_lock() {
+    // A later deposit must not shorten an existing longer lock.
+    // `new_unlock = max(current_unlock, now + lock_period)`.
     let env = Env::default();
     env.mock_all_auths();
 
     env.ledger().set(LedgerInfo {
         timestamp: 0,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1318,17 +1329,18 @@ fn test_weighted_lock_with_large_new_deposit() {
     let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
         setup_vault_with_user(&env, 100_000_000);
 
-    // Set lock period to 7 days
     let seven_days: u64 = 604800;
     client.set_lock_period(&seven_days);
 
-    // First deposit: 100 USDC
+    // First deposit at t=0 -> unlock at 7 days
     client.deposit(&100_000i128, &user, &user, &user);
+    assert_eq!(client.get_unlock_time(&user), seven_days);
 
-    // Advance 6 days (1 day remaining)
+    // Advance 1 day; 6 days of lock remain.
+    let one_day: u64 = 86400;
     env.ledger().set(LedgerInfo {
-        timestamp: 518400, // 6 days
-        protocol_version: 25,
+        timestamp: one_day,
+        protocol_version: 26,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1337,13 +1349,65 @@ fn test_weighted_lock_with_large_new_deposit() {
         max_entry_ttl: 10000,
     });
 
-    // Large second deposit: 10000 USDC (100x the first)
-    // Weighted lock should be much closer to 7 days
+    // Shrink the period so the second deposit proposes an *earlier* unlock
+    // (1 day + 1 day) than the 7 days already on record. Reducing the period
+    // is the only way `now + lock_period` lands before `current_unlock`.
+    client.set_lock_period(&one_day);
+
+    client.deposit(&10_000_000i128, &user, &user, &user);
+    assert_eq!(client.get_unlock_time(&user), seven_days);
+    assert_eq!(client.remaining_lock_time(&user), seven_days - one_day);
+}
+
+#[test]
+fn test_small_deposit_on_large_balance_locks_full_period() {
+    // Regression for audit MV-04: a minimum-size deposit on a large unlocked
+    // balance must still lock the user for the full period, not truncate to 0.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    env.ledger().set(LedgerInfo {
+        timestamp: 0,
+        protocol_version: 26,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 100_000_000);
+
+    let seven_days: u64 = 604800;
+    client.set_lock_period(&seven_days);
+
+    // Build a large balance with an expired lock.
+    client.deposit(&10_000_000i128, &user, &user, &user);
+    assert!(client.is_locked(&user)); // locked at t=0
+
+    // Advance well past expiry.
+    env.ledger().set(LedgerInfo {
+        timestamp: seven_days + 1,
+        protocol_version: 26,
+        sequence_number: 200,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+    assert!(!client.is_locked(&user));
+
+    // Minimum-size deposit (1 USDC = 10_000_000 stroops with 7 decimals).
     client.deposit(&10_000_000i128, &user, &user, &user);
 
-    let new_remaining = client.remaining_lock_time(&user);
-    // Should be closer to 7 days due to large new deposit
-    assert!(new_remaining > seven_days / 2);
+    // Under the old weighted-average scheme this truncated to 0 and the user
+    // stayed unlocked. Under the fix the user is locked for the full period.
+    assert!(client.is_locked(&user));
+    assert_eq!(client.remaining_lock_time(&user), seven_days);
+    assert_eq!(client.get_unlock_time(&user), (seven_days + 1) + seven_days);
 }
 
 #[test]
@@ -1353,7 +1417,7 @@ fn test_lock_after_expiry_creates_new_lock() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 0,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1375,7 +1439,7 @@ fn test_lock_after_expiry_creates_new_lock() {
     // Advance past lock expiry (10 days)
     env.ledger().set(LedgerInfo {
         timestamp: 864000, // 10 days
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1387,15 +1451,14 @@ fn test_lock_after_expiry_creates_new_lock() {
     // Lock should have expired
     assert!(!client.is_locked(&user));
 
-    // New deposit creates proportional new lock
-    // remaining_lock = 0, so weighted = (0 * existing + 7_days * new) / total
+    // New deposit resets the lock to the full period from now.
+    // `now + lock_period` = 10 days + 7 days = 17 days.
     client.deposit(&1_000_000i128, &user, &user, &user);
 
-    // Should have a partial lock (weighted with 0 remaining)
+    // Lock is the full period from the new deposit's timestamp.
     let remaining = client.remaining_lock_time(&user);
-    assert!(remaining > 0);
-    // Should be about half of 7 days since equal shares
-    assert!(remaining < seven_days);
+    assert_eq!(remaining, seven_days);
+    assert_eq!(client.get_unlock_time(&user), 864000 + seven_days);
 }
 
 #[test]
@@ -1405,7 +1468,7 @@ fn test_mint_also_applies_lock() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1428,6 +1491,253 @@ fn test_mint_also_applies_lock() {
     // User should be locked
     assert!(client.is_locked(&user));
     assert_eq!(client.get_unlock_time(&user), 1000 + seven_days);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #12)")]
+fn test_transfer_blocked_while_sender_locked() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    env.ledger().set(LedgerInfo {
+        timestamp: 1000,
+        protocol_version: 26,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let seven_days: u64 = 604800;
+    client.set_lock_period(&seven_days);
+
+    // Deposit to locked user is locked for 7 days.
+    let shares = client.deposit(&1_000_000i128, &user, &user, &user);
+    assert!(client.is_locked(&user));
+
+    // Attempt to transfer shares to an attacker address. Must panic.
+    let attacker = Address::generate(&env);
+    let share_client = token::Client::new(&env, &client.address);
+    share_client.transfer(&user, &attacker, &shares);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #12)")]
+fn test_transfer_from_blocked_while_owner_locked() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    env.ledger().set(LedgerInfo {
+        timestamp: 1000,
+        protocol_version: 26,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let seven_days: u64 = 604800;
+    client.set_lock_period(&seven_days);
+
+    let shares = client.deposit(&1_000_000i128, &user, &user, &user);
+    assert!(client.is_locked(&user));
+
+    // An operator (spender) attempts to pull the locked owner's shares via
+    // transfer_from. The lock is on the owner balance, so this must panic.
+    let spender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let share_client = token::Client::new(&env, &client.address);
+    share_client.approve(&user, &spender, &shares, &1000);
+    share_client.transfer_from(&spender, &user, &recipient, &shares);
+}
+
+#[test]
+fn test_transfer_allowed_after_lock_expires() {
+    // Once the lock has expired, transfers must work normally again.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    env.ledger().set(LedgerInfo {
+        timestamp: 1000,
+        protocol_version: 26,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let seven_days: u64 = 604800;
+    client.set_lock_period(&seven_days);
+    let shares = client.deposit(&1_000_000i128, &user, &user, &user);
+    assert!(client.is_locked(&user));
+
+    // Advance past the lock.
+    env.ledger().set(LedgerInfo {
+        timestamp: 1000 + seven_days + 1,
+        protocol_version: 26,
+        sequence_number: 200,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+    assert!(!client.is_locked(&user));
+
+    // Transfer to a clean recipient succeeds, and the recipient can redeem.
+    let recipient = Address::generate(&env);
+    let share_client = token::Client::new(&env, &client.address);
+    share_client.transfer(&user, &recipient, &shares);
+    assert_eq!(share_client.balance(&recipient), shares);
+    assert_eq!(share_client.balance(&user), 0);
+}
+
+#[test]
+fn test_transfer_allowed_when_lock_period_is_zero() {
+    // With no lock configured, transfers must be unaffected.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    assert_eq!(client.get_lock_period(), 0);
+    let shares = client.deposit(&1_000_000i128, &user, &user, &user);
+    assert!(!client.is_locked(&user));
+
+    let recipient = Address::generate(&env);
+    let share_client = token::Client::new(&env, &client.address);
+    share_client.transfer(&user, &recipient, &shares);
+    assert_eq!(share_client.balance(&recipient), shares);
+}
+
+#[test]
+#[should_panic(expected = "Redemption exceeds maximum limit")]
+fn test_redeem_enforces_max_withdraw_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 50_000_000);
+
+    // Deposit a large amount so there is enough liquidity to redeem past the cap.
+    client.deposit(&50_000_000i128, &user, &user, &user);
+
+    // Lower the per-transaction withdrawal cap to 1 USDC (10M stroops).
+    client.set_max_withdraw(&10_000_000i128);
+
+    // Compute the share count equivalent to 2 USDC (20M stroops) and redeem it.
+    // This exceeds the 1 USDC cap and previously bypassed it via redeem();
+    // it must now panic too.
+    let shares_for_2 = client.preview_withdraw(&20_000_000i128);
+    assert!(shares_for_2 > 0);
+    client.redeem(&shares_for_2, &user, &user, &user);
+}
+
+#[test]
+fn test_redeem_under_cap_succeeds() {
+    // A redemption whose asset equivalent is within MaxWithdraw must still work.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 50_000_000);
+
+    client.deposit(&50_000_000i128, &user, &user, &user);
+
+    // Cap at 10M stroops (1 USDC). Redeem an amount worth less than that.
+    client.set_max_withdraw(&10_000_000i128);
+    let shares_for_5m = client.preview_withdraw(&5_000_000i128);
+    let before = token_client.balance(&user);
+    client.redeem(&shares_for_5m, &user, &user, &user);
+    assert!(token_client.balance(&user) > before);
+}
+
+#[test]
+fn test_is_locked_consistent_with_unlock_time() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    env.ledger().set(LedgerInfo {
+        timestamp: 1000,
+        protocol_version: 26,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let seven_days: u64 = 604800;
+    client.set_lock_period(&seven_days);
+    client.deposit(&1_000_000i128, &user, &user, &user);
+
+    // Halfway through the lock window.
+    let halfway = 1000 + seven_days / 2;
+    env.ledger().set(LedgerInfo {
+        timestamp: halfway,
+        protocol_version: 26,
+        sequence_number: 200,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+
+    // unlock_time is in the future, so locked, and remaining is positive and
+    // matches the gap exactly.
+    let unlock_time = client.get_unlock_time(&user);
+    assert!(unlock_time > halfway, "unlock_time must be in the future");
+    assert!(client.is_locked(&user));
+    assert_eq!(client.remaining_lock_time(&user), unlock_time - halfway);
+
+    // One ledger before expiry: still locked, remaining == 1.
+    env.ledger().set(LedgerInfo {
+        timestamp: unlock_time - 1,
+        protocol_version: 26,
+        sequence_number: 201,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+    assert!(client.is_locked(&user));
+    assert_eq!(client.remaining_lock_time(&user), 1);
+
+    // At expiry: unlocked, remaining == 0.
+    env.ledger().set(LedgerInfo {
+        timestamp: unlock_time,
+        protocol_version: 26,
+        sequence_number: 202,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1000,
+        min_persistent_entry_ttl: 1000,
+        max_entry_ttl: 10000,
+    });
+    assert!(!client.is_locked(&user));
+    assert_eq!(client.remaining_lock_time(&user), 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1493,7 +1803,7 @@ fn test_borrow_index_increases_with_interest() {
     // Advance 30 days
     env.ledger().set(LedgerInfo {
         timestamp: 2_592_000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1533,7 +1843,7 @@ fn test_borrow_index_monotonically_increases() {
     // Advance 30 days, get index
     env.ledger().set(LedgerInfo {
         timestamp: 2_592_000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1546,7 +1856,7 @@ fn test_borrow_index_monotonically_increases() {
     // Advance to 60 days, get index
     env.ledger().set(LedgerInfo {
         timestamp: 5_184_000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1559,7 +1869,7 @@ fn test_borrow_index_monotonically_increases() {
     // Advance to 365 days, get index
     env.ledger().set(LedgerInfo {
         timestamp: 31_536_000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 300,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1602,7 +1912,7 @@ fn test_borrow_index_stable_without_borrows() {
     // Advance 1 year
     env.ledger().set(LedgerInfo {
         timestamp: 31_536_000,
-        protocol_version: 25,
+        protocol_version: 26,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,

@@ -35,24 +35,23 @@ filter_unconventional = false
 split_commits = false
 # regex for preprocessing the commit messages
 commit_preprocessors = [
-    # Keep gitmoji codes for parsing
+  # Keep gitmoji codes for parsing
 ]
 # regex for parsing and grouping commits
 commit_parsers = [
-    { message = "^.*feat:", group = "Features" },
-    { message = "^.*fix:", group = "Bug Fixes" },
-    { message = "^.*update:", group = "Refactoring" },
-    { message = "^.*doc:", group = "Documentation" },
-    { message = "^.*:heavy_plus_sign:", group = "Dependencies" },
-    { message = "^.*security:", group = "Security" },
-    { message = "^.*:white_check_mark:", group = "Tests" },
-    { message = "^.*:arrow_up:", group = "Upgrades" },
-    { message = "^.*WIP:", group = "Work in Progress" },
-    { message = "^.*Merge pull request", skip = true },
-    { message = "^.*chore\\(deps\\):", group = "➕ Dependencies" },
-    { message = "^.*ci:", group = "CI" },
-    { message = "^.*chore:", group = "Chore" },
-    { message = "^.*", group = "Other" },
+  { message = "^.*feat:", group = "Features" },
+  { message = "^.*fix:", group = "Bug Fixes" },
+  { message = "^.*update:", group = "Refactoring" },
+  { message = "^.*doc:", group = "Documentation" },
+  { message = "^.*:heavy_plus_sign:", group = "Dependencies" },
+  { message = "^.*security:", group = "Security" },
+  { message = "^.*:white_check_mark:", group = "Tests" },
+  { message = "^.*:arrow_up:", group = "Upgrades" },
+  { message = "^.*WIP:", group = "Work in Progress" },
+  { message = "^.*CI:", group = "CI" },
+  { message = "^.*Merge pull request", skip = true },
+  { message = "^.*chore\\(deps\\):", group = "➕ Dependencies" },
+  { message = "^.*", group = "Other" },
 ]
 # protect breaking changes from being skipped due to matching a skipping commit_parser
 protect_breaking_commits = false

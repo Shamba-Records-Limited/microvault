@@ -16,6 +16,14 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
+// Headroom added over simulated Soroban resources before submit, absorbing
+// instruction drift between simulate and submit that would otherwise fail with
+// scecExceededLimit. Unused resource fee is refunded on-chain.
+const (
+	sorobanInstructionPadPct = 25
+	sorobanResourceFeePadPct = 30
+)
+
 // RPCClient defines the interface for Stellar RPC operations
 type RPCClient interface {
 	LoadAccount(ctx context.Context, address string) (txnbuild.Account, error)
@@ -206,23 +214,28 @@ func (s *service) submitContractTransaction(
 	// Set auth from simulation
 	op.Auth = authEntries
 
-	// Calculate fee (base fee + resource fee from simulation)
-	fee := int64(txnbuild.MinBaseFee)
-	if simResp.MinResourceFee > 0 {
-		fee += simResp.MinResourceFee
-	}
-
-	// Parse and set Soroban transaction data on the operation
+	// Parse Soroban data and pad the instruction budget before submit:
+	// simulated CPU can undershoot actual execution when ledger state drifts
+	// between simulate and submit, failing with scecExceededLimit.
+	resourceFee := simResp.MinResourceFee
 	if simResp.TransactionDataXDR != "" {
 		var transactionData xdr.SorobanTransactionData
 		if err := xdr.SafeUnmarshalBase64(simResp.TransactionDataXDR, &transactionData); err != nil {
 			return empty, fmt.Errorf("failed to decode transaction data: %w", err)
 		}
+		transactionData.Resources.Instructions = xdr.Uint32(
+			uint64(transactionData.Resources.Instructions) * (100 + sorobanInstructionPadPct) / 100)
+		transactionData.ResourceFee = xdr.Int64(
+			int64(transactionData.ResourceFee) * (100 + sorobanResourceFeePadPct) / 100)
+		resourceFee = int64(transactionData.ResourceFee)
 		op.Ext = xdr.TransactionExt{
 			V:           1,
 			SorobanData: &transactionData,
 		}
 	}
+
+	// Inclusion fee + padded resource fee; unused resource fee is refunded.
+	fee := int64(txnbuild.MinBaseFee) + resourceFee
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        sourceAccount,
@@ -264,5 +277,9 @@ func (s *service) submitContractTransaction(
 		return txResp, fmt.Errorf("transaction failed with status: %s", txResp.Status)
 	}
 
+	// GetTransaction's response does not echo the hash it was queried with, so
+	// PollTransaction cannot supply it. sendResp.Hash is the canonical hash from
+	// submission — stamp it back on so callers return a real TxHash.
+	txResp.TransactionHash = sendResp.Hash
 	return txResp, nil
 }
