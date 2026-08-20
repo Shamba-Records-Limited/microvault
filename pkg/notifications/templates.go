@@ -73,7 +73,7 @@ func DefaultLoanTemplates() *LoanTemplates {
 		CashPickupReady: "Your loan of %s %.2f is ready for pickup at any MoneyGram agent. " +
 			"Reference: %s (Loan: %s). Bring valid ID.\nMore info: %s",
 		CashPickupCancelled: "Your cash-pickup loan (Ref: %s) was cancelled and the funds returned. " +
-			"You owe nothing. Dial *384*1234# to request again.",
+			"You owe nothing. Dial *789*10# to request again.",
 	}
 }
 
