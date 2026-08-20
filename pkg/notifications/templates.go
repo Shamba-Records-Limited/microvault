@@ -52,14 +52,14 @@ func DefaultLoanTemplates() *LoanTemplates {
 		Approved: "Congratulations! Your loan of %s %.2f has been approved (Ref: %s). " +
 			"We are processing it and you will be notified when it's disbursed.",
 		Rejected: "Your loan request for %s %.2f was not approved. Reason: %s. " +
-			"Dial *384*1234# for more info.",
+			"Dial *789*10# for more info.",
 		Disbursed: "Your loan of %s %.2f has been disbursed (Ref: %s). " +
 			"The funds are now available in your mobile money account.",
 		Failed: "Your loan (Ref: %s) has been marked as defaulted. " +
 			"This will affect your credit score. Please contact support.",
 		OffRampFailed: "We could not disburse your loan of %s %.2f (Ref: %s). " +
 			"No funds left your account and you owe nothing. Please try again or contact support.",
-		CashPickupApproved: "Your cash-pickup loan of %s %.2f has been approved (Ref: %s). " +
+		CashPickupApproved: "Congratulations! Your cash-pickup loan of %s %.2f has been approved (Ref: %s). " +
 			"You will receive a verification link shortly to complete pickup at a MoneyGram agent.",
 		RepaymentReceived: "Payment of %s %.2f received for loan %s. " +
 			"Remaining balance: %s %.2f. Thank you!",
@@ -83,14 +83,14 @@ func swahiliLoanTemplates() *LoanTemplates {
 		Approved: "Hongera! Mkopo wako wa %s %.2f umeidhinishwa (Kumb: %s). " +
 			"Tunaushughulikia na utaarifiwa utakapotolewa.",
 		Rejected: "Ombi lako la mkopo wa %s %.2f halikuidhinishwa. Sababu: %s. " +
-			"Piga *384*1234# kwa maelezo zaidi.",
+			"Piga *789*10# kwa maelezo zaidi.",
 		Disbursed: "Mkopo wako wa %s %.2f umetolewa (Kumb: %s). " +
 			"Fedha sasa zinapatikana kwenye akaunti yako ya pesa za simu.",
 		Failed: "Mkopo wako (Kumb: %s) umewekwa alama ya kutolipwa. " +
 			"Hii itaathiri alama yako ya mkopo. Tafadhali wasiliana na msaada.",
 		OffRampFailed: "Hatukuweza kutoa mkopo wako wa %s %.2f (Kumb: %s). " +
 			"Hakuna fedha zilizotoka kwenye akaunti yako na hudaiwi chochote. Jaribu tena au wasiliana na msaada.",
-		CashPickupApproved: "Mkopo wako wa kuchukua pesa wa %s %.2f umeidhinishwa (Kumb: %s). " +
+		CashPickupApproved: "Hongera! Mkopo wako wa kuchukua pesa wa %s %.2f umeidhinishwa (Kumb: %s). " +
 			"Utapokea kiungo cha uthibitisho hivi karibuni kukamilisha uchukuaji kwa wakala wa MoneyGram.",
 		RepaymentReceived: "Malipo ya %s %.2f yamepokelewa kwa mkopo %s. " +
 			"Salio lililobaki: %s %.2f. Asante!",
@@ -104,7 +104,7 @@ func swahiliLoanTemplates() *LoanTemplates {
 		CashPickupReady: "Mkopo wako wa %s %.2f uko tayari kuchukuliwa kwa wakala yeyote wa MoneyGram. " +
 			"Kumbukumbu: %s (Mkopo: %s). Lete kitambulisho halali.\nMaelezo zaidi: %s",
 		CashPickupCancelled: "Mkopo wako wa kuchukua fedha (Kumb: %s) umeghairiwa na fedha zimerudishwa. " +
-			"Hudaiwi chochote. Piga *384*1234# kuomba tena.",
+			"Hudaiwi chochote. Piga *789*10# kuomba tena.",
 	}
 }
 
@@ -114,14 +114,14 @@ func frenchLoanTemplates() *LoanTemplates {
 		Approved: "Félicitations! Votre pret de %s %.2f a été approuvé (Réf: %s). " +
 			"Nous le traitons et vous serez notifié lors du décaissement.",
 		Rejected: "Votre demande de pret de %s %.2f n'a pas été approuvée. Raison: %s. " +
-			"Composez *384*1234# pour plus d'informations.",
+			"Composez *789*10# pour plus d'informations.",
 		Disbursed: "Votre pret de %s %.2f a été décaissé (Réf: %s). " +
 			"Les fonds sont maintenant disponibles sur votre compte mobile money.",
 		Failed: "Votre pret (Réf: %s) a été marqué comme défaillant. " +
 			"Cela affectera votre score de crédit. Veuillez contacter le support.",
 		OffRampFailed: "Nous n'avons pas pu décaisser votre pret de %s %.2f (Réf: %s). " +
 			"Aucun fonds n'a quitté votre compte et vous ne devez rien. Réessayez ou contactez le support.",
-		CashPickupApproved: "Votre pret à retrait en espèces de %s %.2f a été approuvé (Réf: %s). " +
+		CashPickupApproved: "Félicitations! Votre pret à retrait en espèces de %s %.2f a été approuvé (Réf: %s). " +
 			"Vous recevrez bientot un lien de vérification pour compléter le retrait chez un agent MoneyGram.",
 		RepaymentReceived: "Paiement de %s %.2f recu pour le pret %s. " +
 			"Solde restant: %s %.2f. Merci!",
@@ -135,7 +135,7 @@ func frenchLoanTemplates() *LoanTemplates {
 		CashPickupReady: "Votre pret de %s %.2f est disponible chez tout agent MoneyGram. " +
 			"Référence: %s (Pret: %s). Apportez une pièce d'identité valide.\nPlus d'infos: %s",
 		CashPickupCancelled: "Votre pret à retrait espèces (Réf: %s) a été annulé et les fonds retournés. " +
-			"Vous ne devez rien. Composez *384*1234# pour redemander.",
+			"Vous ne devez rien. Composez *789*10# pour redemander.",
 	}
 }
 
