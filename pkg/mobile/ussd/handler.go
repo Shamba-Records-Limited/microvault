@@ -85,9 +85,13 @@ func NewUSSDHandler(
 	rateService RateService,
 	pinService PINService,
 	accountNotifier contracts.AccountNotifier,
+	loanNotifier contracts.LoanNotifier,
 ) *USSDHandler {
 	if accountNotifier == nil {
 		accountNotifier = &notifications.NoOpAccountNotifier{}
+	}
+	if loanNotifier == nil {
+		loanNotifier = &notifications.NoOpLoanNotifier{}
 	}
 	return &USSDHandler{
 		sessionManager:  sessionManager,
@@ -97,6 +101,7 @@ func NewUSSDHandler(
 		rateService:     rateService,
 		pinService:      pinService,
 		accountNotifier: accountNotifier,
+		loanNotifier:    loanNotifier,
 	}
 }
 
@@ -1109,7 +1114,15 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	return "END " + Format(session.Language, "loan_processing", localCurrency, localKES), nil
 }
 
-// handleMyLoans shows user's loans
+// handleMyLoans texts the borrower a statement of their current loan rather
+// than rendering it on screen. A statement runs to reference, amount and due
+// date, which crowds a 160-character USSD display and is gone the moment the
+// session ends; an SMS stays on the handset to refer back to at an agent.
+//
+// Only the most recent loan is sent. The product allows one active loan at a
+// time — a borrower clears it before drawing again — so the newest record is
+// the one that matters. GetUserLoans returns newest first (the repository
+// orders by created_at DESC), so that is index 0.
 func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (string, error) {
 	if h.loanService == nil {
 		return h.formatResponse(session.Language, "END", "no_loans"), nil
@@ -1119,45 +1132,103 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 	if err != nil {
 		return h.formatError(session.Language, "error"), nil
 	}
-
 	if len(loans) == 0 {
 		return h.formatResponse(session.Language, "END", "no_loans"), nil
 	}
 
-	var response strings.Builder
-	response.WriteString(GetLocalizedMessage(session.Language, "my_loans_header"))
-	response.WriteString("\n")
-	for i, loan := range loans {
-		if i >= 5 { // Limit to 5 loans for USSD display
-			break
-		}
-
-		// Extract loan details
-		var loanRef = "N/A"
-		var status = GetLocalizedMessage(session.Language, "loan_status_unknown")
-		var displayAmount string
-
-		if loanMap, ok := loan.(map[string]any); ok {
-			if ref, ok := loanMap["loan_reference"].(*string); ok && ref != nil {
-				loanRef = *ref
-			}
-			if st, ok := loanMap["status"].(string); ok {
-				status = localizeLoanStatus(session.Language, st)
-			}
-			// Show what the borrower actually received. Pre-disbursement
-			// the column is NULL — display "—" rather than a fabricated
-			// figure derived from a stale hardcoded FX rate.
-			if kesAmt, ok := loanMap["delivered_amount_kes"].(*int64); ok && kesAmt != nil {
-				displayAmount = fmt.Sprintf("KES %.0f", float64(*kesAmt)/100.0)
-			} else {
-				displayAmount = "-"
-			}
-		}
-
-		response.WriteString(fmt.Sprintf("%d. %s\n%s - %s\n\n", i+1, loanRef, displayAmount, status))
+	if !isQuotable(loanStatus(loans[0])) {
+		// No origination borrow_index yet, so there is nothing to price
+		// against. Say the loan is still processing rather than reporting a
+		// failure the borrower cannot act on.
+		return h.formatResponse(session.Language, "END", "my_loans_processing"), nil
 	}
 
-	return h.formatResponse(session.Language, "END", response.String()), nil
+	note, ok := h.loanStatement(ctx, session, loans[0])
+	if !ok {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	if err := h.loanNotifier.NotifyLoanStatement(ctx, note); err != nil {
+		log.Printf("handleMyLoans: statement SMS failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	return h.formatResponse(session.Language, "END", "my_loans_sent"), nil
+}
+
+// loanStatus reads the status off a GetUserLoans record.
+func loanStatus(loan any) string {
+	loanMap, ok := loan.(map[string]any)
+	if !ok {
+		return ""
+	}
+	st, _ := loanMap["status"].(string)
+	return st
+}
+
+// isQuotable reports whether a loan has reached a state where the vault holds
+// an origination borrow_index to price against. Before disbursement there is
+// none, so a quote failure there is the normal case rather than an error.
+func isQuotable(status string) bool {
+	switch strings.ToLower(status) {
+	case "disbursed", "repaid", "defaulted":
+		return true
+	default:
+		return false
+	}
+}
+
+// loanStatement builds the notification the statement SMS renders from.
+//
+// The amount is the live payoff figure from GetRepaymentQuote, not the sum
+// disbursed: principal scaled by the vault's borrow_index growth since
+// origination, plus any fees the quote already folds in. Anything added to
+// that quote later — administrative fees, taxes — reaches this SMS without
+// touching it. Quoting hard-fails rather than falling back to a stale figure,
+// so a borrower is never told they owe a number nobody stands behind.
+//
+// Reports false when the record has no reference or the quote is unavailable.
+func (h *USSDHandler) loanStatement(ctx context.Context, session *Session, loan any) (contracts.LoanNotification, bool) {
+	loanMap, ok := loan.(map[string]any)
+	if !ok {
+		return contracts.LoanNotification{}, false
+	}
+
+	note := contracts.LoanNotification{
+		PhoneNumber: session.PhoneNumber,
+		UserID:      session.UserID,
+		Language:    session.Language,
+	}
+
+	if id, ok := loanMap["id"].(string); ok {
+		note.LoanID = id
+	}
+	if ref, ok := loanMap["loan_reference"].(*string); ok && ref != nil {
+		note.LoanReference = *ref
+	}
+	if st, ok := loanMap["status"].(string); ok {
+		note.Status = st
+	}
+	if due, ok := loanMap["due_date"].(*time.Time); ok {
+		note.DueDate = due
+	}
+
+	if note.LoanID == "" || note.LoanReference == "" {
+		log.Printf("loanStatement: loan record lacks an id or reference for %s", phone.Redact(session.PhoneNumber))
+		return contracts.LoanNotification{}, false
+	}
+
+	quote, err := h.loanService.GetRepaymentQuote(ctx, note.LoanID)
+	if err != nil {
+		log.Printf("loanStatement: quote failed for loan %s: %v", note.LoanReference, err)
+		return contracts.LoanNotification{}, false
+	}
+
+	note.Amount = quote.AmountUSDCStroops
+	note.DisplayAmount = float64(quote.AmountLocalCents) / 100.0
+	note.DisplayCurrency = quote.LocalCurrency
+
+	return note, true
 }
 
 // handleRepayLoan handles loan repayment
@@ -1885,19 +1956,6 @@ func (h *USSDHandler) formatLockedMessage(ctx context.Context, session *Session)
 }
 
 // formatResponse formats a response with type prefix
-// localizeLoanStatus maps a raw loan status enum to its localized label,
-// falling back to the raw value when no translation exists.
-func localizeLoanStatus(language, status string) string {
-	if status == "" {
-		return GetLocalizedMessage(language, "loan_status_unknown")
-	}
-	key := "loan_status_" + strings.ToLower(status)
-	if msg := GetLocalizedMessage(language, key); msg != key {
-		return msg
-	}
-	return status
-}
-
 func (h *USSDHandler) formatResponse(language, responseType, message string) string {
 	return fmt.Sprintf("%s %s", responseType, GetLocalizedMessage(language, message))
 }

@@ -78,6 +78,7 @@ type USSDHandler struct {
 	rateService     RateService
 	pinService      PINService
 	accountNotifier contracts.AccountNotifier
+	loanNotifier    contracts.LoanNotifier
 }
 
 //

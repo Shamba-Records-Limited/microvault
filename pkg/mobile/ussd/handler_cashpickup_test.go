@@ -32,7 +32,7 @@ func newRateHarness(t *testing.T, rates RateService) *USSDHandler {
 	NewStandardLoanMenuPreset().Initialize(reg)
 
 	user := &fakeUserSvc{user: map[string]any{"id": "u1"}, accounts: []any{map[string]any{}}}
-	return NewUSSDHandler(sm, reg, user, fakeLoanSvc{}, rates, &fakePINSvc{hasPIN: true}, nil)
+	return NewUSSDHandler(sm, reg, user, fakeLoanSvc{}, rates, &fakePINSvc{hasPIN: true}, nil, nil)
 }
 
 func payoutSession(amountCents int64) *Session {

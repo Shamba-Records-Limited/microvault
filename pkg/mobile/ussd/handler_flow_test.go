@@ -87,7 +87,7 @@ func newHarness(t *testing.T, user *fakeUserSvc, pinSvc *fakePINSvc) *USSDHandle
 	reg := NewMenuRegistry()
 	NewStandardLoanMenuPreset().Initialize(reg)
 
-	return NewUSSDHandler(sm, reg, user, fakeLoanSvc{}, fakeRateSvc{}, pinSvc, nil)
+	return NewUSSDHandler(sm, reg, user, fakeLoanSvc{}, fakeRateSvc{}, pinSvc, nil, nil)
 }
 
 func TestHandleRequest_NewUser_ShowsLanguageMenu(t *testing.T) {

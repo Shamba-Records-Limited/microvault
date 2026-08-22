@@ -377,10 +377,15 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Mkopo wako wa %s %.0f unashughulikiwa. Utapokea arifa mara utakapotolewa.",
 			"fr": "Votre pret de %s %.0f est en cours de traitement. Vous recevrez une notification une fois le décaissement effectué.",
 		},
-		"my_loans_header": {
-			"en": "Your Loans:",
-			"sw": "Mikopo Yako:",
-			"fr": "Vos Prets:",
+		"my_loans_processing": {
+			"en": "Your loan is still being processed. We will text you when it is ready.",
+			"sw": "Mkopo wako bado unashughulikiwa. Tutakutumia SMS ukiwa tayari.",
+			"fr": "Votre pret est en cours de traitement. Nous vous enverrons un SMS.",
+		},
+		"my_loans_sent": {
+			"en": "We have sent your loan details by SMS.",
+			"sw": "Tumetuma maelezo ya mkopo wako kwa SMS.",
+			"fr": "Nous avons envoye les details de votre pret par SMS.",
 		},
 		"repay_header": {
 			"en": "Repay via M-Pesa:\nPayBill: 123456\nAccount: Your Loan Number\n\nActive Loans:",
@@ -394,12 +399,6 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 		},
 
 		// ── Loan Status ─────────────────────────────────────────────
-		"loan_status_pending":   {"en": "Pending", "sw": "Inasubiri", "fr": "En attente"},
-		"loan_status_approved":  {"en": "Approved", "sw": "Imeidhinishwa", "fr": "Approuvé"},
-		"loan_status_disbursed": {"en": "Disbursed", "sw": "Imetolewa", "fr": "Décaissé"},
-		"loan_status_repaid":    {"en": "Repaid", "sw": "Imelipwa", "fr": "Remboursé"},
-		"loan_status_defaulted": {"en": "Defaulted", "sw": "Imeshindwa kulipwa", "fr": "En défaut"},
-		"loan_status_unknown":   {"en": "Unknown", "sw": "Haijulikani", "fr": "Inconnu"},
 
 		// ── Security Question Text (by ID) ──────────────────────────
 		"sq_1": {

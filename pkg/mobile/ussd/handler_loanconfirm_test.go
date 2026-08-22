@@ -37,7 +37,7 @@ func newConfirmHarness(t *testing.T, pinSvc PINService) *USSDHandler {
 	NewStandardLoanMenuPreset().Initialize(reg)
 
 	user := &fakeUserSvc{user: map[string]any{"id": "u1"}, accounts: []any{map[string]any{}}}
-	return NewUSSDHandler(sm, reg, user, fakeLoanSvc{}, fakeRateSvc{}, pinSvc, nil)
+	return NewUSSDHandler(sm, reg, user, fakeLoanSvc{}, fakeRateSvc{}, pinSvc, nil, nil)
 }
 
 func confirmSession() *Session {

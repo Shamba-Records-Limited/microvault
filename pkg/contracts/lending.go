@@ -31,6 +31,12 @@ type LoanNotifier interface {
 	NotifyRepaymentReceived(ctx context.Context, n LoanNotification) error
 	NotifyRepaymentReminder(ctx context.Context, n LoanNotification) error
 
+	// NotifyLoanStatement sends the borrower a record of one loan —
+	// reference, amount and due date. Unlike the other methods this is
+	// user-initiated rather than lifecycle-driven: it answers a "My Loans"
+	// request, so it is sent on demand and repeats are expected.
+	NotifyLoanStatement(ctx context.Context, n LoanNotification) error
+
 	// NotifyLoanCashPickupInitiated sends the MoneyGram interactive URL to
 	// the user. The locked payout amount is unknown at this point and
 	// confirmed when the user opens the link; the template should make that

@@ -40,7 +40,7 @@ func newDetailsHarness(t *testing.T, user UserService) *USSDHandler {
 	reg := NewMenuRegistry()
 	NewStandardLoanMenuPreset().Initialize(reg)
 
-	return NewUSSDHandler(sm, reg, user, fakeLoanSvc{}, fakeRateSvc{}, &fakePINSvc{hasPIN: true}, nil)
+	return NewUSSDHandler(sm, reg, user, fakeLoanSvc{}, fakeRateSvc{}, &fakePINSvc{hasPIN: true}, nil, nil)
 }
 
 func detailsUser(stored map[string]any) *bioUserSvc {

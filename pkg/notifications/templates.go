@@ -50,11 +50,25 @@ type LoanTemplates struct {
 	// Runs to two SMS segments; the support link is worth the second. Unlike
 	// InteractiveURL, CashPickupInfoURL stays valid after settlement.
 	CashPickupReady LoanMessage
+	// Statement answers a user-initiated "My Loans" request with one loan's
+	// reference, amount and due date. Use [DueDateText] for the date — a loan
+	// may have none.
+	Statement LoanMessage
 	// CashPickupCancelled is sent when MoneyGram refunds a cash-pickup loan,
 	// which usually means the borrower cancelled in MoneyGram's own app —
 	// sometimes by mistake. The wording has to reassure rather than alarm:
 	// nothing is owed and they can simply request again.
 	CashPickupCancelled LoanMessage
+}
+
+// DueDateText renders a notification's due date as YYYY-MM-DD, or "-" when the
+// loan has none. Templates must not format DueDate directly: it is a pointer
+// and is nil until a loan is disbursed.
+func DueDateText(n contracts.LoanNotification) string {
+	if n.DueDate == nil {
+		return "-"
+	}
+	return n.DueDate.Format("2006-01-02")
 }
 
 // DaysUntilDue returns whole days between now and the notification's due date,
@@ -124,6 +138,10 @@ func DefaultLoanTemplates() *LoanTemplates {
 				"Reference: %s (Loan: %s). Bring valid ID.\nMore info: %s",
 				n.DisplayCurrency, n.DisplayAmount, n.CashPickupRef, n.LoanReference, n.CashPickupInfoURL)
 		},
+		Statement: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Loan %s: %s %.2f, due %s",
+				n.LoanReference, n.DisplayCurrency, n.DisplayAmount, DueDateText(n))
+		},
 		CashPickupCancelled: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Your cash-pickup loan (Ref: %s) was cancelled and the funds returned. You owe nothing.",
 				n.LoanReference)
@@ -189,6 +207,10 @@ func swahiliLoanTemplates() *LoanTemplates {
 				"Kumbukumbu: %s (Mkopo: %s). Lete kitambulisho halali.\nMaelezo zaidi: %s",
 				n.DisplayCurrency, n.DisplayAmount, n.CashPickupRef, n.LoanReference, n.CashPickupInfoURL)
 		},
+		Statement: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Mkopo %s: %s %.2f, malipo %s",
+				n.LoanReference, n.DisplayCurrency, n.DisplayAmount, DueDateText(n))
+		},
 		CashPickupCancelled: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Mkopo wako wa kuchukua fedha (Kumb: %s) umeghairiwa na fedha zimerudishwa. Hudaiwi chochote.",
 				n.LoanReference)
@@ -253,6 +275,10 @@ func frenchLoanTemplates() *LoanTemplates {
 			return fmt.Sprintf("Votre pret de %s %.2f est disponible chez tout agent MoneyGram. "+
 				"Référence: %s (Pret: %s). Apportez une pièce d'identité valide.\nPlus d'infos: %s",
 				n.DisplayCurrency, n.DisplayAmount, n.CashPickupRef, n.LoanReference, n.CashPickupInfoURL)
+		},
+		Statement: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Pret %s: %s %.2f, echeance %s",
+				n.LoanReference, n.DisplayCurrency, n.DisplayAmount, DueDateText(n))
 		},
 		CashPickupCancelled: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Votre pret à retrait espèces (Réf: %s) a été annulé et les fonds retournés. Vous ne devez rien.",

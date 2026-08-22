@@ -203,7 +203,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize loan notifier: %v", err)
 	}
-	_ = loanNotifier // will be wired to adapters when loan disbursement is integrated
 
 	// Initialize account notifier for registration and PIN lifecycle SMS
 	accountNotifier, err := mvnotifications.NewSMSAccountNotifier(notifier)
@@ -219,7 +218,7 @@ func main() {
 
 	// Initialize USSD handler with real services
 	// Note: loanService and disbursementService are nil - will be implemented later
-	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil, nil, pinService, accountNotifier)
+	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil, nil, pinService, accountNotifier, loanNotifier)
 	ussdService := ussd.NewUSSDService(handler)
 
 	// Register USSD providers
