@@ -20,8 +20,8 @@ const (
 // navBackTargets maps a menu to the menu one step behind it.
 //
 // A menu absent from this map takes no back input, for one of three reasons:
-// it already binds "0" itself (language_select, my_account, pin_manager), "0"
-// already means something else there (register_bio, where it skips a field),
+// it already binds "0" itself (language_select, my_account, pin_manager,
+// my_details),
 // or stepping back would weaken a verification gate (recover_sim_q1/q2,
 // pin_recovery_q1/q2, pin_recovery_new/confirm).
 var navBackTargets = map[string]string{
@@ -37,10 +37,10 @@ var navBackTargets = map[string]string{
 	"pin_change_new":           "pin_change_old",
 	"pin_change_confirm":       "pin_change_new",
 	"pin_recovery_national_id": "pin_manager",
+	"bio_edit":                 "my_details",
 	"loan_amount":              "main",
 	"payout_method":            "loan_amount",
 	"loan_confirm":             "payout_method",
-	"pin_verify_loan":          "loan_confirm",
 	"pin_verify_repay":         "main",
 }
 
@@ -55,6 +55,7 @@ var navBackClears = map[string][]string{
 	"security_q2_answer":   {"sq2_id"},
 	"pin_change_new":       {"old_pin"},
 	"pin_change_confirm":   {"new_pin"},
+	"bio_edit":             {"bio_field"},
 	"payout_method":        {"loan_amount_local", "local_currency", "loan_duration", "repayment_schedule", "product_id"},
 	"loan_confirm":         {"payout_method"},
 }
@@ -66,8 +67,7 @@ var navFlowKeys = []string{
 	"sq1_id", "sq1_answer", "sq2_id", "from_pin_manager",
 	"loan_amount_local", "local_currency", "loan_duration",
 	"repayment_schedule", "product_id", "payout_method",
-	"bio_step", "bio_update", "bio_birth_date", "bio_address",
-	"bio_city", "bio_postal_code",
+	"bio_field",
 }
 
 // canGoBack reports whether the given menu accepts the back input for this
@@ -154,6 +154,8 @@ func (h *USSDHandler) renderMenu(ctx context.Context, session *Session, menuID s
 		return h.showMainMenu(session)
 	case "my_account":
 		return h.showAccountMenu(ctx, session)
+	case "my_details":
+		return h.showMyDetails(ctx, session, "")
 	case "language_select":
 		return h.showLanguageMenu(session)
 	case "register":

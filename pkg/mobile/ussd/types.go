@@ -38,48 +38,21 @@ type SessionManager struct {
 // # Menu Types
 //
 
-// MenuType defines the action to be taken by the USSD gateway after a response.
-type MenuType string
-
-const (
-	// MenuTypeContinue instructs the gateway to keep the session open for further input.
-	MenuTypeContinue MenuType = "CON"
-	// MenuTypeEnd instructs the gateway to terminate the session after displaying the message.
-	MenuTypeEnd MenuType = "END"
-)
-
-// Menu defines a single screen or interaction point within a USSD application.
+// Menu is a single screen: a localized title and the options rendered beneath
+// it. The registry is a rendering store, not a router — USSDHandler routes on
+// the session's current menu with an explicit switch.
 type Menu struct {
-	ID           string
-	Title        map[string]string // Language -> Title
-	Options      []MenuOption
-	Handler      MenuHandler
-	ParentMenu   string
-	RequiresAuth bool
+	ID         string
+	Title      map[string]string // Language to Title
+	Options    []MenuOption
+	ParentMenu string
 }
 
 // MenuOption represents a user-selectable choice within a Menu.
 type MenuOption struct {
 	Key        string
-	Label      map[string]string // Language -> Label
+	Label      map[string]string // Language to Label
 	TargetMenu string
-	Handler    MenuHandler
-}
-
-// MenuHandler defines the signature for functions that process user input and return the next menu response.
-type MenuHandler func(ctx *MenuContext) (*MenuResponse, error)
-
-// MenuContext encapsulates the state and dependencies required by a MenuHandler during execution.
-type MenuContext struct {
-	Session *Session
-	Input   string
-	Manager *SessionManager
-}
-
-// MenuResponse contains the data sent back to the USSD gateway to be displayed to the user.
-type MenuResponse struct {
-	Type    MenuType
-	Message string
 }
 
 // MenuRegistry stores and provides access to all configured menus in the USSD application.

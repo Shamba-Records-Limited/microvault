@@ -75,27 +75,6 @@ func (m *Menu) GetOption(key string) (*MenuOption, error) {
 	return nil, fmt.Errorf("invalid option: %s", key)
 }
 
-// BuildMenuResponse creates a continue menu response
-func BuildMenuResponse(message string) *MenuResponse {
-	return &MenuResponse{
-		Type:    MenuTypeContinue,
-		Message: message,
-	}
-}
-
-// BuildEndResponse creates an end menu response
-func BuildEndResponse(message string) *MenuResponse {
-	return &MenuResponse{
-		Type:    MenuTypeEnd,
-		Message: message,
-	}
-}
-
-// Format formats the menu response
-func (mr *MenuResponse) Format() string {
-	return fmt.Sprintf("%s %s", mr.Type, mr.Message)
-}
-
 // NewMenuBuilder creates a new menu builder
 func NewMenuBuilder(id string) *MenuBuilder {
 	return &MenuBuilder{
@@ -120,12 +99,6 @@ func (mb *MenuBuilder) WithOption(key string, labels map[string]string, targetMe
 		Label:      labels,
 		TargetMenu: targetMenu,
 	})
-	return mb
-}
-
-// WithAuth sets whether the menu requires authentication
-func (mb *MenuBuilder) WithAuth(requiresAuth bool) *MenuBuilder {
-	mb.menu.RequiresAuth = requiresAuth
 	return mb
 }
 

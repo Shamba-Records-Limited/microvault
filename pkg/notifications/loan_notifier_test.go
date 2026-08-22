@@ -21,9 +21,19 @@ func (f *fakeNotifier) Send(_ context.Context, to, msg string) error {
 	return f.err
 }
 
+// newLoanNotifier builds a notifier and fails the test if construction errors.
+func newLoanNotifier(t *testing.T, fn Notifier, opts ...LoanOption) *SMSLoanNotifier {
+	t.Helper()
+	n, err := NewSMSLoanNotifier(fn, opts...)
+	if err != nil {
+		t.Fatalf("NewSMSLoanNotifier: %v", err)
+	}
+	return n
+}
+
 func TestLoanApproved_English(t *testing.T) {
 	fn := &fakeNotifier{}
-	n := NewSMSLoanNotifier(fn, nil)
+	n := newLoanNotifier(t, fn)
 	note := contracts.LoanNotification{
 		PhoneNumber: "254711000111", DisplayCurrency: "KES", DisplayAmount: 5000, LoanReference: "LR-1",
 	}
@@ -41,7 +51,7 @@ func TestLoanApproved_English(t *testing.T) {
 func TestLanguageDispatch(t *testing.T) {
 	render := func(lang string) string {
 		fn := &fakeNotifier{}
-		n := NewSMSLoanNotifier(fn, nil)
+		n := newLoanNotifier(t, fn)
 		_ = n.NotifyLoanApproved(context.Background(), contracts.LoanNotification{
 			Language: lang, DisplayCurrency: "KES", DisplayAmount: 100, LoanReference: "LR-9",
 		})
@@ -59,8 +69,9 @@ func TestLanguageDispatch(t *testing.T) {
 
 func TestLanguageResolverFallback(t *testing.T) {
 	fn := &fakeNotifier{}
-	n := NewSMSLoanNotifier(fn, nil)
-	n.SetLanguageResolver(func(_ context.Context, _ string) string { return "fr" })
+	n := newLoanNotifier(t, fn, WithLoanLanguageResolver(
+		func(context.Context, string) string { return "fr" },
+	))
 
 	// Language left empty -> resolver picks fr.
 	_ = n.NotifyLoanApproved(context.Background(), contracts.LoanNotification{
@@ -76,24 +87,83 @@ func TestLanguageResolverFallback(t *testing.T) {
 	}
 }
 
-func TestCustomTemplateOverride(t *testing.T) {
+// A builder overriding one message must not lose the other twelve.
+func TestPartialTemplateOverrideMerges(t *testing.T) {
 	fn := &fakeNotifier{}
-	custom := &LoanTemplates{Approved: "OK %s %.2f %s"}
-	n := NewSMSLoanNotifier(fn, custom)
-	// Every language uses the override.
-	for _, lang := range []string{"en", "sw", "fr"} {
-		_ = n.NotifyLoanApproved(context.Background(), contracts.LoanNotification{
-			Language: lang, DisplayCurrency: "KES", DisplayAmount: 2, LoanReference: "LR-3",
-		})
-		if fn.msg != "OK KES 2.00 LR-3" {
-			t.Errorf("lang %s: override not used, got %q", lang, fn.msg)
-		}
+	override := &LoanTemplates{
+		Rejected: func(n contracts.LoanNotification) string {
+			return "DECLINED " + n.LoanReference
+		},
+	}
+	n := newLoanNotifier(t, fn, WithLoanTemplates("en", override))
+	note := contracts.LoanNotification{
+		Language: "en", DisplayCurrency: "KES", DisplayAmount: 2, LoanReference: "LR-3",
+	}
+
+	if err := n.NotifyLoanRejected(context.Background(), note); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if fn.msg != "DECLINED LR-3" {
+		t.Errorf("override not used, got %q", fn.msg)
+	}
+
+	// Approved was left nil, so it falls through to the platform default.
+	if err := n.NotifyLoanApproved(context.Background(), note); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !strings.Contains(fn.msg, "Congratulations") {
+		t.Errorf("unset field should keep the default, got %q", fn.msg)
+	}
+}
+
+// An override registered for one language must leave the others alone.
+func TestOverrideIsPerLanguage(t *testing.T) {
+	fn := &fakeNotifier{}
+	n := newLoanNotifier(t, fn, WithLoanTemplates("sw", &LoanTemplates{
+		Approved: func(contracts.LoanNotification) string { return "SW-OVERRIDE" },
+	}))
+
+	_ = n.NotifyLoanApproved(context.Background(), contracts.LoanNotification{Language: "sw"})
+	if fn.msg != "SW-OVERRIDE" {
+		t.Errorf("sw override not used, got %q", fn.msg)
+	}
+	_ = n.NotifyLoanApproved(context.Background(), contracts.LoanNotification{Language: "en"})
+	if fn.msg == "SW-OVERRIDE" {
+		t.Error("sw override leaked into en")
+	}
+}
+
+func TestConstructorRejectsNonGSM7Override(t *testing.T) {
+	_, err := NewSMSLoanNotifier(&fakeNotifier{}, WithLoanTemplates("fr", &LoanTemplates{
+		Approved: func(contracts.LoanNotification) string { return "Reçu" },
+	}))
+	if err == nil {
+		t.Fatal("expected an error for copy outside GSM 03.38")
+	}
+	if !strings.Contains(err.Error(), "Approved") {
+		t.Errorf("error should name the offending field, got %v", err)
+	}
+}
+
+func TestConstructorRejectsEmptyRender(t *testing.T) {
+	_, err := NewSMSLoanNotifier(&fakeNotifier{}, WithLoanTemplates("en", &LoanTemplates{
+		Approved: func(contracts.LoanNotification) string { return "" },
+	}))
+	if err == nil {
+		t.Fatal("expected an error for a template rendering nothing")
+	}
+}
+
+func TestConstructorRejectsUnknownLanguage(t *testing.T) {
+	_, err := NewSMSLoanNotifier(&fakeNotifier{}, WithLoanTemplates("de", &LoanTemplates{}))
+	if err == nil {
+		t.Fatal("expected an error for an unsupported language")
 	}
 }
 
 func TestRepaymentReminderBranches(t *testing.T) {
 	fn := &fakeNotifier{}
-	n := NewSMSLoanNotifier(fn, nil)
+	n := newLoanNotifier(t, fn)
 	base := contracts.LoanNotification{DisplayCurrency: "KES", DisplayAmount: 10, LoanReference: "LR-4"}
 
 	overdue := base
@@ -120,7 +190,7 @@ func TestRepaymentReminderBranches(t *testing.T) {
 
 func TestRepaymentReminder_NilDueDate(t *testing.T) {
 	fn := &fakeNotifier{msg: "sentinel"}
-	n := NewSMSLoanNotifier(fn, nil)
+	n := newLoanNotifier(t, fn)
 	if err := n.NotifyRepaymentReminder(context.Background(), contracts.LoanNotification{}); err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -131,7 +201,7 @@ func TestRepaymentReminder_NilDueDate(t *testing.T) {
 
 func TestCashPickupReady_Content(t *testing.T) {
 	fn := &fakeNotifier{}
-	n := NewSMSLoanNotifier(fn, nil)
+	n := newLoanNotifier(t, fn)
 	_ = n.NotifyLoanCashPickupReady(context.Background(), contracts.LoanNotification{
 		DisplayCurrency: "KES", DisplayAmount: 3010, CashPickupRef: "79342377",
 		LoanReference: "LR-5", CashPickupInfoURL: "https://mgv.link/x",
@@ -145,7 +215,7 @@ func TestCashPickupReady_Content(t *testing.T) {
 
 func TestSendErrorPropagates(t *testing.T) {
 	fn := &fakeNotifier{err: errors.New("transport down")}
-	n := NewSMSLoanNotifier(fn, nil)
+	n := newLoanNotifier(t, fn)
 	if err := n.NotifyLoanApproved(context.Background(), contracts.LoanNotification{}); err == nil {
 		t.Error("expected transport error to propagate")
 	}

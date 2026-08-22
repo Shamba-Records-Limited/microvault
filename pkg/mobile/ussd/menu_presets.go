@@ -39,7 +39,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 			"sw": "Akaunti Yangu",
 			"fr": "Mon Compte",
 		}, "my_account").
-		WithAuth(true).
 		Build()
 	registry.Register(mainMenu)
 
@@ -50,7 +49,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithOption("2", map[string]string{"en": "Kiswahili"}, "main").
 		WithOption("3", map[string]string{"en": "Francais"}, "main").
 		WithOption("0", map[string]string{"en": "Back / Rudi / Retour"}, "main").
-		WithAuth(false).
 		Build()
 	registry.Register(langMenu)
 
@@ -59,7 +57,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Register for Shamba Records\nEnter your full name:").
 		WithTitle("sw", "Jisajili kwa Shamba Records\nWeka jina lako kamili:").
 		WithTitle("fr", "S'inscrire à Shamba Records\nEntrez votre nom complet:").
-		WithAuth(false).
 		Build()
 	registry.Register(registerMenu)
 
@@ -71,7 +68,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Enter loan amount:").
 		WithTitle("sw", "Weka kiasi cha mkopo:").
 		WithTitle("fr", "Entrez montant du pret:").
-		WithAuth(true).
 		Build()
 	registry.Register(loanAmountMenu)
 
@@ -92,7 +88,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 			"sw": "Pesa za Simu",
 			"fr": "Mobile Money",
 		}, "loan_confirm").
-		WithAuth(true).
 		Build()
 	registry.Register(payoutMethodMenu)
 
@@ -115,13 +110,12 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 			"en": "My Details",
 			"sw": "Maelezo Yangu",
 			"fr": "Mes Infos",
-		}, "register_bio").
+		}, "my_details").
 		WithOption("0", map[string]string{
 			"en": "Main Menu",
 			"sw": "Menyu Kuu",
 			"fr": "Menu Principal",
 		}, "main").
-		WithAuth(true).
 		Build()
 	registry.Register(accountMenu)
 
@@ -143,7 +137,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithOption("0", map[string]string{
 			"en": "Back", "sw": "Rudi", "fr": "Retour",
 		}, "my_account").
-		WithAuth(true).
 		Build()
 	registry.Register(pinManagerMenu)
 
@@ -152,7 +145,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Create a 4-digit PIN:").
 		WithTitle("sw", "Tengeneza PIN ya tarakimu 4:").
 		WithTitle("fr", "Créez un PIN à 4 chiffres:").
-		WithAuth(false).
 		Build()
 	registry.Register(pinCreateMenu)
 
@@ -160,7 +152,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Confirm your PIN:").
 		WithTitle("sw", "Thibitisha PIN yako:").
 		WithTitle("fr", "Confirmez votre PIN:").
-		WithAuth(false).
 		Build()
 	registry.Register(pinConfirmMenu)
 
@@ -169,7 +160,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Enter current PIN:").
 		WithTitle("sw", "Weka PIN ya sasa:").
 		WithTitle("fr", "Entrez PIN actuel:").
-		WithAuth(true).
 		Build()
 	registry.Register(pinChangeOldMenu)
 
@@ -177,7 +167,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Enter new 4-digit PIN:").
 		WithTitle("sw", "Weka PIN mpya ya tarakimu 4:").
 		WithTitle("fr", "Entrez nouveau PIN à 4 chiffres:").
-		WithAuth(true).
 		Build()
 	registry.Register(pinChangeNewMenu)
 
@@ -185,24 +174,15 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Confirm new PIN:").
 		WithTitle("sw", "Thibitisha PIN mpya:").
 		WithTitle("fr", "Confirmez nouveau PIN:").
-		WithAuth(true).
 		Build()
 	registry.Register(pinChangeConfirmMenu)
 
-	// PIN Verification Gates
-	pinVerifyLoanMenu := NewMenuBuilder("pin_verify_loan").
-		WithTitle("en", "Enter your 4-digit PIN to confirm loan:").
-		WithTitle("sw", "Weka PIN yako ya tarakimu 4 kuthibitisha mkopo:").
-		WithTitle("fr", "Entrez votre PIN à 4 chiffres pour confirmer le pret:").
-		WithAuth(true).
-		Build()
-	registry.Register(pinVerifyLoanMenu)
-
+	// PIN verification gate for repayment. Loan origination has no separate
+	// gate: its PIN prompt lives on the loan_confirm screen beside the terms.
 	pinVerifyRepayMenu := NewMenuBuilder("pin_verify_repay").
 		WithTitle("en", "Enter your 4-digit PIN:").
 		WithTitle("sw", "Weka PIN yako ya tarakimu 4:").
 		WithTitle("fr", "Entrez votre PIN à 4 chiffres:").
-		WithAuth(true).
 		Build()
 	registry.Register(pinVerifyRepayMenu)
 
@@ -236,7 +216,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 			"sw": "Jina la shule yako ya msingi?",
 			"fr": "Nom de votre école primaire?",
 		}, "").
-		WithAuth(false).
 		Build()
 	registry.Register(secQ1SelectMenu)
 
@@ -244,7 +223,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Enter your answer:").
 		WithTitle("sw", "Weka jibu lako:").
 		WithTitle("fr", "Entrez votre réponse:").
-		WithAuth(false).
 		Build()
 	registry.Register(secQ1AnswerMenu)
 
@@ -278,7 +256,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 			"sw": "Jina la shule yako ya msingi?",
 			"fr": "Nom de votre école primaire?",
 		}, "").
-		WithAuth(false).
 		Build()
 	registry.Register(secQ2SelectMenu)
 
@@ -286,7 +263,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Enter your answer:").
 		WithTitle("sw", "Weka jibu lako:").
 		WithTitle("fr", "Entrez votre réponse:").
-		WithAuth(false).
 		Build()
 	registry.Register(secQ2AnswerMenu)
 
@@ -295,7 +271,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Enter your national ID to verify:").
 		WithTitle("sw", "Weka kitambulisho chako kuthibitisha:").
 		WithTitle("fr", "Entrez votre pièce d'identité:").
-		WithAuth(false).
 		Build()
 	registry.Register(pinRecoveryIDMenu)
 
@@ -303,7 +278,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Answer your security question:").
 		WithTitle("sw", "Jibu swali lako la usalama:").
 		WithTitle("fr", "Répondez à votre question de sécurité:").
-		WithAuth(false).
 		Build()
 	registry.Register(pinRecoveryQ1Menu)
 
@@ -311,7 +285,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Answer your security question:").
 		WithTitle("sw", "Jibu swali lako la usalama:").
 		WithTitle("fr", "Répondez à votre question de sécurité:").
-		WithAuth(false).
 		Build()
 	registry.Register(pinRecoveryQ2Menu)
 
@@ -319,7 +292,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Enter new 4-digit PIN:").
 		WithTitle("sw", "Weka PIN mpya ya tarakimu 4:").
 		WithTitle("fr", "Entrez nouveau PIN à 4 chiffres:").
-		WithAuth(false).
 		Build()
 	registry.Register(pinRecoveryNewMenu)
 
@@ -327,7 +299,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		WithTitle("en", "Confirm new PIN:").
 		WithTitle("sw", "Thibitisha PIN mpya:").
 		WithTitle("fr", "Confirmez nouveau PIN:").
-		WithAuth(false).
 		Build()
 	registry.Register(pinRecoveryConfirmMenu)
 }
@@ -360,7 +331,6 @@ func (p *SimplifiedMenuPreset) Initialize(registry *MenuRegistry) {
 			"en": "Account",
 			"sw": "Akaunti",
 		}, "my_account").
-		WithAuth(true).
 		Build()
 	registry.Register(mainMenu)
 

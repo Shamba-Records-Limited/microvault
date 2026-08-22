@@ -261,6 +261,10 @@ type MobileConfig struct {
 	// SessionTimeout is the Redis TTL for a USSD session, refreshed on each
 	// request. From USSD_SESSION_TIMEOUT (seconds); defaults to 5 minutes.
 	SessionTimeout time.Duration
+
+	// USSDDialString is what a user dials to reach this deployment, stored
+	// complete with prefix and terminator.
+	USSDDialString string
 }
 
 type AuthConfig struct {
@@ -341,6 +345,7 @@ func New() (*Config, error) {
 
 	mobileUsername := os.Getenv("AT_USERNAME")
 	mobileAPIKey := os.Getenv("AT_API_KEY")
+	ussdDialString := os.Getenv("USSD_DIAL_STRING")
 
 	treasurySecretKey := os.Getenv("TREASURY_SECRET_KEY")
 	adminSecretKey := os.Getenv("ADMIN_SECRET_KEY")
@@ -383,6 +388,7 @@ func New() (*Config, error) {
 		"JWT_SECRET":                jwtSecret,
 		"USDC_ISSUER":               usdcIssuer,
 		"CONTRACT_ID":               contractID,
+		"USSD_DIAL_STRING":          ussdDialString,
 	}
 
 	// Loop and check for empty values
@@ -604,6 +610,7 @@ func New() (*Config, error) {
 				HTTPTimeout: mobileHTTPTimeout,
 			},
 			SessionTimeout: ussdSessionTimeout,
+			USSDDialString: ussdDialString,
 		},
 		Auth: AuthConfig{
 			JWTSecret:           jwtSecret,

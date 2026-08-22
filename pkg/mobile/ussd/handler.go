@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
@@ -20,10 +21,10 @@ import (
 var menus = map[string]bool{
 	"register":                 true, // full name
 	"register_national_id":     true, // national ID
-	"register_bio":             true, // optional SEP-9 bio wizard (birth date, address, …)
+	"bio_edit":                 true, // SEP-9 detail value (birth date, address, city, postal code)
 	"pin_create":               true,
 	"pin_confirm":              true,
-	"pin_verify_loan":          true,
+	"loan_confirm":             true, // PIN — the loan terms and the PIN gate share one screen
 	"pin_verify_repay":         true,
 	"pin_change_old":           true,
 	"pin_change_new":           true,
@@ -196,8 +197,10 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 		return h.handleRegistration(ctx, session, input)
 	case "register_national_id":
 		return h.handleRegistrationNationalID(ctx, session, input)
-	case "register_bio":
-		return h.handleRegistrationBio(ctx, session, input)
+	case "my_details":
+		return h.handleMyDetails(ctx, session, input)
+	case "bio_edit":
+		return h.handleBioEdit(ctx, session, input)
 
 	// New-SIM account recovery (reached from the duplicate-national-ID case)
 	case "recover_offer":
@@ -224,8 +227,6 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 		return h.handleSecurityQ2Answer(ctx, session, input)
 
 	// PIN verification gates
-	case "pin_verify_loan":
-		return h.handlePINVerifyLoan(ctx, session, input)
 	case "pin_verify_repay":
 		return h.handlePINVerifyRepay(ctx, session, input)
 
@@ -551,98 +552,146 @@ func (h *USSDHandler) clearRecoverySession(session *Session) {
 	delete(session.Data, "recover_sq2_id")
 }
 
-// bioFields is the ordered set of optional SEP-9 fields the registration bio
-// wizard walks through. Any field can be skipped by replying "0". promptKey is
-// a localization key resolved via formatResponse.
+// bioFields is the ordered set of optional SEP-9 fields a user can maintain
+// from My Details. Order fixes the picker's option numbers, so appending is
+// safe but reordering renumbers the menu.
 var bioFields = []struct {
-	key       string // session key suffix and RegisterUserRequest field
-	promptKey string // localization key
+	key       string // session key suffix, user-map key, and BioUpdate field
+	labelKey  string // short label shown in the picker
+	promptKey string // prompt shown when editing the field
 }{
-	{"birth_date", "reg_bio_birth_date"},
-	{"address", "reg_bio_address"},
-	{"city", "reg_bio_city"},
-	{"postal_code", "reg_bio_postal_code"},
+	{"birth_date", "label_birth_date", "bio_prompt_birth_date"},
+	{"address", "label_address", "bio_prompt_address"},
+	{"city", "label_city", "bio_prompt_city"},
+	{"postal_code", "label_postal_code", "bio_prompt_postal_code"},
 }
 
-// handleRegistrationBio drives the optional SEP-9 bio wizard from a single
-// handler. Step 0 is the fill/skip gate; steps 1..len(bioFields) collect one
-// field each. Registration is finalised once the wizard ends.
-func (h *USSDHandler) handleRegistrationBio(ctx context.Context, session *Session, input string) (string, error) {
-	step := toInt(session.Data["bio_step"])
+// bioValueBudget caps a stored value in the picker. Africa's Talking truncates
+// the whole screen at 160 characters, and an address alone can exceed that, so
+// long values are elided rather than allowed to push the list off the display.
+const bioValueBudget = 22
 
-	// Step 0 — fill-or-skip gate.
-	if step == 0 {
-		switch input {
-		case "1":
-			session.Data["bio_step"] = 1
-			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-				return "", fmt.Errorf("failed to save session: %w", err)
-			}
-			return h.conWithNav(session, "register_bio", bioFields[0].promptKey), nil
-		case "2":
-			return h.finishBio(ctx, session)
-		default:
-			return h.conWithNav(session, "register_bio", "reg_bio_gate"), nil
-		}
+// elide shortens s to at most bioValueBudget runes, marking any cut.
+func elide(s string) string {
+	r := []rune(s)
+	if len(r) <= bioValueBudget {
+		return s
 	}
+	return string(r[:bioValueBudget-1]) + "…"
+}
 
-	// Steps 1..N — one field per step; "0" (or blank) skips it.
-	field := bioFields[step-1]
-	if v := strings.TrimSpace(input); v != "" && v != "0" {
-		if field.key == "birth_date" && !isISODate(v) {
-			return h.conWithNav(session, "register_bio", "reg_bio_invalid_date"), nil
-		}
-		session.Data["bio_"+field.key] = v
+// showMyDetails renders the field picker with each field's stored value, so a
+// user can see what is on file before choosing what to change.
+func (h *USSDHandler) showMyDetails(ctx context.Context, session *Session, notice string) (string, error) {
+	userData, _, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
+	if err != nil {
+		log.Printf("showMyDetails: lookup failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+		return h.formatError(session.Language, "error"), nil
 	}
+	values, _ := userData.(map[string]any)
 
-	if step < len(bioFields) {
-		session.Data["bio_step"] = step + 1
+	var sb strings.Builder
+	if notice != "" {
+		sb.WriteString(notice)
+		sb.WriteString("\n")
+	}
+	sb.WriteString(GetLocalizedMessage(session.Language, "my_details_title"))
+	unset := GetLocalizedMessage(session.Language, "my_details_not_set")
+	for i, f := range bioFields {
+		current, _ := values[f.key].(string)
+		if current == "" {
+			current = unset
+		}
+		fmt.Fprintf(&sb, "\n%d. %s: %s",
+			i+1, GetLocalizedMessage(session.Language, f.labelKey), elide(current))
+	}
+	sb.WriteString("\n")
+	sb.WriteString(GetLocalizedMessage(session.Language, "my_details_back"))
+
+	return "CON " + sb.String(), nil
+}
+
+// handleMyDetails routes a picker selection to the single-field editor. "0"
+// returns to the account menu; the picker binds it itself rather than relying
+// on back navigation, so it is absent from navBackTargets.
+func (h *USSDHandler) handleMyDetails(ctx context.Context, session *Session, input string) (string, error) {
+	if input == "0" {
+		session.CurrentMenu = "my_account"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
-		return h.conWithNav(session, "register_bio", bioFields[step].promptKey), nil
-	}
-	return h.finishBio(ctx, session)
-}
-
-// finishBio dispatches a completed bio wizard: an account-menu run updates the
-// existing user; a registration run (not currently wired) would create one.
-func (h *USSDHandler) finishBio(ctx context.Context, session *Session) (string, error) {
-	if upd, _ := session.Data["bio_update"].(bool); upd {
-		return h.completeBioUpdate(ctx, session)
-	}
-	return h.completeRegistration(ctx, session)
-}
-
-// completeBioUpdate writes the collected SEP-9 bio onto the existing user
-// (account-menu path) and ends the session.
-func (h *USSDHandler) completeBioUpdate(ctx context.Context, session *Session) (string, error) {
-	birthDate, _ := session.Data["bio_birth_date"].(string)
-	address, _ := session.Data["bio_address"].(string)
-	city, _ := session.Data["bio_city"].(string)
-	postalCode, _ := session.Data["bio_postal_code"].(string)
-
-	if err := h.userService.UpdateBio(ctx, session.UserID, BioUpdate{
-		BirthDate:  birthDate,
-		Address:    address,
-		City:       city,
-		PostalCode: postalCode,
-	}); err != nil {
-		log.Printf("completeBioUpdate: UpdateBio failed for %s: %v", phone.Redact(session.PhoneNumber), err)
-		return h.formatError(session.Language, "error"), nil
+		return h.showAccountMenu(ctx, session)
 	}
 
-	for _, f := range bioFields {
-		delete(session.Data, "bio_"+f.key)
+	choice, err := strconv.Atoi(strings.TrimSpace(input))
+	if err != nil || choice < 1 || choice > len(bioFields) {
+		return h.showMyDetails(ctx, session, GetLocalizedMessage(session.Language, "invalid_input"))
 	}
-	delete(session.Data, "bio_step")
-	delete(session.Data, "bio_update")
 
-	session.CurrentMenu = "main"
+	field := bioFields[choice-1]
+	session.Data["bio_field"] = field.key
+	session.CurrentMenu = "bio_edit"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
-	return h.formatResponse(session.Language, "END", "bio_saved"), nil
+	return h.conWithNav(session, "bio_edit", field.promptKey), nil
+}
+
+// handleBioEdit writes one field and returns to the picker.
+//
+// Only the edited field is sent: UpdateBio ignores empty values, so the other
+// three are left untouched rather than rewritten with what the screen happened
+// to be showing. There is deliberately no way to clear a field from here — an
+// empty entry re-prompts rather than erasing, since "" is indistinguishable
+// from "leave alone" in BioUpdate.
+func (h *USSDHandler) handleBioEdit(ctx context.Context, session *Session, input string) (string, error) {
+	key, _ := session.Data["bio_field"].(string)
+	if key == "" {
+		session.CurrentMenu = "my_details"
+		return h.showMyDetails(ctx, session, "")
+	}
+
+	value := strings.TrimSpace(input)
+	if value == "" {
+		return h.conWithNav(session, "bio_edit", promptKeyFor(key)), nil
+	}
+	if key == "birth_date" && !isISODate(value) {
+		return h.conWithNav(session, "bio_edit", "bio_invalid_date"), nil
+	}
+
+	var bio BioUpdate
+	switch key {
+	case "birth_date":
+		bio.BirthDate = value
+	case "address":
+		bio.Address = value
+	case "city":
+		bio.City = value
+	case "postal_code":
+		bio.PostalCode = value
+	}
+
+	if err := h.userService.UpdateBio(ctx, session.UserID, bio); err != nil {
+		log.Printf("handleBioEdit: UpdateBio(%s) failed for %s: %v", key, phone.Redact(session.PhoneNumber), err)
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	delete(session.Data, "bio_field")
+	session.CurrentMenu = "my_details"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+	return h.showMyDetails(ctx, session, GetLocalizedMessage(session.Language, "bio_field_saved"))
+}
+
+// promptKeyFor returns the edit prompt for a bio field key.
+func promptKeyFor(key string) string {
+	for _, f := range bioFields {
+		if f.key == key {
+			return f.promptKey
+		}
+	}
+	return "invalid_input"
 }
 
 // completeRegistration is the final step of registration: it creates the user,
@@ -862,25 +911,63 @@ func (h *USSDHandler) cashPickupBelowMinimum(ctx context.Context, session *Sessi
 
 // handleLoanConfirm handles loan confirmation. When PIN service is available,
 // pressing "1" routes to PIN verification before submitting the loan.
+// handleLoanConfirm accepts the PIN entered on the confirmation screen. The
+// terms and the PIN gate are one screen, so entering a correct PIN is both the
+// acceptance of the displayed terms and the authorization to borrow — there is
+// no separate keystroke to agree.
+//
+// Navigation is intercepted upstream: "0" steps back to the payout picker and
+// "00" abandons the flow, so anything reaching here was meant as a PIN. A
+// malformed entry re-renders the terms rather than cancelling, because
+// cancelling a loan on a typo loses the user their place in a metered session.
 func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, input string) (string, error) {
-	if input != "1" {
-		session.CurrentMenu = "main"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
-		}
-		return h.showMainMenu(session)
+	if h.pinService == nil {
+		return h.submitLoan(ctx, session)
 	}
 
-	// Gate loan submission behind PIN verification.
-	if h.pinService != nil {
-		session.CurrentMenu = "pin_verify_loan"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+	if !isPINShaped(input) {
+		return h.showLoanConfirmationWith(ctx, session, GetLocalizedMessage(session.Language, "loan_confirm_pin_format"))
+	}
+
+	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
+	if err != nil {
+		if strings.Contains(err.Error(), "locked") {
+			return h.formatLockedMessage(ctx, session), nil
 		}
-		return h.showMenu(session, "pin_verify_loan")
+		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, phone.Redact(session.PhoneNumber), err)
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	if !ok {
+		// Wrong PIN — the service has already sent the alert SMS and
+		// incremented the attempt counter. Re-show the terms alongside the
+		// warning so the user never types a PIN against a loan they can no
+		// longer see.
+		remaining := h.getRemainingAttempts(ctx, session.UserID)
+		if remaining <= 0 {
+			return h.formatLockedMessage(ctx, session), nil
+		}
+		warning := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
+		return h.showLoanConfirmationWith(ctx, session, warning)
 	}
 
 	return h.submitLoan(ctx, session)
+}
+
+// isPINShaped reports whether input could be a PIN entry. It checks shape only
+// — length and digits — deliberately not the strength rules ValidatePIN applies
+// at creation, since an account may hold a PIN that predates those rules and
+// must still be able to authenticate.
+func isPINShaped(input string) bool {
+	if len(input) != pinPkg.PINLength {
+		return false
+	}
+	for _, r := range input {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // submitLoan executes the actual loan request after all gates (PIN, eligibility)
@@ -1161,15 +1248,11 @@ func (h *USSDHandler) handleMyAccount(ctx context.Context, session *Session, inp
 		}
 		return h.showLanguageMenu(session)
 	case "3": // Personal details — optional SEP-9 bio for faster cash pickup.
-		// Enter the wizard at the first field: the user already opted in by
-		// choosing this menu item, so the fill/skip gate is skipped.
-		session.Data["bio_update"] = true
-		session.Data["bio_step"] = 1
-		session.CurrentMenu = "register_bio"
+		session.CurrentMenu = "my_details"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
-		return h.conWithNav(session, "register_bio", bioFields[0].promptKey), nil
+		return h.showMyDetails(ctx, session, "")
 	case "0": // Main Menu
 		session.CurrentMenu = "main"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
@@ -1235,10 +1318,18 @@ func (h *USSDHandler) renderAccountMenu(session *Session) (string, error) {
 	return menu.Render(session.Language), nil
 }
 
-// showLoanConfirmation displays a summary with principal amount and duration
-// only. APR, estimated total, and exchange rate are intentionally omitted —
-// the repayment total is computed later and the APR is dynamic.
-func (h *USSDHandler) showLoanConfirmation(_ context.Context, session *Session) (string, error) {
+// showLoanConfirmation displays the terms — principal amount and duration only
+// — above the PIN prompt that accepts them. APR, estimated total, and exchange
+// rate are intentionally omitted: the repayment total is computed later and the
+// APR is dynamic.
+func (h *USSDHandler) showLoanConfirmation(ctx context.Context, session *Session) (string, error) {
+	return h.showLoanConfirmationWith(ctx, session, "")
+}
+
+// showLoanConfirmationWith renders the confirmation screen with an optional
+// leading notice — a wrong-PIN warning or a format reminder. The notice goes
+// above the terms so the terms stay adjacent to the PIN prompt they authorize.
+func (h *USSDHandler) showLoanConfirmationWith(_ context.Context, session *Session, notice string) (string, error) {
 	cfg := h.loanService.GetProductConfig()
 	if cfg == nil {
 		return h.formatError(session.Language, "error"), nil
@@ -1248,8 +1339,11 @@ func (h *USSDHandler) showLoanConfirmation(_ context.Context, session *Session) 
 	localAmount := float64(localAmountCents) / 100
 	duration := cfg.DurationDays
 
-	summary := Format(session.Language, "loan_confirm_summary", cfg.Currency, localAmount, duration)
-	return "CON " + h.withNavHint(session, "loan_confirm", summary), nil
+	body := Format(session.Language, "loan_confirm_summary", cfg.Currency, localAmount, duration)
+	if notice != "" {
+		body = notice + "\n" + body
+	}
+	return "CON " + h.withNavHint(session, "loan_confirm", body), nil
 }
 
 //
@@ -1420,34 +1514,6 @@ func (h *USSDHandler) handleSecurityQ2Answer(ctx context.Context, session *Sessi
 //
 // # PIN Verification Gate Handlers
 //
-
-// handlePINVerifyLoan verifies the user's PIN before submitting a loan request.
-func (h *USSDHandler) handlePINVerifyLoan(ctx context.Context, session *Session, input string) (string, error) {
-	if h.pinService == nil {
-		return h.submitLoan(ctx, session)
-	}
-
-	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
-	if err != nil {
-		if strings.Contains(err.Error(), "locked") {
-			return h.formatLockedMessage(ctx, session), nil
-		}
-		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, phone.Redact(session.PhoneNumber), err)
-		return h.formatError(session.Language, "error"), nil
-	}
-
-	if !ok {
-		// Wrong PIN — let user retry (service already sent SMS + incremented attempts).
-		remaining := h.getRemainingAttempts(ctx, session.UserID)
-		if remaining <= 0 {
-			return h.formatLockedMessage(ctx, session), nil
-		}
-		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
-		return h.conNavText(session, msg), nil
-	}
-
-	return h.submitLoan(ctx, session)
-}
 
 // handlePINVerifyRepay verifies the user's PIN before showing repayment info.
 func (h *USSDHandler) handlePINVerifyRepay(ctx context.Context, session *Session, input string) (string, error) {

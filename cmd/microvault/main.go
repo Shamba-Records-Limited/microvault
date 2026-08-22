@@ -199,11 +199,17 @@ func main() {
 	} else {
 		notifier = &mvnotifications.NoOpNotifier{}
 	}
-	loanNotifier := mvnotifications.NewSMSLoanNotifier(notifier, nil)
+	loanNotifier, err := mvnotifications.NewSMSLoanNotifier(notifier)
+	if err != nil {
+		log.Fatalf("Failed to initialize loan notifier: %v", err)
+	}
 	_ = loanNotifier // will be wired to adapters when loan disbursement is integrated
 
 	// Initialize account notifier for registration and PIN lifecycle SMS
-	accountNotifier := mvnotifications.NewSMSAccountNotifier(notifier, nil)
+	accountNotifier, err := mvnotifications.NewSMSAccountNotifier(notifier)
+	if err != nil {
+		log.Fatalf("Failed to initialize account notifier: %v", err)
+	}
 	log.Println("Notification service initialized")
 
 	// ---- Initialize PIN Service ----
