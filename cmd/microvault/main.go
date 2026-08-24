@@ -9,6 +9,10 @@ import (
 
 	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/swagger"
+	_ "github.com/joho/godotenv/autoload"
+
 	routes "github.com/Shamba-Records-Limited/microvault/internal/core/pkg/routes"
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
 	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
@@ -29,9 +33,6 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 	"github.com/Shamba-Records-Limited/microvault/platform/cache"
 	"github.com/Shamba-Records-Limited/microvault/platform/database"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/swagger"
-	_ "github.com/joho/godotenv/autoload"
 )
 
 // @title microvault API

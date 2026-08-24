@@ -25,10 +25,12 @@ type fakeUserSvc struct {
 func (f *fakeUserSvc) GetUserWithAccounts(context.Context, string) (any, []any, error) {
 	return f.user, f.accounts, f.getErr
 }
+
 func (f *fakeUserSvc) RegisterUser(context.Context, *RegisterUserRequest) (any, []any, error) {
 	f.registered = true
 	return map[string]any{"id": "new-user"}, []any{map[string]any{}}, nil
 }
+
 func (f *fakeUserSvc) NationalIDExists(context.Context, string) (bool, error)        { return false, nil }
 func (f *fakeUserSvc) UpdateBio(context.Context, string, BioUpdate) error            { return nil }
 func (f *fakeUserSvc) GetUserIDByNationalID(context.Context, string) (string, error) { return "", nil }
@@ -45,12 +47,15 @@ func (fakeLoanSvc) RequestLoan(context.Context, *LoanRequest) (any, error) { ret
 func (fakeLoanSvc) CheckLoanEligibility(context.Context, string, int64, int) (*LoanApproval, error) {
 	return nil, nil
 }
+
 func (fakeLoanSvc) GetProductConfig() *LoanProductConfig {
 	return &LoanProductConfig{MinAmountCents: 50000, MaxAmountCents: 300000, Currency: "KES", DurationDays: 30}
 }
+
 func (fakeLoanSvc) GetRepaymentQuote(context.Context, string) (*RepaymentQuote, error) {
 	return nil, nil
 }
+
 func (fakeLoanSvc) InitiateRepayment(context.Context, string, string) (*RepaymentInitiation, error) {
 	return nil, nil
 }
@@ -76,6 +81,7 @@ func (f *fakePINSvc) HasPIN(context.Context, string) (bool, error) { return f.ha
 func (f *fakePINSvc) SetSecurityQuestions(context.Context, string, []pin.QuestionAnswer) error {
 	return nil
 }
+
 func (f *fakePINSvc) VerifySecurityAnswers(context.Context, string, []pin.QuestionAnswer) (bool, error) {
 	return true, nil
 }

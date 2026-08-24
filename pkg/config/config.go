@@ -458,7 +458,7 @@ func New() (*Config, error) {
 
 	mobileSandboxMode, err := strconv.ParseBool(os.Getenv("AT_SANDBOX_MODE"))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing Africa's Talking sandbox mode: %v", err)
+		return nil, fmt.Errorf("error parsing Africa's Talking sandbox mode: %w", err)
 	}
 
 	mobileBaseURL := os.Getenv("AT_BASE_URL")
@@ -487,22 +487,22 @@ func New() (*Config, error) {
 	// Multi-Signature Configuration
 	enableMultiSig, err := strconv.ParseBool(os.Getenv("ENABLE_MULTI_SIG"))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing multi-sig enablement: %v", err)
+		return nil, fmt.Errorf("error parsing multi-sig enablement: %w", err)
 	}
 
 	multiSigLowThreshold, err := strconv.Atoi(os.Getenv("MULTI_SIG_LOW_THRESHOLD"))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing multi-sig low threshold: %v", err)
+		return nil, fmt.Errorf("error parsing multi-sig low threshold: %w", err)
 	}
 
 	multiSigMediumThreshold, err := strconv.Atoi(os.Getenv("MULTI_SIG_MEDIUM_THRESHOLD"))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing multi-sig medium threshold: %v", err)
+		return nil, fmt.Errorf("error parsing multi-sig medium threshold: %w", err)
 	}
 
 	multiSigHighThreshold, err := strconv.Atoi(os.Getenv("MULTI_SIG_HIGH_THRESHOLD"))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing multi-sig high threshold: %v", err)
+		return nil, fmt.Errorf("error parsing multi-sig high threshold: %w", err)
 	}
 
 	if usdcIssuer != "" {
@@ -790,6 +790,21 @@ func (c *MoneyGramConfig) AuthAddress() (string, error) {
 // SEP-24 account and USDC send source.
 func (c *MoneyGramConfig) FundsAddress() (string, error) {
 	kp, err := keypair.ParseFull(c.FundsSecret)
+	if err != nil {
+		return "", err
+	}
+	return kp.Address(), nil
+}
+
+// TreasuryAddress derives the treasury's public address from its secret key.
+//
+// This is the account the vault's repay and repay_for entrypoints spend from,
+// and therefore the account a borrower's cash deposit must be credited to. It
+// is not necessarily MoneyGram's funds wallet: FundsSecret defaults to the
+// treasury secret but can be set separately, and crediting a deposit to a
+// funds wallet the vault cannot spend from would strand the repayment.
+func (c *StellarConfig) TreasuryAddress() (string, error) {
+	kp, err := keypair.ParseFull(c.TreasurySecretKey)
 	if err != nil {
 		return "", err
 	}

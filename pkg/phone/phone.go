@@ -66,7 +66,7 @@ func Format(phoneNumber, countryCode string) string {
 		}
 	}
 
-	if len(cleaned) > 0 && cleaned[0] != '+' && !(len(cleaned) >= 2 && cleaned[:2] == "00") {
+	if len(cleaned) > 0 && cleaned[0] != '+' && (len(cleaned) < 2 || cleaned[:2] != "00") {
 		if countryCode == "" {
 			countryCode = "+254" // Default to Kenya
 		}

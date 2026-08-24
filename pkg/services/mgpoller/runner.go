@@ -7,6 +7,8 @@ import (
 
 	"github.com/samber/lo"
 	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // This file holds the parts of the poller that do not care which direction
@@ -17,7 +19,7 @@ import (
 // batch.
 
 // errDomain is the oops domain for both poller directions.
-const errDomain = "moneygram-poller"
+const errDomain = pkgErrors.DomainMoneyGramPoller
 
 // missingDep is the one error every constructor in this package returns for an
 // absent collaborator. The dependency name is an attribute rather than part of
@@ -108,7 +110,7 @@ func NewRunner[T any](deps RunnerDeps[T]) *Runner[T] {
 		maxBatch:  maxBatch,
 		fetcher:   fetcher,
 		driver:    driver,
-		logger:    logger.With("direction", direction),
+		logger:    logger.With(pkgErrors.AttrDirection, direction),
 	}
 }
 

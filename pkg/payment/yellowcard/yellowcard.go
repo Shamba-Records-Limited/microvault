@@ -89,7 +89,7 @@ func (y *YellowcardAdapter) GetChannels(ctx context.Context, country string) ([]
 		endpoint = fmt.Sprintf("%s?country=%s", endpoint, country)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
 	}
@@ -119,7 +119,7 @@ func (y *YellowcardAdapter) GetNetworks(ctx context.Context, country string) ([]
 		endpoint = fmt.Sprintf("%s?country=%s", endpoint, country)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
 	}
@@ -146,7 +146,7 @@ func (y *YellowcardAdapter) GetNetworks(ctx context.Context, country string) ([]
 func (y *YellowcardAdapter) GetAccount(ctx context.Context) ([]Account, error) {
 	endpoint := fmt.Sprintf("%s/account", y.baseURL)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
 	}
@@ -192,7 +192,7 @@ func (y *YellowcardAdapter) GetRates(ctx context.Context, currency string) ([]Ra
 		endpoint = fmt.Sprintf("%s?currency=%s", endpoint, currency)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
 	}
@@ -266,7 +266,7 @@ func (y *YellowcardAdapter) SubmitPayment(ctx context.Context, req PaymentReques
 func (y *YellowcardAdapter) LookupPayment(ctx context.Context, paymentID string) (*PaymentDetails, error) {
 	endpoint := fmt.Sprintf("%s/send/%s", y.baseURL, paymentID)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
 	}

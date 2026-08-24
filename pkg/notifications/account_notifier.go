@@ -116,24 +116,31 @@ var _ contracts.AccountNotifier = (*NoOpAccountNotifier)(nil)
 func (*NoOpAccountNotifier) NotifyRegistrationSuccess(context.Context, contracts.AccountNotification) error {
 	return nil
 }
+
 func (*NoOpAccountNotifier) NotifyRegistrationFailed(context.Context, contracts.AccountNotification) error {
 	return nil
 }
+
 func (*NoOpAccountNotifier) NotifyPINWrongAttempt(context.Context, contracts.AccountNotification) error {
 	return nil
 }
+
 func (*NoOpAccountNotifier) NotifyAccountLocked(context.Context, contracts.AccountNotification) error {
 	return nil
 }
+
 func (*NoOpAccountNotifier) NotifyPINChanged(context.Context, contracts.AccountNotification) error {
 	return nil
 }
+
 func (*NoOpAccountNotifier) NotifyPINChangeFailed(context.Context, contracts.AccountNotification) error {
 	return nil
 }
+
 func (*NoOpAccountNotifier) NotifyPINReset(context.Context, contracts.AccountNotification) error {
 	return nil
 }
+
 func (*NoOpAccountNotifier) NotifyPINResetFailed(context.Context, contracts.AccountNotification) error {
 	return nil
 }

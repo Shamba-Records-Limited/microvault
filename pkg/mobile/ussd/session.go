@@ -3,12 +3,14 @@ package ussd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/phone"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/phone"
 )
 
 // NewSessionManager creates a new session manager
@@ -30,17 +32,17 @@ func (sm *SessionManager) GetSession(ctx context.Context, sessionID string) (*Se
 	// Get the JSON data from Redis
 	data, err := sm.cache.Get(ctx, key).Result()
 	if err != nil {
-		if err == redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			log.Printf("GetSession - session not found for key: %s", key)
 			return nil, fmt.Errorf("session not found")
 		}
-		return nil, fmt.Errorf("failed to get session: %v", err)
+		return nil, fmt.Errorf("failed to get session: %w", err)
 	}
 
 	// Unmarshal JSON into Session struct
 	var session Session
 	if err := json.Unmarshal([]byte(data), &session); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal session: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal session: %w", err)
 	}
 
 	log.Printf("GetSession successful - Key: %s, CurrentMenu: %s, Phone: %s", key, session.CurrentMenu, phone.Redact(session.PhoneNumber))
@@ -79,12 +81,12 @@ func (sm *SessionManager) SaveSession(ctx context.Context, session *Session) err
 	// Marshal session to JSON
 	data, err := json.Marshal(session)
 	if err != nil {
-		return fmt.Errorf("failed to marshal session: %v", err)
+		return fmt.Errorf("failed to marshal session: %w", err)
 	}
 
 	key := sm.sessionKey(session.SessionID)
 	if err := sm.cache.Set(ctx, key, data, sm.sessionDuration).Err(); err != nil {
-		return fmt.Errorf("failed to save session: %v", err)
+		return fmt.Errorf("failed to save session: %w", err)
 	}
 
 	log.Printf("SaveSession successful - Key: %s, CurrentMenu: %s, Duration: %v", key, session.CurrentMenu, sm.sessionDuration)
@@ -161,7 +163,7 @@ func (sm *SessionManager) SetLanguage(ctx context.Context, sessionID, language s
 func (sm *SessionManager) DeleteSession(ctx context.Context, sessionID string) error {
 	key := sm.sessionKey(sessionID)
 	if err := sm.cache.Del(ctx, key).Err(); err != nil {
-		return fmt.Errorf("failed to delete session: %v", err)
+		return fmt.Errorf("failed to delete session: %w", err)
 	}
 	return nil
 }
@@ -170,7 +172,7 @@ func (sm *SessionManager) DeleteSession(ctx context.Context, sessionID string) e
 func (sm *SessionManager) ExtendSession(ctx context.Context, sessionID string) error {
 	key := sm.sessionKey(sessionID)
 	if err := sm.cache.Expire(ctx, key, sm.sessionDuration).Err(); err != nil {
-		return fmt.Errorf("failed to extend session: %v", err)
+		return fmt.Errorf("failed to extend session: %w", err)
 	}
 	return nil
 }

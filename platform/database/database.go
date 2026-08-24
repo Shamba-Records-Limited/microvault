@@ -7,9 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 )
 
 // Instances map and mutex reader/writer lock

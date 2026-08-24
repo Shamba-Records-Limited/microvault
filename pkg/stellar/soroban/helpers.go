@@ -169,7 +169,8 @@ func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, v
 		}
 
 		data := event.Body.MustV0().Data
-		if data.Type == xdr.ScValTypeScvMap {
+		switch data.Type {
+		case xdr.ScValTypeScvMap:
 			scMap := data.MustMap()
 			if scMap != nil {
 				for _, entry := range *scMap {
@@ -178,7 +179,7 @@ func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, v
 					}
 				}
 			}
-		} else if data.Type == xdr.ScValTypeScvVec {
+		case xdr.ScValTypeScvVec:
 			scVec := data.MustVec()
 			if scVec != nil && len(*scVec) > vecIndex {
 				return (*scVec)[vecIndex], nil

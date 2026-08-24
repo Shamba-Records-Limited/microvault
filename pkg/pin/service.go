@@ -7,11 +7,12 @@ import (
 	"log/slog"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Service constants.
@@ -362,6 +363,9 @@ func (s *Service) VerifySecurityAnswers(ctx context.Context, userID string, answ
 			return false, nil
 		}
 		normalized := NormalizeAnswer(qa.Answer)
+		//nolint:nilerr // a hash mismatch means the answer was wrong, which is a
+		// result rather than a failure; a non-nil error here would read as a
+		// system fault and lock the user out of recovery.
 		if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(normalized)); err != nil {
 			return false, nil
 		}

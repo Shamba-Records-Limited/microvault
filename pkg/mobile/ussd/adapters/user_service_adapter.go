@@ -8,15 +8,16 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/tyler-smith/go-bip32"
+	"gorm.io/gorm"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
 	"github.com/Shamba-Records-Limited/microvault/pkg/user"
-	"github.com/google/uuid"
-	"github.com/stellar/go-stellar-sdk/keypair"
-	"github.com/tyler-smith/go-bip32"
-	"gorm.io/gorm"
 )
 
 const (

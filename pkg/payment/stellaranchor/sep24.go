@@ -3,7 +3,6 @@ package stellaranchor
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,7 +11,10 @@ import (
 	"time"
 
 	"github.com/samber/oops"
+
 	"github.com/stellar/go-stellar-sdk/amount"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // Status is the SEP-24 transaction status.
@@ -190,15 +192,23 @@ func (r *Refunds) NetRefundedStroops() (int64, error) {
 	}
 	gross, err := parseAmountStroops(r.AmountRefunded)
 	if err != nil {
-		return 0, fmt.Errorf("amount_refunded: %w", err)
+		return 0, anchorErr("refund").With("field", "amount_refunded").
+			Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "refund amount is not a decimal")
 	}
 	fee, err := parseAmountStroops(r.AmountFee)
 	if err != nil {
-		return 0, fmt.Errorf("amount_fee: %w", err)
+		return 0, anchorErr("refund").With("field", "amount_fee").
+			Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "refund fee is not a decimal")
 	}
 	net := gross - fee
 	if net < 0 {
-		return 0, fmt.Errorf("refund fee %s exceeds refunded amount %s", r.AmountFee, r.AmountRefunded)
+		// A fee larger than the refund is arithmetically impossible, so the
+		// anchor's own figures disagree and neither can be settled against.
+		return 0, anchorErr("refund").
+			With("amount_fee", r.AmountFee).
+			With("amount_refunded", r.AmountRefunded).
+			Code(pkgErrors.CodeIncompleteResponse).
+			Errorf("anchor reported a refund fee larger than the refund")
 	}
 	return net, nil
 }
@@ -212,7 +222,8 @@ func parseAmountStroops(s string) (int64, error) {
 	}
 	v, err := amount.ParseInt64(s)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %q", ErrInvalidAmount, s)
+		return 0, anchorErr("amount").With("value", s).
+			Code(pkgErrors.CodeDecodeFailed).Wrapf(ErrInvalidAmount, "amount is not a valid decimal")
 	}
 	return v, nil
 }
@@ -233,7 +244,8 @@ type AnchorClient struct {
 // NewAnchorClient validates configuration. httpClient may be nil; logger may be nil.
 func NewAnchorClient(cfg AnchorConfig, httpClient *http.Client, logger *slog.Logger) (*AnchorClient, error) {
 	if cfg.TransferServerURL == "" {
-		return nil, fmt.Errorf("stellaranchor: %w: TransferServerURL required", ErrInvalidConfig)
+		return nil, anchorErr("config").With("setting", "TransferServerURL").
+			Code(pkgErrors.CodeMissingDependency).Wrapf(ErrInvalidConfig, "required anchor setting is missing")
 	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
@@ -248,13 +260,7 @@ func NewAnchorClient(cfg AnchorConfig, httpClient *http.Client, logger *slog.Log
 // given JWT (from AuthClient/JWTCache), the USDC amount, and any prefilled
 // SEP-9 customer fields. Returns the interactive URL and MG transaction ID.
 func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req WithdrawRequest) (*WithdrawResponse, error) {
-	res, err := c.initiateInteractive(ctx, jwt, "withdraw", interactiveRequest{
-		AssetCode: req.AssetCode,
-		Amount:    req.Amount,
-		Lang:      req.Lang,
-		Account:   req.Account,
-		Customer:  req.Customer,
-	})
+	res, err := c.initiateInteractive(ctx, jwt, "withdraw", interactiveRequest(req))
 	if err != nil {
 		return nil, err
 	}
@@ -269,13 +275,7 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 // cash the user hands over at its own rate at the counter, so a local-currency
 // figure quoted before this call is an estimate the agent may contradict.
 func (c *AnchorClient) InitiateDeposit(ctx context.Context, jwt string, req DepositRequest) (*DepositResponse, error) {
-	res, err := c.initiateInteractive(ctx, jwt, "deposit", interactiveRequest{
-		AssetCode: req.AssetCode,
-		Amount:    req.Amount,
-		Lang:      req.Lang,
-		Account:   req.Account,
-		Customer:  req.Customer,
-	})
+	res, err := c.initiateInteractive(ctx, jwt, "deposit", interactiveRequest(req))
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +283,7 @@ func (c *AnchorClient) InitiateDeposit(ctx context.Context, jwt string, req Depo
 }
 
 // errDomain is the oops domain for the SEP-24 anchor client.
-const errDomain = "stellar-anchor"
+const errDomain = pkgErrors.DomainStellarAnchor
 
 // anchorErr starts an error builder scoped to one SEP-24 direction.
 func anchorErr(kind string) oops.OopsErrorBuilder {
@@ -312,7 +312,7 @@ func (c *AnchorClient) initiateInteractive(ctx context.Context, jwt, kind string
 	errb := anchorErr(kind)
 
 	if jwt == "" {
-		return nil, errb.Code("missing_jwt").Wrapf(ErrInvalidConfig, "JWT is required")
+		return nil, errb.Code(pkgErrors.CodeMissingJWT).Wrapf(ErrInvalidConfig, "JWT is required")
 	}
 	if req.AssetCode == "" {
 		req.AssetCode = "USDC"
@@ -321,10 +321,10 @@ func (c *AnchorClient) initiateInteractive(ctx context.Context, jwt, kind string
 		req.Lang = "en"
 	}
 	if req.Amount == "" {
-		return nil, errb.Code("missing_amount").Wrapf(ErrInvalidConfig, "amount is required: custodial wallets must specify it")
+		return nil, errb.Code(pkgErrors.CodeMissingAmount).Wrapf(ErrInvalidConfig, "amount is required: custodial wallets must specify it")
 	}
 	if req.Account == "" {
-		return nil, errb.Code("missing_account").Wrapf(ErrInvalidConfig, "account is required: the funds wallet address")
+		return nil, errb.Code(pkgErrors.CodeMissingAccount).Wrapf(ErrInvalidConfig, "account is required: the funds wallet address")
 	}
 
 	body, err := buildInteractiveBody(kind, req)
@@ -344,14 +344,14 @@ func (c *AnchorClient) initiateInteractive(ctx context.Context, jwt, kind string
 		return httpReq, nil
 	})
 	if err != nil {
-		return nil, errb.Code("transport_failed").Wrapf(err, "interactive request could not be sent")
+		return nil, errb.Code(pkgErrors.CodeTransportFailed).Wrapf(err, "interactive request could not be sent")
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, errb.Code("unauthorized").Wrapf(ErrUnauthorized, "anchor rejected the JWT")
+		return nil, errb.Code(pkgErrors.CodeUnauthorized).Wrapf(ErrUnauthorized, "anchor rejected the JWT")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, errb.
@@ -363,7 +363,7 @@ func (c *AnchorClient) initiateInteractive(ctx context.Context, jwt, kind string
 
 	var parsed interactiveResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return nil, errb.Code("decode_failed").Wrapf(err, "could not decode the interactive response")
+		return nil, errb.Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the interactive response")
 	}
 	if parsed.URL == "" || parsed.ID == "" {
 		return nil, errb.
@@ -376,11 +376,13 @@ func (c *AnchorClient) initiateInteractive(ctx context.Context, jwt, kind string
 
 // GetTransaction calls GET /transaction?id={txID} with the given JWT.
 func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*Transaction, error) {
+	errb := anchorErr("transaction").With("tx_id", txID)
+
 	if jwt == "" {
-		return nil, fmt.Errorf("stellaranchor: %w: JWT required", ErrInvalidConfig)
+		return nil, errb.Code(pkgErrors.CodeMissingJWT).Wrapf(ErrInvalidConfig, "JWT is required")
 	}
 	if txID == "" {
-		return nil, fmt.Errorf("stellaranchor: %w: txID required", ErrInvalidConfig)
+		return nil, errb.Code(pkgErrors.CodeMissingAccount).Wrapf(ErrInvalidConfig, "transaction id is required")
 	}
 
 	q := url.Values{}
@@ -388,7 +390,7 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 	endpoint := strings.TrimRight(c.cfg.TransferServerURL, "/") + "/transaction?" + q.Encode()
 
 	resp, err := doHTTPWithRetry(ctx, c.httpClient, func() (*http.Request, error) {
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 		if err != nil {
 			return nil, err
 		}
@@ -397,31 +399,35 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 		return httpReq, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("stellaranchor: transaction request: %w", err)
+		return nil, errb.Code(pkgErrors.CodeTransportFailed).Wrapf(err, "transaction request did not complete")
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("stellaranchor: %w: SEP-24 transaction HTTP 401", ErrUnauthorized)
+		return nil, errb.Code(pkgErrors.CodeUnauthorized).Wrapf(ErrUnauthorized, "anchor rejected the JWT")
 	}
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("stellaranchor: SEP-24 transaction not found: %s", txID)
+		return nil, errb.Code(pkgErrors.CodeNotFound).Errorf("anchor has no such transaction")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("stellaranchor: SEP-24 transaction HTTP %d: %s",
-			resp.StatusCode, truncate(string(respBody), 300))
+		return nil, errb.
+			With(pkgErrors.AttrStatusCode, resp.StatusCode).
+			With("body", truncate(string(respBody), 300)).
+			Code(pkgErrors.CodeHTTPError).
+			Errorf("anchor returned a non-2xx for the transaction")
 	}
 
 	var envelope struct {
 		Transaction Transaction `json:"transaction"`
 	}
 	if err := json.Unmarshal(respBody, &envelope); err != nil {
-		return nil, fmt.Errorf("stellaranchor: decode transaction response: %w", err)
+		return nil, errb.Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the transaction response")
 	}
 	if envelope.Transaction.ID == "" {
-		return nil, fmt.Errorf("stellaranchor: transaction response missing id: %s", truncate(string(respBody), 200))
+		return nil, errb.With("body", truncate(string(respBody), 200)).
+			Code(pkgErrors.CodeIncompleteResponse).Errorf("transaction response has no id")
 	}
 
 	// Refund payloads are the least-exercised part of the protocol and anchors
@@ -459,7 +465,7 @@ func buildInteractiveBody(kind string, req interactiveRequest) ([]byte, error) {
 
 	body, err := json.Marshal(m)
 	if err != nil {
-		return nil, anchorErr(kind).Code("encode_failed").Wrapf(err, "could not encode the interactive request body")
+		return nil, anchorErr(kind).Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not encode the interactive request body")
 	}
 	return body, nil
 }

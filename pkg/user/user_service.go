@@ -7,10 +7,11 @@ import (
 	"slices"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/services"
-	"gorm.io/gorm"
 )
 
 // Valid KYC status transitions

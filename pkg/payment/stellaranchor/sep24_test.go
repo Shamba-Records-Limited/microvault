@@ -9,8 +9,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/samber/oops"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 func TestAnchorClient_InitiateWithdrawal(t *testing.T) {
@@ -223,7 +226,12 @@ func TestAnchorClient_GetTransaction_NotFound(t *testing.T) {
 
 	_, err = c.GetTransaction(context.Background(), "jwt", "missing")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+
+	// Asserted on the code, not the wording: a 404 from the anchor is a
+	// distinct outcome callers branch on, and the code is what carries it.
+	var oopsErr oops.OopsError
+	require.ErrorAs(t, err, &oopsErr)
+	assert.Equal(t, pkgErrors.CodeNotFound, oopsErr.Code())
 }
 
 func TestAnchorClient_PropagatesUnauthorized(t *testing.T) {

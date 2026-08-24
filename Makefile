@@ -1,4 +1,4 @@
-.PHONY: help migrate-up migrate-down migrate-version migrate-force build build-core build-migrate run up up-build down test test-coverage test-coverage-html test-integration docs clean
+.PHONY: help migrate-up migrate-down migrate-version migrate-force build build-core build-migrate run up up-build down test test-coverage test-coverage-html test-integration docs clean lint lint-new lint-fix fmt
 
 COMPOSE := docker compose
 
@@ -26,6 +26,12 @@ help:
 	@echo ""
 	@echo "Test Commands:"
 	@echo "  make test                - Run all tests"
+	@echo ""
+	@echo "Lint Commands:"
+	@echo "  make lint                - Report every lint issue"
+	@echo "  make lint-new            - Report only issues in code changed against main"
+	@echo "  make lint-fix            - Apply the auto-fixable subset"
+	@echo "  make fmt                 - Format with gofumpt + goimports"
 	@echo ""
 	@echo "Documentation Commands:"
 	@echo "  make docs                - Generate API documentation"
@@ -80,6 +86,29 @@ down:
 	@$(COMPOSE) down
 
 # Test commands
+# Linting. golangci-lint must be built with the same Go version the modules
+# target, or it refuses to load the config; `go install` picks that up from the
+# local toolchain.
+GOLANGCI := golangci-lint
+
+lint:
+	@echo "Linting..."
+	@$(GOLANGCI) run ./...
+
+# What a pull request should be held to while the pre-existing backlog is worked
+# down: only code that differs from main is reported.
+lint-new:
+	@echo "Linting changes against main..."
+	@$(GOLANGCI) run --new-from-rev=main ./...
+
+lint-fix:
+	@echo "Applying auto-fixes..."
+	@$(GOLANGCI) run --fix ./...
+
+fmt:
+	@echo "Formatting..."
+	@$(GOLANGCI) fmt ./...
+
 test:
 	@echo "Running all tests..."
 	@go test -v ./...

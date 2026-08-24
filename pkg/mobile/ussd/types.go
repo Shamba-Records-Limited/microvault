@@ -4,9 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
-	"github.com/redis/go-redis/v9"
 )
 
 //

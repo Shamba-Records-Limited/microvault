@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 )
 
 // Repository errors.

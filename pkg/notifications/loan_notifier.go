@@ -149,45 +149,59 @@ var _ contracts.LoanNotifier = (*NoOpLoanNotifier)(nil)
 func (*NoOpLoanNotifier) NotifyLoanApproved(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyLoanRejected(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyLoanDisbursed(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyLoanFailed(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyLoanOffRampFailed(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyLoanCashPickupApproved(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyRepaymentReceived(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyRepaymentReminder(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyRepaymentInitiated(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyRepaymentWindowExpiring(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyRepaymentExpired(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyLoanStatement(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyLoanCashPickupInitiated(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyLoanCashPickupReady(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyLoanCashPickupCancelled(context.Context, contracts.LoanNotification) error {
 	return nil
 }

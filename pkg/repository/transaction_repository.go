@@ -6,10 +6,11 @@ import (
 	"log"
 	"time"
 
-	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
-	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 )
 
 // Common errors for TransactionRepository

@@ -5,9 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
-	"gorm.io/gorm"
 )
 
 // fakeUserRepo implements repository.UserRepository. Only the lookups exercised
@@ -27,22 +28,28 @@ func (f *fakeUserRepo) Create(_ context.Context, u *models.User) error {
 	f.created = u
 	return f.createErr
 }
+
 func (f *fakeUserRepo) CreateWithTx(_ context.Context, _ *gorm.DB, u *models.User) error {
 	f.created = u
 	return f.createErr
 }
+
 func (f *fakeUserRepo) GetByID(context.Context, string) (*models.User, error) {
 	return f.byID, f.byIDErr
 }
+
 func (f *fakeUserRepo) GetByMobileNumber(context.Context, string) (*models.User, error) {
 	return f.byMobile, f.byMobileErr
 }
+
 func (f *fakeUserRepo) GetByNationalID(context.Context, string) (*models.User, error) {
 	return f.byNat, f.byNatErr
 }
+
 func (f *fakeUserRepo) GetByKYCStatus(context.Context, string, int, int) ([]*models.User, error) {
 	return nil, nil
 }
+
 func (f *fakeUserRepo) GetByRole(context.Context, string, int, int) ([]*models.User, error) {
 	return nil, nil
 }

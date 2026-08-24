@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -114,7 +115,7 @@ func (s *RedisStore) Get(challengeID string) (*Challenge, error) {
 	defer cancel()
 
 	data, err := s.client.Get(ctx, s.key(challengeID)).Bytes()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, fmt.Errorf("challenge not found")
 	}
 	if err != nil {

@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 )
 
 // ChallengeService defines the interface for Stellar transaction-based challenge-response authentication.

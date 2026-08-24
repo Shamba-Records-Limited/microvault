@@ -3,9 +3,10 @@ package controllers
 import (
 	"errors"
 
+	"github.com/gofiber/fiber/v2"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
 	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
-	"github.com/gofiber/fiber/v2"
 )
 
 // AuthController handles authentication endpoints including challenge generation and verification.

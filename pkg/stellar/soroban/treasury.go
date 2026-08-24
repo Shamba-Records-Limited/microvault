@@ -9,13 +9,14 @@ import (
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
 // errDomain is the oops domain for every treasury-signed vault call. Errors
 // leaving this file carry it, so an on-call engineer can filter to vault
 // operations without matching on message text.
-const errDomain = "stellar-vault"
+const errDomain = pkgErrors.DomainStellarVault
 
 // treasuryErr starts an error builder scoped to one contract invocation.
 // Attributes go here rather than into the message, so APM tools group on the
@@ -40,7 +41,7 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 		With("recipient", req.RecipientAddress)
 
 	if req.Amount <= 0 {
-		return nil, errb.Code("invalid_amount").Wrapf(types.ErrInvalidTransactionAmount, "borrow amount must be positive")
+		return nil, errb.Code(pkgErrors.CodeInvalidAmount).Wrapf(types.ErrInvalidTransactionAmount, "borrow amount must be positive")
 	}
 
 	treasuryKP := keypair.MustParseFull(s.treasuryPrivateKey)
@@ -48,7 +49,7 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 	treasuryAddr, _ := addressToScVal(treasuryKP.Address())
 	recipientAddr, err := addressToScVal(req.RecipientAddress)
 	if err != nil {
-		return nil, errb.Code("invalid_address").Wrapf(err, "recipient address is not a valid Stellar address")
+		return nil, errb.Code(pkgErrors.CodeInvalidAddress).Wrapf(err, "recipient address is not a valid Stellar address")
 	}
 	amountVal := i128ToScVal(req.Amount)
 
@@ -132,7 +133,7 @@ func (s *service) repay(ctx context.Context, borrowerAddress string, amount int6
 		With("borrower", borrowerAddress)
 
 	if amount <= 0 {
-		return nil, errb.Code("invalid_amount").Wrapf(types.ErrInvalidTransactionAmount, "repay amount must be positive")
+		return nil, errb.Code(pkgErrors.CodeInvalidAmount).Wrapf(types.ErrInvalidTransactionAmount, "repay amount must be positive")
 	}
 
 	treasuryKP := keypair.MustParseFull(s.treasuryPrivateKey)
@@ -144,7 +145,7 @@ func (s *service) repay(ctx context.Context, borrowerAddress string, amount int6
 	if borrowerAddress != "" {
 		borrowerAddr, err := addressToScVal(borrowerAddress)
 		if err != nil {
-			return nil, errb.Code("invalid_address").Wrapf(err, "borrower address is not a valid Stellar address")
+			return nil, errb.Code(pkgErrors.CodeInvalidAddress).Wrapf(err, "borrower address is not a valid Stellar address")
 		}
 		args = []xdr.ScVal{treasuryAddr, borrowerAddr, amountVal}
 	}
@@ -199,7 +200,7 @@ func (s *service) BumpYield(ctx context.Context, req types.BumpYieldRequest) (*t
 	errb := treasuryErr(fnName).With("amount", req.Amount)
 
 	if req.Amount <= 0 {
-		return nil, errb.Code("invalid_amount").Wrapf(types.ErrInvalidTransactionAmount, "contribution amount must be positive")
+		return nil, errb.Code(pkgErrors.CodeInvalidAmount).Wrapf(types.ErrInvalidTransactionAmount, "contribution amount must be positive")
 	}
 
 	treasuryKP := keypair.MustParseFull(s.treasuryPrivateKey)
@@ -269,12 +270,12 @@ func (s *service) invokeTreasuryOp(
 ) (*protocol.GetTransactionResponse, error) {
 	op, err := s.buildInvokeContractOp(fnName, args)
 	if err != nil {
-		return nil, errb.Code("build_failed").Wrapf(err, "could not build contract invocation")
+		return nil, errb.Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build contract invocation")
 	}
 
 	simResp, err := s.simulateContractCall(ctx, signerKP.Address(), op)
 	if err != nil {
-		return nil, errb.Code("simulation_failed").Wrapf(err, "contract simulation could not be performed")
+		return nil, errb.Code(pkgErrors.CodeSimulationFailed).Wrapf(err, "contract simulation could not be performed")
 	}
 
 	// A simulation that returns an error string is a contract-level rejection,
@@ -290,7 +291,7 @@ func (s *service) invokeTreasuryOp(
 
 	txResp, err := s.submitContractTransaction(ctx, signerKP, op, simResp)
 	if err != nil {
-		return nil, errb.Code("submit_failed").Wrapf(err, "could not submit contract transaction")
+		return nil, errb.Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "could not submit contract transaction")
 	}
 
 	return &txResp, nil

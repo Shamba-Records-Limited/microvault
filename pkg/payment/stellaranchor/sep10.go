@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,9 +12,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
+
+// authErr starts an error builder for SEP-10 work.
+func authErr() oops.OopsErrorBuilder {
+	return oops.In(errDomain).Tags("sep10", "auth")
+}
 
 // AuthConfig configures the SEP-10 client.
 type AuthConfig struct {
@@ -52,22 +59,35 @@ type AuthClient struct {
 // NewAuthClient validates the config and constructs a client.
 // httpClient may be nil; logger may be nil.
 func NewAuthClient(cfg AuthConfig, httpClient *http.Client, logger *slog.Logger) (*AuthClient, error) {
+	// Which setting is absent is an attribute, so a boot failure is one error
+	// group with a field to read rather than five distinct messages.
+	missingCfg := func(field string) error {
+		return authErr().
+			Code(pkgErrors.CodeMissingDependency).
+			With("setting", field).
+			Wrapf(ErrInvalidConfig, "required anchor auth setting is missing")
+	}
+
 	switch {
 	case cfg.WebAuthEndpoint == "":
-		return nil, fmt.Errorf("stellaranchor: %w: WebAuthEndpoint required", ErrInvalidConfig)
+		return nil, missingCfg("WebAuthEndpoint")
 	case cfg.ServerSigningKey == "":
-		return nil, fmt.Errorf("stellaranchor: %w: ServerSigningKey required", ErrInvalidConfig)
+		return nil, missingCfg("ServerSigningKey")
 	case cfg.NetworkPassphrase == "":
-		return nil, fmt.Errorf("stellaranchor: %w: NetworkPassphrase required", ErrInvalidConfig)
+		return nil, missingCfg("NetworkPassphrase")
 	case cfg.HomeDomain == "":
-		return nil, fmt.Errorf("stellaranchor: %w: HomeDomain required", ErrInvalidConfig)
+		return nil, missingCfg("HomeDomain")
 	case cfg.TreasurySecret == "":
-		return nil, fmt.Errorf("stellaranchor: %w: TreasurySecret required", ErrInvalidConfig)
+		return nil, missingCfg("TreasurySecret")
 	}
 
 	kp, err := keypair.ParseFull(cfg.TreasurySecret)
 	if err != nil {
-		return nil, fmt.Errorf("stellaranchor: %w: parse TreasurySecret: %v", ErrInvalidConfig, err)
+		// The secret itself is never an attribute.
+		return nil, authErr().
+			Code(pkgErrors.CodeInvalidAddress).
+			With("setting", "TreasurySecret").
+			Wrapf(ErrInvalidConfig, "treasury secret is not a valid Stellar key")
 	}
 
 	if cfg.FallbackTokenTTL <= 0 {
@@ -106,7 +126,10 @@ type AuthResult struct {
 // result via JWTCache rather than calling this on every SEP-24 request.
 func (c *AuthClient) Authenticate(ctx context.Context, childMemo int64) (AuthResult, error) {
 	if childMemo < 0 {
-		return AuthResult{}, fmt.Errorf("stellaranchor: %w: childMemo must be non-negative", ErrInvalidConfig)
+		return AuthResult{}, authErr().
+			Code(pkgErrors.CodeInvalidAmount).
+			With("child_memo", childMemo).
+			Wrapf(ErrInvalidConfig, "child memo must be non-negative")
 	}
 
 	challenge, err := c.fetchChallenge(ctx, childMemo)
@@ -138,17 +161,22 @@ func (c *AuthClient) fetchChallenge(ctx context.Context, memo int64) (string, er
 	q.Set("memo", strconv.FormatInt(memo, 10))
 
 	resp, err := doHTTPWithRetry(ctx, c.httpClient, func() (*http.Request, error) {
-		return http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.WebAuthEndpoint+"?"+q.Encode(), nil)
+		return http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.WebAuthEndpoint+"?"+q.Encode(), http.NoBody)
 	})
 	if err != nil {
-		return "", fmt.Errorf("stellaranchor: SEP-10 challenge request: %w", err)
+		return "", authErr().With("child_memo", memo).Code(pkgErrors.CodeTransportFailed).
+			Wrapf(err, "SEP-10 challenge request did not complete")
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("stellaranchor: SEP-10 challenge HTTP %d: %s",
-			resp.StatusCode, truncate(string(body), 200))
+		return "", authErr().
+			With("child_memo", memo).
+			With(pkgErrors.AttrStatusCode, resp.StatusCode).
+			With("body", truncate(string(body), 200)).
+			Code(pkgErrors.CodeHTTPError).
+			Errorf("anchor returned a non-200 for the SEP-10 challenge")
 	}
 
 	var parsed struct {
@@ -156,14 +184,21 @@ func (c *AuthClient) fetchChallenge(ctx context.Context, memo int64) (string, er
 		NetworkPassphrase string `json:"network_passphrase"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", fmt.Errorf("stellaranchor: decode challenge: %w", err)
+		return "", authErr().With("child_memo", memo).Code(pkgErrors.CodeDecodeFailed).
+			Wrapf(err, "could not decode the SEP-10 challenge response")
 	}
 	if parsed.Transaction == "" {
-		return "", fmt.Errorf("stellaranchor: challenge response missing 'transaction'")
+		return "", authErr().With("child_memo", memo).Code(pkgErrors.CodeIncompleteResponse).
+			Errorf("SEP-10 challenge response has no transaction")
 	}
 	if parsed.NetworkPassphrase != "" && parsed.NetworkPassphrase != c.cfg.NetworkPassphrase {
-		return "", fmt.Errorf("stellaranchor: challenge network passphrase mismatch (got %q, want %q)",
-			parsed.NetworkPassphrase, c.cfg.NetworkPassphrase)
+		// A passphrase mismatch means the challenge is for a different network
+		// — signing it would be signing something we did not intend.
+		return "", authErr().
+			With("got", parsed.NetworkPassphrase).
+			With("want", c.cfg.NetworkPassphrase).
+			Code(pkgErrors.CodePermissionDenied).
+			Errorf("SEP-10 challenge is for a different Stellar network")
 	}
 	return parsed.Transaction, nil
 }
@@ -180,17 +215,20 @@ func (c *AuthClient) coSignChallenge(challengeXDR string) (string, error) {
 		[]string{c.cfg.HomeDomain},
 	)
 	if err != nil {
-		return "", fmt.Errorf("stellaranchor: validate SEP-10 challenge: %w", err)
+		return "", authErr().Code(pkgErrors.CodePermissionDenied).
+			Wrapf(err, "SEP-10 challenge failed validation")
 	}
 
 	signed, err := tx.Sign(c.cfg.NetworkPassphrase, c.treasury)
 	if err != nil {
-		return "", fmt.Errorf("stellaranchor: co-sign SEP-10 challenge: %w", err)
+		return "", authErr().Code(pkgErrors.CodeBuildFailed).
+			Wrapf(err, "could not co-sign the SEP-10 challenge")
 	}
 
 	out, err := signed.Base64()
 	if err != nil {
-		return "", fmt.Errorf("stellaranchor: encode signed challenge: %w", err)
+		return "", authErr().Code(pkgErrors.CodeEncodeFailed).
+			Wrapf(err, "could not encode the signed SEP-10 challenge")
 	}
 	return out, nil
 }
@@ -198,7 +236,8 @@ func (c *AuthClient) coSignChallenge(challengeXDR string) (string, error) {
 func (c *AuthClient) submitChallenge(ctx context.Context, signedXDR string) (string, error) {
 	body, err := json.Marshal(map[string]string{"transaction": signedXDR})
 	if err != nil {
-		return "", fmt.Errorf("stellaranchor: marshal challenge submission: %w", err)
+		return "", authErr().Code(pkgErrors.CodeEncodeFailed).
+			Wrapf(err, "could not encode the SEP-10 challenge submission")
 	}
 
 	resp, err := doHTTPWithRetry(ctx, c.httpClient, func() (*http.Request, error) {
@@ -211,28 +250,35 @@ func (c *AuthClient) submitChallenge(ctx context.Context, signedXDR string) (str
 		return req, nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("stellaranchor: SEP-10 token request: %w", err)
+		return "", authErr().Code(pkgErrors.CodeTransportFailed).
+			Wrapf(err, "SEP-10 token request did not complete")
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return "", fmt.Errorf("stellaranchor: %w: SEP-10 token endpoint rejected challenge", ErrUnauthorized)
+		return "", authErr().Code(pkgErrors.CodeUnauthorized).
+			Wrapf(ErrUnauthorized, "anchor rejected the signed SEP-10 challenge")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("stellaranchor: SEP-10 token HTTP %d: %s",
-			resp.StatusCode, truncate(string(respBody), 200))
+		return "", authErr().
+			With(pkgErrors.AttrStatusCode, resp.StatusCode).
+			With("body", truncate(string(respBody), 200)).
+			Code(pkgErrors.CodeHTTPError).
+			Errorf("anchor returned a non-200 for the SEP-10 token")
 	}
 
 	var parsed struct {
 		Token string `json:"token"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return "", fmt.Errorf("stellaranchor: decode token response: %w", err)
+		return "", authErr().Code(pkgErrors.CodeDecodeFailed).
+			Wrapf(err, "could not decode the SEP-10 token response")
 	}
 	if parsed.Token == "" {
-		return "", fmt.Errorf("stellaranchor: token response missing 'token'")
+		return "", authErr().Code(pkgErrors.CodeIncompleteResponse).
+			Errorf("SEP-10 token response has no token")
 	}
 	return parsed.Token, nil
 }

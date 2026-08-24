@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 )
 
 const testPassphrase = "Test SDF Network ; September 2015"

@@ -583,6 +583,9 @@ func (s *service) AccountExists(ctx context.Context, address string) (bool, erro
 	if _, err := keypair.ParseAddress(address); err != nil {
 		return false, types.ErrInvalidStellarAddress
 	}
+	//nolint:nilerr // an account that does not load does not exist, which is
+	// exactly what this reports. Surfacing the RPC error would make "absent"
+	// indistinguishable from "unreachable" at every call site.
 	if _, err := s.rpcClient.LoadAccount(ctx, address); err != nil {
 		return false, nil
 	}

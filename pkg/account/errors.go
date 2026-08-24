@@ -17,8 +17,8 @@ var (
 	ErrCannotDeleteLastAccount    = errors.New("cannot delete the last active account")
 
 	// Validation errors
-	ErrInvalidInput      = errors.New("invalid input")
-	ErrInvalidPublicKey  = errors.New("invalid public key format")
-	ErrInvalidStatus     = errors.New("invalid account status")
+	ErrInvalidInput        = errors.New("invalid input")
+	ErrInvalidPublicKey    = errors.New("invalid public key format")
+	ErrInvalidStatus       = errors.New("invalid account status")
 	ErrInvalidAccountIndex = errors.New("invalid account index")
 )

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 )
 
 // Claims represents the JWT token payload containing user authentication information.
@@ -64,7 +65,6 @@ func (s *JWTService) ValidateToken(tokenString string) (*Claims, error) {
 		}
 		return []byte(s.config.JWTSecret), nil
 	})
-
 	if err != nil {
 		return nil, ErrInvalidToken
 	}

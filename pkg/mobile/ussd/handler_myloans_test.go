@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 )
 
 // statementLoanSvc serves a fixed loan list and payoff quote.

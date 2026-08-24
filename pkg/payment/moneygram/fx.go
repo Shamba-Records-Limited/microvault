@@ -3,11 +3,11 @@ package moneygram
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
@@ -133,7 +133,8 @@ type FXOrchestrator struct {
 // terminal "reject the loan" condition.
 func NewFXOrchestrator(primary *FXRateClient, fallback FallbackRateSource, cfg FXOrchestratorConfig, logger *slog.Logger) (*FXOrchestrator, error) {
 	if primary == nil && fallback == nil {
-		return nil, fmt.Errorf("moneygram: %w: at least one of primary or fallback rate source must be configured", stellaranchor.ErrInvalidConfig)
+		return nil, fxErr().Code(pkgErrors.CodeMissingDependency).
+			Wrapf(stellaranchor.ErrInvalidConfig, "FX orchestrator needs at least one rate source")
 	}
 	if cfg.StaleCacheMaxAge == 0 {
 		cfg.StaleCacheMaxAge = 24 * time.Hour
@@ -169,7 +170,8 @@ func NewFXOrchestrator(primary *FXRateClient, fallback FallbackRateSource, cfg F
 // where the underlying rate came from, even when served from cache.
 func (o *FXOrchestrator) Quote(ctx context.Context, req FXQuoteRequest) (*FXQuoteResult, error) {
 	if req.SendCurrency == "" || req.ReceiveCurrency == "" {
-		return nil, fmt.Errorf("moneygram: %w: SendCurrency and ReceiveCurrency required", stellaranchor.ErrInvalidConfig)
+		return nil, fxErr().Code(pkgErrors.CodeMissingAccount).
+			Wrapf(stellaranchor.ErrInvalidConfig, "FX quote needs a send and receive currency")
 	}
 
 	// 1) Primary — MoneyGram.
@@ -243,10 +245,18 @@ func (o *FXOrchestrator) EntryBufferPctFallback() float64 { return o.fallbackBuf
 // depending on country) — set them explicitly per environment.
 func (o *FXOrchestrator) ValidateAmount(amountUSD float64) error {
 	if amountUSD < o.cfg.MinUSD {
-		return fmt.Errorf("%w: %.2f USD < min %.2f", ErrAmountOutOfRange, amountUSD, o.cfg.MinUSD)
+		return fxErr().
+			With("amount_usd", amountUSD).
+			With("min_usd", o.cfg.MinUSD).
+			Code(pkgErrors.CodeBelowAnchorMinimum).
+			Wrapf(ErrAmountOutOfRange, "amount is below the corridor minimum")
 	}
 	if amountUSD > o.cfg.MaxUSD {
-		return fmt.Errorf("%w: %.2f USD > max %.2f", ErrAmountOutOfRange, amountUSD, o.cfg.MaxUSD)
+		return fxErr().
+			With("amount_usd", amountUSD).
+			With("max_usd", o.cfg.MaxUSD).
+			Code(pkgErrors.CodeInvalidAmount).
+			Wrapf(ErrAmountOutOfRange, "amount is above the corridor maximum")
 	}
 	return nil
 }

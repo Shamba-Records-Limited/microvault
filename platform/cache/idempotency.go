@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -61,7 +62,7 @@ func (s *RedisIdempotencyStore) Get(ctx context.Context, key string) (*Idempoten
 	defer cancel()
 
 	data, err := s.client.Get(ctx, s.key(key)).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, nil
 	}
 	if err != nil {

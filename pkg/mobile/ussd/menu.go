@@ -59,7 +59,7 @@ func (m *Menu) Render(language string) string {
 		if label == "" {
 			label = option.Label["en"]
 		}
-		sb.WriteString(fmt.Sprintf("%s. %s\n", option.Key, label))
+		fmt.Fprintf(&sb, "%s. %s\n", option.Key, label)
 	}
 
 	return strings.TrimRight(sb.String(), "\n")

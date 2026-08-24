@@ -1352,7 +1352,7 @@ func (h *USSDHandler) showRepayLoanList(ctx context.Context, session *Session, l
 	body.WriteString(GetLocalizedMessage(session.Language, "repay_header"))
 	for i, l := range loans {
 		body.WriteString("\n")
-		body.WriteString(fmt.Sprintf("%d. %s", i+1, Format(session.Language, "repay_loan_line", l.Reference, l.DisplayAmount)))
+		fmt.Fprintf(&body, "%d. %s", i+1, Format(session.Language, "repay_loan_line", l.Reference, l.DisplayAmount))
 	}
 	return h.conNavText(session, body.String()), nil
 }
