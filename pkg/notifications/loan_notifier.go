@@ -3,7 +3,6 @@ package notifications
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 )
@@ -24,21 +23,33 @@ type SMSLoanNotifier struct {
 // Compile-time check.
 var _ contracts.LoanNotifier = (*SMSLoanNotifier)(nil)
 
-// NewSMSLoanNotifier creates a new SMSLoanNotifier. Pass nil for templates to
-// use the built-in localized templates (en/sw/fr). A non-nil templates value
-// is used for every language (single-language override).
-func NewSMSLoanNotifier(notifier Notifier, templates *LoanTemplates) *SMSLoanNotifier {
-	set := localizedLoanTemplates()
-	if templates != nil {
-		set = map[string]*LoanTemplates{"en": templates, "sw": templates, "fr": templates}
+// NewSMSLoanNotifier creates a new SMSLoanNotifier over the built-in localized
+// templates (en/sw/fr), adjusted by any options.
+//
+// Every merged template is rendered against [SentinelLoanNotification] before
+// the notifier is returned, so an unset or non-GSM-7 message fails here rather
+// than on a borrower's handset.
+func NewSMSLoanNotifier(notifier Notifier, opts ...LoanOption) (*SMSLoanNotifier, error) {
+	var cfg loanConfig
+	for _, opt := range opts {
+		opt(&cfg)
 	}
-	return &SMSLoanNotifier{notifier: notifier, templates: set}
-}
 
-// SetLanguageResolver injects a resolver consulted when a notification leaves
-// Language empty. Pass nil to fall back to English.
-func (s *SMSLoanNotifier) SetLanguageResolver(r LanguageResolver) {
-	s.resolveLang = r
+	set := localizedLoanTemplates()
+	for lang, override := range cfg.overrides {
+		base, ok := set[lang]
+		if !ok {
+			return nil, fmt.Errorf("loan templates: unsupported language %q", lang)
+		}
+		set[lang] = mergeInto(base, override)
+	}
+	for lang, merged := range set {
+		if err := validateLoanTemplates(lang, merged); err != nil {
+			return nil, err
+		}
+	}
+
+	return &SMSLoanNotifier{notifier: notifier, templates: set, resolveLang: cfg.resolve}, nil
 }
 
 // tmpl selects the template set for a notification: its pinned Language, else
@@ -55,55 +66,59 @@ func (s *SMSLoanNotifier) tmpl(ctx context.Context, n contracts.LoanNotification
 }
 
 func (s *SMSLoanNotifier) NotifyLoanApproved(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).Approved, n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Approved(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanRejected(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).Rejected, n.DisplayCurrency, n.DisplayAmount, n.Reason)
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Rejected(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanDisbursed(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).Disbursed, n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Disbursed(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanFailed(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).Failed, n.LoanReference)
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Failed(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanOffRampFailed(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).OffRampFailed, n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).OffRampFailed(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupApproved(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).CashPickupApproved, n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).CashPickupApproved(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentReceived(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).RepaymentReceived,
-		n.DisplayCurrency, n.DisplayAmount, n.LoanReference,
-		n.DisplayCurrency, n.RemainingBalance)
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentReceived(n))
+}
+
+func (s *SMSLoanNotifier) NotifyRepaymentInitiated(ctx context.Context, n contracts.LoanNotification) error {
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentInitiated(n))
+}
+
+func (s *SMSLoanNotifier) NotifyRepaymentWindowExpiring(ctx context.Context, n contracts.LoanNotification) error {
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentWindowExpiring(n))
+}
+
+func (s *SMSLoanNotifier) NotifyRepaymentExpired(ctx context.Context, n contracts.LoanNotification) error {
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentExpired(n))
+}
+
+func (s *SMSLoanNotifier) NotifyLoanStatement(ctx context.Context, n contracts.LoanNotification) error {
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Statement(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupInitiated(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).CashPickupInitiated, n.LoanReference, n.InteractiveURL)
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).CashPickupInitiated(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupReady(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).CashPickupReady, n.DisplayCurrency, n.DisplayAmount, n.CashPickupRef, n.LoanReference, n.CashPickupInfoURL)
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).CashPickupReady(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupCancelled(ctx context.Context, n contracts.LoanNotification) error {
-	msg := fmt.Sprintf(s.tmpl(ctx, n).CashPickupCancelled, n.LoanReference)
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).CashPickupCancelled(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentReminder(ctx context.Context, n contracts.LoanNotification) error {
@@ -111,19 +126,15 @@ func (s *SMSLoanNotifier) NotifyRepaymentReminder(ctx context.Context, n contrac
 		return nil
 	}
 
-	daysUntilDue := int(time.Until(*n.DueDate).Hours() / 24)
-
+	t := s.tmpl(ctx, n)
 	var msg string
-	switch {
-	case daysUntilDue <= 0:
-		msg = fmt.Sprintf(s.tmpl(ctx, n).RepaymentOverdue,
-			n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
-	case daysUntilDue <= 3:
-		msg = fmt.Sprintf(s.tmpl(ctx, n).RepaymentSoon,
-			n.DisplayCurrency, n.DisplayAmount, daysUntilDue, n.LoanReference)
+	switch days := DaysUntilDue(n); {
+	case days <= 0:
+		msg = t.RepaymentOverdue(n)
+	case days <= 3:
+		msg = t.RepaymentSoon(n)
 	default:
-		msg = fmt.Sprintf(s.tmpl(ctx, n).RepaymentUpcoming,
-			n.DisplayCurrency, n.DisplayAmount, n.DueDate.Format("2006-01-02"), n.LoanReference)
+		msg = t.RepaymentUpcoming(n)
 	}
 
 	return s.notifier.Send(ctx, n.PhoneNumber, msg)
@@ -157,6 +168,18 @@ func (*NoOpLoanNotifier) NotifyRepaymentReceived(context.Context, contracts.Loan
 	return nil
 }
 func (*NoOpLoanNotifier) NotifyRepaymentReminder(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+func (*NoOpLoanNotifier) NotifyRepaymentInitiated(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+func (*NoOpLoanNotifier) NotifyRepaymentWindowExpiring(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+func (*NoOpLoanNotifier) NotifyRepaymentExpired(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+func (*NoOpLoanNotifier) NotifyLoanStatement(context.Context, contracts.LoanNotification) error {
 	return nil
 }
 func (*NoOpLoanNotifier) NotifyLoanCashPickupInitiated(context.Context, contracts.LoanNotification) error {

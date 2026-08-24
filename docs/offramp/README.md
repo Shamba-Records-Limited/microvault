@@ -14,28 +14,35 @@ succeeds, fails, or has to be retried a different way.
 | Provider | Doc | Rail |
 |---|---|---|
 | YellowCard | [yellowcard.md](./yellowcard.md) | Mobile money across multiple African countries |
-| MoneyGram | _(planned doc)_ | SEP-24 anchor withdrawal |
+| MoneyGram | [moneygram.md](./moneygram.md) | SEP-24 anchor cash pickup at an agent |
 
 Both providers plug into the same internal `offramp.Provider` interface, so the
 loan service treats them uniformly. The docs here describe each provider's own
 quirks.
 
-## The two big ideas
+## The big ideas
 
-If you read nothing else, understand these two:
+If you read nothing else, understand these. Note they are framed around
+YellowCard's mobile-money rail; MoneyGram's cash-pickup rail is a different
+shape (interactive SEP-24, driven by a poller rather than webhooks) — see
+[moneygram.md](./moneygram.md).
 
-1. **Two ways to settle.** A payout can be funded two ways — **direct** (we send
-   the provider crypto for this specific payout) or **fiat** (the provider pays
-   out of a balance we pre-funded earlier, and we keep the crypto). The system
-   tries direct first and automatically falls back to fiat when direct can't go
-   through. See [yellowcard.md § Settlement modes](./yellowcard.md#settlement-modes).
+1. **Two ways to settle (YellowCard).** A mobile-money payout can be funded two
+   ways — **direct** (we send the provider crypto for this specific payout) or
+   **fiat** (the provider pays out of a balance we pre-funded earlier, and we
+   keep the crypto). The system tries direct first and automatically falls back
+   to fiat when direct can't go through. See
+   [yellowcard.md § Settlement modes](./yellowcard.md#settlement-modes).
 
-2. **Webhooks drive the state machine.** We submit a payout and then *wait*. The
-   provider calls our webhook as the payout moves through its lifecycle
-   (processing to complete / failed / refunded). Each event nudges the loan's
-   `disbursement_status` and may trigger a side effect — notify the borrower,
-   repay the Vault, alert ops, or kick off a retry. See
-   [yellowcard.md § Webhook events](./yellowcard.md#webhook-events--what-each-one-does).
+2. **Status drives the state machine.** We submit a payout and then track its
+   lifecycle to complete / failed / refunded, nudging the loan's
+   `disbursement_status` and triggering side effects — notify the borrower,
+   repay the Vault, alert ops, or kick off a retry. YellowCard **pushes** events
+   to our webhook (see
+   [yellowcard.md § Webhook events](./yellowcard.md#webhook-events--what-each-one-does));
+   MoneyGram does not publish webhooks, so a background **poller** pulls status
+   instead (see
+   [moneygram.md § Poller lifecycle](./moneygram.md#poller-lifecycle--what-each-status-does)).
 
 ## Conventions used across these docs
 

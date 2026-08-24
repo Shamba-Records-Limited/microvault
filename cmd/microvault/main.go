@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -127,6 +128,15 @@ func main() {
 	}
 	log.Println("Repositories initialized successfully")
 
+	// On testnet the DB may be rebuilt while on-chain child accounts persist;
+	// floor the derivation-index sequence so fresh rows never collide with them.
+	if cfg.Stellar.AccountIndexBase > 0 {
+		if err := repos.Account.EnsureAccountIndexFloor(context.Background(), cfg.Stellar.AccountIndexBase); err != nil {
+			log.Fatalf("Failed to floor account index sequence: %v", err)
+		}
+		log.Printf("Account index sequence floored at %d", cfg.Stellar.AccountIndexBase)
+	}
+
 	// ---- Initialize Core Services ----
 	// User and Account services
 	userService := user.NewService(repos.User)
@@ -189,11 +199,16 @@ func main() {
 	} else {
 		notifier = &mvnotifications.NoOpNotifier{}
 	}
-	loanNotifier := mvnotifications.NewSMSLoanNotifier(notifier, nil)
-	_ = loanNotifier // will be wired to adapters when loan disbursement is integrated
+	loanNotifier, err := mvnotifications.NewSMSLoanNotifier(notifier)
+	if err != nil {
+		log.Fatalf("Failed to initialize loan notifier: %v", err)
+	}
 
 	// Initialize account notifier for registration and PIN lifecycle SMS
-	accountNotifier := mvnotifications.NewSMSAccountNotifier(notifier, nil)
+	accountNotifier, err := mvnotifications.NewSMSAccountNotifier(notifier)
+	if err != nil {
+		log.Fatalf("Failed to initialize account notifier: %v", err)
+	}
 	log.Println("Notification service initialized")
 
 	// ---- Initialize PIN Service ----
@@ -209,6 +224,8 @@ func main() {
 		UserService:     userServiceAdapter,
 		PINService:      pinService,
 		AccountNotifier: accountNotifier,
+		LoanNotifier:    loanNotifier,
+		RepayPaybill:    cfg.Mobile.RepayPaybill,
 	})
 	ussdService := ussd.NewUSSDService(handler)
 
@@ -249,7 +266,7 @@ func main() {
 	})
 
 	// Initialize webhook controller (event handler will be wired when disbursement service is ready)
-	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.WebhookSecret)
+	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.PublicKey, cfg.Payments.YellowCard.SecretKey)
 
 	// Initialize SMS delivery report callback controller
 	smsCallbackHandler := sms.NewDeliveryReportHandler()

@@ -15,16 +15,33 @@
 //
 // SMSLoanNotifier and SMSAccountNotifier satisfy contracts.LoanNotifier and
 // contracts.AccountNotifier. Each takes a Notifier plus a set of templates,
-// picks the template for the event it was asked to send, fills it from the
-// notification's fields, and hands the result to the transport. Callers depend on
-// the contracts interface, so the transport and wording can change without
-// touching them.
+// picks the template for the event it was asked to send, and hands the result
+// to the transport. Callers depend on the contracts interface, so the transport
+// and wording can change without touching them.
 //
 // # Templates
 //
-// LoanTemplates and AccountTemplates are structs of fmt.Sprintf format strings,
-// one per event, each documenting the arguments it expects. DefaultLoanTemplates
-// and DefaultAccountTemplates supply ready copy, parameterized for any currency;
-// pass a custom struct to either constructor to override the wording without
-// changing the sending logic.
+// LoanTemplates and AccountTemplates hold one renderer per event — a func from
+// the notification to the message text, not a format string. The compiler
+// therefore checks both the fields a message reads and the verbs it formats
+// them with, which a positional Sprintf template cannot do.
+//
+// The copy shipped here is deliberately brand-free: it names no company, no
+// support URL and no USSD code, because those belong to whoever builds on the
+// platform and, in the case of the USSD code, vary per deployment. Builders
+// pass WithLoanTemplates or WithAccountTemplates to override the fields they
+// care about; fields left nil keep the default, so overriding one message does
+// not mean rewriting all of them. Values that vary by environment reach the
+// copy by closure capture at construction rather than through a config type
+// threaded into this package.
+//
+// # Validation
+//
+// The constructors return an error. Before returning a notifier they render
+// every merged template against SentinelLoanNotification or
+// SentinelAccountNotification and reject any that is unset, renders empty, or
+// contains a rune outside GSM 03.38 — one such rune forces the whole SMS to
+// UCS-2 and cuts a segment from 160 characters to 70. Broken copy therefore
+// fails at startup rather than on a recipient's handset. GSM7Len and Segments
+// are exported so builders can make the same checks over their own templates.
 package notifications

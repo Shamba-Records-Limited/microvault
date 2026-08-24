@@ -35,6 +35,9 @@ type AccountRepository interface {
 	GetByPublicKey(ctx context.Context, publicKey string) (*models.Account, error)
 	GetNextAccountIndex(ctx context.Context, userID string) (int, error)
 	GetNextAccountIndexWithTx(ctx context.Context, tx *gorm.DB) (int, error)
+	// EnsureAccountIndexFloor advances account_index_seq so the next handed-out
+	// index is >= floor. No-op when the sequence is already at or past floor.
+	EnsureAccountIndexFloor(ctx context.Context, floor int64) error
 
 	// Update operations
 	Update(ctx context.Context, account *models.Account) error
@@ -167,6 +170,33 @@ func (r *accountRepository) GetNextAccountIndexWithTx(ctx context.Context, tx *g
 		return 0, ErrFailedToGetNextIndex
 	}
 	return int(idx), nil
+}
+
+// EnsureAccountIndexFloor implements the interface — see its contract.
+//
+// The next handed-out index must be >= floor regardless of whether the
+// sequence has ever been called. We compute the value to setval such that the
+// following nextval returns floor, taking the current position into account so
+// the call is a no-op (never rewinds) when the sequence is already ahead.
+//
+//	never called (is_called=false): next nextval returns last_value; set
+//		last_value=floor, is_called=false so next returns floor.
+//	already called: set last_value=GREATEST(last_value, floor-1),
+//		is_called=true so next returns at least floor.
+func (r *accountRepository) EnsureAccountIndexFloor(ctx context.Context, floor int64) error {
+	if floor <= 0 {
+		return nil
+	}
+	sql := `SELECT CASE
+		WHEN NOT (SELECT is_called FROM account_index_seq)
+			THEN setval('account_index_seq', GREATEST((SELECT last_value FROM account_index_seq), ?), false)
+		ELSE setval('account_index_seq', GREATEST((SELECT last_value FROM account_index_seq), ? - 1), true)
+	END`
+	if err := r.db.WithContext(ctx).Exec(sql, floor, floor).Error; err != nil {
+		log.Printf("EnsureAccountIndexFloor: database error: %v", err)
+		return ErrFailedToGetNextIndex
+	}
+	return nil
 }
 
 // --- Update Operations ---

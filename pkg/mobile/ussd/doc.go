@@ -5,8 +5,17 @@
 // The package is layered. USSDService is the outermost entry point — it holds
 // the registered USSDProvider transports (one per telecom gateway) and
 // dispatches an incoming request to USSDHandler. The handler owns the
-// application logic: it resolves the Session, walks the MenuRegistry, and
-// routes each input to the MenuHandler registered for the current screen.
+// application logic: it resolves the Session and routes each input with an
+// explicit switch on the session's current menu.
+//
+// The MenuRegistry is a rendering store, not a router: it supplies a screen's
+// localized title and options, and nothing more.
+//
+// There is no session-level login. A caller is identified by the MSISDN the
+// gateway reports, and authorization happens at the screens that move money,
+// where the handler calls PINService.VerifyPIN — loan confirmation and the
+// repayment gate. A new screen that moves money needs its own VerifyPIN call;
+// nothing gates it implicitly.
 //
 // # Session and menus
 //
@@ -14,8 +23,8 @@
 // minutes). A Session carries the current menu, the menu history stack, the
 // chosen language, and a free-form Data bag for cross-screen state (loan
 // amount, payout method, national ID, etc.). Menus are registered once at
-// startup; MenuTypeContinue ("CON") keeps the session open, MenuTypeEnd
-// ("END") releases it.
+// startup. Handlers return the gateway's wire prefix directly: "CON " keeps the
+// session open, "END " releases it.
 //
 // MenuRegistry holds the menu graph. Menus are built with MenuBuilder and
 // grouped into presets — StandardLoanMenuPreset wires the full registration,

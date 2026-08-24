@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -630,8 +631,11 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 		Issuer: s.usdcIssuer,
 	}
 
-	// Convert stroops to string amount (divide by 10^7)
-	amountStr := strconv.FormatFloat(float64(req.Amount)/10_000_000, 'f', 7, 64)
+	// Convert stroops to string amount (divide by 10^7). Trailing zeros are
+	// trimmed so the transfer reads "23.43" rather than "23.4300000" — some
+	// anchors' automated reconciliation compares the rendered amount.
+	amountStr := strings.TrimRight(strings.TrimRight(
+		strconv.FormatFloat(float64(req.Amount)/10_000_000, 'f', 7, 64), "0"), ".")
 
 	ops := []txnbuild.Operation{
 		&txnbuild.Payment{

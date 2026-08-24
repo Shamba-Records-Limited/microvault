@@ -22,13 +22,14 @@ import (
 
 // pinVerifyHandlers are the entry points that gate on a verified PIN.
 //
-// Repayment used to be one of them. The gate was dropped: nothing leaves the
+// Loan origination prompts on the loan_confirm screen beside the terms rather
+// than on a menu of its own. Repayment has no gate at all: nothing leaves the
 // borrower's wallet as a result of the USSD session, and a forgotten PIN must
 // not become a reason not to repay.
 func pinVerifyHandlers(h *USSDHandler) map[string]func(context.Context, *Session, string) (string, error) {
 	return map[string]func(context.Context, *Session, string) (string, error){
-		"loan":       h.handlePINVerifyLoan,
-		"change_pin": h.handlePINChangeOld,
+		"loan_confirm": h.handleLoanConfirm,
+		"change_pin":   h.handlePINChangeOld,
 	}
 }
 

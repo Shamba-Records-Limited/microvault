@@ -198,19 +198,19 @@ type PaymentResponse struct {
 
 // PaymentDetails contains full details of a payment retrieved by ID.
 type PaymentDetails struct {
-	ID               string          `json:"id"`
-	ChannelID        string          `json:"channelId"`
-	SequenceID       string          `json:"sequenceId"`
-	PartnerID        string          `json:"partnerId"`
-	SessionID        string          `json:"sessionId,omitempty"`
-	Currency         string          `json:"currency"`
-	Country          string          `json:"country"`
-	Amount           float64         `json:"amount"`
-	ConvertedAmount  float64         `json:"convertedAmount"`
-	Rate             float64         `json:"rate"`
-	Reason           string          `json:"reason"`
-	Status           string          `json:"status"`
-	DirectSettlement bool            `json:"directSettlement"`
+	ID               string  `json:"id"`
+	ChannelID        string  `json:"channelId"`
+	SequenceID       string  `json:"sequenceId"`
+	PartnerID        string  `json:"partnerId"`
+	SessionID        string  `json:"sessionId,omitempty"`
+	Currency         string  `json:"currency"`
+	Country          string  `json:"country"`
+	Amount           float64 `json:"amount"`
+	ConvertedAmount  float64 `json:"convertedAmount"`
+	Rate             float64 `json:"rate"`
+	Reason           string  `json:"reason"`
+	Status           string  `json:"status"`
+	DirectSettlement bool    `json:"directSettlement"`
 
 	ServiceFeeAmountUSD   float64 `json:"serviceFeeAmountUSD,omitempty"`
 	ServiceFeeAmountLocal float64 `json:"serviceFeeAmountLocal,omitempty"`
@@ -219,12 +219,12 @@ type PaymentDetails struct {
 	PartnerFeeAmountLocal float64 `json:"partnerFeeAmountLocal,omitempty"`
 	PartnerFeeID          string  `json:"partnerFeeId,omitempty"`
 
-	Sender           Sender          `json:"sender"`
-	Destination      Destination     `json:"destination"`
-	SettlementInfo   *SettlementInfo `json:"settlementInfo,omitempty"`
-	CreatedAt        string          `json:"createdAt"`
-	UpdatedAt        string          `json:"updatedAt"`
-	ExpiresAt        string          `json:"expiresAt"`
+	Sender         Sender          `json:"sender"`
+	Destination    Destination     `json:"destination"`
+	SettlementInfo *SettlementInfo `json:"settlementInfo,omitempty"`
+	CreatedAt      string          `json:"createdAt"`
+	UpdatedAt      string          `json:"updatedAt"`
+	ExpiresAt      string          `json:"expiresAt"`
 }
 
 // WebhookEvent represents an incoming webhook payload from YellowCard.
@@ -339,7 +339,7 @@ const (
 	CustomerTypeInstitution = "institution"
 )
 
-// Webhook event constants.
+// Webhook event constants, v1
 const (
 	EventDisbursementComplete     = "DISBURSEMENT.COMPLETE"
 	EventDisbursementFailed       = "DISBURSEMENT.FAILED"
@@ -348,6 +348,13 @@ const (
 	EventPaymentFailed            = "PAYMENT.FAILED"
 	EventCollectionComplete       = "COLLECTION.COMPLETE"
 	EventCryptoDeposit            = "CRYPTO.DEPOSIT"
+)
+
+// Webhook event constants, v2
+const (
+	EventSendPendingSettlement = "SEND.PENDING_SETTLEMENT"
+	EventSendComplete          = "SEND.COMPLETE"
+	EventSendFailed            = "SEND.FAILED"
 )
 
 // Country code constants (ISO 3166-2).

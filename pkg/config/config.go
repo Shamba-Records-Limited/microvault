@@ -133,6 +133,12 @@ type StellarConfig struct {
 	MultiSigHighThreshold   uint32
 	USDCIssuer              string
 	ContractID              string
+
+	// AccountIndexBase advances account_index_seq at boot so a freshly rebuilt
+	// (testnet) database hands out BIP44 derivation indices above any burned
+	// on-chain. 0 (the default) leaves the sequence untouched. From
+	// ACCOUNT_INDEX_BASE.
+	AccountIndexBase int64
 }
 
 // NewRpcClient creates a new instance of Stellar RPC Client to connect with Stellar's RPC Server
@@ -149,12 +155,11 @@ func (c *StellarConfig) NewRpcClient() *rpcclient.Client {
 
 // YellowCardConfig holds all YellowCard-related configuration
 type YellowCardConfig struct {
-	PublicKey     string
-	SecretKey     string
-	BaseURL       string
-	WebhookSecret string
-	BusinessID    string // Registered business ID with YellowCard
-	BusinessName  string // Registered business name with YellowCard
+	PublicKey    string
+	SecretKey    string
+	BaseURL      string
+	BusinessID   string // Registered business ID with YellowCard
+	BusinessName string // Registered business name with YellowCard
 }
 
 // FonbnkConfig holds all Fonbnk-related configuration
@@ -207,6 +212,15 @@ type MoneyGramConfig struct {
 	PollInterval            time.Duration // MONEYGRAM_POLL_INTERVAL (seconds)
 	PollMaxBatch            int           // MONEYGRAM_POLL_MAX_BATCH
 	RefundSettleMaxAttempts int           // MONEYGRAM_REFUND_MAX_ATTEMPTS
+
+	// Borrower repayment cash-in. Separate from the withdrawal cadence above
+	// because the two directions wait on different things: a withdrawal is
+	// ours to finish and is polled hard, a deposit is the borrower's and
+	// spends most of its window idle.
+	RepaymentWindow          time.Duration // REPAYMENT_WINDOW (seconds)
+	RepaymentPollInterval    time.Duration // REPAYMENT_POLL_INTERVAL (seconds)
+	RepaymentReminderBefore  time.Duration // REPAYMENT_REMINDER_BEFORE (seconds)
+	RepaymentVaultMaxAttempt int           // REPAYMENT_VAULT_MAX_ATTEMPTS
 }
 
 // PaymentsConfig bundles all payment provider configurations
@@ -256,6 +270,10 @@ type MobileConfig struct {
 	// SessionTimeout is the Redis TTL for a USSD session, refreshed on each
 	// request. From USSD_SESSION_TIMEOUT (seconds); defaults to 5 minutes.
 	SessionTimeout time.Duration
+
+	// USSDDialString is what a user dials to reach this deployment, stored
+	// complete with prefix and terminator.
+	USSDDialString string
 
 	// RepayPaybill is the mobile-money paybill number shown on the USSD repay
 	// screen. From REPAY_PAYBILL. Builder-injected and environment-specific:
@@ -318,6 +336,23 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	repaymentWindow, err := envSeconds("REPAYMENT_WINDOW")
+	if err != nil {
+		return nil, err
+	}
+	repaymentPollInterval, err := envSeconds("REPAYMENT_POLL_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	repaymentReminderBefore, err := envSeconds("REPAYMENT_REMINDER_BEFORE")
+	if err != nil {
+		return nil, err
+	}
+	repaymentVaultMaxAttempts, err := envPositiveInt("REPAYMENT_VAULT_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+
 	mgRefundMaxAttempts, err := envPositiveInt("MONEYGRAM_REFUND_MAX_ATTEMPTS")
 	if err != nil {
 		return nil, err
@@ -343,6 +378,7 @@ func New() (*Config, error) {
 
 	mobileUsername := os.Getenv("AT_USERNAME")
 	mobileAPIKey := os.Getenv("AT_API_KEY")
+	ussdDialString := os.Getenv("USSD_DIAL_STRING")
 
 	treasurySecretKey := os.Getenv("TREASURY_SECRET_KEY")
 	adminSecretKey := os.Getenv("ADMIN_SECRET_KEY")
@@ -350,6 +386,14 @@ func New() (*Config, error) {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	usdcIssuer := os.Getenv("USDC_ISSUER")
 	contractID := os.Getenv("CONTRACT_ID")
+
+	// Optional floor for account_index_seq — set on testnet after a DB rebuild
+	// so derivation indices don't collide with on-chain child accounts created
+	// before the reset.
+	accountIndexBase, err := envNonNegativeInt64("ACCOUNT_INDEX_BASE")
+	if err != nil {
+		return nil, err
+	}
 
 	// Create a map of required variables to check
 	required := map[string]string{
@@ -377,6 +421,7 @@ func New() (*Config, error) {
 		"JWT_SECRET":                jwtSecret,
 		"USDC_ISSUER":               usdcIssuer,
 		"CONTRACT_ID":               contractID,
+		"USSD_DIAL_STRING":          ussdDialString,
 	}
 
 	// Loop and check for empty values
@@ -551,6 +596,7 @@ func New() (*Config, error) {
 			MultiSigHighThreshold:   uint32(multiSigHighThreshold),
 			USDCIssuer:              usdcIssuer,
 			ContractID:              contractID,
+			AccountIndexBase:        accountIndexBase,
 		},
 		Payments: PaymentsConfig{
 			EntryFXBufferPct: entryFXBuffer,
@@ -582,6 +628,11 @@ func New() (*Config, error) {
 				FXEntryBufferPct:         mgFXBuffer,
 				FXEntryBufferPctFallback: mgFXBufferFallback,
 
+				RepaymentWindow:          repaymentWindow,
+				RepaymentPollInterval:    repaymentPollInterval,
+				RepaymentReminderBefore:  repaymentReminderBefore,
+				RepaymentVaultMaxAttempt: repaymentVaultMaxAttempts,
+
 				PollInterval:            mgPollInterval,
 				PollMaxBatch:            mgPollMaxBatch,
 				RefundSettleMaxAttempts: mgRefundMaxAttempts,
@@ -597,6 +648,7 @@ func New() (*Config, error) {
 				HTTPTimeout: mobileHTTPTimeout,
 			},
 			SessionTimeout: ussdSessionTimeout,
+			USSDDialString: ussdDialString,
 			RepayPaybill:   os.Getenv("REPAY_PAYBILL"),
 		},
 		Auth: AuthConfig{
@@ -644,6 +696,19 @@ func envPositiveInt(key string) (int, error) {
 	n, err := strconv.Atoi(raw)
 	if err != nil || n <= 0 {
 		return 0, fmt.Errorf("error parsing %s: expected a positive integer, got %q", key, raw)
+	}
+	return n, nil
+}
+
+// envNonNegativeInt64 reads a bare non-negative integer, zero when unset.
+func envNonNegativeInt64(key string) (int64, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("error parsing %s: expected a non-negative integer, got %q", key, raw)
 	}
 	return n, nil
 }
