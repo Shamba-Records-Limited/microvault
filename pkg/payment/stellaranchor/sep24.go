@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/amount"
 )
 
@@ -66,6 +67,27 @@ type WithdrawResponse struct {
 	ID   string `json:"id"`   // MoneyGram's transaction ID — persist and poll
 }
 
+// DepositRequest is the body of a SEP-24 /transactions/deposit/interactive
+// call. Customer fields are SEP-9 — see Customer.
+type DepositRequest struct {
+	AssetCode string   // "USDC"
+	Amount    string   // decimal USDC, e.g. "50.00" — required for custodial wallets
+	Lang      string   // ISO-639-1, defaults to "en"
+	Account   string   // destination wallet G... address the anchor credits
+	Customer  Customer // optional SEP-9 prefill
+}
+
+// DepositResponse is what MoneyGram returns from /transactions/deposit/interactive.
+//
+// Same shape as WithdrawResponse, but the user's obligation is reversed: they
+// must complete the webview to pick an agent and commit before any cash can be
+// paid in, and nothing on our side compels them to.
+type DepositResponse struct {
+	Type string `json:"type"` // typically "interactive_customer_info_needed"
+	URL  string `json:"url"`  // interactive webview URL — SMS this to the user
+	ID   string `json:"id"`   // MoneyGram's transaction ID — persist and poll
+}
+
 // Transaction is the SEP-24 transaction object returned from /transaction.
 // Field set is intentionally a superset of what we need to drive the off-
 // ramp state machine — some fields are populated only at certain statuses.
@@ -89,6 +111,13 @@ type Transaction struct {
 	WithdrawMemoType      string `json:"withdraw_memo_type,omitempty"` // typically "id"
 	MoreInfoURL           string `json:"more_info_url,omitempty"`
 	Message               string `json:"message,omitempty"`
+
+	// Deposit-side fields. The memo is chosen by the anchor, not by us, so it
+	// cannot carry ChildAccountMemo — deposits are attributed by the SEP-10
+	// session the transaction was created under, not by this value.
+	To              string `json:"to,omitempty"` // account the anchor credits
+	DepositMemo     string `json:"deposit_memo,omitempty"`
+	DepositMemoType string `json:"deposit_memo_type,omitempty"`
 
 	// Refunded is the deprecated SEP-24 boolean, kept because some anchors
 	// still emit it. Refunds is the authoritative field.
@@ -219,8 +248,71 @@ func NewAnchorClient(cfg AnchorConfig, httpClient *http.Client, logger *slog.Log
 // given JWT (from AuthClient/JWTCache), the USDC amount, and any prefilled
 // SEP-9 customer fields. Returns the interactive URL and MG transaction ID.
 func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req WithdrawRequest) (*WithdrawResponse, error) {
+	res, err := c.initiateInteractive(ctx, jwt, "withdraw", interactiveRequest{
+		AssetCode: req.AssetCode,
+		Amount:    req.Amount,
+		Lang:      req.Lang,
+		Account:   req.Account,
+		Customer:  req.Customer,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &WithdrawResponse{Type: res.Type, URL: res.URL, ID: res.ID}, nil
+}
+
+// InitiateDeposit calls POST /transactions/deposit/interactive with the given
+// JWT (from AuthClient/JWTCache), the USDC amount, and any prefilled SEP-9
+// customer fields. Returns the interactive URL and MG transaction ID.
+//
+// Amount is denominated in USDC, not local currency: MoneyGram converts the
+// cash the user hands over at its own rate at the counter, so a local-currency
+// figure quoted before this call is an estimate the agent may contradict.
+func (c *AnchorClient) InitiateDeposit(ctx context.Context, jwt string, req DepositRequest) (*DepositResponse, error) {
+	res, err := c.initiateInteractive(ctx, jwt, "deposit", interactiveRequest{
+		AssetCode: req.AssetCode,
+		Amount:    req.Amount,
+		Lang:      req.Lang,
+		Account:   req.Account,
+		Customer:  req.Customer,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &DepositResponse{Type: res.Type, URL: res.URL, ID: res.ID}, nil
+}
+
+// errDomain is the oops domain for the SEP-24 anchor client.
+const errDomain = "stellar-anchor"
+
+// anchorErr starts an error builder scoped to one SEP-24 direction.
+func anchorErr(kind string) oops.OopsErrorBuilder {
+	return oops.In(errDomain).Tags("sep24", kind).With("kind", kind)
+}
+
+// interactiveRequest is the common field set of the deposit and withdraw
+// interactive endpoints, which SEP-24 defines identically.
+type interactiveRequest struct {
+	AssetCode string
+	Amount    string
+	Lang      string
+	Account   string
+	Customer  Customer
+}
+
+type interactiveResponse struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+	ID   string `json:"id"`
+}
+
+// initiateInteractive posts to /transactions/{kind}/interactive. kind is
+// "deposit" or "withdraw".
+func (c *AnchorClient) initiateInteractive(ctx context.Context, jwt, kind string, req interactiveRequest) (*interactiveResponse, error) {
+	errb := anchorErr(kind)
+
 	if jwt == "" {
-		return nil, fmt.Errorf("stellaranchor: %w: JWT required", ErrInvalidConfig)
+		return nil, errb.Code("missing_jwt").Wrapf(ErrInvalidConfig, "JWT is required")
 	}
 	if req.AssetCode == "" {
 		req.AssetCode = "USDC"
@@ -229,18 +321,18 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 		req.Lang = "en"
 	}
 	if req.Amount == "" {
-		return nil, fmt.Errorf("stellaranchor: %w: Amount required (custodial wallets must specify amount)", ErrInvalidConfig)
+		return nil, errb.Code("missing_amount").Wrapf(ErrInvalidConfig, "amount is required: custodial wallets must specify it")
 	}
 	if req.Account == "" {
-		return nil, fmt.Errorf("stellaranchor: %w: Account required (funds wallet address)", ErrInvalidConfig)
+		return nil, errb.Code("missing_account").Wrapf(ErrInvalidConfig, "account is required: the funds wallet address")
 	}
 
-	body, err := buildWithdrawBody(req)
+	body, err := buildInteractiveBody(kind, req)
 	if err != nil {
 		return nil, err
 	}
 
-	endpoint := strings.TrimRight(c.cfg.TransferServerURL, "/") + "/transactions/withdraw/interactive"
+	endpoint := strings.TrimRight(c.cfg.TransferServerURL, "/") + "/transactions/" + kind + "/interactive"
 	resp, err := doHTTPWithRetry(ctx, c.httpClient, func() (*http.Request, error) {
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
 		if err != nil {
@@ -252,26 +344,32 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 		return httpReq, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("stellaranchor: withdraw request: %w", err)
+		return nil, errb.Code("transport_failed").Wrapf(err, "interactive request could not be sent")
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("stellaranchor: %w: SEP-24 withdraw HTTP 401", ErrUnauthorized)
+		return nil, errb.Code("unauthorized").Wrapf(ErrUnauthorized, "anchor rejected the JWT")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("stellaranchor: SEP-24 withdraw HTTP %d: %s",
-			resp.StatusCode, truncate(string(respBody), 300))
+		return nil, errb.
+			Code("http_error").
+			With("status_code", resp.StatusCode).
+			With("body", truncate(string(respBody), 300)).
+			Errorf("anchor returned a non-2xx status")
 	}
 
-	var parsed WithdrawResponse
+	var parsed interactiveResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return nil, fmt.Errorf("stellaranchor: decode withdraw response: %w", err)
+		return nil, errb.Code("decode_failed").Wrapf(err, "could not decode the interactive response")
 	}
 	if parsed.URL == "" || parsed.ID == "" {
-		return nil, fmt.Errorf("stellaranchor: withdraw response missing url or id: %s", truncate(string(respBody), 200))
+		return nil, errb.
+			Code("incomplete_response").
+			With("body", truncate(string(respBody), 200)).
+			Errorf("interactive response is missing url or id")
 	}
 	return &parsed, nil
 }
@@ -339,11 +437,11 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 	return &envelope.Transaction, nil
 }
 
-// buildWithdrawBody marshals the request to JSON with SEP-24 fields plus the
+// buildInteractiveBody marshals the request to JSON with SEP-24 fields plus the
 // flattened SEP-9 customer fields. SEP-9 keys are top-level (not nested) per
 // the protocol; we manually assemble the map so the Customer struct can stay
 // JSON-tagged independently for transport.
-func buildWithdrawBody(req WithdrawRequest) ([]byte, error) {
+func buildInteractiveBody(kind string, req interactiveRequest) ([]byte, error) {
 	m := map[string]string{
 		"asset_code": req.AssetCode,
 		"amount":     req.Amount,
@@ -361,7 +459,7 @@ func buildWithdrawBody(req WithdrawRequest) ([]byte, error) {
 
 	body, err := json.Marshal(m)
 	if err != nil {
-		return nil, fmt.Errorf("stellaranchor: marshal withdraw body: %w", err)
+		return nil, anchorErr(kind).Code("encode_failed").Wrapf(err, "could not encode the interactive request body")
 	}
 	return body, nil
 }

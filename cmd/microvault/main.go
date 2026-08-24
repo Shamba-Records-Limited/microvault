@@ -203,7 +203,13 @@ func main() {
 
 	// Initialize USSD handler with real services
 	// Note: loanService and disbursementService are nil - will be implemented later
-	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil, nil, pinService, accountNotifier)
+	handler := ussd.NewUSSDHandler(ussd.HandlerDeps{
+		SessionManager:  sessionMgr,
+		MenuRegistry:    menuRegistry,
+		UserService:     userServiceAdapter,
+		PINService:      pinService,
+		AccountNotifier: accountNotifier,
+	})
 	ussdService := ussd.NewUSSDService(handler)
 
 	// Register USSD providers

@@ -41,7 +41,10 @@ var navBackTargets = map[string]string{
 	"payout_method":            "loan_amount",
 	"loan_confirm":             "payout_method",
 	"pin_verify_loan":          "loan_confirm",
-	"pin_verify_repay":         "main",
+	// repay_loan renders a live list of loans rather than a registered menu,
+	// so stepping back off the rail screen returns to main rather than
+	// re-rendering a menu the registry does not hold.
+	"repay_rail": "main",
 }
 
 // navBackClears lists the session keys a menu owns. Stepping back off a menu

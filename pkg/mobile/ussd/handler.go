@@ -2,6 +2,7 @@ package ussd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -24,7 +25,6 @@ var menus = map[string]bool{
 	"pin_create":               true,
 	"pin_confirm":              true,
 	"pin_verify_loan":          true,
-	"pin_verify_repay":         true,
 	"pin_change_old":           true,
 	"pin_change_new":           true,
 	"pin_change_confirm":       true,
@@ -76,26 +76,41 @@ func safeInput(menu, input string) string {
 // NewUSSDHandler creates a new USSD handler. The pinService and
 // accountNotifier parameters may be nil; if so, PIN verification gates and
 // registration SMS notifications are silently skipped.
-func NewUSSDHandler(
-	sessionManager *SessionManager,
-	menuRegistry *MenuRegistry,
-	userService UserService,
-	loanService LoanService,
-	rateService RateService,
-	pinService PINService,
-	accountNotifier contracts.AccountNotifier,
-) *USSDHandler {
+// HandlerDeps are the collaborators and settings a USSDHandler needs.
+// SessionManager and MenuRegistry are required; the services may be nil, in
+// which case the flows that need them degrade to an error screen.
+type HandlerDeps struct {
+	SessionManager  *SessionManager
+	MenuRegistry    *MenuRegistry
+	UserService     UserService
+	LoanService     LoanService
+	RateService     RateService
+	PINService      PINService
+	AccountNotifier contracts.AccountNotifier
+
+	// RepayPaybill is the mobile-money paybill number shown on the repay
+	// screen. Builder-injected, because it names the builder's own merchant
+	// account and varies by environment — the same reasoning as the USSD dial
+	// string. Blank hides the mobile-money option entirely rather than
+	// printing a number nobody can pay into.
+	RepayPaybill string
+}
+
+// NewUSSDHandler builds the handler.
+func NewUSSDHandler(deps HandlerDeps) *USSDHandler {
+	accountNotifier := deps.AccountNotifier
 	if accountNotifier == nil {
 		accountNotifier = &notifications.NoOpAccountNotifier{}
 	}
 	return &USSDHandler{
-		sessionManager:  sessionManager,
-		menuRegistry:    menuRegistry,
-		userService:     userService,
-		loanService:     loanService,
-		rateService:     rateService,
-		pinService:      pinService,
+		sessionManager:  deps.SessionManager,
+		menuRegistry:    deps.MenuRegistry,
+		userService:     deps.UserService,
+		loanService:     deps.LoanService,
+		rateService:     deps.RateService,
+		pinService:      deps.PINService,
 		accountNotifier: accountNotifier,
+		repayPaybill:    deps.RepayPaybill,
 	}
 }
 
@@ -226,8 +241,6 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 	// PIN verification gates
 	case "pin_verify_loan":
 		return h.handlePINVerifyLoan(ctx, session, input)
-	case "pin_verify_repay":
-		return h.handlePINVerifyRepay(ctx, session, input)
 
 	// PIN manager
 	case "pin_manager":
@@ -262,6 +275,8 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 		return h.handleMyLoans(ctx, session)
 	case "repay_loan":
 		return h.handleRepayLoan(ctx, session, input)
+	case "repay_rail":
+		return h.handleRepayRail(ctx, session, input)
 
 	default:
 		return h.showMainMenu(session)
@@ -277,14 +292,11 @@ func (h *USSDHandler) handleMainMenu(ctx context.Context, session *Session, inpu
 			return "", fmt.Errorf("failed to save session: %w", err)
 		}
 		return h.showLoanAmountMenu(session)
-	case "2": // Repay Loan — requires PIN
-		if h.pinService != nil {
-			session.CurrentMenu = "pin_verify_repay"
-			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-				return "", fmt.Errorf("failed to save session: %w", err)
-			}
-			return h.showMenu(session, "pin_verify_repay")
-		}
+	case "2": // Repay Loan
+		// No PIN gate. Nothing leaves the borrower's wallet as a result of
+		// this session — the cash rail is paid at an agent counter and the
+		// paybill from their own mobile-money menu, each with its own
+		// authorisation. A forgotten PIN must not become a reason not to repay.
 		session.CurrentMenu = "repay_loan"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", fmt.Errorf("failed to save session: %w", err)
@@ -1079,70 +1091,220 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, inp
 		return h.formatResponse(session.Language, "END", "no_active_loans"), nil
 	}
 
-	// Get active loans
-	loans, err := h.loanService.GetUserLoans(ctx, session.UserID)
+	loans, err := h.repayableLoans(ctx, session)
 	if err != nil {
 		return h.formatError(session.Language, "error"), nil
 	}
-
-	// Filter for active/disbursed loans only
-	var activeLoans []any
-	for _, loan := range loans {
-		if loanMap, ok := loan.(map[string]any); ok {
-			if status, ok := loanMap["status"].(string); ok {
-				if status == "disbursed" || status == "defaulted" {
-					activeLoans = append(activeLoans, loan)
-				}
-			}
-		}
-	}
-
-	if len(activeLoans) == 0 {
+	if len(loans) == 0 {
 		return h.formatResponse(session.Language, "END", "no_active_loans"), nil
 	}
 
-	// Show repayment information
-	var response strings.Builder
-	// TODO: Use actual paybill from config (currently baked into repay_header).
-	response.WriteString(GetLocalizedMessage(session.Language, "repay_header"))
-	response.WriteString("\n")
-
-	for i, loan := range activeLoans {
-		if i >= 3 { // Limit to 3 loans
-			break
-		}
-
-		var loanRef = "N/A"
-		var loanID string
-		var displayAmount = "—"
-
-		if loanMap, ok := loan.(map[string]any); ok {
-			if ref, ok := loanMap["loan_reference"].(*string); ok && ref != nil {
-				loanRef = *ref
-			}
-			if id, ok := loanMap["id"].(string); ok {
-				loanID = id
-			}
-		}
-
-		// Live amount owed — quote against current vault index + FX. Hard
-		// fail surface: if the quote can't be obtained, show "—" rather
-		// than a stale stored value the borrower might act on.
-		if loanID != "" {
-			if quote, err := h.loanService.GetRepaymentQuote(ctx, loanID); err == nil {
-				displayAmount = fmt.Sprintf("%s %.2f",
-					quote.LocalCurrency,
-					float64(quote.AmountLocalCents)/100.0)
-			} else {
-				log.Printf("repayment quote failed for loan %s: %v", loanID, err)
-			}
-		}
-
-		response.WriteString(Format(session.Language, "repay_loan_line", loanRef, displayAmount))
-		response.WriteString("\n\n")
+	// First entry into the screen lists what can be repaid; a later turn
+	// carries the borrower's choice.
+	if input == "" {
+		return h.showRepayLoanList(ctx, session, loans)
 	}
 
-	return h.formatResponse(session.Language, "END", response.String()), nil
+	choice, err := strconv.Atoi(strings.TrimSpace(input))
+	if err != nil || choice < 1 || choice > len(loans) {
+		return h.conNavText(session, GetLocalizedMessage(session.Language, "invalid_option")), nil
+	}
+
+	chosen := loans[choice-1]
+	session.Data["repay_loan_id"] = chosen.ID
+	session.Data["repay_loan_ref"] = chosen.Reference
+	session.Data["repay_payoff_stroops"] = chosen.PayoffStroops
+	session.CurrentMenu = "repay_rail"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return h.showRepayRailMenu(session, chosen)
+}
+
+// repayLoanChoice is one repayable loan as the repay screens need it.
+type repayLoanChoice struct {
+	ID            string
+	Reference     string
+	PayoffStroops int64
+	DisplayAmount string
+}
+
+// cashRailEligible reports whether this payoff clears MoneyGram's floor.
+func (c repayLoanChoice) cashRailEligible() bool {
+	return c.PayoffStroops >= MinMoneyGramDepositStroops
+}
+
+// repayableLoans returns the borrower's outstanding loans with a live payoff
+// quote against each.
+//
+// A loan whose quote cannot be obtained is still listed, with the amount
+// blanked: the quote hard-fails rather than serving a stale figure, and hiding
+// the loan entirely would leave a borrower who wants to pay with no way in.
+func (h *USSDHandler) repayableLoans(ctx context.Context, session *Session) ([]repayLoanChoice, error) {
+	loans, err := h.loanService.GetUserLoans(ctx, session.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := []repayLoanChoice{}
+	for _, raw := range loans {
+		loanMap, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		status, _ := loanMap["status"].(string)
+		if status != "disbursed" && status != "defaulted" {
+			continue
+		}
+
+		choice := repayLoanChoice{Reference: "N/A", DisplayAmount: "\u2014"}
+		if id, ok := loanMap["id"].(string); ok {
+			choice.ID = id
+		}
+		if ref, ok := loanMap["loan_reference"].(*string); ok && ref != nil {
+			choice.Reference = *ref
+		}
+		if choice.ID != "" {
+			if quote, err := h.loanService.GetRepaymentQuote(ctx, choice.ID); err == nil {
+				choice.PayoffStroops = quote.AmountUSDCStroops
+				choice.DisplayAmount = formatUSDC(quote.AmountUSDCStroops)
+			} else {
+				log.Printf("repayment quote failed for loan %s: %v", choice.ID, err)
+			}
+		}
+
+		out = append(out, choice)
+		if len(out) == 3 { // one USSD page
+			break
+		}
+	}
+	return out, nil
+}
+
+// showRepayLoanList renders the numbered list of repayable loans.
+func (h *USSDHandler) showRepayLoanList(ctx context.Context, session *Session, loans []repayLoanChoice) (string, error) {
+	session.CurrentMenu = "repay_loan"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", fmt.Errorf("failed to save session: %w", err)
+	}
+
+	var body strings.Builder
+	body.WriteString(GetLocalizedMessage(session.Language, "repay_header"))
+	for i, l := range loans {
+		body.WriteString("\n")
+		body.WriteString(fmt.Sprintf("%d. %s", i+1, Format(session.Language, "repay_loan_line", l.Reference, l.DisplayAmount)))
+	}
+	return h.conNavText(session, body.String()), nil
+}
+
+// showRepayRailMenu offers the ways this particular loan can be repaid.
+//
+// The menu is conditional rather than fixed: MoneyGram's 15 USDC floor is a
+// hard limit on their side, so a small loan simply cannot use the cash rail
+// and offering it would only produce a rejection at the counter.
+func (h *USSDHandler) showRepayRailMenu(session *Session, chosen repayLoanChoice) (string, error) {
+	var body strings.Builder
+	body.WriteString(Format(session.Language, "repay_rail_header", chosen.Reference, chosen.DisplayAmount))
+
+	if chosen.cashRailEligible() {
+		body.WriteString("\n")
+		body.WriteString(GetLocalizedMessage(session.Language, "repay_rail_cash"))
+	}
+	if h.repayPaybill != "" {
+		body.WriteString("\n")
+		body.WriteString(GetLocalizedMessage(session.Language, "repay_rail_mobile"))
+	}
+
+	// Neither rail available: say so plainly rather than showing an empty menu.
+	if !chosen.cashRailEligible() && h.repayPaybill == "" {
+		return h.formatResponse(session.Language, "END", "repay_no_rail"), nil
+	}
+	return h.conNavText(session, body.String()), nil
+}
+
+// handleRepayRail acts on the borrower's choice of repayment rail.
+func (h *USSDHandler) handleRepayRail(ctx context.Context, session *Session, input string) (string, error) {
+	chosen := repayLoanChoice{
+		ID:            stringFromSession(session, "repay_loan_id"),
+		Reference:     stringFromSession(session, "repay_loan_ref"),
+		PayoffStroops: int64FromSession(session, "repay_payoff_stroops"),
+	}
+	if chosen.ID == "" {
+		return h.formatError(session.Language, "session_expired"), nil
+	}
+
+	switch strings.TrimSpace(input) {
+	case "1":
+		if chosen.cashRailEligible() {
+			return h.startCashRepayment(ctx, session, chosen)
+		}
+		// Below the floor the cash option was never rendered, so "1" is the
+		// paybill.
+		return h.showPaybill(session, chosen)
+	case "2":
+		if chosen.cashRailEligible() {
+			return h.showPaybill(session, chosen)
+		}
+	}
+	return h.conNavText(session, GetLocalizedMessage(session.Language, "invalid_option")), nil
+}
+
+// startCashRepayment locks the payoff and opens a MoneyGram cash deposit.
+//
+// The session ends here. The interactive URL cannot be followed from a USSD
+// screen and the borrower needs it after hanging up, so it goes by SMS and
+// this screen only says so.
+func (h *USSDHandler) startCashRepayment(ctx context.Context, session *Session, chosen repayLoanChoice) (string, error) {
+	if h.loanService == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	init, err := h.loanService.InitiateRepayment(ctx, chosen.ID, session.PhoneNumber)
+	if err != nil {
+		log.Printf("initiate repayment failed for loan %s: %v", chosen.ID, err)
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	return h.formatResponse(session.Language, "END",
+		Format(session.Language, "repay_cash_sent", formatUSDC(init.AmountUSDCStroops))), nil
+}
+
+// showPaybill renders the mobile-money details. No payment is initiated: the
+// borrower pays from their own mobile-money menu, and the loan reference is
+// what attributes it.
+func (h *USSDHandler) showPaybill(session *Session, chosen repayLoanChoice) (string, error) {
+	if h.repayPaybill == "" {
+		return h.formatResponse(session.Language, "END", "repay_no_rail"), nil
+	}
+	return h.formatResponse(session.Language, "END",
+		Format(session.Language, "repay_paybill", h.repayPaybill, chosen.Reference)), nil
+}
+
+// formatUSDC renders stroops as a USDC amount.
+//
+// USDC, not local currency: the SEP-24 deposit amount is denominated in USDC
+// and MoneyGram converts the borrower's cash at its own counter rate, so a
+// local figure shown here is an estimate their agent may contradict.
+func formatUSDC(stroops int64) string {
+	return fmt.Sprintf("USDC %.2f", float64(stroops)/1e7)
+}
+
+func stringFromSession(session *Session, key string) string {
+	v, _ := session.Data[key].(string)
+	return v
+}
+
+// int64FromSession reads a number back out of session data, which round-trips
+// through JSON and so returns float64 for anything stored as an integer.
+func int64FromSession(session *Session, key string) int64 {
+	switch v := session.Data[key].(type) {
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	}
+	return 0
 }
 
 // handleMyAccount handles the account submenu (PIN Manager, Change Language).
@@ -1429,7 +1591,7 @@ func (h *USSDHandler) handlePINVerifyLoan(ctx context.Context, session *Session,
 
 	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
 	if err != nil {
-		if strings.Contains(err.Error(), "locked") {
+		if errors.Is(err, pinPkg.ErrAccountLocked) {
 			return h.formatLockedMessage(ctx, session), nil
 		}
 		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, phone.Redact(session.PhoneNumber), err)
@@ -1449,43 +1611,6 @@ func (h *USSDHandler) handlePINVerifyLoan(ctx context.Context, session *Session,
 	return h.submitLoan(ctx, session)
 }
 
-// handlePINVerifyRepay verifies the user's PIN before showing repayment info.
-func (h *USSDHandler) handlePINVerifyRepay(ctx context.Context, session *Session, input string) (string, error) {
-	if h.pinService == nil {
-		return h.handleRepayLoan(ctx, session, "")
-	}
-
-	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
-	if err != nil {
-		if strings.Contains(err.Error(), "locked") {
-			return h.formatLockedMessage(ctx, session), nil
-		}
-		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, phone.Redact(session.PhoneNumber), err)
-		return h.formatError(session.Language, "error"), nil
-	}
-
-	if !ok {
-		remaining := h.getRemainingAttempts(ctx, session.UserID)
-		if remaining <= 0 {
-			return h.formatLockedMessage(ctx, session), nil
-		}
-		msg := fmt.Sprintf(GetLocalizedMessage(session.Language, "pin_wrong"), remaining)
-		return h.conNavText(session, msg), nil
-	}
-
-	session.CurrentMenu = "repay_loan"
-	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
-	}
-
-	return h.handleRepayLoan(ctx, session, "")
-}
-
-//
-// # PIN Manager Handlers
-//
-
-// handlePINManager routes PIN Manager submenu selections.
 func (h *USSDHandler) handlePINManager(ctx context.Context, session *Session, input string) (string, error) {
 	// Check if account is locked — redirect to recovery.
 	if h.pinService != nil {
@@ -1532,7 +1657,7 @@ func (h *USSDHandler) handlePINChangeOld(ctx context.Context, session *Session, 
 
 	ok, err := h.pinService.VerifyPIN(ctx, session.UserID, input)
 	if err != nil {
-		if strings.Contains(err.Error(), "locked") {
+		if errors.Is(err, pinPkg.ErrAccountLocked) {
 			return h.formatLockedMessage(ctx, session), nil
 		}
 		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, phone.Redact(session.PhoneNumber), err)

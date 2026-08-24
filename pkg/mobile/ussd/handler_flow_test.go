@@ -40,8 +40,8 @@ func (fakeRateSvc) GetExchangeRate(context.Context, string) (float64, error) { r
 
 type fakeLoanSvc struct{}
 
-func (fakeLoanSvc) GetUserLoans(context.Context, string) ([]any, error)      { return nil, nil }
-func (fakeLoanSvc) RequestLoan(context.Context, *LoanRequest) (any, error)   { return nil, nil }
+func (fakeLoanSvc) GetUserLoans(context.Context, string) ([]any, error)    { return nil, nil }
+func (fakeLoanSvc) RequestLoan(context.Context, *LoanRequest) (any, error) { return nil, nil }
 func (fakeLoanSvc) CheckLoanEligibility(context.Context, string, int64, int) (*LoanApproval, error) {
 	return nil, nil
 }
@@ -51,17 +51,28 @@ func (fakeLoanSvc) GetProductConfig() *LoanProductConfig {
 func (fakeLoanSvc) GetRepaymentQuote(context.Context, string) (*RepaymentQuote, error) {
 	return nil, nil
 }
-
-type fakePINSvc struct {
-	hasPIN bool
+func (fakeLoanSvc) InitiateRepayment(context.Context, string, string) (*RepaymentInitiation, error) {
+	return nil, nil
 }
 
-func (f *fakePINSvc) SetPIN(context.Context, string, string) error               { return nil }
-func (f *fakePINSvc) VerifyPIN(context.Context, string, string) (bool, error)    { return true, nil }
-func (f *fakePINSvc) ChangePIN(context.Context, string, string, string) error    { return nil }
-func (f *fakePINSvc) ResetPIN(context.Context, string, string) error             { return nil }
-func (f *fakePINSvc) IsLocked(context.Context, string) (bool, time.Time, error)  { return false, time.Time{}, nil }
-func (f *fakePINSvc) HasPIN(context.Context, string) (bool, error)               { return f.hasPIN, nil }
+type fakePINSvc struct {
+	hasPIN    bool
+	verifyErr error
+}
+
+func (f *fakePINSvc) SetPIN(context.Context, string, string) error { return nil }
+func (f *fakePINSvc) VerifyPIN(context.Context, string, string) (bool, error) {
+	if f.verifyErr != nil {
+		return false, f.verifyErr
+	}
+	return true, nil
+}
+func (f *fakePINSvc) ChangePIN(context.Context, string, string, string) error { return nil }
+func (f *fakePINSvc) ResetPIN(context.Context, string, string) error          { return nil }
+func (f *fakePINSvc) IsLocked(context.Context, string) (bool, time.Time, error) {
+	return false, time.Time{}, nil
+}
+func (f *fakePINSvc) HasPIN(context.Context, string) (bool, error) { return f.hasPIN, nil }
 func (f *fakePINSvc) SetSecurityQuestions(context.Context, string, []pin.QuestionAnswer) error {
 	return nil
 }
@@ -85,7 +96,15 @@ func newHarness(t *testing.T, user *fakeUserSvc, pinSvc *fakePINSvc) *USSDHandle
 	reg := NewMenuRegistry()
 	NewStandardLoanMenuPreset().Initialize(reg)
 
-	return NewUSSDHandler(sm, reg, user, fakeLoanSvc{}, fakeRateSvc{}, pinSvc, nil)
+	return NewUSSDHandler(HandlerDeps{
+		SessionManager: sm,
+		MenuRegistry:   reg,
+		UserService:    user,
+		LoanService:    fakeLoanSvc{},
+		RateService:    fakeRateSvc{},
+		PINService:     pinSvc,
+		RepayPaybill:   "247247",
+	})
 }
 
 func TestHandleRequest_NewUser_ShowsLanguageMenu(t *testing.T) {

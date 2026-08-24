@@ -256,6 +256,13 @@ type MobileConfig struct {
 	// SessionTimeout is the Redis TTL for a USSD session, refreshed on each
 	// request. From USSD_SESSION_TIMEOUT (seconds); defaults to 5 minutes.
 	SessionTimeout time.Duration
+
+	// RepayPaybill is the mobile-money paybill number shown on the USSD repay
+	// screen. From REPAY_PAYBILL. Builder-injected and environment-specific:
+	// it names the builder's own merchant account, so the platform ships no
+	// default. Blank hides the mobile-money option rather than printing a
+	// number nobody can pay into.
+	RepayPaybill string
 }
 
 type AuthConfig struct {
@@ -590,6 +597,7 @@ func New() (*Config, error) {
 				HTTPTimeout: mobileHTTPTimeout,
 			},
 			SessionTimeout: ussdSessionTimeout,
+			RepayPaybill:   os.Getenv("REPAY_PAYBILL"),
 		},
 		Auth: AuthConfig{
 			JWTSecret:           jwtSecret,

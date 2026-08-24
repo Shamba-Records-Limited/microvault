@@ -5,7 +5,8 @@
 // Service is the single interface, grouped into three kinds of call. View
 // functions (GetTreasuryAddress, GetTotalBorrowed, GetAvailableLiquidity,
 // IsPaused, and the rest) are read-only. Treasury operations (BorrowFromVault,
-// RepayToVault, AccrueInterest) move funds and are signed by the treasury key.
+// RepayToVault, RepayForVault, BumpYield, AccrueInterest) move funds and are
+// signed by the treasury key.
 // Admin operations (PauseVault, SetLockPeriod, and the other setters) reconfigure
 // the contract and are signed by the admin key. Build a Service with NewService,
 // or NewServiceWithClient to supply your own RPCClient (the seam the tests use).

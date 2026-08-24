@@ -64,6 +64,114 @@ func TestAnchorClient_InitiateWithdrawal(t *testing.T) {
 	assert.Equal(t, "interactive_customer_info_needed", resp.Type)
 }
 
+func TestAnchorClient_InitiateDeposit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/transactions/deposit/interactive", r.URL.Path)
+		require.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "Bearer my-jwt", r.Header.Get("Authorization"))
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+
+		assert.Equal(t, "USDC", got["asset_code"])
+		assert.Equal(t, "12.40", got["amount"])
+		assert.Equal(t, "sw", got["lang"])
+		assert.Equal(t, "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL", got["account"])
+		assert.Equal(t, "Jane", got["first_name"])
+		assert.Equal(t, "+254712345678", got["mobile_number"])
+
+		fmt.Fprintln(w, `{
+			"type":"interactive_customer_info_needed",
+			"url":"https://stellar.moneygram.com/sep24?token=dep",
+			"id":"dep-9931"
+		}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	resp, err := c.InitiateDeposit(context.Background(), "my-jwt", DepositRequest{
+		AssetCode: "USDC",
+		Amount:    "12.40",
+		Lang:      "sw",
+		Account:   "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+		Customer: Customer{
+			FirstName:    "Jane",
+			MobileNumber: "+254712345678",
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "dep-9931", resp.ID)
+	assert.Equal(t, "https://stellar.moneygram.com/sep24?token=dep", resp.URL)
+	assert.Equal(t, "interactive_customer_info_needed", resp.Type)
+}
+
+func TestAnchorClient_InitiateDeposit_DefaultsAssetAndLang(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+		assert.Equal(t, "USDC", got["asset_code"])
+		assert.Equal(t, "en", got["lang"])
+
+		fmt.Fprintln(w, `{"type":"interactive_customer_info_needed","url":"https://x/y","id":"id-1"}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateDeposit(context.Background(), "jwt", DepositRequest{
+		Amount:  "15.00",
+		Account: "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+	})
+	require.NoError(t, err)
+}
+
+func TestAnchorClient_InitiateDeposit_RejectsMissingAmount(t *testing.T) {
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: "http://example"}, nil, nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateDeposit(context.Background(), "jwt", DepositRequest{AssetCode: "USDC"})
+	require.ErrorIs(t, err, ErrInvalidConfig)
+}
+
+func TestAnchorClient_GetTransaction_Deposit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintln(w, `{"transaction":{
+			"id":"dep-9931",
+			"kind":"deposit",
+			"status":"completed",
+			"amount_in":"1650.00",
+			"amount_in_asset":"iso4217:KES",
+			"amount_out":"12.40",
+			"amount_out_asset":"stellar:USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+			"to":"GTREASURY",
+			"deposit_memo":"9182736455",
+			"deposit_memo_type":"id",
+			"stellar_transaction_id":"abc123def456",
+			"external_transaction_id":"MG-REF-778899"
+		}}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	tx, err := c.GetTransaction(context.Background(), "jwt", "dep-9931")
+	require.NoError(t, err)
+	assert.Equal(t, "deposit", tx.Kind)
+	assert.Equal(t, StatusCompleted, tx.Status)
+	assert.Equal(t, "GTREASURY", tx.To)
+	assert.Equal(t, "9182736455", tx.DepositMemo)
+	assert.Equal(t, "id", tx.DepositMemoType)
+	assert.Equal(t, "abc123def456", tx.StellarTransactionID)
+	assert.True(t, tx.Status.Terminal())
+}
+
 func TestAnchorClient_GetTransaction(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/transaction", r.URL.Path)

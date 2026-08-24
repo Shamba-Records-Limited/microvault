@@ -11,8 +11,10 @@ func TestTxCategoryForCoversEveryType(t *testing.T) {
 		TxTypeVaultRepay:     TxCategoryOnChain,
 		TxTypeAnchorTransfer: TxCategoryOnChain,
 		TxTypeRefund:         TxCategoryOnChain,
+		TxTypeAnchorDeposit:  TxCategoryOnChain,
 		TxTypeOffRamp:        TxCategoryOffChain,
 		TxTypeFiatFailover:   TxCategoryOffChain,
+		TxTypeLoanRepayment:  TxCategoryOffChain,
 	}
 
 	for txType, category := range want {

@@ -7,6 +7,8 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	stellartesting "github.com/Shamba-Records-Limited/microvault/pkg/stellar/testing"
 )
 
 // ============================================================================
@@ -37,13 +39,13 @@ func TestAddressToScVal(t *testing.T) {
 			name:        "invalid address",
 			address:     "invalid",
 			wantErr:     true,
-			errContains: "invalid address",
+			errContains: "invalid stellar address",
 		},
 		{
 			name:        "empty address",
 			address:     "",
 			wantErr:     true,
-			errContains: "invalid address",
+			errContains: "invalid stellar address",
 		},
 	}
 
@@ -487,4 +489,163 @@ func TestScValToAddress(t *testing.T) {
 			assert.Equal(t, tt.want, result)
 		})
 	}
+}
+
+// ============================================================================
+// Contract Event Extraction Tests
+// ============================================================================
+
+// buildEventMetaXDR encodes a V3 transaction meta carrying a single contract
+// event whose data is a map, the format #[contractevent] emits by default.
+func buildEventMetaXDR(t *testing.T, contractID, eventName string, fields map[string]xdr.ScVal) string {
+	t.Helper()
+
+	contractBytes, err := strkey.Decode(strkey.VersionByteContract, contractID)
+	require.NoError(t, err)
+	var id xdr.ContractId
+	copy(id[:], contractBytes)
+
+	entries := make(xdr.ScMap, 0, len(fields))
+	for name, val := range fields {
+		sym := xdr.ScSymbol(name)
+		entries = append(entries, xdr.ScMapEntry{
+			Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: &sym},
+			Val: val,
+		})
+	}
+
+	mapPtr := &entries
+	topic := xdr.ScSymbol(eventName)
+	event := xdr.ContractEvent{
+		ContractId: &id,
+		Type:       xdr.ContractEventTypeContract,
+		Body: xdr.ContractEventBody{
+			V: 0,
+			V0: &xdr.ContractEventV0{
+				Topics: []xdr.ScVal{{Type: xdr.ScValTypeScvSymbol, Sym: &topic}},
+				Data:   xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &mapPtr},
+			},
+		},
+	}
+
+	meta := xdr.TransactionMeta{
+		V: 3,
+		V3: &xdr.TransactionMetaV3{
+			SorobanMeta: &xdr.SorobanTransactionMeta{
+				Events: []xdr.ContractEvent{event},
+				// The zero ScVal is a bool with a nil pointer and will not encode.
+				ReturnValue: xdr.ScVal{Type: xdr.ScValTypeScvVoid},
+			},
+		},
+	}
+
+	encoded, err := xdr.MarshalBase64(meta)
+	require.NoError(t, err)
+	return encoded
+}
+
+func addressScVal(t *testing.T, address string) xdr.ScVal {
+	t.Helper()
+	val, err := addressToScVal(address)
+	require.NoError(t, err)
+	return val
+}
+
+func TestExtractRepaidBorrower(t *testing.T) {
+	keys := stellartesting.NewTestKeys()
+
+	t.Run("repay_for carries the borrower", func(t *testing.T) {
+		meta := buildEventMetaXDR(t, keys.ContractID, "repaid", map[string]xdr.ScVal{
+			"treasury":       addressScVal(t, keys.TreasuryPublic),
+			"borrower":       addressScVal(t, keys.UserPublic),
+			"amount":         i128ToScVal(500000000),
+			"total_borrowed": i128ToScVal(1000000000),
+		})
+
+		borrower, err := extractRepaidBorrower(meta, keys.ContractID)
+		require.NoError(t, err)
+		assert.Equal(t, keys.UserPublic, borrower)
+	})
+
+	t.Run("unattributed repay yields an empty borrower", func(t *testing.T) {
+		// Option<Address>::None encodes as Void.
+		meta := buildEventMetaXDR(t, keys.ContractID, "repaid", map[string]xdr.ScVal{
+			"treasury":       addressScVal(t, keys.TreasuryPublic),
+			"borrower":       {Type: xdr.ScValTypeScvVoid},
+			"amount":         i128ToScVal(500000000),
+			"total_borrowed": i128ToScVal(1000000000),
+		})
+
+		borrower, err := extractRepaidBorrower(meta, keys.ContractID)
+		require.NoError(t, err)
+		assert.Empty(t, borrower)
+	})
+
+	t.Run("event from a different contract is ignored", func(t *testing.T) {
+		otherContract := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		meta := buildEventMetaXDR(t, otherContract, "repaid", map[string]xdr.ScVal{
+			"borrower": addressScVal(t, keys.UserPublic),
+		})
+
+		_, err := extractRepaidBorrower(meta, keys.ContractID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "repaid event not found")
+	})
+
+	t.Run("no Repaid event", func(t *testing.T) {
+		meta := buildEventMetaXDR(t, keys.ContractID, "borrowed", map[string]xdr.ScVal{
+			"recipient": addressScVal(t, keys.UserPublic),
+		})
+
+		_, err := extractRepaidBorrower(meta, keys.ContractID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "repaid event not found")
+	})
+
+	t.Run("undecodable metadata", func(t *testing.T) {
+		_, err := extractRepaidBorrower("not-base64-xdr", keys.ContractID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to decode result meta")
+	})
+}
+
+func TestExtractBorrowedRecipient(t *testing.T) {
+	keys := stellartesting.NewTestKeys()
+
+	meta := buildEventMetaXDR(t, keys.ContractID, "borrowed", map[string]xdr.ScVal{
+		"treasury":       addressScVal(t, keys.TreasuryPublic),
+		"recipient":      addressScVal(t, keys.UserPublic),
+		"amount":         i128ToScVal(1000000000),
+		"total_borrowed": i128ToScVal(1000000000),
+	})
+
+	recipient, err := extractBorrowedRecipient(meta, keys.ContractID)
+	require.NoError(t, err)
+	assert.Equal(t, keys.UserPublic, recipient)
+}
+
+func TestExtractYieldBumpedTotalManaged(t *testing.T) {
+	keys := stellartesting.NewTestKeys()
+
+	t.Run("reads total_managed", func(t *testing.T) {
+		meta := buildEventMetaXDR(t, keys.ContractID, "yield_bumped", map[string]xdr.ScVal{
+			"from":          addressScVal(t, keys.TreasuryPublic),
+			"amount":        i128ToScVal(250000000),
+			"total_managed": i128ToScVal(9750000000),
+		})
+
+		total, err := extractYieldBumpedTotalManaged(meta, keys.ContractID)
+		require.NoError(t, err)
+		assert.Equal(t, int64(9750000000), total)
+	})
+
+	t.Run("no YieldBumped event", func(t *testing.T) {
+		meta := buildEventMetaXDR(t, keys.ContractID, "repaid", map[string]xdr.ScVal{
+			"amount": i128ToScVal(1),
+		})
+
+		_, err := extractYieldBumpedTotalManaged(meta, keys.ContractID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "yield_bumped event not found")
+	})
 }

@@ -53,6 +53,8 @@ type Service interface {
 	// Treasury Operations
 	BorrowFromVault(ctx context.Context, req types.BorrowRequest) (*types.BorrowResponse, error)
 	RepayToVault(ctx context.Context, req types.RepayRequest) (*types.RepayResponse, error)
+	RepayForVault(ctx context.Context, req types.RepayForRequest) (*types.RepayResponse, error)
+	BumpYield(ctx context.Context, req types.BumpYieldRequest) (*types.BumpYieldResponse, error)
 	AccrueInterest(ctx context.Context) error
 
 	// Admin Operations

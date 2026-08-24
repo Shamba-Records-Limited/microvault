@@ -198,14 +198,6 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(pinVerifyLoanMenu)
 
-	pinVerifyRepayMenu := NewMenuBuilder("pin_verify_repay").
-		WithTitle("en", "Enter your 4-digit PIN:").
-		WithTitle("sw", "Weka PIN yako ya tarakimu 4:").
-		WithTitle("fr", "Entrez votre PIN à 4 chiffres:").
-		WithAuth(true).
-		Build()
-	registry.Register(pinVerifyRepayMenu)
-
 	// Security Questions Setup
 	secQ1SelectMenu := NewMenuBuilder("security_q1_select").
 		WithTitle("en", "Select security question 1:").

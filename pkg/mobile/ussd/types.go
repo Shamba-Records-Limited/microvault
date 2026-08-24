@@ -104,6 +104,7 @@ type USSDHandler struct {
 	loanService     LoanService
 	rateService     RateService
 	pinService      PINService
+	repayPaybill    string
 	accountNotifier contracts.AccountNotifier
 }
 
@@ -217,7 +218,35 @@ type LoanService interface {
 	// the local figure applies the latest FX. Returns an error (hard-fail —
 	// no stale fallback) when the vault or FX is unavailable.
 	GetRepaymentQuote(ctx context.Context, loanID string) (*RepaymentQuote, error)
+
+	// InitiateRepayment locks the payoff in USDC and opens a MoneyGram cash
+	// deposit against it. The interactive URL is shortened and delivered by
+	// SMS rather than returned here: a USSD screen cannot carry a URL a
+	// feature-phone user could act on, and the borrower needs it after the
+	// session has ended.
+	//
+	// The locked figure is what settles the loan however long the borrower
+	// takes to reach an agent, so this is the point the quote stops moving.
+	InitiateRepayment(ctx context.Context, loanID, phoneNumber string) (*RepaymentInitiation, error)
 }
+
+// RepaymentInitiation is what the borrower needs to be told after a cash
+// deposit has been opened. The amount is the locked payoff, in USDC, because
+// MoneyGram converts the cash at its own counter rate — a local-currency
+// figure quoted here is an estimate the agent may contradict.
+type RepaymentInitiation struct {
+	LoanID            string
+	AmountUSDCStroops int64
+	ExpiresAt         time.Time
+}
+
+// MinMoneyGramDepositStroops is MoneyGram's production on-ramp floor, 15 USDC
+// at seven decimals.
+//
+// It is a hard limit on their side, so a payoff below it cannot use the cash
+// rail at all and the repay menu offers mobile money alone. A KES 1,000 loan
+// is roughly 7 USDC, which is well inside the excluded range.
+const MinMoneyGramDepositStroops int64 = 150_000_000
 
 // RepaymentQuote is the live amount owed on a loan, computed from the vault
 // borrow_index + current FX. Stored repayment quotes are advisory only — this
