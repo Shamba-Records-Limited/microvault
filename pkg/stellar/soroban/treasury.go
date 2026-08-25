@@ -25,7 +25,7 @@ func treasuryErr(fnName string) oops.OopsErrorBuilder {
 	return oops.
 		In(errDomain).
 		Tags("soroban", "contract").
-		With("contract_function", fnName)
+		With(pkgErrors.AttrContractFunction, fnName)
 }
 
 // ============================================================================
@@ -113,7 +113,7 @@ func (s *service) RepayToVault(ctx context.Context, req types.RepayRequest) (*ty
 func (s *service) RepayForVault(ctx context.Context, req types.RepayForRequest) (*types.RepayResponse, error) {
 	if req.BorrowerAddress == "" {
 		return nil, treasuryErr("repay_for").
-			Code("invalid_address").
+			Code(pkgErrors.CodeInvalidAddress).
 			Wrapf(types.ErrInvalidStellarAddress, "borrower address is required for an attributed repay")
 	}
 	return s.repay(ctx, req.BorrowerAddress, req.Amount)
@@ -130,7 +130,7 @@ func (s *service) repay(ctx context.Context, borrowerAddress string, amount int6
 
 	errb := treasuryErr(fnName).
 		With("amount", amount).
-		With("borrower", borrowerAddress)
+		With(pkgErrors.AttrBorrower, borrowerAddress)
 
 	if amount <= 0 {
 		return nil, errb.Code(pkgErrors.CodeInvalidAmount).Wrapf(types.ErrInvalidTransactionAmount, "repay amount must be positive")
@@ -284,7 +284,7 @@ func (s *service) invokeTreasuryOp(
 	if simResp.Error != "" {
 		log.Printf("%s simulation error: %s", fnName, simResp.Error)
 		return nil, errb.
-			Code("simulation_rejected").
+			Code(pkgErrors.CodeSimulationRejected).
 			With("simulation_error", simResp.Error).
 			Wrapf(types.ErrSimulationFailed, "contract simulation rejected the call")
 	}

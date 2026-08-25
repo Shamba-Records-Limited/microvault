@@ -6,6 +6,8 @@ import (
 
 	"github.com/samber/lo"
 	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -52,8 +54,8 @@ func addressToScVal(address string) (xdr.ScVal, error) {
 	return xdr.ScVal{}, oops.
 		In(errDomain).
 		Tags("soroban").
-		Code("invalid_address").
-		With("address", address).
+		Code(pkgErrors.CodeInvalidAddress).
+		With(pkgErrors.AttrAddress, address).
 		Wrapf(types.ErrInvalidStellarAddress, "address is neither an account nor a contract address")
 }
 

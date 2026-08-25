@@ -355,8 +355,8 @@ func (c *AnchorClient) initiateInteractive(ctx context.Context, jwt, kind string
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, errb.
-			Code("http_error").
-			With("status_code", resp.StatusCode).
+			Code(pkgErrors.CodeHTTPError).
+			With(pkgErrors.AttrStatusCode, resp.StatusCode).
 			With("body", truncate(string(respBody), 300)).
 			Errorf("anchor returned a non-2xx status")
 	}
@@ -367,7 +367,7 @@ func (c *AnchorClient) initiateInteractive(ctx context.Context, jwt, kind string
 	}
 	if parsed.URL == "" || parsed.ID == "" {
 		return nil, errb.
-			Code("incomplete_response").
+			Code(pkgErrors.CodeIncompleteResponse).
 			With("body", truncate(string(respBody), 200)).
 			Errorf("interactive response is missing url or id")
 	}

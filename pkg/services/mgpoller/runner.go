@@ -27,9 +27,9 @@ const errDomain = pkgErrors.DomainMoneyGramPoller
 func missingDep(direction, dependency string) error {
 	return oops.
 		In(errDomain).
-		Code("missing_dependency").
-		With("direction", direction).
-		With("dependency", dependency).
+		Code(pkgErrors.CodeMissingDependency).
+		With(pkgErrors.AttrDirection, direction).
+		With(pkgErrors.AttrDependency, dependency).
 		Errorf("required dependency is missing")
 }
 

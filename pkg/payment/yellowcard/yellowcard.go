@@ -13,6 +13,10 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // yellowcardTransport is a custom http.RoundTripper that signs requests
@@ -38,7 +42,8 @@ func (t *yellowcardTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if req.Body != nil && req.Body != http.NoBody {
 		bodyBytes, err := io.ReadAll(req.Body)
 		if err != nil {
-			return nil, fmt.Errorf("yellowcard: failed to read request body: %w", err)
+			return nil, ycErr("sign_request").Code(pkgErrors.CodeTransportFailed).
+				Wrapf(err, "could not read the request body for signing")
 		}
 		req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
@@ -61,6 +66,17 @@ func (t *yellowcardTransport) RoundTrip(req *http.Request) (*http.Response, erro
 type YellowcardAdapter struct {
 	httpClient *http.Client
 	baseURL    string
+}
+
+// ycErr starts an error builder for YellowCard calls. The provider is an
+// attribute rather than part of the domain so YellowCard and Fonbnk failures
+// group together as off-ramp problems and can still be told apart.
+func ycErr(op string) oops.OopsErrorBuilder {
+	return oops.
+		In(pkgErrors.DomainOffRamp).
+		Tags("yellowcard").
+		With(pkgErrors.AttrProvider, "yellowcard").
+		With(pkgErrors.AttrOperation, op)
 }
 
 // NewYellowcardAdapter creates a new YellowCard adapter with HMAC request signing.
@@ -91,12 +107,12 @@ func (y *YellowcardAdapter) GetChannels(ctx context.Context, country string) ([]
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
+		return nil, ycErr("get_channels").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build the request")
 	}
 
 	resp, err := y.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: request failed: %w", err)
+		return nil, ycErr("get_channels").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "request did not complete")
 	}
 	defer resp.Body.Close()
 
@@ -106,7 +122,7 @@ func (y *YellowcardAdapter) GetChannels(ctx context.Context, country string) ([]
 
 	var channelsResp ChannelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&channelsResp); err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to decode response: %w", err)
+		return nil, ycErr("get_channels").Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the response")
 	}
 
 	return channelsResp.Channels, nil
@@ -121,12 +137,12 @@ func (y *YellowcardAdapter) GetNetworks(ctx context.Context, country string) ([]
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
+		return nil, ycErr("get_networks").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build the request")
 	}
 
 	resp, err := y.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: request failed: %w", err)
+		return nil, ycErr("get_networks").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "request did not complete")
 	}
 	defer resp.Body.Close()
 
@@ -136,7 +152,7 @@ func (y *YellowcardAdapter) GetNetworks(ctx context.Context, country string) ([]
 
 	var networksResp NetworksResponse
 	if err := json.NewDecoder(resp.Body).Decode(&networksResp); err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to decode response: %w", err)
+		return nil, ycErr("get_networks").Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the response")
 	}
 
 	return networksResp.Networks, nil
@@ -148,12 +164,12 @@ func (y *YellowcardAdapter) GetAccount(ctx context.Context) ([]Account, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
+		return nil, ycErr("get_account").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build the request")
 	}
 
 	resp, err := y.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: request failed: %w", err)
+		return nil, ycErr("get_account").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "request did not complete")
 	}
 	defer resp.Body.Close()
 
@@ -163,7 +179,7 @@ func (y *YellowcardAdapter) GetAccount(ctx context.Context) ([]Account, error) {
 
 	var accountsResp AccountsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&accountsResp); err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to decode response: %w", err)
+		return nil, ycErr("get_account").Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the response")
 	}
 
 	return accountsResp.Accounts, nil
@@ -182,7 +198,8 @@ func (y *YellowcardAdapter) GetAvailableBalance(ctx context.Context) (float64, e
 		}
 	}
 
-	return 0, fmt.Errorf("yellowcard: no USD account found")
+	return 0, ycErr("get_available_balance").Code(pkgErrors.CodeNotFound).
+		Errorf("no USD account found on the YellowCard profile")
 }
 
 // GetRates retrieves exchange rates for a currency.
@@ -194,12 +211,12 @@ func (y *YellowcardAdapter) GetRates(ctx context.Context, currency string) ([]Ra
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
+		return nil, ycErr("get_rates").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build the request")
 	}
 
 	resp, err := y.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: request failed: %w", err)
+		return nil, ycErr("get_rates").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "request did not complete")
 	}
 	defer resp.Body.Close()
 
@@ -209,7 +226,7 @@ func (y *YellowcardAdapter) GetRates(ctx context.Context, currency string) ([]Ra
 
 	var ratesResp RatesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&ratesResp); err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to decode response: %w", err)
+		return nil, ycErr("get_rates").Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the response")
 	}
 
 	return ratesResp.Rates, nil
@@ -227,17 +244,17 @@ func (y *YellowcardAdapter) SubmitPayment(ctx context.Context, req PaymentReques
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to marshal request: %w", err)
+		return nil, ycErr("submit_payment").Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not encode the request")
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(body))
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
+		return nil, ycErr("submit_payment").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build the request")
 	}
 
 	resp, err := y.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: request failed: %w", err)
+		return nil, ycErr("submit_payment").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "request did not complete")
 	}
 	defer resp.Body.Close()
 
@@ -246,14 +263,22 @@ func (y *YellowcardAdapter) SubmitPayment(ctx context.Context, req PaymentReques
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		var apiErr APIError
 		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Code != "" {
-			return nil, fmt.Errorf("yellowcard: %s - %s", apiErr.Code, apiErr.Message)
+			return nil, ycErr("submit_payment").
+				With("api_code", apiErr.Code).
+				With("api_message", apiErr.Message).
+				Code(pkgErrors.CodeHTTPError).
+				Errorf("YellowCard rejected the payment")
 		}
-		return nil, fmt.Errorf("yellowcard: API error %d: %s", resp.StatusCode, string(respBody))
+		return nil, ycErr("submit_payment").
+			With(pkgErrors.AttrStatusCode, resp.StatusCode).
+			With("body", string(respBody)).
+			Code(pkgErrors.CodeHTTPError).
+			Errorf("YellowCard returned a non-2xx for the payment")
 	}
 
 	var paymentResp PaymentResponse
 	if err := json.Unmarshal(respBody, &paymentResp); err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to decode response: %w", err)
+		return nil, ycErr("submit_payment").Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the response")
 	}
 
 	return &paymentResp, nil
@@ -268,12 +293,12 @@ func (y *YellowcardAdapter) LookupPayment(ctx context.Context, paymentID string)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to create request: %w", err)
+		return nil, ycErr("lookup_payment").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build the request")
 	}
 
 	resp, err := y.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("yellowcard: request failed: %w", err)
+		return nil, ycErr("lookup_payment").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "request did not complete")
 	}
 	defer resp.Body.Close()
 
@@ -283,7 +308,7 @@ func (y *YellowcardAdapter) LookupPayment(ctx context.Context, paymentID string)
 
 	var details PaymentDetails
 	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
-		return nil, fmt.Errorf("yellowcard: failed to decode response: %w", err)
+		return nil, ycErr("lookup_payment").Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the response")
 	}
 
 	return &details, nil
@@ -296,10 +321,18 @@ func (y *YellowcardAdapter) parseError(resp *http.Response) error {
 
 	var apiErr APIError
 	if json.Unmarshal(body, &apiErr) == nil && apiErr.Code != "" {
-		return fmt.Errorf("yellowcard: %s - %s", apiErr.Code, apiErr.Message)
+		return ycErr("api").
+			With("api_code", apiErr.Code).
+			With("api_message", apiErr.Message).
+			Code(pkgErrors.CodeHTTPError).
+			Errorf("YellowCard returned an API error")
 	}
 
-	return fmt.Errorf("yellowcard: API error %d: %s", resp.StatusCode, string(body))
+	return ycErr("api").
+		With(pkgErrors.AttrStatusCode, resp.StatusCode).
+		With("body", string(body)).
+		Code(pkgErrors.CodeHTTPError).
+		Errorf("YellowCard returned a non-2xx")
 }
 
 // ParseStellarWalletAddress splits a YellowCard combined wallet address into
@@ -310,7 +343,10 @@ func (y *YellowcardAdapter) parseError(resp *http.Response) error {
 func ParseStellarWalletAddress(combined string) (address string, memo string, err error) {
 	parts := strings.SplitN(combined, "_", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("yellowcard: invalid stellar wallet address format: %q", combined)
+		return "", "", ycErr("parse_wallet_address").
+			With(pkgErrors.AttrAddress, combined).
+			Code(pkgErrors.CodeInvalidAddress).
+			Errorf("stellar wallet address is not in the expected address:memo form")
 	}
 	return parts[0], parts[1], nil
 }
