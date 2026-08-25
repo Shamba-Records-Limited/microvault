@@ -18,6 +18,10 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
 	"github.com/Shamba-Records-Limited/microvault/pkg/user"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 const (
@@ -43,6 +47,15 @@ type WalletConfig struct {
 // service degrades to logging.
 type AlertService interface {
 	AlertOps(subject, message string) error
+}
+
+// userAdapterErr starts an error builder for registration and child-account
+// work. Derived key material is never an attribute — only addresses and
+// indices are.
+func userAdapterErr(op string) oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainIdentity).
+		Tags("registration").
+		With(pkgErrors.AttrOperation, op)
 }
 
 // UserServiceAdapter adapts the user and account services to implement the USSD UserService interface
@@ -81,7 +94,7 @@ func NewUserServiceAdapter(
 	masterKey, err := bip32.NewMasterKey([]byte(treasurySeed))
 	if err != nil {
 		log.Println("Error creating master key:", err)
-		return nil, fmt.Errorf("failed to create master key: %w", err)
+		return nil, userAdapterErr("new").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not create the master key")
 	}
 
 	// Set derived values
@@ -228,7 +241,7 @@ func (a *UserServiceAdapter) buildSponsoredAccountReq(childKP *keypair.Full) ste
 func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIndex int, address string) error {
 	exists, err := a.stellarService.AccountExists(ctx, address)
 	if err != nil {
-		return fmt.Errorf("check on-chain account %s: %w", address, err)
+		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not check whether the account exists on-chain")
 	}
 	if exists {
 		// Settles rows left pending by a dropped goroutine, marked failed by an
@@ -239,10 +252,15 @@ func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIn
 
 	childKP, err := a.deriveChildKeypair(accountIndex)
 	if err != nil {
-		return fmt.Errorf("derive child keypair for index %d: %w", accountIndex, err)
+		return userAdapterErr("ensure_account").With(pkgErrors.AttrAccountIndex, accountIndex).Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not derive the child keypair")
 	}
 	if childKP.Address() != address {
-		return fmt.Errorf("derived address %s does not match stored %s (index %d)", childKP.Address(), address, accountIndex)
+		return userAdapterErr("ensure_account").
+			With("derived_address", childKP.Address()).
+			With("stored_address", address).
+			With(pkgErrors.AttrAccountIndex, accountIndex).
+			Code(pkgErrors.CodeInvalidAddress).
+			Errorf("derived address does not match the stored one, which means the seed or index is wrong")
 	}
 
 	if err := a.stellarService.CreateSponsoredAccount(ctx, a.buildSponsoredAccountReq(childKP)); err != nil {
@@ -252,7 +270,7 @@ func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIn
 			a.confirmChainStatus(ctx, address)
 			return nil
 		}
-		return fmt.Errorf("create on-chain account %s: %w", address, err)
+		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "could not create the on-chain account")
 	}
 	a.confirmChainStatus(ctx, address)
 	a.logger.Info("created missing on-chain account",
@@ -454,7 +472,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	// 3. BEGIN DATABASE TRANSACTION - Ensure atomic user + account creation
 	tx := a.db.Begin()
 	if tx.Error != nil {
-		return nil, nil, fmt.Errorf("failed to begin transaction: %w", tx.Error)
+		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(tx.Error, "could not begin the registration transaction")
 	}
 
 	// Ensure rollback on panic
@@ -470,7 +488,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	if err != nil {
 		tx.Rollback()
 		log.Printf("Failed to create user in transaction: %v", err)
-		return nil, nil, fmt.Errorf("failed to create user: %w", err)
+		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not create the user")
 	}
 
 	// Get next GLOBAL account index within transaction
@@ -479,7 +497,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	if err != nil {
 		tx.Rollback()
 		log.Printf("Failed to get next account index: %v", err)
-		return nil, nil, fmt.Errorf("failed to get next account index: %w", err)
+		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not reserve the next account index")
 	}
 	log.Printf("Assigned global account index %d for user %s", accountIndex, userResp.ID)
 
@@ -488,7 +506,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	if err != nil {
 		tx.Rollback()
 		log.Printf("Failed to derive child keypair: %v", err)
-		return nil, nil, fmt.Errorf("failed to derive child keypair: %w", err)
+		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not derive the child keypair")
 	}
 
 	// Build the sponsored-account creation request. The on-chain submit is
@@ -507,13 +525,13 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	if err != nil {
 		tx.Rollback()
 		log.Printf("Failed to create account record for user %s: %v", userResp.ID, err)
-		return nil, nil, fmt.Errorf("failed to create account record: %w", err)
+		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not create the account record")
 	}
 
 	// COMMIT TRANSACTION - user + account row created atomically
 	if err := tx.Commit().Error; err != nil {
 		log.Printf("Failed to commit transaction for user %s: %v", userResp.ID, err)
-		return nil, nil, fmt.Errorf("failed to commit transaction: %w", err)
+		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not commit the registration transaction")
 	}
 
 	// Submit the on-chain sponsored-account creation off the USSD request path
@@ -570,19 +588,19 @@ func (a *UserServiceAdapter) deriveChildKeypair(accountIndex int) (*keypair.Full
 	// Derive: m/44'
 	purpose, err := a.walletConfig.MasterKey.NewChildKey(purposeIndex)
 	if err != nil {
-		return nil, fmt.Errorf("failed to derive purpose: %w", err)
+		return nil, userAdapterErr("derive_keypair").With("bip44_level", "purpose").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not derive a BIP44 level")
 	}
 
 	// Derive: m/44'/148'
 	coinType, err := purpose.NewChildKey(coinIndex)
 	if err != nil {
-		return nil, fmt.Errorf("failed to derive coin type: %w", err)
+		return nil, userAdapterErr("derive_keypair").With("bip44_level", "coin_type").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not derive a BIP44 level")
 	}
 
 	// Derive: m/44'/148'/accountIndex'
 	accountKey, err := coinType.NewChildKey(uint32(accountIndex) + 0x80000000) // hardened
 	if err != nil {
-		return nil, fmt.Errorf("failed to derive account: %w", err)
+		return nil, userAdapterErr("derive_keypair").With("bip44_level", "account").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not derive a BIP44 level")
 	}
 
 	// Get the private key bytes (32 bytes)
@@ -595,7 +613,7 @@ func (a *UserServiceAdapter) deriveChildKeypair(accountIndex int) (*keypair.Full
 	// Create Stellar keypair from derived seed
 	childKP, err := keypair.FromRawSeed(seed32)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Stellar keypair from derived seed: %w", err)
+		return nil, userAdapterErr("derive_keypair").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build a Stellar keypair from the derived seed")
 	}
 
 	return childKP, nil

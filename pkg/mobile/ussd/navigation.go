@@ -2,7 +2,6 @@ package ussd
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"unicode/utf8"
 )
@@ -127,7 +126,7 @@ func (h *USSDHandler) handleNavigation(ctx context.Context, session *Session, in
 		}
 		session.CurrentMenu = "main"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", true, fmt.Errorf("failed to save session: %w", err)
+			return "", true, sessionSaveErr(session, err)
 		}
 		resp, err := h.showMainMenu(session)
 		return resp, true, err
@@ -142,7 +141,7 @@ func (h *USSDHandler) handleNavigation(ctx context.Context, session *Session, in
 		target := navBackTargets[menuID]
 		session.CurrentMenu = target
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", true, fmt.Errorf("failed to save session: %w", err)
+			return "", true, sessionSaveErr(session, err)
 		}
 		resp, err := h.renderMenu(ctx, session, target)
 		return resp, true, err

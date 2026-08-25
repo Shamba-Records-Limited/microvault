@@ -6,6 +6,10 @@ import (
 	"log"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // WebhookEventHandler processes incoming YellowCard webhook events.
@@ -46,6 +50,13 @@ type DisbursementUpdater interface {
 	// FAILED events into refund-pending (direct) vs terminal-failed (fiat)
 	// without YC having to send a directSettlement flag on every webhook.
 	IsDirectSettlement(sequenceID string) (bool, error)
+}
+
+// webhookErr starts an error builder for provider callback handling. These
+// errors reach the refund poller's escalation path, so the sequence ID and the
+// status being written are the attributes ops read first.
+func webhookErr(op string) oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainOffRamp).Tags("webhook").With(pkgErrors.AttrOperation, op)
 }
 
 // CompletionFinancials carries the final amounts from a completed YellowCard
@@ -136,7 +147,8 @@ func (s *Service) ProcessYellowCardEvent(event yellowcard.WebhookEvent) error {
 		yellowcard.EventSendFailed:
 		isDirect, err := directSettlementLookup()
 		if err != nil {
-			return fmt.Errorf("look up settlement method for %s: %w", seqID, err)
+			return webhookErr("lookup_settlement_method").With(pkgErrors.AttrSequenceID, seqID).
+				Code(pkgErrors.CodeLoanLoadFailed).Wrapf(err, "could not look up the settlement method")
 		}
 		return s.handleFailedEvent(seqID, paymentID, status, isDirect)
 
@@ -152,7 +164,8 @@ func (s *Service) ProcessYellowCardEvent(event yellowcard.WebhookEvent) error {
 // the borrower.
 func (s *Service) handleComplete(seqID, paymentID string) error {
 	if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementComplete); err != nil {
-		return fmt.Errorf("update status to complete: %w", err)
+		return webhookErr("update_status").With("target_status", "complete").
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
 	}
 	s.recordCompletionFinancials(seqID, paymentID)
 	if err := s.disbursements.NotifyDisbursementComplete(seqID); err != nil {
@@ -188,14 +201,16 @@ func (s *Service) handleFailedEvent(seqID, paymentID, status string, isDirect bo
 		// Direct settlement failed after USDC was sent to YC will refund crypto.
 		// Set to refund_pending; RefundPoller will detect the refund and trigger fiat failover.
 		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementRefundPending); err != nil {
-			return fmt.Errorf("update status to refund_pending: %w", err)
+			return webhookErr("update_status").With("target_status", "refund_pending").
+				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
 		}
 		s.alertOps("Direct Settlement Failed",
 			fmt.Sprintf("Payment %s (seq: %s) failed after USDC sent. Awaiting crypto refund.", paymentID, seqID))
 	} else {
 		// Fiat disbursement failed to terminal failure.
 		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementFailed); err != nil {
-			return fmt.Errorf("update status to failed: %w", err)
+			return webhookErr("update_status").With("target_status", "failed").
+				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
 		}
 		if err := s.disbursements.NotifyDisbursementFailed(seqID); err != nil {
 			log.Printf("yellowcard webhook: failed to notify user of failure for %s: %v", seqID, err)
@@ -217,7 +232,8 @@ func (s *Service) handleByStatus(seqID, paymentID, status string, directLookup f
 	case yellowcard.StatusFailed, yellowcard.StatusExpired, yellowcard.StatusCancelled:
 		isDirect, err := directLookup()
 		if err != nil {
-			return fmt.Errorf("look up settlement method for %s: %w", seqID, err)
+			return webhookErr("lookup_settlement_method").With(pkgErrors.AttrSequenceID, seqID).
+				Code(pkgErrors.CodeLoanLoadFailed).Wrapf(err, "could not look up the settlement method")
 		}
 		return s.handleFailedEvent(seqID, paymentID, status, isDirect)
 
@@ -229,19 +245,22 @@ func (s *Service) handleByStatus(seqID, paymentID, status string, directLookup f
 	case yellowcard.StatusPendingRefund, yellowcard.StatusRefundProcessing:
 		// Crypto refund in progress — RefundPoller handles this.
 		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementRefundPending); err != nil {
-			return fmt.Errorf("update status to refund_pending: %w", err)
+			return webhookErr("update_status").With("target_status", "refund_pending").
+				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
 		}
 
 	case yellowcard.StatusRefunded:
 		// Crypto has been refunded. RefundPoller will detect this and trigger fiat failover.
 		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementRefundReceived); err != nil {
-			return fmt.Errorf("update status to refund_received: %w", err)
+			return webhookErr("update_status").With("target_status", "refund_received").
+				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
 		}
 
 	case yellowcard.StatusRefundFailed:
 		// Refund failed — needs manual intervention.
 		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementFailed); err != nil {
-			return fmt.Errorf("update status to failed: %w", err)
+			return webhookErr("update_status").With("target_status", "failed").
+				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
 		}
 		s.alertOps("YellowCard Refund Failed",
 			fmt.Sprintf("CRITICAL: Refund failed for payment %s (seq: %s). Manual intervention required.", paymentID, seqID))
@@ -249,13 +268,15 @@ func (s *Service) handleByStatus(seqID, paymentID, status string, directLookup f
 	case yellowcard.StatusProcess, yellowcard.StatusProcessing, yellowcard.StatusPending,
 		yellowcard.StatusCreated, yellowcard.StatusPendingApproval:
 		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementProcessing); err != nil {
-			return fmt.Errorf("update status to processing: %w", err)
+			return webhookErr("update_status").With("target_status", "processing").
+				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
 		}
 
 	case yellowcard.StatusPendingSettlement:
 		// Direct settlement only: waiting for crypto payment. This is expected.
 		if err := s.disbursements.UpdateDisbursementStatus(seqID, yellowcard.DisbursementDirectSubmitted); err != nil {
-			return fmt.Errorf("update status to direct_submitted: %w", err)
+			return webhookErr("update_status").With("target_status", "direct_submitted").
+				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
 		}
 
 	default:

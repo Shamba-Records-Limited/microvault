@@ -31,6 +31,12 @@ type LoanNotifier interface {
 	NotifyRepaymentReceived(ctx context.Context, n LoanNotification) error
 	NotifyRepaymentReminder(ctx context.Context, n LoanNotification) error
 
+	// NotifyRepaymentReference carries the reference MoneyGram issues once the
+	// borrower commits in the webview. It is what they quote at the agent
+	// counter to hand cash over, so without it the repayment cannot complete
+	// however ready everything else is.
+	NotifyRepaymentReference(ctx context.Context, n LoanNotification) error
+
 	// NotifyRepaymentInitiated carries the MoneyGram interactive URL for a
 	// borrower-initiated cash repayment. The USSD session ends before the
 	// borrower can act on it, so this SMS is the only way the link reaches

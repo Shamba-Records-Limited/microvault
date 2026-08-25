@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stretchr/testify/assert"
@@ -289,7 +290,10 @@ func TestMGAdapter_Status_RequiresChildMemo(t *testing.T) {
 
 	_, err := a.Status(context.Background(), offramp.ProviderRef{ID: "mg-tx-001"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), MoneyGramRefChildMemoKey)
+	// The key is an attribute now; asserting on it survives rewording.
+	var oopsErr oops.OopsError
+	require.ErrorAs(t, err, &oopsErr)
+	assert.Equal(t, MoneyGramRefChildMemoKey, oopsErr.Context()["key"])
 }
 
 func TestMGAdapter_Status_FetchesTransaction(t *testing.T) {

@@ -49,6 +49,10 @@ type RepaymentRecord struct {
 	// failed for this loan. Durable, so a restart does not reset the ceiling.
 	VaultAttempts int
 
+	// ReferenceSent marks the one SMS carrying MoneyGram's deposit reference,
+	// which is what the borrower quotes at the counter to pay in.
+	ReferenceSent bool
+
 	RepaymentStatus string
 	ExpiresAt       time.Time
 	ReminderSent    bool
@@ -112,6 +116,11 @@ type RepaymentRecorder interface {
 	// ScheduleNextPoll sets when this repayment should next be looked at.
 	ScheduleNextPoll(ctx context.Context, loanID string, at time.Time) error
 
+	// MarkReferenceSent stamps the deposit-reference SMS before it is sent, so
+	// a failing provider is not retried on every tick for the rest of the
+	// window. Same reasoning as MarkReminderSent.
+	MarkReferenceSent(ctx context.Context, loanID string) error
+
 	// RecordVaultAttempt increments the failed-vault-leg counter. Written
 	// after each failure so the count survives a restart, which is what makes
 	// the escalation ceiling meaningful.
@@ -128,6 +137,11 @@ type VaultRepayer interface {
 // Optional: a nil notifier logs instead, which keeps the state machine
 // testable without a notification stack.
 type RepaymentNotifier interface {
+	// NotifyRepaymentReference carries MoneyGram's deposit reference once the
+	// borrower has committed in the webview. Without it they reach the counter
+	// with nothing to quote.
+	NotifyRepaymentReference(loanID, reference string) error
+
 	NotifyRepaymentReceived(loanID string) error
 	NotifyRepaymentReminder(loanID string) error
 	NotifyRepaymentExpired(loanID string) error
@@ -258,8 +272,12 @@ func (d *DepositDriver) Drive(ctx context.Context, rec RepaymentRecord) {
 		d.handleIncomplete(ctx, rec)
 
 	case stellaranchor.StatusPendingUserTransferStart:
-		// Committed: agent chosen, walking to the counter. They tend to pay
-		// within the hour, so poll on the active cadence.
+		// Committed: agent chosen, walking to the counter. This is the only
+		// point MoneyGram has issued a reference and the borrower has not yet
+		// paid, so it is the one chance to send it.
+		d.sendReferenceOnce(ctx, rec, tx)
+
+		// They tend to pay within the hour, so poll on the active cadence.
 		d.reschedule(ctx, rec, d.cfg.DepositActiveBackoff)
 
 	case stellaranchor.StatusCompleted:
@@ -441,6 +459,32 @@ func (d *DepositDriver) vaultLegFailed(ctx context.Context, rec RepaymentRecord,
 		backoff = d.cfg.DepositVaultRetryBackoff
 	}
 	d.reschedule(ctx, rec, backoff)
+}
+
+// sendReferenceOnce delivers MoneyGram's deposit reference to the borrower.
+//
+// Sent once, marked before the send. The borrower cannot pay without it — the
+// agent needs a reference to take cash against — so a silent failure here
+// strands a repayment that everything else is ready for.
+func (d *DepositDriver) sendReferenceOnce(ctx context.Context, rec RepaymentRecord, tx *stellaranchor.Transaction) {
+	if rec.ReferenceSent || tx.ExternalTransactionID == "" {
+		return
+	}
+
+	// Marker first: a failing SMS provider must not be retried every tick for
+	// the rest of the window.
+	if err := d.recorder.MarkReferenceSent(ctx, rec.LoanID); err != nil {
+		d.logger.Error("failed to mark deposit reference sent, not sending",
+			"loan_id", rec.LoanID, "error", err)
+		return
+	}
+
+	d.logger.Info("sending deposit reference",
+		"loan_id", rec.LoanID, "reference", tx.ExternalTransactionID)
+
+	d.notify("reference", rec, func(n RepaymentNotifier) error {
+		return n.NotifyRepaymentReference(rec.LoanID, tx.ExternalTransactionID)
+	})
 }
 
 // expireRepayment releases the quote lock after the window elapsed.

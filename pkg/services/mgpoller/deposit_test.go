@@ -35,14 +35,15 @@ func (f *fakeRepaymentFetcher) GetDueRepayments(_ context.Context, _ int) ([]Rep
 type fakeRepaymentRecorder struct {
 	mu sync.Mutex
 
-	updates       int
-	fundsReceived []string
-	settled       map[string]string
-	expired       []string
-	failed        map[string]string
-	remindersSent []string
-	nextPolls     map[string]time.Time
-	vaultAttempts map[string]int
+	updates        int
+	fundsReceived  []string
+	settled        map[string]string
+	expired        []string
+	failed         map[string]string
+	remindersSent  []string
+	referencesSent []string
+	nextPolls      map[string]time.Time
+	vaultAttempts  map[string]int
 
 	fundsReceivedErr error
 	settledErr       error
@@ -57,6 +58,13 @@ func newFakeRepaymentRecorder() *fakeRepaymentRecorder {
 		nextPolls:     map[string]time.Time{},
 		vaultAttempts: map[string]int{},
 	}
+}
+
+func (r *fakeRepaymentRecorder) MarkReferenceSent(_ context.Context, loanID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.referencesSent = append(r.referencesSent, loanID)
+	return nil
 }
 
 func (r *fakeRepaymentRecorder) RecordVaultAttempt(_ context.Context, loanID string, attempts int) error {
@@ -159,10 +167,18 @@ func (v *fakeVaultRepayer) count() int {
 }
 
 type fakeRepaymentNotifier struct {
-	mu       sync.Mutex
-	received []string
-	reminder []string
-	expired  []string
+	mu         sync.Mutex
+	received   []string
+	reminder   []string
+	expired    []string
+	references []string
+}
+
+func (n *fakeRepaymentNotifier) NotifyRepaymentReference(loanID, reference string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.references = append(n.references, loanID+":"+reference)
+	return nil
 }
 
 func (n *fakeRepaymentNotifier) NotifyRepaymentReceived(loanID string) error {
@@ -684,4 +700,52 @@ func TestDeposit_VaultSucceeds_DoesNotTouchAttemptCount(t *testing.T) {
 	assert.NotEmpty(t, h.recorder.settled)
 	assert.NotContains(t, h.recorder.vaultAttempts, "loan-1",
 		"a successful leg records a settlement, not another attempt")
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Deposit reference
+// ─────────────────────────────────────────────────────────────────────
+
+// Testing found borrowers completing the webview and never receiving a code.
+// Nothing in the flow sent one: the committed-but-unpaid branch only
+// rescheduled. Without the reference the agent has nothing to take cash
+// against, so the repayment cannot complete however ready everything else is.
+func TestDeposit_Committed_SendsReferenceOnce(t *testing.T) {
+	h := newTestDepositDriver(t)
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusPendingUserTransferStart, `,"external_transaction_id":"MG-REF-4417"`))
+	h.fetcher.recs = []RepaymentRecord{depositRec(h)}
+
+	h.driver.poll(context.Background())
+
+	assert.Equal(t, []string{"loan-1"}, h.recorder.referencesSent,
+		"the marker is written before the send, so a failing provider is not retried every tick")
+	assert.Equal(t, []string{"loan-1:MG-REF-4417"}, h.notifier.references)
+}
+
+func TestDeposit_Committed_DoesNotResendReference(t *testing.T) {
+	h := newTestDepositDriver(t)
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusPendingUserTransferStart, `,"external_transaction_id":"MG-REF-4417"`))
+
+	rec := depositRec(h)
+	rec.ReferenceSent = true
+	h.fetcher.recs = []RepaymentRecord{rec}
+
+	h.driver.poll(context.Background())
+
+	assert.Empty(t, h.notifier.references,
+		"polls every two minutes while the borrower walks to the counter; one SMS is enough")
+}
+
+// MoneyGram has not always issued a reference by the time the status flips.
+// Sending an empty code would be worse than sending nothing.
+func TestDeposit_Committed_WithoutReference_SendsNothing(t *testing.T) {
+	h := newTestDepositDriver(t)
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusPendingUserTransferStart, ""))
+	h.fetcher.recs = []RepaymentRecord{depositRec(h)}
+
+	h.driver.poll(context.Background())
+
+	assert.Empty(t, h.notifier.references)
+	assert.Empty(t, h.recorder.referencesSent, "no send, no marker — the next tick must retry")
+	assert.Contains(t, h.recorder.nextPolls, "loan-1")
 }

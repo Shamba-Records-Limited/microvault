@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,15 +17,24 @@ const testPassphrase = "Test SDF Network ; September 2015"
 // memStore is an in-memory ChallengeStore.
 type memStore struct {
 	m map[string]*Challenge
+
+	// getErr models a store that cannot be read, as distinct from one that
+	// simply has no such challenge.
+	getErr error
 }
 
 func newMemStore() *memStore { return &memStore{m: map[string]*Challenge{}} }
 
 func (s *memStore) Store(id string, c *Challenge) error { s.m[id] = c; return nil }
 func (s *memStore) Get(id string) (*Challenge, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
 	c, ok := s.m[id]
 	if !ok {
-		return nil, errors.New("not found")
+		// Store implementations must wrap the sentinel, which is what lets
+		// callers tell an absent challenge from an unreachable store.
+		return nil, fmt.Errorf("challenge %s: %w", id, ErrChallengeNotFound)
 	}
 	return c, nil
 }
@@ -156,6 +166,22 @@ func TestVerify_RejectsForeignSigner(t *testing.T) {
 	ch, _ := svc.GenerateChallenge()
 	if err := svc.VerifySignedChallenge(ch.ID, signChallenge(t, ch.Transaction, attacker)); !errors.Is(err, ErrInvalidSignature) {
 		t.Errorf("err = %v, want ErrInvalidSignature", err)
+	}
+}
+
+// A store that cannot be read must not be reported as a missing challenge.
+// Collapsing the two turned every Redis outage into a 404 for the caller.
+func TestVerify_StoreFailureIsNotReportedAsNotFound(t *testing.T) {
+	store := newMemStore()
+	store.getErr = errors.New("redis: connection refused")
+	svc, _ := newChallengeSvc(t, store)
+
+	err := svc.VerifySignedChallenge("any", "irrelevant")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if errors.Is(err, ErrChallengeNotFound) {
+		t.Errorf("an unreachable store must not read as a missing challenge: %v", err)
 	}
 }
 

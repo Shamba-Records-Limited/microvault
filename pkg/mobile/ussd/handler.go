@@ -16,7 +16,36 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/phone"
 	pinPkg "github.com/Shamba-Records-Limited/microvault/pkg/pin"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
+
+// ussdErr starts an error builder for USSD work.
+//
+// Almost nothing in this package returns an error: a handler must render a
+// screen, and a non-nil error aborts the session so the borrower sees nothing.
+// The exceptions are failures that make continuing impossible — a session that
+// cannot be persisted, a menu that cannot be rendered — and those are what
+// these builders are for.
+func ussdErr(op string, session *Session) oops.OopsErrorBuilder {
+	b := oops.In(pkgErrors.DomainUSSD).Tags("ussd").With(pkgErrors.AttrOperation, op)
+	if session != nil {
+		b = b.With("session_id", session.SessionID).
+			With(pkgErrors.AttrUserID, session.UserID).
+			With("menu", session.CurrentMenu)
+	}
+	return b
+}
+
+// sessionSaveErr is the one failure every handler shares. The menu the session
+// was on is the attribute that matters — it says where the flow broke.
+func sessionSaveErr(session *Session, cause error) error {
+	return ussdErr("save_session", session).
+		Code(pkgErrors.CodeStateWriteFailed).
+		Wrapf(cause, "could not persist the USSD session")
+}
 
 // menus lists all menus including menus where user input contains PII (PINs, national IDs, names, birth dates, addresses).
 var menus = map[string]bool{
@@ -155,7 +184,7 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 		session.CurrentMenu = "language_select"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			log.Printf("ERROR: Failed to save session before language select: %v", err)
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showLanguageMenu(session)
 	}
@@ -178,7 +207,7 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 			session.Data["set_pin_only"] = true
 			session.CurrentMenu = "pin_create"
 			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-				return "", fmt.Errorf("failed to save session: %w", err)
+				return "", sessionSaveErr(session, err)
 			}
 			return h.showMenu(session, "pin_create")
 		}
@@ -186,7 +215,7 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 
 	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMainMenu(session)
@@ -296,7 +325,7 @@ func (h *USSDHandler) handleMainMenu(ctx context.Context, session *Session, inpu
 	case "1": // Request Loan
 		session.CurrentMenu = "request_loan"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showLoanAmountMenu(session)
 	case "2": // Repay Loan
@@ -306,19 +335,19 @@ func (h *USSDHandler) handleMainMenu(ctx context.Context, session *Session, inpu
 		// authorisation. A forgotten PIN must not become a reason not to repay.
 		session.CurrentMenu = "repay_loan"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.handleRepayLoan(ctx, session, "")
 	case "3": // My Loans
 		session.CurrentMenu = "my_loans"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.handleMyLoans(ctx, session)
 	case "4": // My Account
 		session.CurrentMenu = "my_account"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showAccountMenu(ctx, session)
 	default:
@@ -347,7 +376,7 @@ func (h *USSDHandler) handleLanguageSelect(ctx context.Context, session *Session
 		}
 		session.CurrentMenu = "main"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showMainMenu(session)
 	default:
@@ -364,14 +393,14 @@ func (h *USSDHandler) handleLanguageSelect(ctx context.Context, session *Session
 			return "", err
 		}
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return response, nil
 	}
 
 	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMainMenu(session)
@@ -391,7 +420,7 @@ func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, 
 	// Ask for national ID
 	session.CurrentMenu = "register_national_id"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	log.Printf("Registration - stored full_name, updated CurrentMenu to: register_national_id")
@@ -423,7 +452,7 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 		session.Data["recover_national_id"] = nationalID
 		session.CurrentMenu = "recover_offer"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.formatResponse(session.Language, "CON", "recover_offer"), nil
 	}
@@ -437,7 +466,7 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 
 	session.CurrentMenu = "pin_create"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 	return h.showMenu(session, "pin_create")
 }
@@ -464,7 +493,7 @@ func (h *USSDHandler) handleRecoverOffer(ctx context.Context, session *Session, 
 			// as a typo and let them re-enter.
 			session.CurrentMenu = "register_national_id"
 			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-				return "", fmt.Errorf("failed to save session: %w", err)
+				return "", sessionSaveErr(session, err)
 			}
 			return h.formatResponse(session.Language, "CON", "reg_enter_national_id"), nil
 		}
@@ -487,7 +516,7 @@ func (h *USSDHandler) handleRecoverOffer(ctx context.Context, session *Session, 
 		session.Data["recover_sq2_id"] = qIDs[1]
 		session.CurrentMenu = "recover_sim_q1"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return "CON " + GetLocalizedMessage(session.Language, fmt.Sprintf("sq_%d", qIDs[0])), nil
 
@@ -495,7 +524,7 @@ func (h *USSDHandler) handleRecoverOffer(ctx context.Context, session *Session, 
 		delete(session.Data, "recover_national_id")
 		session.CurrentMenu = "register_national_id"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.formatResponse(session.Language, "CON", "reg_enter_national_id"), nil
 
@@ -514,7 +543,7 @@ func (h *USSDHandler) handleRecoverSimQ1(ctx context.Context, session *Session, 
 	session.Data["recover_sq1_answer"] = input
 	session.CurrentMenu = "recover_sim_q2"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 	q2ID := toInt(session.Data["recover_sq2_id"])
 	return "CON " + GetLocalizedMessage(session.Language, fmt.Sprintf("sq_%d", q2ID)), nil
@@ -556,7 +585,7 @@ func (h *USSDHandler) handleRecoverSimQ2(ctx context.Context, session *Session, 
 	session.UserID = userID
 	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 	return h.formatResponse(session.Language, "END", "recover_success"), nil
 }
@@ -636,7 +665,7 @@ func (h *USSDHandler) handleMyDetails(ctx context.Context, session *Session, inp
 	if input == "0" {
 		session.CurrentMenu = "my_account"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showAccountMenu(ctx, session)
 	}
@@ -650,7 +679,7 @@ func (h *USSDHandler) handleMyDetails(ctx context.Context, session *Session, inp
 	session.Data["bio_field"] = field.key
 	session.CurrentMenu = "bio_edit"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 	return h.conWithNav(session, "bio_edit", field.promptKey), nil
 }
@@ -697,7 +726,7 @@ func (h *USSDHandler) handleBioEdit(ctx context.Context, session *Session, input
 	delete(session.Data, "bio_field")
 	session.CurrentMenu = "my_details"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 	return h.showMyDetails(ctx, session, GetLocalizedMessage(session.Language, "bio_field_saved"))
 }
@@ -779,7 +808,7 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 
 	session.CurrentMenu = "main"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 	return h.formatResponse(session.Language, "END", "registration_success"), nil
 }
@@ -851,7 +880,7 @@ func (h *USSDHandler) handleLoanAmount(ctx context.Context, session *Session, in
 	session.Data["product_id"] = cfg.ProductID
 	session.CurrentMenu = "payout_method"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMenu(session, "payout_method")
@@ -875,7 +904,7 @@ func (h *USSDHandler) handlePayoutMethod(ctx context.Context, session *Session, 
 	}
 	session.CurrentMenu = "loan_confirm"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 	return h.showLoanConfirmation(ctx, session)
 }
@@ -1245,43 +1274,31 @@ func (h *USSDHandler) loanStatement(ctx context.Context, session *Session, loan 
 }
 
 // handleRepayLoan handles loan repayment
-func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, input string) (string, error) {
+func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, _ string) (string, error) {
 	if h.loanService == nil {
 		return h.formatResponse(session.Language, "END", "no_active_loans"), nil
 	}
 
-	loans, err := h.repayableLoans(ctx, session)
+	chosen, found, err := h.newestRepayableLoan(ctx, session)
 	if err != nil {
 		return h.formatError(session.Language, "error"), nil
 	}
-	if len(loans) == 0 {
+	if !found {
 		return h.formatResponse(session.Language, "END", "no_active_loans"), nil
 	}
 
-	// First entry into the screen lists what can be repaid; a later turn
-	// carries the borrower's choice.
-	if input == "" {
-		return h.showRepayLoanList(ctx, session, loans)
-	}
-
-	choice, err := strconv.Atoi(strings.TrimSpace(input))
-	if err != nil || choice < 1 || choice > len(loans) {
-		return h.conNavText(session, GetLocalizedMessage(session.Language, "invalid_option")), nil
-	}
-
-	chosen := loans[choice-1]
 	session.Data["repay_loan_id"] = chosen.ID
 	session.Data["repay_loan_ref"] = chosen.Reference
 	session.Data["repay_payoff_stroops"] = chosen.PayoffStroops
 	session.CurrentMenu = "repay_rail"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showRepayRailMenu(session, chosen)
 }
 
-// repayLoanChoice is one repayable loan as the repay screens need it.
+// repayLoanChoice is the loan the repay screens act on.
 type repayLoanChoice struct {
 	ID            string
 	Reference     string
@@ -1294,19 +1311,18 @@ func (c repayLoanChoice) cashRailEligible() bool {
 	return c.PayoffStroops >= MinMoneyGramDepositStroops
 }
 
-// repayableLoans returns the borrower's outstanding loans with a live payoff
-// quote against each.
+// newestRepayableLoan returns the borrower's most recent outstanding loan.
 //
-// A loan whose quote cannot be obtained is still listed, with the amount
-// blanked: the quote hard-fails rather than serving a stale figure, and hiding
-// the loan entirely would leave a borrower who wants to pay with no way in.
-func (h *USSDHandler) repayableLoans(ctx context.Context, session *Session) ([]repayLoanChoice, error) {
+// One loan, not a list. The product allows a single active loan at a time — a
+// borrower clears it before drawing again — so a selection screen would offer a
+// choice that does not exist. This mirrors handleMyLoans, which takes index 0
+// of the same newest-first ordering. Revisit when concurrent loans ship.
+func (h *USSDHandler) newestRepayableLoan(ctx context.Context, session *Session) (repayLoanChoice, bool, error) {
 	loans, err := h.loanService.GetUserLoans(ctx, session.UserID)
 	if err != nil {
-		return nil, err
+		return repayLoanChoice{}, false, err
 	}
 
-	out := []repayLoanChoice{}
 	for _, raw := range loans {
 		loanMap, ok := raw.(map[string]any)
 		if !ok {
@@ -1325,36 +1341,20 @@ func (h *USSDHandler) repayableLoans(ctx context.Context, session *Session) ([]r
 			choice.Reference = *ref
 		}
 		if choice.ID != "" {
+			// The quote hard-fails rather than serving a stale figure, so a
+			// loan with no quote is still offered — with the amount blanked and
+			// the cash rail withheld, since an unknown payoff cannot clear a
+			// floor.
 			if quote, err := h.loanService.GetRepaymentQuote(ctx, choice.ID); err == nil {
 				choice.PayoffStroops = quote.AmountUSDCStroops
-				choice.DisplayAmount = formatUSDC(quote.AmountUSDCStroops)
+				choice.DisplayAmount = formatOwed(quote)
 			} else {
 				log.Printf("repayment quote failed for loan %s: %v", choice.ID, err)
 			}
 		}
-
-		out = append(out, choice)
-		if len(out) == 3 { // one USSD page
-			break
-		}
+		return choice, true, nil
 	}
-	return out, nil
-}
-
-// showRepayLoanList renders the numbered list of repayable loans.
-func (h *USSDHandler) showRepayLoanList(ctx context.Context, session *Session, loans []repayLoanChoice) (string, error) {
-	session.CurrentMenu = "repay_loan"
-	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
-	}
-
-	var body strings.Builder
-	body.WriteString(GetLocalizedMessage(session.Language, "repay_header"))
-	for i, l := range loans {
-		body.WriteString("\n")
-		fmt.Fprintf(&body, "%d. %s", i+1, Format(session.Language, "repay_loan_line", l.Reference, l.DisplayAmount))
-	}
-	return h.conNavText(session, body.String()), nil
+	return repayLoanChoice{}, false, nil
 }
 
 // showRepayRailMenu offers the ways this particular loan can be repaid.
@@ -1440,11 +1440,30 @@ func (h *USSDHandler) showPaybill(session *Session, chosen repayLoanChoice) (str
 		Format(session.Language, "repay_paybill", h.repayPaybill, chosen.Reference)), nil
 }
 
-// formatUSDC renders stroops as a USDC amount.
+// formatOwed renders what the borrower owes, in their own currency.
 //
-// USDC, not local currency: the SEP-24 deposit amount is denominated in USDC
-// and MoneyGram converts the borrower's cash at its own counter rate, so a
-// local figure shown here is an estimate their agent may contradict.
+// Local currency, not USDC: a borrower reads KES, and the quote already
+// carries a converted figure sourced from the FX cascade — MoneyGram's rate
+// when its credentials are configured, YellowCard's otherwise.
+//
+// It remains an estimate. MoneyGram converts the cash at its own counter rate,
+// so the agent's figure can differ; the SEP-24 deposit itself is denominated in
+// USDC and that is what settles the loan.
+//
+// Falls back to USDC when the quote carries no local figure, which is what a
+// failed FX cascade leaves behind.
+func formatOwed(quote *RepaymentQuote) string {
+	if quote == nil {
+		return "\u2014"
+	}
+	if quote.AmountLocalCents > 0 && quote.LocalCurrency != "" {
+		return fmt.Sprintf("%s %.2f", quote.LocalCurrency, float64(quote.AmountLocalCents)/100.0)
+	}
+	return formatUSDC(quote.AmountUSDCStroops)
+}
+
+// formatUSDC renders stroops as a USDC amount. Used where the figure must be
+// the one MoneyGram actually charges — the deposit amount and the SMS.
 func formatUSDC(stroops int64) string {
 	return fmt.Sprintf("USDC %.2f", float64(stroops)/1e7)
 }
@@ -1472,25 +1491,25 @@ func (h *USSDHandler) handleMyAccount(ctx context.Context, session *Session, inp
 	case "1": // PIN Manager
 		session.CurrentMenu = "pin_manager"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showMenu(session, "pin_manager")
 	case "2": // Change Language
 		session.CurrentMenu = "language_select"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showLanguageMenu(session)
 	case "3": // Personal details — optional SEP-9 bio for faster cash pickup.
 		session.CurrentMenu = "my_details"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showMyDetails(ctx, session, "")
 	case "0": // Main Menu
 		session.CurrentMenu = "main"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showMainMenu(session)
 	default:
@@ -1547,7 +1566,7 @@ func (h *USSDHandler) showAccountMenu(ctx context.Context, session *Session) (st
 func (h *USSDHandler) renderAccountMenu(session *Session) (string, error) {
 	menu, err := h.menuRegistry.Get("my_account")
 	if err != nil {
-		return "", fmt.Errorf("render my_account menu: %w", err)
+		return "", ussdErr("render_menu", session).With("menu", "my_account").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not render the menu")
 	}
 	return menu.Render(session.Language), nil
 }
@@ -1598,7 +1617,7 @@ func (h *USSDHandler) handlePINCreate(ctx context.Context, session *Session, inp
 	session.Data["new_pin"] = input
 	session.CurrentMenu = "pin_confirm"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMenu(session, "pin_confirm")
@@ -1615,7 +1634,7 @@ func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, in
 		delete(session.Data, "new_pin")
 		session.CurrentMenu = "pin_create"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.conNav(session, "pin_mismatch"), nil
 	}
@@ -1632,7 +1651,7 @@ func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, in
 		delete(session.Data, "set_pin_only")
 		session.CurrentMenu = "main"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.formatResponse(session.Language, "END", "pin_changed"), nil
 	}
@@ -1663,7 +1682,7 @@ func (h *USSDHandler) handleSecurityQ1Select(ctx context.Context, session *Sessi
 	session.Data["sq1_id"] = qID
 	session.CurrentMenu = "security_q1_answer"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMenu(session, "security_q1_answer")
@@ -1678,7 +1697,7 @@ func (h *USSDHandler) handleSecurityQ1Answer(ctx context.Context, session *Sessi
 	session.Data["sq1_answer"] = input
 	session.CurrentMenu = "security_q2_select"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMenu(session, "security_q2_select")
@@ -1700,7 +1719,7 @@ func (h *USSDHandler) handleSecurityQ2Select(ctx context.Context, session *Sessi
 	session.Data["sq2_id"] = qID
 	session.CurrentMenu = "security_q2_answer"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMenu(session, "security_q2_answer")
@@ -1740,7 +1759,7 @@ func (h *USSDHandler) handleSecurityQ2Answer(ctx context.Context, session *Sessi
 
 	session.CurrentMenu = "pin_manager"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 	return h.formatResponse(session.Language, "END", "security_q_success"), nil
 }
@@ -1761,7 +1780,7 @@ func (h *USSDHandler) handlePINManager(ctx context.Context, session *Session, in
 		if err == nil && locked {
 			session.CurrentMenu = "pin_recovery_national_id"
 			if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-				return "", fmt.Errorf("failed to save session: %w", err)
+				return "", sessionSaveErr(session, err)
 			}
 			return h.showMenu(session, "pin_recovery_national_id")
 		}
@@ -1771,20 +1790,20 @@ func (h *USSDHandler) handlePINManager(ctx context.Context, session *Session, in
 	case "1": // Change PIN
 		session.CurrentMenu = "pin_change_old"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showMenu(session, "pin_change_old")
 	case "2": // Security Questions
 		session.Data["from_pin_manager"] = true
 		session.CurrentMenu = "security_q1_select"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showMenu(session, "security_q1_select")
 	case "0": // Back
 		session.CurrentMenu = "my_account"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showAccountMenu(ctx, session)
 	default:
@@ -1819,7 +1838,7 @@ func (h *USSDHandler) handlePINChangeOld(ctx context.Context, session *Session, 
 	session.Data["old_pin"] = input
 	session.CurrentMenu = "pin_change_new"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMenu(session, "pin_change_new")
@@ -1834,7 +1853,7 @@ func (h *USSDHandler) handlePINChangeNew(ctx context.Context, session *Session, 
 	session.Data["new_pin"] = input
 	session.CurrentMenu = "pin_change_confirm"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMenu(session, "pin_change_confirm")
@@ -1851,7 +1870,7 @@ func (h *USSDHandler) handlePINChangeConfirm(ctx context.Context, session *Sessi
 		delete(session.Data, "new_pin")
 		session.CurrentMenu = "pin_change_new"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.conNav(session, "pin_mismatch"), nil
 	}
@@ -1919,14 +1938,14 @@ func (h *USSDHandler) handlePINRecoveryNationalID(ctx context.Context, session *
 		session.Data["recovery_no_sq"] = true
 		session.CurrentMenu = "pin_recovery_new"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.showMenu(session, "pin_recovery_new")
 	}
 
 	session.CurrentMenu = "pin_recovery_q1"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	// Show the specific question text.
@@ -1941,7 +1960,7 @@ func (h *USSDHandler) handlePINRecoveryQ1(ctx context.Context, session *Session,
 	session.Data["recovery_a1"] = input
 	session.CurrentMenu = "pin_recovery_q2"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	q2ID := toInt(session.Data["recovery_q2_id"])
@@ -1976,7 +1995,7 @@ func (h *USSDHandler) handlePINRecoveryQ2(ctx context.Context, session *Session,
 	delete(session.Data, "recovery_a1")
 	session.CurrentMenu = "pin_recovery_new"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMenu(session, "pin_recovery_new")
@@ -1991,7 +2010,7 @@ func (h *USSDHandler) handlePINRecoveryNew(ctx context.Context, session *Session
 	session.Data["recovery_new_pin"] = input
 	session.CurrentMenu = "pin_recovery_confirm"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", fmt.Errorf("failed to save session: %w", err)
+		return "", sessionSaveErr(session, err)
 	}
 
 	return h.showMenu(session, "pin_recovery_confirm")
@@ -2008,7 +2027,7 @@ func (h *USSDHandler) handlePINRecoveryConfirm(ctx context.Context, session *Ses
 		delete(session.Data, "recovery_new_pin")
 		session.CurrentMenu = "pin_recovery_new"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", fmt.Errorf("failed to save session: %w", err)
+			return "", sessionSaveErr(session, err)
 		}
 		return h.conNav(session, "pin_mismatch"), nil
 	}

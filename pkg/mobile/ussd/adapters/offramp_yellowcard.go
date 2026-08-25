@@ -14,10 +14,22 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 	phoneutil "github.com/Shamba-Records-Limited/microvault/pkg/phone"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // ycNameRegexp strips everything except letters and spaces.
 var ycNameRegexp = regexp.MustCompile(`[^a-zA-Z ]+`)
+
+// ycAdapterErr starts an error builder for the YellowCard off-ramp adapter.
+func ycAdapterErr(op string) oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainOffRamp).
+		Tags("yellowcard").
+		With(pkgErrors.AttrProvider, "yellowcard").
+		With(pkgErrors.AttrOperation, op)
+}
 
 // YellowCardOffRampAdapter implements OffRampService using YellowCard with
 // dual-mode settlement: direct (crypto-funded) and fiat (YC balance-funded).
@@ -135,7 +147,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 	)
 
 	if req.NetworkCode == "" {
-		return nil, fmt.Errorf("network code is required for disbursement")
+		return nil, ycAdapterErr("initiate").Code(pkgErrors.CodeMissingAccount).Errorf("network code is required for a disbursement")
 	}
 
 	// Resolve channel and network upfront (shared by both modes).
@@ -143,7 +155,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 	channels, err := a.getChannelsWithCache(ctx, req.CountryCode)
 	if err != nil {
 		a.logger.Error("failed to fetch channels", "loan_id", req.LoanID, "error", err)
-		return nil, fmt.Errorf("failed to get channels: %w", err)
+		return nil, ycAdapterErr("initiate").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not list payout channels")
 	}
 
 	activeChannels := yellowcard.FilterActiveChannels(channels, yellowcard.ChannelTypeMomo)
@@ -166,7 +178,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 			"country", req.CountryCode,
 			"active_momo_channels", len(activeChannels),
 		)
-		return nil, fmt.Errorf("no active mobile money withdraw channel found for %s", req.CountryCode)
+		return nil, ycAdapterErr("initiate").With("country", req.CountryCode).Code(pkgErrors.CodeNotFound).Errorf("no active mobile money withdraw channel for this country")
 	}
 
 	momoChannel := withdrawChannels[0]
@@ -218,7 +230,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 	// Direct settlement path with failover.
 	if method == yellowcard.SettlementMethodDirect {
 		if a.treasury == nil {
-			return nil, fmt.Errorf("treasury transfer service is required for direct settlement")
+			return nil, ycAdapterErr("direct_settlement").With(pkgErrors.AttrDependency, "treasury_transfer").Code(pkgErrors.CodeMissingDependency).Errorf("required dependency is missing")
 		}
 
 		a.logger.Info("attempting direct settlement", "loan_id", req.LoanID, "idempotency_key", idempotencyKey)
@@ -270,10 +282,10 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		)
 		hasTrustline, err := a.treasury.CheckUSDCTrustline(ctx, a.testDestinationAddress)
 		if err != nil {
-			return nil, fmt.Errorf("test override trustline check failed: %w", err)
+			return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not verify the override destination trustline")
 		}
 		if !hasTrustline {
-			return nil, fmt.Errorf("destination wallet is missing a USDC trustline")
+			return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeIncompleteResponse).Errorf("destination wallet has no USDC trustline")
 		}
 	}
 
@@ -305,7 +317,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 			"loan_id", loanID,
 			"error", err,
 		)
-		return nil, fmt.Errorf("direct settlement API call failed: %w", err)
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeHTTPError).Wrapf(err, "direct settlement call failed")
 	}
 
 	a.logger.Info("YellowCard payment created",
@@ -323,7 +335,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 	// Parse the combined wallet address format: {stellar_address}_{memo}
 	if resp.SettlementInfo == nil || resp.SettlementInfo.WalletAddress == "" {
 		a.logger.Error("direct settlement response missing wallet address", "loan_id", loanID, "yc_payment_id", resp.ID)
-		return nil, fmt.Errorf("direct settlement response missing wallet address")
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeIncompleteResponse).Errorf("direct settlement response has no wallet address")
 	}
 
 	a.logger.Info("parsing YellowCard settlement info",
@@ -342,7 +354,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 			"raw_address", resp.SettlementInfo.WalletAddress,
 			"error", err,
 		)
-		return nil, fmt.Errorf("failed to parse YC wallet address: %w", err)
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeInvalidAddress).Wrapf(err, "could not parse the YellowCard wallet address")
 	}
 
 	a.logger.Info("YellowCard wallet address parsed",
@@ -360,14 +372,14 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 			"destination", stellarAddr,
 			"error", err,
 		)
-		return nil, fmt.Errorf("failed to verify trustline for YellowCard wallet: %w", err)
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not verify the YellowCard wallet trustline")
 	}
 	if !hasTrustline {
 		a.logger.Warn("YellowCard destination wallet does not have a USDC trustline, aborting on-chain send",
 			"loan_id", loanID,
 			"destination", stellarAddr,
 		)
-		return nil, fmt.Errorf("destination wallet is missing a USDC trustline")
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeIncompleteResponse).Errorf("destination wallet has no USDC trustline")
 	}
 
 	// Determine the USDC amount to send (in stroops).
@@ -382,7 +394,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 			"request_stroops", p.req.AmountStroops,
 			"yc_crypto_amount", resp.SettlementInfo.CryptoAmount,
 		)
-		return nil, fmt.Errorf("direct settlement: cannot determine USDC amount to send")
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeInvalidAmount).Errorf("cannot determine the USDC amount to send")
 	}
 
 	// F2 checkpoint: Send USDC from treasury to YellowCard's Stellar wallet.
@@ -404,7 +416,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 			"amount_stroops", amountStroops,
 			"error", err,
 		)
-		return nil, fmt.Errorf("USDC transfer to YC wallet failed: %w", err)
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "USDC transfer to the YellowCard wallet failed")
 	}
 
 	a.logger.Info("USDC transfer to YellowCard wallet succeeded",
@@ -450,7 +462,7 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 	availableBalance, err := a.ycAdapter.GetAvailableBalance(ctx)
 	if err != nil {
 		a.logger.Error("failed to check YC balance", "loan_id", loanID, "error", err)
-		return nil, fmt.Errorf("failed to check available balance: %w", err)
+		return nil, ycAdapterErr("fiat_settlement").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not check the available balance")
 	}
 
 	a.logger.Info("YellowCard balance check",
@@ -484,7 +496,7 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 	resp, err := a.ycAdapter.SubmitPayment(ctx, paymentReq)
 	if err != nil {
 		a.logger.Error("fiat disbursement failed", "loan_id", loanID, "error", err)
-		return nil, fmt.Errorf("fiat disbursement failed: %w", err)
+		return nil, ycAdapterErr("fiat_settlement").Code(pkgErrors.CodeHTTPError).Wrapf(err, "fiat disbursement failed")
 	}
 
 	a.logger.Info("fiat disbursement submitted",
@@ -527,7 +539,7 @@ func readYCOptions(opts offramp.ProviderOptions) (yellowcard.Options, error) {
 	if v, ok := opts.(yellowcard.Options); ok {
 		return v, nil
 	}
-	return yellowcard.Options{}, fmt.Errorf("yellowcard off-ramp: Request.Options must be yellowcard.Options, got %T", opts)
+	return yellowcard.Options{}, ycAdapterErr("parse_options").With("got_type", fmt.Sprintf("%T", opts)).Code(pkgErrors.CodeDecodeFailed).Errorf("request options are the wrong type")
 }
 
 // buildPaymentRequest constructs the base YellowCard PaymentRequest from resolved params.
@@ -652,7 +664,7 @@ func (a *YellowCardOffRampAdapter) Quote(ctx context.Context, q offramp.QuoteReq
 	}
 
 	if len(rates) == 0 {
-		return nil, fmt.Errorf("no rates found for currency: %s", q.Currency)
+		return nil, ycAdapterErr("quote").With(pkgErrors.AttrCurrency, q.Currency).Code(pkgErrors.CodeRateUnavailable).Errorf("no rates found for this currency")
 	}
 
 	rate := rates[0]
@@ -682,7 +694,7 @@ func (a *YellowCardOffRampAdapter) Networks(ctx context.Context, countryCode str
 
 	momoChannels := yellowcard.FilterActiveChannels(channels, yellowcard.ChannelTypeMomo)
 	if len(momoChannels) == 0 {
-		return nil, fmt.Errorf("no active MoMo channel for %s", countryCode)
+		return nil, ycAdapterErr("resolve_channel").With("country", countryCode).Code(pkgErrors.CodeNotFound).Errorf("no active mobile money channel for this country")
 	}
 
 	channelIDs := make(map[string]bool)
@@ -732,7 +744,7 @@ func (a *YellowCardOffRampAdapter) AvailableBalance(ctx context.Context) (float6
 func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryCode, networkCode, networkName string) (networkID string, resolvedName string, err error) {
 	networks, err := a.getNetworksWithCache(ctx, countryCode)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to get networks: %w", err)
+		return "", "", ycAdapterErr("resolve_network").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not list networks")
 	}
 
 	a.logger.Info("searching for network",

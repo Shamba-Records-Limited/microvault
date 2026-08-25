@@ -48,6 +48,9 @@ type LoanTemplates struct {
 	// make clear the borrower is paying, not collecting — the cash-pickup SMS
 	// carries a superficially similar link with the opposite meaning.
 	RepaymentInitiated LoanMessage
+	// RepaymentReference carries the code the borrower quotes at the agent
+	// counter to pay in. Read from CashPickupRef.
+	RepaymentReference LoanMessage
 	// RepaymentWindowExpiring warns that an opened deposit is about to lapse.
 	// Use [ExpiresInText] for the remaining time.
 	RepaymentWindowExpiring LoanMessage
@@ -176,6 +179,10 @@ func DefaultLoanTemplates() *LoanTemplates {
 			return fmt.Sprintf("To repay loan %s, pay %s %.2f in cash at any MoneyGram agent.\nStart here:\n%s",
 				n.LoanReference, n.DisplayCurrency, n.DisplayAmount, n.InteractiveURL)
 		},
+		RepaymentReference: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Your repayment code for loan %s is %s. Give it to any MoneyGram agent with %s %.2f in cash.",
+				n.LoanReference, n.CashPickupRef, n.DisplayCurrency, n.DisplayAmount)
+		},
 		RepaymentWindowExpiring: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Your repayment for loan %s expires in %s. Pay at a MoneyGram agent before then:\n%s",
 				n.LoanReference, ExpiresInText(n), n.InteractiveURL)
@@ -257,6 +264,10 @@ func swahiliLoanTemplates() *LoanTemplates {
 			return fmt.Sprintf("Kulipa mkopo %s, lipa %s %.2f fedha taslimu kwa wakala yeyote wa MoneyGram.\nAnza hapa:\n%s",
 				n.LoanReference, n.DisplayCurrency, n.DisplayAmount, n.InteractiveURL)
 		},
+		RepaymentReference: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Msimbo wako wa kulipa mkopo %s ni %s. Mpe wakala yeyote wa MoneyGram pamoja na %s %.2f fedha taslimu.",
+				n.LoanReference, n.CashPickupRef, n.DisplayCurrency, n.DisplayAmount)
+		},
 		RepaymentWindowExpiring: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Malipo yako ya mkopo %s yataisha baada ya %s. Lipa kwa wakala wa MoneyGram kabla ya hapo:\n%s",
 				n.LoanReference, ExpiresInText(n), n.InteractiveURL)
@@ -337,6 +348,10 @@ func frenchLoanTemplates() *LoanTemplates {
 		RepaymentInitiated: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Pour rembourser le pret %s, payez %s %.2f en especes chez tout agent MoneyGram.\nCommencez ici:\n%s",
 				n.LoanReference, n.DisplayCurrency, n.DisplayAmount, n.InteractiveURL)
+		},
+		RepaymentReference: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Votre code de remboursement du pret %s est %s. Donnez-le a tout agent MoneyGram avec %s %.2f en especes.",
+				n.LoanReference, n.CashPickupRef, n.DisplayCurrency, n.DisplayAmount)
 		},
 		RepaymentWindowExpiring: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Votre remboursement du pret %s expire dans %s. Payez chez un agent MoneyGram avant:\n%s",

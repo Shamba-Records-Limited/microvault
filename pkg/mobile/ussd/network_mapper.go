@@ -1,6 +1,10 @@
 package ussd
 
-import "fmt"
+import (
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
+)
 
 // NetworkMapping maps telco's mobile network code (MCC + MNC) to MoMo network info
 type NetworkMapping struct {
@@ -78,7 +82,10 @@ func NewNetworkMapper() *NetworkMapper {
 func (m *NetworkMapper) MapMobileNetworkCode(MobileNetworkCode string) (*NetworkMapping, error) {
 	mapping, ok := NetworkMappings[MobileNetworkCode]
 	if !ok {
-		return nil, fmt.Errorf("unknown telco network code: %s", MobileNetworkCode)
+		return nil, oops.In(pkgErrors.DomainUSSD).Tags("ussd", "network").
+			With("network_code", MobileNetworkCode).
+			Code(pkgErrors.CodeNotFound).
+			Errorf("telco network code is not mapped")
 	}
 	return &mapping, nil
 }

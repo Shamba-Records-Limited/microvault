@@ -2,11 +2,14 @@ package adapters
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // StellarSendUSDC is the subset of the Stellar service needed for treasury USDC transfers.
@@ -58,7 +61,10 @@ func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination stri
 			"amount_stroops", amount,
 			"error", err,
 		)
-		return "", fmt.Errorf("treasury USDC transfer failed: %w", err)
+		return "", oops.In(pkgErrors.DomainStellarClassic).Tags("treasury").
+			With(pkgErrors.AttrOperation, "transfer_usdc").
+			Code(pkgErrors.CodeSubmitFailed).
+			Wrapf(err, "treasury USDC transfer failed")
 	}
 
 	t.logger.Info("treasury USDC transfer succeeded",

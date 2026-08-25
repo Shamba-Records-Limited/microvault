@@ -1,12 +1,15 @@
 package auth
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // Claims represents the JWT token payload containing user authentication information.
@@ -48,7 +51,8 @@ func (s *JWTService) GenerateToken(adminPublicKey string) (string, time.Time, er
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(s.config.JWTSecret))
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("failed to sign token: %w", err)
+		return "", time.Time{}, oops.In(pkgErrors.DomainIdentity).Tags("auth", "jwt").
+			Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not sign the token")
 	}
 
 	return tokenString, expiresAt, nil

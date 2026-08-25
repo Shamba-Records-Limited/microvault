@@ -78,17 +78,19 @@ const (
 	belowFloor int64 = 70_000_000  // 7 USDC
 )
 
-func TestRepay_ListsOnlyOutstandingLoans(t *testing.T) {
+// GetUserLoans returns newest first, and the product allows one active loan at
+// a time, so repay acts on the first outstanding loan and never offers a
+// choice. Anything already settled or not yet disbursed is skipped.
+func TestRepay_PicksNewestOutstandingLoan(t *testing.T) {
 	svc := &repayLoanSvc{
 		loans: []any{
-			loanRow("l1", "LN-1", "disbursed"),
-			loanRow("l2", "LN-2", "repaid"),
-			loanRow("l3", "LN-3", "defaulted"),
-			loanRow("l4", "LN-4", "pending"),
+			loanRow("l0", "LN-0", "pending"),   // newest, not yet disbursed
+			loanRow("l1", "LN-1", "disbursed"), // the one to act on
+			loanRow("l2", "LN-2", "disbursed"), // older, must not win
 		},
 		quotes: map[string]*RepaymentQuote{
-			"l1": {AmountUSDCStroops: aboveFloor},
-			"l3": {AmountUSDCStroops: aboveFloor},
+			"l1": {AmountUSDCStroops: aboveFloor, AmountLocalCents: 645000, LocalCurrency: "KES"},
+			"l2": {AmountUSDCStroops: aboveFloor, AmountLocalCents: 999900, LocalCurrency: "KES"},
 		},
 	}
 	h := newRepayHarness(t, svc, "247247")
@@ -97,22 +99,35 @@ func TestRepay_ListsOnlyOutstandingLoans(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleRepayLoan: %v", err)
 	}
-	if !strings.HasPrefix(resp, "CON ") {
-		t.Errorf("the list must continue the session, got %q", resp)
+	if !strings.Contains(resp, "LN-1") {
+		t.Errorf("expected the newest outstanding loan: %q", resp)
 	}
-	for _, want := range []string{"LN-1", "LN-3"} {
-		if !strings.Contains(resp, want) {
-			t.Errorf("expected %s in the list: %q", want, resp)
-		}
-	}
-	for _, notWant := range []string{"LN-2", "LN-4"} {
+	for _, notWant := range []string{"LN-0", "LN-2"} {
 		if strings.Contains(resp, notWant) {
-			t.Errorf("%s is not repayable and must not be listed: %q", notWant, resp)
+			t.Errorf("%s must not appear: %q", notWant, resp)
 		}
+	}
+	// Straight to the rail choice — there is no list to select from.
+	if !strings.Contains(resp, "Mobile money") {
+		t.Errorf("expected the rail menu on first entry: %q", resp)
 	}
 }
 
-func TestRepay_QuotesInUSDCNotLocalCurrency(t *testing.T) {
+func TestRepay_NoOutstandingLoan_EndsSession(t *testing.T) {
+	svc := &repayLoanSvc{loans: []any{loanRow("l1", "LN-1", "repaid")}}
+	h := newRepayHarness(t, svc, "247247")
+
+	resp, _ := h.handleRepayLoan(context.Background(), repaySession(), "")
+
+	if !strings.HasPrefix(resp, "END ") {
+		t.Errorf("nothing to repay: %q", resp)
+	}
+}
+
+// The borrower reads local currency. The figure comes from the quote's FX
+// cascade — MoneyGram's rate once its credentials are configured, YellowCard's
+// until then.
+func TestRepay_QuotesInLocalCurrency(t *testing.T) {
 	svc := &repayLoanSvc{
 		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
 		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor, AmountLocalCents: 645000, LocalCurrency: "KES"}},
@@ -121,11 +136,25 @@ func TestRepay_QuotesInUSDCNotLocalCurrency(t *testing.T) {
 
 	resp, _ := h.handleRepayLoan(context.Background(), repaySession(), "")
 
-	if !strings.Contains(resp, "USDC 50.00") {
-		t.Errorf("expected the USDC payoff: %q", resp)
+	if !strings.Contains(resp, "KES 6450.00") {
+		t.Errorf("expected the local-currency payoff: %q", resp)
 	}
-	if strings.Contains(resp, "KES") {
-		t.Errorf("MoneyGram converts at its own counter rate, so a KES figure here is one the agent can contradict: %q", resp)
+}
+
+// A failed FX cascade leaves no local figure. The screen falls back to USDC
+// rather than showing nothing — the borrower can still act on it, and the
+// deposit settles in USDC regardless.
+func TestRepay_FallsBackToUSDCWhenFXUnavailable(t *testing.T) {
+	svc := &repayLoanSvc{
+		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
+		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
+	}
+	h := newRepayHarness(t, svc, "247247")
+
+	resp, _ := h.handleRepayLoan(context.Background(), repaySession(), "")
+
+	if !strings.Contains(resp, "USDC 50.00") {
+		t.Errorf("expected the USDC fallback: %q", resp)
 	}
 }
 

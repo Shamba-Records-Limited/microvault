@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/samber/oops"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tyler-smith/go-bip32"
@@ -140,7 +141,12 @@ func TestEnsureOnChainAccount_RejectsIndexAddressMismatch(t *testing.T) {
 
 	err = a.EnsureOnChainAccount(context.Background(), 3+4, kp.Address())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not match stored")
+	// Both addresses are attributes now: which pair disagreed is the fact
+	// worth pinning, and it is what an operator needs to diagnose a bad seed.
+	var oopsErr oops.OopsError
+	require.ErrorAs(t, err, &oopsErr)
+	assert.NotEmpty(t, oopsErr.Context()["derived_address"])
+	assert.NotEmpty(t, oopsErr.Context()["stored_address"])
 	assert.Empty(t, fake.created, "must not create an account for a mismatched index")
 }
 

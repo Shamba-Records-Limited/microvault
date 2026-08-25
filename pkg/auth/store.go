@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // Challenge represents a cryptographic challenge used in the authentication flow.
@@ -36,6 +40,13 @@ type ChallengeStore interface {
 	Delete(challengeID string) error
 }
 
+// authStoreErr starts an error builder for challenge persistence.
+func authStoreErr(op string) oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainIdentity).
+		Tags("auth", "challenge-store").
+		With(pkgErrors.AttrOperation, op)
+}
+
 // RedisStore is a Redis-backed implementation of ChallengeStore.
 // It uses Redis's native TTL functionality for automatic challenge expiration.
 type RedisStore struct {
@@ -53,7 +64,8 @@ type RedisStore struct {
 //	// This will create keys like: "microvault:auth:challenge:abc123"
 func NewRedisStore(client *redis.Client, keyPrefix string) (ChallengeStore, error) {
 	if client == nil {
-		return nil, fmt.Errorf("redis client is nil")
+		return nil, authStoreErr("new").With(pkgErrors.AttrDependency, "redis_client").
+			Code(pkgErrors.CodeMissingDependency).Errorf("required dependency is missing")
 	}
 	return &RedisStore{
 		client:    client,
@@ -82,18 +94,18 @@ func (s *RedisStore) Store(challengeID string, challenge *Challenge) error {
 
 	data, err := json.Marshal(challenge)
 	if err != nil {
-		return fmt.Errorf("failed to marshal challenge: %w", err)
+		return authStoreErr("save").Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not encode the challenge")
 	}
 
 	// Use Redis TTL for automatic expiration
 	ttl := time.Until(challenge.ExpiresAt)
 	if ttl <= 0 {
-		return fmt.Errorf("challenge already expired")
+		return authStoreErr("save").Code(pkgErrors.CodeQuoteExpired).Wrapf(ErrChallengeExpired, "refusing to store an already-expired challenge")
 	}
 
 	err = s.client.Set(ctx, s.key(challengeID), data, ttl).Err()
 	if err != nil {
-		return fmt.Errorf("failed to store challenge: %w", err)
+		return authStoreErr("save").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not store the challenge")
 	}
 
 	return nil
@@ -116,15 +128,19 @@ func (s *RedisStore) Get(challengeID string) (*Challenge, error) {
 
 	data, err := s.client.Get(ctx, s.key(challengeID)).Bytes()
 	if errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("challenge not found")
+		// Wraps the sentinel so callers can tell a genuinely absent challenge
+		// from a store that is unreachable. Collapsing the two reports an
+		// outage as a client error.
+		return nil, authStoreErr("get").Code(pkgErrors.CodeNotFound).
+			Wrapf(ErrChallengeNotFound, "challenge is not in the store")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get challenge: %w", err)
+		return nil, authStoreErr("get").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the challenge")
 	}
 
 	var challenge Challenge
 	if err := json.Unmarshal(data, &challenge); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal challenge: %w", err)
+		return nil, authStoreErr("get").Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the stored challenge")
 	}
 
 	return &challenge, nil
@@ -146,7 +162,7 @@ func (s *RedisStore) Delete(challengeID string) error {
 
 	err := s.client.Del(ctx, s.key(challengeID)).Err()
 	if err != nil {
-		return fmt.Errorf("failed to delete challenge: %w", err)
+		return authStoreErr("delete").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not delete the challenge")
 	}
 
 	return nil
