@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 )
 
 func testJWT(exp, refresh time.Duration) *JWTService {

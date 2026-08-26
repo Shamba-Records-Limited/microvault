@@ -2,8 +2,9 @@ package ussd
 
 import (
 	"context"
-	"fmt"
 	"log"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // NewUSSDService creates a new USSD service.
@@ -24,7 +25,7 @@ func (s *USSDService) RegisterProvider(name string, provider USSDProvider) {
 func (s *USSDService) GetProvider(name string) (USSDProvider, error) {
 	provider, ok := s.providers[name]
 	if !ok {
-		return nil, fmt.Errorf("USSD provider '%s' not found", name)
+		return nil, ussdErr("get_provider", nil).With(pkgErrors.AttrProvider, name).Code(pkgErrors.CodeNotFound).Errorf("USSD provider is not registered")
 	}
 	return provider, nil
 }
@@ -38,7 +39,7 @@ func (s *USSDService) GetProviders() map[string]USSDProvider {
 func (s *USSDService) DeleteProvider(name string) error {
 	_, ok := s.providers[name]
 	if !ok {
-		return fmt.Errorf("USSD provider '%s' not found", name)
+		return ussdErr("set_provider", nil).With(pkgErrors.AttrProvider, name).Code(pkgErrors.CodeNotFound).Errorf("USSD provider is not registered")
 	}
 	delete(s.providers, name)
 	return nil
@@ -64,13 +65,13 @@ func (s *USSDService) HandleRequest(ctx context.Context, providerName string, da
 
 	// Validate the request
 	if err := provider.ValidateRequest(ctx, data); err != nil {
-		return nil, fmt.Errorf("invalid request: %w", err)
+		return nil, ussdErr("handle_request", nil).Code(pkgErrors.CodeIncompleteResponse).Wrapf(err, "gateway request failed validation")
 	}
 
 	// Parse the request
 	ussdReq, err := provider.ParseRequest(ctx, data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse request: %w", err)
+		return nil, ussdErr("handle_request", nil).Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not parse the gateway request")
 	}
 
 	// Handle the request using the USSD handler
@@ -83,7 +84,7 @@ func (s *USSDService) HandleRequest(ctx context.Context, providerName string, da
 		ussdReq.Input,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to handle request: %w", err)
+		return nil, ussdErr("handle_request", nil).Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "handler could not complete the turn")
 	}
 
 	// Parse response type and message
@@ -92,7 +93,7 @@ func (s *USSDService) HandleRequest(ctx context.Context, providerName string, da
 	// Format the response for the provider
 	formattedResp, err := provider.FormatResponse(ctx, ussdResp)
 	if err != nil {
-		return nil, fmt.Errorf("failed to format response: %w", err)
+		return nil, ussdErr("handle_request", nil).Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not format the gateway response")
 	}
 
 	return formattedResp, nil

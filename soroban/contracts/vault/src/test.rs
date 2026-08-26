@@ -808,6 +808,175 @@ fn test_repay_unauthorized() {
     assert_eq!(result, Err(Ok(MicrovaultError::Unauthorized)));
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Attributed repay
+// ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_repay_for_matches_repay() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
+
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &10_000_000i128);
+    client.deposit(&10_000_000i128, &depositor, &depositor, &depositor);
+
+    let borrower = Address::generate(&env);
+    client.borrow(&treasury, &borrower, &5_000_000i128);
+
+    token_admin.mint(&treasury, &5_000_000i128);
+    client.repay_for(&treasury, &borrower, &5_000_000i128);
+
+    assert_eq!(client.total_borrowed(), 0);
+    assert_eq!(client.available_liquidity(), 10_000_000);
+}
+
+#[test]
+fn test_repay_for_partial() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
+
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &10_000_000i128);
+    client.deposit(&10_000_000i128, &depositor, &depositor, &depositor);
+
+    let borrower = Address::generate(&env);
+    client.borrow(&treasury, &borrower, &5_000_000i128);
+
+    token_admin.mint(&treasury, &3_000_000i128);
+    client.repay_for(&treasury, &borrower, &3_000_000i128);
+
+    assert_eq!(client.total_borrowed(), 2_000_000);
+}
+
+#[test]
+fn test_repay_for_exceeds_debt() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
+
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &10_000_000i128);
+    client.deposit(&10_000_000i128, &depositor, &depositor, &depositor);
+
+    let borrower = Address::generate(&env);
+    client.borrow(&treasury, &borrower, &1_000_000i128);
+
+    token_admin.mint(&treasury, &5_000_000i128);
+    let result = client.try_repay_for(&treasury, &borrower, &5_000_000i128);
+    assert_eq!(result, Err(Ok(MicrovaultError::RepayExceedsDebt)));
+}
+
+#[test]
+fn test_repay_for_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
+
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &10_000_000i128);
+    client.deposit(&10_000_000i128, &depositor, &depositor, &depositor);
+
+    let borrower = Address::generate(&env);
+    client.borrow(&treasury, &borrower, &5_000_000i128);
+
+    // Naming a borrower does not let a non-treasury caller repay.
+    let attacker = Address::generate(&env);
+    token_admin.mint(&attacker, &5_000_000i128);
+    let result = client.try_repay_for(&attacker, &borrower, &5_000_000i128);
+    assert_eq!(result, Err(Ok(MicrovaultError::Unauthorized)));
+}
+
+#[test]
+fn test_repay_for_invalid_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, treasury, _guardian) =
+        setup_vault(&env);
+
+    let borrower = Address::generate(&env);
+    let result = client.try_repay_for(&treasury, &borrower, &0i128);
+    assert_eq!(result, Err(Ok(MicrovaultError::InvalidAmount)));
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Yield bump
+// ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_bump_yield_raises_managed_assets_without_minting() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
+
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &10_000_000i128);
+    client.deposit(&10_000_000i128, &depositor, &depositor, &depositor);
+
+    let shares_before = client.balance(&depositor);
+    let supply_before = client.total_supply();
+    let managed_before = client.total_managed_assets();
+    let borrowed_before = client.total_borrowed();
+
+    let benefactor = Address::generate(&env);
+    token_admin.mint(&benefactor, &1_000_000i128);
+    client.bump_yield(&benefactor, &1_000_000i128);
+
+    assert_eq!(client.total_managed_assets(), managed_before + 1_000_000);
+    assert_eq!(client.total_borrowed(), borrowed_before);
+    assert_eq!(client.total_supply(), supply_before);
+    assert_eq!(client.balance(&depositor), shares_before);
+}
+
+#[test]
+fn test_bump_yield_increases_share_value() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
+
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &10_000_000i128);
+    client.deposit(&10_000_000i128, &depositor, &depositor, &depositor);
+
+    let shares = client.balance(&depositor);
+    let redeemable_before = client.preview_redeem(&shares);
+
+    let benefactor = Address::generate(&env);
+    token_admin.mint(&benefactor, &2_000_000i128);
+    client.bump_yield(&benefactor, &2_000_000i128);
+
+    // Sole depositor, so the whole contribution accrues to them.
+    assert!(client.preview_redeem(&shares) > redeemable_before);
+}
+
+#[test]
+fn test_bump_yield_invalid_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
+
+    let benefactor = Address::generate(&env);
+    let result = client.try_bump_yield(&benefactor, &0i128);
+    assert_eq!(result, Err(Ok(MicrovaultError::InvalidAmount)));
+}
+
 #[test]
 fn test_interest_accrual() {
     let env = Env::default();

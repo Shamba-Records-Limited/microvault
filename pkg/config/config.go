@@ -170,16 +170,6 @@ type FonbnkConfig struct {
 }
 
 // MoneyGramConfig holds all MoneyGram-related configuration.
-//
-// MoneyGram acts as both a Stellar SEP-1/9/10/24 anchor (for the cash-pickup
-// off-ramp flow) and a REST API provider (for FX rates). The two sets of
-// credentials are independent: HomeDomain + ServerSigningKey are derived
-// from MG's published TOML and used for SEP-10 auth; ClientID + ClientSecret
-// are issued through the MG developer portal for OAuth 2.0 client_credentials
-// against the REST API.
-//
-// MoneyGram is the platform's default cash-pickup anchor — there is no
-// enable flag; the credentials below are always required at boot.
 type MoneyGramConfig struct {
 	// SEP-1 / 9 / 10 / 24 — Stellar anchor protocol
 	HomeDomain        string // e.g. "stellar.moneygram.com"
@@ -212,6 +202,27 @@ type MoneyGramConfig struct {
 	PollInterval            time.Duration // MONEYGRAM_POLL_INTERVAL (seconds)
 	PollMaxBatch            int           // MONEYGRAM_POLL_MAX_BATCH
 	RefundSettleMaxAttempts int           // MONEYGRAM_REFUND_MAX_ATTEMPTS
+
+	// Borrower repayment cash-in. Separate from the withdrawal cadence above
+	// because the two directions wait on different things: a withdrawal is
+	// ours to finish and is polled hard, a deposit is the borrower's and
+	// spends most of its window idle.
+	RepaymentWindow          time.Duration // REPAYMENT_WINDOW (seconds)
+	RepaymentPollInterval    time.Duration // REPAYMENT_POLL_INTERVAL (seconds)
+	RepaymentReminderBefore  time.Duration // REPAYMENT_REMINDER_BEFORE (seconds)
+	RepaymentVaultMaxAttempt int           // REPAYMENT_VAULT_MAX_ATTEMPTS
+
+	// Per-row poll schedule. These write repayment_next_poll_at, which is what
+	// actually decides whether a row is returned — shortening
+	// RepaymentPollInterval alone changes how often the runner asks, not what
+	// it gets back, so a row parked 30 minutes out stays parked.
+	//
+	// Production wants them long: a deposit spends most of its window with the
+	// borrower walking to an agent, and polling harder learns nothing. Set them
+	// to a few seconds in development to watch a deposit move in real time.
+	RepaymentActiveBackoff     time.Duration // REPAYMENT_ACTIVE_BACKOFF (seconds), default 2m
+	RepaymentIdleBackoff       time.Duration // REPAYMENT_IDLE_BACKOFF (seconds), default 30m
+	RepaymentVaultRetryBackoff time.Duration // REPAYMENT_VAULT_RETRY_BACKOFF (seconds), default 1h
 }
 
 // PaymentsConfig bundles all payment provider configurations
@@ -228,6 +239,12 @@ type PaymentsConfig struct {
 	// Distinct from the MoneyGram orchestrator's buffers, which apply on the
 	// cascade path and carry their own per-leg settings.
 	EntryFXBufferPct *float64
+
+	// EnableProviderRelaySwitch turns on per-transaction routing between
+	// providers on effective post-fee rate. Off routes every transaction to
+	// YellowCard, the default provider. From
+	// ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH; unset is off.
+	EnableProviderRelaySwitch bool
 }
 
 // AfricasTalkingConfig holds all SMS/USSD-related configuration for Africa's Talking
@@ -261,6 +278,17 @@ type MobileConfig struct {
 	// SessionTimeout is the Redis TTL for a USSD session, refreshed on each
 	// request. From USSD_SESSION_TIMEOUT (seconds); defaults to 5 minutes.
 	SessionTimeout time.Duration
+
+	// USSDDialString is what a user dials to reach this deployment, stored
+	// complete with prefix and terminator.
+	USSDDialString string
+
+	// RepayPaybill is the mobile-money paybill number shown on the USSD repay
+	// screen. From REPAY_PAYBILL. Builder-injected and environment-specific:
+	// it names the builder's own merchant account, so the platform ships no
+	// default. Blank hides the mobile-money option rather than printing a
+	// number nobody can pay into.
+	RepayPaybill string
 }
 
 type AuthConfig struct {
@@ -316,7 +344,41 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	repaymentWindow, err := envSeconds("REPAYMENT_WINDOW")
+	if err != nil {
+		return nil, err
+	}
+	repaymentPollInterval, err := envSeconds("REPAYMENT_POLL_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	repaymentReminderBefore, err := envSeconds("REPAYMENT_REMINDER_BEFORE")
+	if err != nil {
+		return nil, err
+	}
+	repaymentVaultMaxAttempts, err := envPositiveInt("REPAYMENT_VAULT_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+	repaymentActiveBackoff, err := envSeconds("REPAYMENT_ACTIVE_BACKOFF")
+	if err != nil {
+		return nil, err
+	}
+	repaymentIdleBackoff, err := envSeconds("REPAYMENT_IDLE_BACKOFF")
+	if err != nil {
+		return nil, err
+	}
+	repaymentVaultRetryBackoff, err := envSeconds("REPAYMENT_VAULT_RETRY_BACKOFF")
+	if err != nil {
+		return nil, err
+	}
+
 	mgRefundMaxAttempts, err := envPositiveInt("MONEYGRAM_REFUND_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+
+	enableRelaySwitch, err := envBool("ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH")
 	if err != nil {
 		return nil, err
 	}
@@ -341,6 +403,7 @@ func New() (*Config, error) {
 
 	mobileUsername := os.Getenv("AT_USERNAME")
 	mobileAPIKey := os.Getenv("AT_API_KEY")
+	ussdDialString := os.Getenv("USSD_DIAL_STRING")
 
 	treasurySecretKey := os.Getenv("TREASURY_SECRET_KEY")
 	adminSecretKey := os.Getenv("ADMIN_SECRET_KEY")
@@ -383,6 +446,7 @@ func New() (*Config, error) {
 		"JWT_SECRET":                jwtSecret,
 		"USDC_ISSUER":               usdcIssuer,
 		"CONTRACT_ID":               contractID,
+		"USSD_DIAL_STRING":          ussdDialString,
 	}
 
 	// Loop and check for empty values
@@ -419,7 +483,7 @@ func New() (*Config, error) {
 
 	mobileSandboxMode, err := strconv.ParseBool(os.Getenv("AT_SANDBOX_MODE"))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing Africa's Talking sandbox mode: %v", err)
+		return nil, fmt.Errorf("error parsing Africa's Talking sandbox mode: %w", err)
 	}
 
 	mobileBaseURL := os.Getenv("AT_BASE_URL")
@@ -448,22 +512,22 @@ func New() (*Config, error) {
 	// Multi-Signature Configuration
 	enableMultiSig, err := strconv.ParseBool(os.Getenv("ENABLE_MULTI_SIG"))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing multi-sig enablement: %v", err)
+		return nil, fmt.Errorf("error parsing multi-sig enablement: %w", err)
 	}
 
 	multiSigLowThreshold, err := strconv.Atoi(os.Getenv("MULTI_SIG_LOW_THRESHOLD"))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing multi-sig low threshold: %v", err)
+		return nil, fmt.Errorf("error parsing multi-sig low threshold: %w", err)
 	}
 
 	multiSigMediumThreshold, err := strconv.Atoi(os.Getenv("MULTI_SIG_MEDIUM_THRESHOLD"))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing multi-sig medium threshold: %v", err)
+		return nil, fmt.Errorf("error parsing multi-sig medium threshold: %w", err)
 	}
 
 	multiSigHighThreshold, err := strconv.Atoi(os.Getenv("MULTI_SIG_HIGH_THRESHOLD"))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing multi-sig high threshold: %v", err)
+		return nil, fmt.Errorf("error parsing multi-sig high threshold: %w", err)
 	}
 
 	if usdcIssuer != "" {
@@ -560,7 +624,8 @@ func New() (*Config, error) {
 			AccountIndexBase:        accountIndexBase,
 		},
 		Payments: PaymentsConfig{
-			EntryFXBufferPct: entryFXBuffer,
+			EntryFXBufferPct:          entryFXBuffer,
+			EnableProviderRelaySwitch: enableRelaySwitch,
 			YellowCard: YellowCardConfig{
 				PublicKey:    ycPublicKey,
 				SecretKey:    ycSecretKey,
@@ -589,6 +654,15 @@ func New() (*Config, error) {
 				FXEntryBufferPct:         mgFXBuffer,
 				FXEntryBufferPctFallback: mgFXBufferFallback,
 
+				RepaymentWindow:          repaymentWindow,
+				RepaymentPollInterval:    repaymentPollInterval,
+				RepaymentReminderBefore:  repaymentReminderBefore,
+				RepaymentVaultMaxAttempt: repaymentVaultMaxAttempts,
+
+				RepaymentActiveBackoff:     repaymentActiveBackoff,
+				RepaymentIdleBackoff:       repaymentIdleBackoff,
+				RepaymentVaultRetryBackoff: repaymentVaultRetryBackoff,
+
 				PollInterval:            mgPollInterval,
 				PollMaxBatch:            mgPollMaxBatch,
 				RefundSettleMaxAttempts: mgRefundMaxAttempts,
@@ -604,6 +678,8 @@ func New() (*Config, error) {
 				HTTPTimeout: mobileHTTPTimeout,
 			},
 			SessionTimeout: ussdSessionTimeout,
+			USSDDialString: ussdDialString,
+			RepayPaybill:   os.Getenv("REPAY_PAYBILL"),
 		},
 		Auth: AuthConfig{
 			JWTSecret:           jwtSecret,
@@ -624,11 +700,20 @@ func parsePINLockout() time.Duration {
 	return 15 * time.Minute
 }
 
-// envSeconds reads a bare integer count of seconds, matching the convention
-// used by USSD_SESSION_TIMEOUT and PIN_LOCKOUT_SECONDS. Returns zero when
-// unset so callers can fall back to their own default. A malformed value is
-// an error rather than a silent default: these exist to be tuned, and a typo
-// quietly ignored would look like the tuning had no effect.
+// envBool reads a boolean, false when unset. Unlike the multi-sig flags this
+// does not fail on an empty value, so adding it breaks no existing deployment.
+func envBool(key string) (bool, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return false, nil
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("error parsing %s: expected a boolean, got %q", key, raw)
+	}
+	return v, nil
+}
+
 func envSeconds(key string) (time.Duration, error) {
 	raw := os.Getenv(key)
 	if raw == "" {
@@ -750,6 +835,15 @@ func (c *MoneyGramConfig) FundsAddress() (string, error) {
 	return kp.Address(), nil
 }
 
+// TreasuryAddress derives the treasury's public address from its secret key.
+func (c *StellarConfig) TreasuryAddress() (string, error) {
+	kp, err := keypair.ParseFull(c.TreasurySecretKey)
+	if err != nil {
+		return "", err
+	}
+	return kp.Address(), nil
+}
+
 // HasRESTCredentials reports whether the REST API credentials are populated.
 // Callers should fall back to YC for FX rates when this returns false.
 func (c *MoneyGramConfig) HasRESTCredentials() bool {
@@ -758,14 +852,6 @@ func (c *MoneyGramConfig) HasRESTCredentials() bool {
 
 // validateUSDCIssuerAlignment rejects a MoneyGram issuer override that names a
 // different asset from the vault's.
-//
-// The vault is constructed with USDC_ISSUER and refunds are repaid into it, so
-// an override describes an asset the vault cannot accept. Startup is the only
-// place this surfaces loudly: at runtime it presents as refunds that silently
-// never settle, because the on-ledger issuer check rejects every payment and
-// the loan simply sits in refund_pending.
-//
-// An unset override is not a mismatch — it inherits USDC_ISSUER.
 func validateUSDCIssuerAlignment(moneygramIssuer, stellarIssuer string) error {
 	if moneygramIssuer == "" || stellarIssuer == "" {
 		return nil

@@ -1,6 +1,6 @@
 # Microvault Mobile
 
-Developer reference for `pkg/mobile` — the mobile-channel surface. This is
+Developer reference for `pkg/mobile`. The mobile-channel surface. This is
 where telecom gateways meet the platform: USSD for interactive menu flows
 and SMS for outbound notifications and delivery reports.
 
@@ -56,7 +56,7 @@ Two things to read off the diagram:
 - **USSD has ports; SMS does not.** The USSD handler depends on four narrow
   interfaces (`UserService`, `LoanService`, `RateService`, `PINService`) so
   the menu logic stays decoupled from the lending and identity services. SMS
-  is a thinner send-and-ingest surface with no domain ports —
+  is a thinner send-and-ingest surface with no domain ports:
   `SMSService` just holds providers and `DeliveryReportHandler` just
   dispatches callbacks.
 
@@ -94,8 +94,8 @@ Two things to read off the diagram:
 
 5. **Menu dispatch.** `handleMenuInput` looks up `session.CurrentMenu` in the
    `MenuRegistry` and invokes that menu's `MenuHandler` with a `MenuContext`
-   (session + input + manager). The handler returns a `MenuResponse` —
-   `MenuTypeContinue` ("CON") keeps the session open, `MenuTypeEnd` ("END")
+   (session + input + manager). The handler returns a `MenuResponse`, where
+   `MenuTypeContinue` ("CON") keeps the session open and `MenuTypeEnd` ("END")
    releases it.
 
 6. **Side effects.** Handlers call the port interfaces (`LoanService`,
@@ -153,7 +153,7 @@ func (a *GatewayUSSDAdapter) ValidateRequest(ctx context.Context, data map[strin
 
 func (a *GatewayUSSDAdapter) ParseRequest(ctx context.Context, data map[string]string) (*ussd.USSDRequest, error) {
     // turn the gateway's form fields into a normalized USSDRequest.
-    // USSDRequest.Input must be the *current* input only — strip any
+    // USSDRequest.Input must be the *current* input only, strip any
     // accumulated history the gateway echoes back.
 }
 
@@ -172,7 +172,7 @@ ussdService.RegisterProvider("mygateway", mygateway.NewGatewayUSSDAdapter(/* cfg
 ```
 
 **3.** Point the gateway at `POST /api/v1/mobile/ussd/mygateway`. The route
-already exists — the `:provider` param is what selects the transport. No
+already exists. The `:provider` param is what selects the transport. No
 route file changes.
 
 The key thing to get right is `ParseRequest`: USSD gateways differ in how
@@ -237,7 +237,7 @@ h := sms.NewDeliveryReportHandler(
 
 `DeliveryReport.IsFinalStatus()` returns true for terminal states
 (`Sent`, `Submitted`, `Buffered`, `Rejected`, `Success`, `Failed`,
-`AbsentSubscriber`, `Expired`) — i.e. no further updates expected.
+`AbsentSubscriber`, `Expired`), i.e. no further updates expected.
 
 ### Adding an SMS transport
 
@@ -279,7 +279,7 @@ smsSvc.RegisterProvider("mygateway", mygateway.NewGatewaySMSAdapter(/* cfg */))
 
 **3.** For delivery reports, point the gateway at
 `POST /api/v1/mobile/sms/mygateway/delivery`. The route already exists; the
-`:provider` param is informational (the controller doesn't switch on it —
+`:provider` param is informational (the controller doesn't switch on it, since
 the `DeliveryReport` shape is provider-agnostic). If your gateway POSTs a
 different field set, extend `DeliveryReport` and the parsing in
 `SMSCallbackController.HandleDeliveryReport`.
@@ -289,7 +289,7 @@ different field set, extend `DeliveryReport` and the parsing in
 ## How the credit module wires in
 
 The USSD handler's `LoanService` and `RateService` ports are **not**
-satisfied inside `pkg/mobile/`. They're satisfied by the credit module — a
+satisfied inside `pkg/mobile/`. They're satisfied by the credit module, a
 separate binary (`cmd/credit`) that depends on `pkg/mobile/ussd` and supplies
 the adapters. This keeps the lending logic out of the core platform module
 while letting the USSD flow drive loan requests.
@@ -327,7 +327,7 @@ flowchart TD
 Three things to notice:
 
 1. **The off-ramp adapters live in `pkg/mobile/ussd/adapters/`** (in the
-   core module) because they're USSD-channel glue — they translate between
+   core module) because they're USSD-channel glue, they translate between
    the USSD loan request shape and the `offramp.Provider` contract. But they
    implement `offramp.Provider` (the payment contract), **not** `ussd.LoanService`.
    They're registered in the `offramp.Registry` and consumed by the credit
@@ -346,7 +346,7 @@ Three things to notice:
    MoneyGram's FX cascade is consumed inside `LoanServiceAdapter`, not here.
 
 The core binary (`cmd/microvault`) passes `nil` for `loanService` and
-`rateService` — the USSD flow runs but loan/repay screens are unreachable.
+`rateService`. The USSD flow runs but loan/repay screens are unreachable.
 The credit binary (`cmd/credit`) supplies the real adapters. This is why the
 two binaries exist: the core module owns the platform (identity, accounts,
 Stellar, mobile transports); the credit module owns lending and wires the
@@ -373,15 +373,15 @@ loan surface into the USSD handler.
 
 ## Related docs
 
-- [`pkg/mobile/ussd/README.md`](../../pkg/mobile/ussd/README.md) — the USSD
+- [`pkg/mobile/ussd/README.md`](../../pkg/mobile/ussd/README.md), the USSD
   architecture diagram, request lifecycle, and file/subpackage map.
-- [`pkg/mobile/ussd/doc.go`](../../pkg/mobile/ussd/doc.go) — the `go doc`
+- [`pkg/mobile/ussd/doc.go`](../../pkg/mobile/ussd/doc.go), the `go doc`
   surface for the USSD package.
-- [`pkg/mobile/sms/doc.go`](../../pkg/mobile/sms/doc.go) — the `go doc`
+- [`pkg/mobile/sms/doc.go`](../../pkg/mobile/sms/doc.go), the `go doc`
   surface for the SMS package.
-- [`pkg/payment/README.md`](../../pkg/payment/README.md) — the off-ramp
+- [`pkg/payment/README.md`](../../pkg/payment/README.md), the off-ramp
   contract the USSD adapters implement.
-- [`pkg/pin/doc.go`](../../pkg/pin/doc.go) — the PIN service that satisfies
+- [`pkg/pin/doc.go`](../../pkg/pin/doc.go). The PIN service that satisfies
   `ussd.PINService`.
-- [`docs/offramp/README.md`](../offramp/README.md) — the off-ramp area doc
+- [`docs/offramp/README.md`](../offramp/README.md), the off-ramp area doc
   (settlement modes, webhook state machine, provider overrides).

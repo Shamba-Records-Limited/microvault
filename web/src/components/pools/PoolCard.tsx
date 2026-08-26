@@ -6,7 +6,7 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CaretDown, CaretUp, CircleNotch } from "@phosphor-icons/react";
+import { ArrowSquareOut, CaretDown, CaretUp, CircleNotch } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -173,9 +173,10 @@ export function PoolCard({ pool }: PoolCardProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="hover:text-foreground hover:underline transition-colors"
+                className="inline-flex items-center gap-1 hover:text-foreground hover:underline decoration-border transition-colors"
               >
                 {pool.address.slice(0, 8)}...{pool.address.slice(-6)}
+                <ArrowSquareOut className="h-3 w-3 shrink-0" />
               </a>
             </div>
 
@@ -365,10 +366,13 @@ export function PoolCard({ pool }: PoolCardProps) {
                         href={`${explorerUrl}/contract/${pool.admin}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block font-mono text-xs text-foreground hover:text-primary hover:underline transition-colors truncate"
+                        className="inline-flex items-center gap-1 max-w-full font-mono text-xs text-foreground hover:text-primary hover:underline transition-colors"
                         title={pool.admin}
                       >
-                        {pool.admin.slice(0, 8)}...{pool.admin.slice(-6)}
+                        <span className="truncate">
+                          {pool.admin.slice(0, 8)}...{pool.admin.slice(-6)}
+                        </span>
+                        <ArrowSquareOut className="h-3 w-3 shrink-0 text-muted-foreground" />
                       </a>
                     </div>
                   )}
@@ -379,10 +383,13 @@ export function PoolCard({ pool }: PoolCardProps) {
                         href={`${explorerUrl}/account/${pool.treasury}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block font-mono text-xs text-foreground hover:text-primary hover:underline transition-colors truncate"
+                        className="inline-flex items-center gap-1 max-w-full font-mono text-xs text-foreground hover:text-primary hover:underline transition-colors"
                         title={pool.treasury}
                       >
-                        {pool.treasury.slice(0, 8)}...{pool.treasury.slice(-6)}
+                        <span className="truncate">
+                          {pool.treasury.slice(0, 8)}...{pool.treasury.slice(-6)}
+                        </span>
+                        <ArrowSquareOut className="h-3 w-3 shrink-0 text-muted-foreground" />
                       </a>
                     </div>
                   )}
@@ -393,10 +400,13 @@ export function PoolCard({ pool }: PoolCardProps) {
                         href={`${explorerUrl}/account/${pool.guardian}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block font-mono text-xs text-foreground hover:text-primary hover:underline transition-colors truncate"
+                        className="inline-flex items-center gap-1 max-w-full font-mono text-xs text-foreground hover:text-primary hover:underline transition-colors"
                         title={pool.guardian}
                       >
-                        {pool.guardian.slice(0, 8)}...{pool.guardian.slice(-6)}
+                        <span className="truncate">
+                          {pool.guardian.slice(0, 8)}...{pool.guardian.slice(-6)}
+                        </span>
+                        <ArrowSquareOut className="h-3 w-3 shrink-0 text-muted-foreground" />
                       </a>
                     </div>
                   )}

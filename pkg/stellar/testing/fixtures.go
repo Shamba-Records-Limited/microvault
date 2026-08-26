@@ -252,6 +252,19 @@ func (b *GetTransactionResponseBuilder) WithResultXDR(resultXDR string) *GetTran
 	return b
 }
 
+// WithResultMetaXDR sets the result metadata XDR, which carries the contract
+// events emitted by the transaction.
+func (b *GetTransactionResponseBuilder) WithResultMetaXDR(resultMetaXDR string) *GetTransactionResponseBuilder {
+	b.resp.ResultMetaXDR = resultMetaXDR
+	return b
+}
+
+// WithEnvelopeXDR sets the transaction envelope XDR
+func (b *GetTransactionResponseBuilder) WithEnvelopeXDR(envelopeXDR string) *GetTransactionResponseBuilder {
+	b.resp.EnvelopeXDR = envelopeXDR
+	return b
+}
+
 // Build returns the constructed response
 func (b *GetTransactionResponseBuilder) Build() protocol.GetTransactionResponse {
 	return b.resp

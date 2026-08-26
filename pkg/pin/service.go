@@ -7,11 +7,16 @@ import (
 	"log/slog"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
-	"golang.org/x/crypto/bcrypt"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // Service constants.
@@ -63,12 +68,14 @@ type QuestionAnswer struct {
 	Answer     string
 }
 
+// pinErr starts an error builder for PIN operations.
+func pinErr(op string) oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainIdentity).Tags("pin").With(pkgErrors.AttrOperation, op)
+}
+
 // Service provides PIN management operations including creation, verification,
 // change, reset, and security question handling. It sends SMS notifications
 // as side effects of certain operations via an [contracts.AccountNotifier].
-//
-// All methods that access the database accept a [context.Context] for
-// cancellation and timeout propagation.
 type Service struct {
 	userRepo    repository.UserRepository
 	sqRepo      *SecurityQuestionRepository
@@ -101,20 +108,17 @@ func NewService(
 	}
 }
 
-// SetPIN creates a PIN for a user who does not yet have one. The PIN is
-// validated for strength, hashed with bcrypt, and stored. Returns a
-// validation error if the PIN is weak.
 // HashPIN validates a raw PIN and returns its bcrypt hash at the shared
 // BcryptCost. It is the single entry point for turning a PIN into a stored
 // hash — used by SetPIN, ResetPIN, and atomic registration — so PIN validation
 // and the cost factor live in one place.
 func HashPIN(pin string) (string, error) {
 	if err := ValidatePIN(pin); err != nil {
-		return "", fmt.Errorf("validate PIN: %w", err)
+		return "", pinErr("set_pin").Code(pkgErrors.CodeInvalidAmount).Wrapf(err, "PIN failed validation")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(pin), BcryptCost)
 	if err != nil {
-		return "", fmt.Errorf("hash PIN: %w", err)
+		return "", pinErr("set_pin").Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not hash the PIN")
 	}
 	return string(hash), nil
 }
@@ -127,7 +131,8 @@ func (s *Service) SetPIN(ctx context.Context, userID, pin string) error {
 
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("get user %s: %w", userID, err)
+		return pinErr("get_user").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(err, "could not load the user")
 	}
 
 	now := time.Now()
@@ -137,7 +142,8 @@ func (s *Service) SetPIN(ctx context.Context, userID, pin string) error {
 	user.PinLockedUntil = nil
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
-		return fmt.Errorf("save PIN for user %s: %w", userID, err)
+		return pinErr("set_pin").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not save the PIN")
 	}
 
 	return nil
@@ -147,13 +153,11 @@ func (s *Service) SetPIN(ctx context.Context, userID, pin string) error {
 // increments the attempt counter and sends an SMS notification. If the
 // maximum attempts are exceeded the account is locked and a lockout
 // notification is sent.
-//
-// Returns (true, nil) on success, (false, nil) on wrong PIN (with side
-// effects), or (false, error) on system errors or if the account is locked.
 func (s *Service) VerifyPIN(ctx context.Context, userID, pin string) (bool, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		return false, fmt.Errorf("get user %s: %w", userID, err)
+		return false, pinErr("get_user").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(err, "could not load the user")
 	}
 
 	if user.PinHash == nil {
@@ -162,8 +166,14 @@ func (s *Service) VerifyPIN(ctx context.Context, userID, pin string) (bool, erro
 
 	// Check lockout.
 	if user.PinLockedUntil != nil && time.Now().Before(*user.PinLockedUntil) {
-		return false, fmt.Errorf("%w: try again after %s",
-			ErrAccountLocked, formatLockDuration(*user.PinLockedUntil))
+		// Public: the borrower sees this wording on a feature phone, so it
+		// must be GSM-7 clean and free of anything technical.
+		return false, pinErr("verify_pin").
+			With(pkgErrors.AttrUserID, userID).
+			With("locked_until", user.PinLockedUntil.Format(time.RFC3339)).
+			Code(pkgErrors.CodeAccountLocked).
+			Public("Account locked. Try again after "+formatLockDuration(*user.PinLockedUntil)+".").
+			Wrapf(ErrAccountLocked, "PIN verification attempted while the account is locked")
 	}
 
 	// Compare PIN.
@@ -176,7 +186,8 @@ func (s *Service) VerifyPIN(ctx context.Context, userID, pin string) (bool, erro
 		user.PinAttempts = 0
 		user.PinLockedUntil = nil
 		if err := s.userRepo.Update(ctx, user); err != nil {
-			return true, fmt.Errorf("reset PIN attempts for user %s: %w", userID, err)
+			return true, pinErr("verify_pin").With(pkgErrors.AttrUserID, userID).
+				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not reset the PIN attempt counter")
 		}
 	}
 
@@ -189,7 +200,8 @@ func (s *Service) VerifyPIN(ctx context.Context, userID, pin string) (bool, erro
 func (s *Service) ChangePIN(ctx context.Context, userID, oldPin, newPin string) error {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("get user %s: %w", userID, err)
+		return pinErr("get_user").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(err, "could not load the user")
 	}
 
 	if user.PinHash == nil {
@@ -213,12 +225,12 @@ func (s *Service) ChangePIN(ctx context.Context, userID, oldPin, newPin string) 
 	// Validate new PIN strength.
 	if err := ValidatePIN(newPin); err != nil {
 		s.notifyChangeFailed(ctx, user, err.Error())
-		return fmt.Errorf("validate new PIN: %w", err)
+		return pinErr("change_pin").Code(pkgErrors.CodeInvalidAmount).Wrapf(err, "new PIN failed validation")
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPin), BcryptCost)
 	if err != nil {
-		return fmt.Errorf("hash new PIN: %w", err)
+		return pinErr("change_pin").Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not hash the new PIN")
 	}
 
 	hashStr := string(hash)
@@ -227,7 +239,8 @@ func (s *Service) ChangePIN(ctx context.Context, userID, oldPin, newPin string) 
 	user.PinSetAt = &now
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
-		return fmt.Errorf("save new PIN for user %s: %w", userID, err)
+		return pinErr("change_pin").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not save the new PIN")
 	}
 
 	// Notify success (off the request path — see notifyAsync).
@@ -249,18 +262,19 @@ func (s *Service) ResetPIN(ctx context.Context, userID, newPin string) error {
 	slog.Info("pin: reset initiated", slog.String("user_id", userID))
 
 	if err := ValidatePIN(newPin); err != nil {
-		return fmt.Errorf("validate new PIN: %w", err)
+		return pinErr("reset_pin").Code(pkgErrors.CodeInvalidAmount).Wrapf(err, "new PIN failed validation")
 	}
 
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("get user %s: %w", userID, err)
+		return pinErr("get_user").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(err, "could not load the user")
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPin), BcryptCost)
 	if err != nil {
 		s.notifyResetFailed(ctx, user, "internal error")
-		return fmt.Errorf("hash new PIN: %w", err)
+		return pinErr("reset_pin").Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not hash the new PIN")
 	}
 
 	hashStr := string(hash)
@@ -272,7 +286,8 @@ func (s *Service) ResetPIN(ctx context.Context, userID, newPin string) error {
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		s.notifyResetFailed(ctx, user, "failed to save PIN")
-		return fmt.Errorf("save reset PIN for user %s: %w", userID, err)
+		return pinErr("reset_pin").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not save the reset PIN")
 	}
 
 	slog.Info("pin: reset succeeded", slog.String("user_id", userID))
@@ -293,7 +308,8 @@ func (s *Service) ResetPIN(ctx context.Context, userID, newPin string) error {
 func (s *Service) IsLocked(ctx context.Context, userID string) (bool, time.Time, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		return false, time.Time{}, fmt.Errorf("get user %s: %w", userID, err)
+		return false, time.Time{}, pinErr("get_user").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(err, "could not load the user")
 	}
 
 	if user.PinLockedUntil != nil && time.Now().Before(*user.PinLockedUntil) {
@@ -307,7 +323,8 @@ func (s *Service) IsLocked(ctx context.Context, userID string) (bool, time.Time,
 func (s *Service) HasPIN(ctx context.Context, userID string) (bool, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		return false, fmt.Errorf("get user %s: %w", userID, err)
+		return false, pinErr("get_user").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(err, "could not load the user")
 	}
 	return user.PinHash != nil, nil
 }
@@ -325,7 +342,8 @@ func (s *Service) SetSecurityQuestions(ctx context.Context, userID string, quest
 		normalized := NormalizeAnswer(qa.Answer)
 		hash, err := bcrypt.GenerateFromPassword([]byte(normalized), BcryptCost)
 		if err != nil {
-			return fmt.Errorf("hash answer for question %d: %w", qa.QuestionID, err)
+			return pinErr("set_security_questions").With("question_id", qa.QuestionID).
+				Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not hash a security answer")
 		}
 		sqModels[i] = models.SecurityQuestion{
 			UserID:     userID,
@@ -335,7 +353,8 @@ func (s *Service) SetSecurityQuestions(ctx context.Context, userID string, quest
 	}
 
 	if err := s.sqRepo.UpsertForUser(ctx, sqModels); err != nil {
-		return fmt.Errorf("save security questions for user %s: %w", userID, err)
+		return pinErr("set_security_questions").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not save the security questions")
 	}
 
 	return nil
@@ -347,7 +366,8 @@ func (s *Service) SetSecurityQuestions(ctx context.Context, userID string, quest
 func (s *Service) VerifySecurityAnswers(ctx context.Context, userID string, answers []QuestionAnswer) (bool, error) {
 	stored, err := s.sqRepo.GetByUserID(ctx, userID)
 	if err != nil {
-		return false, fmt.Errorf("get security questions for user %s: %w", userID, err)
+		return false, pinErr("verify_security_answers").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(err, "could not load the security questions")
 	}
 
 	// Build lookup by question ID.
@@ -362,6 +382,9 @@ func (s *Service) VerifySecurityAnswers(ctx context.Context, userID string, answ
 			return false, nil
 		}
 		normalized := NormalizeAnswer(qa.Answer)
+		//nolint:nilerr // a hash mismatch means the answer was wrong, which is a
+		// result rather than a failure; a non-nil error here would read as a
+		// system fault and lock the user out of recovery.
 		if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(normalized)); err != nil {
 			return false, nil
 		}
@@ -375,7 +398,8 @@ func (s *Service) VerifySecurityAnswers(ctx context.Context, userID string, answ
 func (s *Service) GetUserQuestionIDs(ctx context.Context, userID string) ([]int, error) {
 	ids, err := s.sqRepo.GetQuestionIDsByUserID(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get question IDs for user %s: %w", userID, err)
+		return nil, pinErr("get_question_ids").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(err, "could not load the security question ids")
 	}
 	return ids, nil
 }
@@ -385,7 +409,8 @@ func (s *Service) GetUserQuestionIDs(ctx context.Context, userID string) ([]int,
 func (s *Service) GetRemainingAttempts(ctx context.Context, userID string) (int, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		return 0, fmt.Errorf("get user %s: %w", userID, err)
+		return 0, pinErr("get_user").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(err, "could not load the user")
 	}
 
 	if user.PinLockedUntil != nil && time.Now().Before(*user.PinLockedUntil) {
@@ -411,8 +436,6 @@ func formatLockDuration(until time.Time) string {
 	return fmt.Sprintf("%d minutes", mins)
 }
 
-// handleFailedAttempt increments the attempt counter, optionally locks the
-// account, persists the change, and sends the appropriate SMS notification.
 // notifyAsync sends an account notification off the caller's request path. PIN
 // operations run on the USSD turn, where a slow SMS gateway would otherwise
 // block the response and risk breaching the USSD deadline. Uses a detached
@@ -434,7 +457,8 @@ func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (b
 		user.PinLockedUntil = &lockUntil
 
 		if err := s.userRepo.Update(ctx, user); err != nil {
-			return false, fmt.Errorf("lock account for user %s: %w", user.ID, err)
+			return false, pinErr("handle_failed_attempt").With(pkgErrors.AttrUserID, user.ID).
+				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not lock the account")
 		}
 
 		lockedNote := contracts.AccountNotification{
@@ -446,12 +470,17 @@ func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (b
 			return s.notifier.NotifyAccountLocked(ctx, lockedNote)
 		})
 
-		return false, fmt.Errorf("%w: try again after %s",
-			ErrAccountLocked, formatLockDuration(lockUntil))
+		return false, pinErr("handle_failed_attempt").
+			With(pkgErrors.AttrUserID, user.ID).
+			With("locked_until", lockUntil.Format(time.RFC3339)).
+			Code(pkgErrors.CodeAccountLocked).
+			Public("Account locked. Try again after "+formatLockDuration(lockUntil)+".").
+			Wrapf(ErrAccountLocked, "account locked after too many failed PIN attempts")
 	}
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
-		return false, fmt.Errorf("update PIN attempts for user %s: %w", user.ID, err)
+		return false, pinErr("handle_failed_attempt").With(pkgErrors.AttrUserID, user.ID).
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not update the PIN attempt counter")
 	}
 
 	wrongNote := contracts.AccountNotification{

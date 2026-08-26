@@ -6,5 +6,7 @@ Developer documentation for Microvault, grouped by area.
 |---|---|
 | **[Soroban Contracts](./soroban/README.md)** | Understand the on-chain Vault and governance contracts: deposit/withdraw, borrow/repay, views, events, error codes, and admin workflows. |
 | **[Stellar Go Client](./stellar/client.md)** | Call Stellar from Go: the sponsorship model, child-account lifecycle, moving USDC, the Vault client, transaction confirmation, errors, and configuration. |
-| **[Off-Ramp](./offramp/README.md)** | Turn a USDC loan into mobile money through a payment provider: settlement modes, the direct to fiat pivot, the webhook state machine, and provider overrides. |
+| **[Off-Ramp](./offramp/README.md)** | Turn a USDC loan into real money through a payment provider: YellowCard and Fonbnk mobile money (settlement modes, the direct→fiat pivot, order lifecycles, webhook state machines) and MoneyGram cash pickup (the SEP-24 interactive flow, poller, treasury send, and refunds). |
+| **[On-Ramp](./onramp/README.md)** | Turn real money back into USDC: MoneyGram cash-in repayment (the SEP-24 deposit, the column-driven poller, deposit memos, and the treasury→vault leg). |
+| **[Payment Relay](./relay/README.md)** | Decide which provider handles a payout: the effective-rate comparison, the `ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH` kill switch, the margin guard, and how to add a provider of your own. |
 | **[Mobile](./mobile/README.md)** | Wire telecom gateways into the platform: USSD menu flows, SMS send and delivery reports, how to add a provider for either channel, and how the credit module supplies the USSD loan/rate ports. |

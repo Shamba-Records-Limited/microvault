@@ -3,9 +3,10 @@ package middleware
 import (
 	"time"
 
+	"github.com/gofiber/fiber/v2"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
-	"github.com/gofiber/fiber/v2"
 )
 
 const AdminClaimsKey = "admin_claims"

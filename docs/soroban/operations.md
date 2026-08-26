@@ -171,7 +171,7 @@ After step 3c the vault's owner is the controller, and every `[only_owner]` call
 
 ## Rotate Vault ownership (timelock to new owner)
 
-If you later need to move ownership away from the controller — say, to a multisig or a new governance contract — the auth roles invert and the directness of each leg flips with them:
+If you later need to move ownership away from the controller, say to a multisig or a new governance contract, the auth roles invert and the directness of each leg flips with them:
 
 | Call | Who calls | Why direct vs timelocked |
 |---|---|---|
@@ -304,7 +304,7 @@ Bash sees `"[{"`, `i128`, `":"`, `10000000000`, `"}]"` as five adjacent words (t
 Three forms that work:
 
 ```bash
-# ✅ Single quotes outside. Single quotes are literal — every character
+# ✅ Single quotes outside. Single quotes are literal, every character
 #    inside is preserved verbatim. Use this when no variables are
 #    interpolated.
 --args '[{"i128":"10000000000"}]'
@@ -369,9 +369,9 @@ stellar contract invoke \
 
 ### TimelockController self-upgrade
 
-The controller's own `upgrade` is `[only_admin]`. When the controller is its own admin, a self-targeted operation **cannot** go through `execute_op`: `execute_op` makes a cross-contract call into `target`, and when `target` is the controller itself that is a nested call back into the running contract — Soroban rejects it as re-entry (`Error(Context, InvalidAction)`, "Contract re-entry is not allowed").
+The controller's own `upgrade` is `[only_admin]`. When the controller is its own admin, a self-targeted operation **cannot** go through `execute_op`: `execute_op` makes a cross-contract call into `target`, and when `target` is the controller itself that is a nested call back into the running contract. Soroban rejects it as re-entry (`Error(Context, InvalidAction)`, "Contract re-entry is not allowed").
 
-Instead, **schedule the op against the controller, wait the delay, then call `upgrade` _directly_** (not `execute_op`). Because `upgrade` is `[only_admin]` and the admin is the contract itself, the direct call triggers the controller's `__check_auth`, which reconstructs the operation from the `OperationMeta` you supply, verifies the delay has passed via `set_execute_operation`, and marks it `Done` — all in a single (root) invocation, so there is no re-entry.
+Instead, **schedule the op against the controller, wait the delay, then call `upgrade` _directly_** (not `execute_op`). Because `upgrade` is `[only_admin]` and the admin is the contract itself, the direct call triggers the controller's `__check_auth`, which reconstructs the operation from the `OperationMeta` you supply, verifies the delay has passed via `set_execute_operation`, and marks it `Done`, all in a single (root) invocation, so there is no re-entry.
 
 ```bash
 NEW_TIMELOCK_WASM_HASH=$(stellar contract upload \
@@ -404,9 +404,9 @@ stellar contract invoke \
   --new_wasm_hash $NEW_TIMELOCK_WASM_HASH
 ```
 
-The direct `upgrade` call requires the controller's `__check_auth` authorization, whose signature is the `Vec<OperationMeta>` `[{ predecessor, salt, executor }]` — **not** an EOA key signature. The `stellar` CLI cannot synthesize a custom-account signature, so this leg's `SorobanAuthorizationEntry` (an `Address` credential for `$TIMELOCK_ID` carrying that `OperationMeta` ScVal) must be built with the SDK (JS/Rust) and attached to the transaction. If executors are configured, `__check_auth` *also* calls `executor.require_auth_for_args(...)`; that inner leg is a normal EOA signature the CLI signs with `--source deployer`. The `predecessor`, `salt`, and `args` in the `OperationMeta` must exactly match the `schedule_op` call, or the reconstructed operation hash won't match the `Ready` slot.
+The direct `upgrade` call requires the controller's `__check_auth` authorization, whose signature is the `Vec<OperationMeta>` `[{ predecessor, salt, executor }]`, **not** an EOA key signature. The `stellar` CLI cannot synthesize a custom-account signature, so this leg's `SorobanAuthorizationEntry` (an `Address` credential for `$TIMELOCK_ID` carrying that `OperationMeta` ScVal) must be built with the SDK (JS/Rust) and attached to the transaction. If executors are configured, `__check_auth` *also* calls `executor.require_auth_for_args(...)`; that inner leg is a normal EOA signature the CLI signs with `--source deployer`. The `predecessor`, `salt`, and `args` in the `OperationMeta` must exactly match the `schedule_op` call, or the reconstructed operation hash won't match the `Ready` slot.
 
-If the controller has an external admin instead of self-administration, the admin calls `upgrade` directly with its own key — no `execute_op`, no `__check_auth`, no re-entry concern; the `[only_admin]` check is the only gate.
+If the controller has an external admin instead of self-administration, the admin calls `upgrade` directly with its own key, no `execute_op`, no `__check_auth`, no re-entry concern; the `[only_admin]` check is the only gate.
 
 ## Common Admin Operations
 

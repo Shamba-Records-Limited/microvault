@@ -23,14 +23,14 @@ concrete implementations and owns the loan database.
 4. From there we wait. YC calls our **webhook** as the payout progresses. Those
    events move the loan's `disbursement_status` and trigger side effects:
    notify the borrower, repay the Vault, record what was actually delivered and
-   what fees were charged, or — if direct failed mid-flight — start a refund-and-
+   what fees were charged, or, if direct failed mid-flight, start a refund-and-
    retry cycle.
 
 Two files carry most of the weight:
 
-- [`pkg/mobile/ussd/adapters/offramp_yellowcard.go`](../../pkg/mobile/ussd/adapters/offramp_yellowcard.go) — submitting the payout and
+- [`pkg/mobile/ussd/adapters/offramp_yellowcard.go`](../../pkg/mobile/ussd/adapters/offramp_yellowcard.go), submitting the payout and
   doing the direct to fiat fallback at submission time.
-- [`pkg/webhook/webhook_service.go`](../../pkg/webhook/webhook_service.go) — reacting to YC's webhook events afterwards.
+- [`pkg/webhook/webhook_service.go`](../../pkg/webhook/webhook_service.go), reacting to YC's webhook events afterwards.
 
 ---
 
@@ -46,11 +46,11 @@ We tell YC "pay this person, and here's the crypto to cover it." Concretely
 1. Submit the payment to YC with `directSettlement=true`. YC replies with a
    one-time Stellar wallet address to send USDC to.
 2. Check that address actually has a USDC trustline (if it doesn't, sending would
-   burn the transaction — so we stop here and fall back instead).
+   burn the transaction, so we stop here and fall back instead).
 3. Send USDC from the treasury to that address on-chain.
 
 The crypto leaves our treasury. Because the money is now with YC, **we do not
-repay the Vault on a direct payout** — the loan stays borrowed until the borrower
+repay the Vault on a direct payout**. The loan stays borrowed until the borrower
 repays it later.
 
 ### Fiat settlement
@@ -63,7 +63,7 @@ keep our crypto. Concretely (`tryFiatDisbursement`):
 2. Submit the payment with `forceAccept=true` and no crypto attached.
 
 Here the crypto never left the treasury, so **once the payout completes we repay
-the Vault** — we borrowed USDC we didn't end up needing, so it goes back to the
+the Vault**. We borrowed USDC we didn't end up needing, so it goes back to the
 pool. That repay is triggered from the webhook handler (see below).
 
 ### Why default to direct?
@@ -85,12 +85,12 @@ Inside `Initiate` ([`offramp_yellowcard.go`](../../pkg/mobile/ussd/adapters/offr
 *before the crypto has irreversibly moved*, we immediately retry in fiat mode.
 The two failure checkpoints are:
 
-- **F1** — the YC API call to create the payment fails. No crypto sent yet.
-- **F2** — the on-chain USDC transfer to YC's wallet fails (e.g. no trustline).
+- **F1**. The YC API call to create the payment fails. No crypto sent yet.
+- **F2**. The on-chain USDC transfer to YC's wallet fails (e.g. no trustline).
   The USDC is still in the treasury.
 
 In both cases the USDC is safely still ours, so the fallback is clean: we re-run
-as fiat with a **new sequence id** — the original key plus a `_fiat` suffix — so
+as fiat with a **new sequence id**: the original key plus a `_fiat` suffix, so
 YC sees it as a distinct request and we never collide with the abandoned direct
 attempt. This all happens in one call; the borrower never notices.
 
@@ -98,7 +98,7 @@ attempt. This all happens in one call; the borrower never notices.
 
 The harder case: the direct payout *was* submitted, the USDC *did* reach YC, and
 then YC fails the payout. Now the money is sitting at YC and they owe us a crypto
-refund. We can't synchronously retry — we have to wait for the refund first.
+refund. We can't synchronously retry. We have to wait for the refund first.
 
 This is handled by the **refund poller** ([`pkg/webhook/refund_poller.go`](../../pkg/webhook/refund_poller.go)), a
 background loop that runs every 30 seconds:
@@ -106,23 +106,23 @@ background loop that runs every 30 seconds:
 1. A failed direct payout is marked `refund_pending` by the webhook handler.
 2. The poller picks up every `refund_pending` loan and asks YC for its status.
 3. When YC reports `refunded` (crypto is back in our treasury), the poller
-   **retries the payout in fiat mode** — same `_fiat` sequence id convention.
+   **retries the payout in fiat mode**, same `_fiat` sequence id convention.
 4. Crucially, it first flips the loan's `settlement_method` to `fiat`
    (`SetSettlementMethod`). Without this flip, when the retried payout later
    completes, the webhook handler would still see `"direct"` and skip the Vault
-   repay — leaving borrowed USDC stranded. The flip makes the eventual completion
+   repay, leaving borrowed USDC stranded. The flip makes the eventual completion
    repay correctly.
 5. If the retry itself fails, or YC reports `refund_failed`, the loan is marked
    terminally failed, ops is alerted, and the Vault is repaid (the crypto is back
    in treasury, so it should go home).
 
-So `settlement_method` on a loan is not fixed at submission — a loan that started
+So `settlement_method` on a loan is not fixed at submission, a loan that started
 `direct` can end up `fiat` after this pivot, and that field is the source of
 truth the rest of the system reads.
 
 ---
 
-## Webhook events — what each one does
+## Webhook events, what each one does
 
 After submission we're passive: YC tells us what's happening by calling our
 webhook, and `ProcessYellowCardEvent` ([`pkg/webhook/webhook_service.go`](../../pkg/webhook/webhook_service.go)) maps
@@ -136,7 +136,7 @@ each event to a status change plus side effects.
 | `pending_liquidity` | YC's balance is low; they auto-retry for ~2h. Alert ops, change nothing |
 | `pending_refund` / `refund_processing` | A crypto refund is in flight; mark `refund_pending` |
 | `refunded` | Crypto is back; mark `refund_received` (the poller drives the fiat retry) |
-| `refund_failed` | Mark `failed`; alert ops — **manual intervention needed** |
+| `refund_failed` | Mark `failed`; alert ops, **manual intervention needed** |
 | `processing` / `pending` / `created` | Mark `processing` |
 | `pending_settlement` | Direct mode only: YC is waiting for our crypto. Mark `direct_submitted` |
 
@@ -146,10 +146,10 @@ A few things worth calling out:
   whether a payout was direct or fiat. So on a `failed` event we look the loan up
   and read its `settlement_method` (`IsDirectSettlement`) to decide between the
   refund path and terminal failure. A loan with no settlement method recorded is
-  treated as *not* direct — safer to fail it than to wait forever for a refund
+  treated as *not* direct, safer to fail it than to wait forever for a refund
   that will never arrive.
 - **The webhook is thin.** It carries the payment id, sequence id, status, and
-  event name — and nothing else. No amounts, no fees. That's why capturing the
+  event name, and nothing else. No amounts, no fees. That's why capturing the
   final numbers needs a separate lookup (next section).
 
 ---
@@ -158,7 +158,7 @@ A few things worth calling out:
 
 When a payout completes we need two things the webhook doesn't give us: the exact
 local amount the borrower received, and the fees YC charged. So on a `complete`
-event we make one extra call back to YC — `LookupPayment` — to fetch the final
+event we make one extra call back to YC, `LookupPayment`, to fetch the final
 payment details. `recordCompletionFinancials` ([`webhook_service.go`](../../pkg/webhook/webhook_service.go)) packages
 them into a `CompletionFinancials` value and hands them to the host loan service
 through the `RecordDisbursementCompletion` interface method, which persists them.
@@ -167,20 +167,20 @@ What gets stored, all in minor units (cents):
 
 | Field | Meaning |
 |---|---|
-| `delivered_amount_kes` | What the borrower actually received — YC's `convertedAmount`. Not a computed figure |
+| `delivered_amount_kes` | What the borrower actually received. YC's `convertedAmount`. Not a computed figure |
 | `service_fee_local` / `service_fee_usd` | YC's service fee, charged against our held balance |
 | `partner_fee_local` / `partner_fee_usd` | YC's partner fee, audit-only for now |
 
 Two rules behind this:
 
 - **Delivered = `convertedAmount`, full stop.** We don't compute it by subtracting
-  fees from some gross amount — the fees come out of *our* held YC balance, not
+  fees from some gross amount. The fees come out of *our* held YC balance, not
   out of what the borrower receives, so subtracting would misstate what landed in
   their wallet and corrupt the accounting.
 - **Only the service fee feeds repayment.** The service fee is a real cost of
   delivering this loan, so it's added to what the borrower owes (alongside the
   Vault's borrow interest). The partner fee is currently borne by the business
-  and kept only for audit — that may change after development.
+  and kept only for audit. That may change after development.
 
 This capture is **idempotent**: if `delivered_amount_kes` is already set, a
 replayed `complete` webhook is ignored, so the numbers can't be double-written.
@@ -239,7 +239,7 @@ logs a loud `WARN` on startup and on every payout, so it can't slip by unnoticed
 |---|---|---|
 | `pending_liquidity` alert | YC's float is low; they auto-retry ~2h | Usually self-heals; top up YC balance if it persists |
 | Loan stuck in `refund_pending` | Direct failed; awaiting crypto refund from YC | The poller is working it; check it's running and YC is returning the refund |
-| `refund_failed` alert | YC couldn't return our crypto | **Manual** — reconcile with YC directly |
+| `refund_failed` alert | YC couldn't return our crypto | **Manual**, reconcile with YC directly |
 | `vault_repay_status = failed`, repay hash NULL | A payout settled but returning USDC to the Vault failed | The USDC is stuck in treasury; sweep/retry the repay manually |
 | Fiat failover failed alert | Direct refunded but the fiat retry couldn't go through (e.g. low YC balance) | Loan is marked failed and Vault repaid; investigate the retry error |
 
@@ -247,7 +247,7 @@ logs a loud `WARN` on startup and on every payout, so it can't slip by unnoticed
 
 ## Related
 
-- [Off-ramp overview](./README.md) — the two-settlement-modes / webhook-driven
+- [Off-ramp overview](./README.md), the two-settlement-modes / webhook-driven
   framing and shared conventions.
-- [Soroban / Vault](../soroban/vault.md) — the borrow and repay calls the
+- [Soroban / Vault](../soroban/vault.md): the borrow and repay calls the
   off-ramp triggers on-chain.

@@ -7,10 +7,11 @@ import (
 	"slices"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/services"
-	"gorm.io/gorm"
 )
 
 // Valid KYC status transitions
@@ -251,7 +252,6 @@ func (s *service) GetByMobileNumber(ctx context.Context, mobileNumber string) (*
 	return toUserResponse(user), nil
 }
 
-// GetByNationalID retrieves a user by national ID
 // RebindMobileNumber moves an account to a new MSISDN. See the interface docs.
 func (s *service) RebindMobileNumber(ctx context.Context, userID, mobileNumber string) error {
 	if mobileNumber == "" {

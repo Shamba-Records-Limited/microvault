@@ -9,8 +9,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/samber/oops"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 func TestAnchorClient_InitiateWithdrawal(t *testing.T) {
@@ -64,6 +67,218 @@ func TestAnchorClient_InitiateWithdrawal(t *testing.T) {
 	assert.Equal(t, "interactive_customer_info_needed", resp.Type)
 }
 
+func TestAnchorClient_InitiateDeposit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/transactions/deposit/interactive", r.URL.Path)
+		require.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "Bearer my-jwt", r.Header.Get("Authorization"))
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+
+		assert.Equal(t, "USDC", got["asset_code"])
+		assert.Equal(t, "12.40", got["amount"])
+		assert.Equal(t, "sw", got["lang"])
+		assert.Equal(t, "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL", got["account"])
+		assert.Equal(t, "Jane", got["first_name"])
+		assert.Equal(t, "+254712345678", got["mobile_number"])
+
+		fmt.Fprintln(w, `{
+			"type":"interactive_customer_info_needed",
+			"url":"https://stellar.moneygram.com/sep24?token=dep",
+			"id":"dep-9931"
+		}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	resp, err := c.InitiateDeposit(context.Background(), "my-jwt", DepositRequest{
+		AssetCode: "USDC",
+		Amount:    "12.40",
+		Lang:      "sw",
+		Account:   "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+		Customer: Customer{
+			FirstName:    "Jane",
+			MobileNumber: "+254712345678",
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "dep-9931", resp.ID)
+	assert.Equal(t, "https://stellar.moneygram.com/sep24?token=dep", resp.URL)
+	assert.Equal(t, "interactive_customer_info_needed", resp.Type)
+}
+
+func TestAnchorClient_InitiateDeposit_DefaultsAssetAndLang(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+		assert.Equal(t, "USDC", got["asset_code"])
+		assert.Equal(t, "en", got["lang"])
+
+		fmt.Fprintln(w, `{"type":"interactive_customer_info_needed","url":"https://x/y","id":"id-1"}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateDeposit(context.Background(), "jwt", DepositRequest{
+		Amount:  "15.00",
+		Account: "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+	})
+	require.NoError(t, err)
+}
+
+// SEP-24 offers memo/memo_type on the deposit request so a client can match
+// inbound payments to its own records. Every borrower's deposit lands on one
+// treasury address, so without it concurrent payments are distinguishable only
+// by amount and timing.
+func TestAnchorClient_InitiateDeposit_SendsMemo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+
+		assert.Equal(t, "LR-19F6C760B82-4bb8", got["memo"])
+		assert.Equal(t, "text", got["memo_type"])
+
+		fmt.Fprintln(w, `{"type":"interactive_customer_info_needed","url":"https://x/y","id":"id-1"}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateDeposit(context.Background(), "jwt", DepositRequest{
+		Amount:   "15.00",
+		Account:  "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+		Memo:     "LR-19F6C760B82-4bb8",
+		MemoType: "text",
+	})
+	require.NoError(t, err)
+}
+
+// memo_type is required alongside memo, so a caller that supplies one and not
+// the other must not produce a request the anchor rejects.
+func TestAnchorClient_InitiateDeposit_MemoTypeDefaultsToText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+		assert.Equal(t, "text", got["memo_type"])
+
+		fmt.Fprintln(w, `{"type":"interactive_customer_info_needed","url":"https://x/y","id":"id-1"}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateDeposit(context.Background(), "jwt", DepositRequest{
+		Amount:  "15.00",
+		Account: "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+		Memo:    "LR-19F6C760B82-4bb8",
+	})
+	require.NoError(t, err)
+}
+
+// No memo, no keys: an empty memo_type on the wire is not the same as an
+// absent one, and some anchors reject it.
+func TestAnchorClient_InitiateDeposit_OmitsMemoWhenUnset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+
+		_, hasMemo := got["memo"]
+		_, hasType := got["memo_type"]
+		assert.False(t, hasMemo)
+		assert.False(t, hasType)
+
+		fmt.Fprintln(w, `{"type":"interactive_customer_info_needed","url":"https://x/y","id":"id-1"}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateDeposit(context.Background(), "jwt", DepositRequest{
+		Amount:  "15.00",
+		Account: "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+	})
+	require.NoError(t, err)
+}
+
+// The withdrawal direction shares initiateInteractive but not the memo: there
+// the memo the borrower must quote comes back on the transaction response.
+func TestAnchorClient_InitiateWithdraw_SendsNoMemo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+		_, hasMemo := got["memo"]
+		assert.False(t, hasMemo)
+
+		fmt.Fprintln(w, `{"type":"interactive_customer_info_needed","url":"https://x/y","id":"id-1"}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateWithdrawal(context.Background(), "jwt", WithdrawRequest{
+		Amount:  "15.00",
+		Account: "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+	})
+	require.NoError(t, err)
+}
+
+func TestAnchorClient_InitiateDeposit_RejectsMissingAmount(t *testing.T) {
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: "http://example"}, nil, nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateDeposit(context.Background(), "jwt", DepositRequest{AssetCode: "USDC"})
+	require.ErrorIs(t, err, ErrInvalidConfig)
+}
+
+func TestAnchorClient_GetTransaction_Deposit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintln(w, `{"transaction":{
+			"id":"dep-9931",
+			"kind":"deposit",
+			"status":"completed",
+			"amount_in":"1650.00",
+			"amount_in_asset":"iso4217:KES",
+			"amount_out":"12.40",
+			"amount_out_asset":"stellar:USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+			"to":"GTREASURY",
+			"deposit_memo":"9182736455",
+			"deposit_memo_type":"id",
+			"stellar_transaction_id":"abc123def456",
+			"external_transaction_id":"MG-REF-778899"
+		}}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	tx, err := c.GetTransaction(context.Background(), "jwt", "dep-9931")
+	require.NoError(t, err)
+	assert.Equal(t, "deposit", tx.Kind)
+	assert.Equal(t, StatusCompleted, tx.Status)
+	assert.Equal(t, "GTREASURY", tx.To)
+	assert.Equal(t, "9182736455", tx.DepositMemo)
+	assert.Equal(t, "id", tx.DepositMemoType)
+	assert.Equal(t, "abc123def456", tx.StellarTransactionID)
+	assert.True(t, tx.Status.Terminal())
+}
+
 func TestAnchorClient_GetTransaction(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/transaction", r.URL.Path)
@@ -115,7 +330,12 @@ func TestAnchorClient_GetTransaction_NotFound(t *testing.T) {
 
 	_, err = c.GetTransaction(context.Background(), "jwt", "missing")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+
+	// Asserted on the code, not the wording: a 404 from the anchor is a
+	// distinct outcome callers branch on, and the code is what carries it.
+	var oopsErr oops.OopsError
+	require.ErrorAs(t, err, &oopsErr)
+	assert.Equal(t, pkgErrors.CodeNotFound, oopsErr.Code())
 }
 
 func TestAnchorClient_PropagatesUnauthorized(t *testing.T) {

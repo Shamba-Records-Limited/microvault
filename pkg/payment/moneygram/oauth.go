@@ -3,7 +3,6 @@ package moneygram
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
@@ -30,6 +32,12 @@ type OAuthConfig struct {
 	SafetyMargin time.Duration
 }
 
+// oauthErr starts an error builder for MoneyGram's OAuth exchange. Credentials
+// are never attributes — only the outcome is.
+func oauthErr() oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainMoneyGram).Tags("oauth")
+}
+
 // OAuthClient acquires and caches a bearer token for the MoneyGram REST API.
 // Safe for concurrent use.
 type OAuthClient struct {
@@ -46,7 +54,8 @@ type OAuthClient struct {
 // (http.DefaultClient is used). logger may be nil (slog.Default is used).
 func NewOAuthClient(cfg OAuthConfig, httpClient *http.Client, logger *slog.Logger) (*OAuthClient, error) {
 	if cfg.TokenURL == "" || cfg.ClientID == "" || cfg.ClientSecret == "" {
-		return nil, fmt.Errorf("moneygram: %w: OAuth requires TokenURL, ClientID, ClientSecret", stellaranchor.ErrInvalidConfig)
+		return nil, oauthErr().Code(pkgErrors.CodeMissingDependency).
+			Wrapf(stellaranchor.ErrInvalidConfig, "OAuth requires a token URL, client ID and client secret")
 	}
 	if cfg.SafetyMargin <= 0 {
 		cfg.SafetyMargin = 30 * time.Second
@@ -108,34 +117,39 @@ func (c *OAuthClient) fetchToken(ctx context.Context) (string, time.Duration, er
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return "", 0, fmt.Errorf("moneygram: build OAuth request: %w", err)
+		return "", 0, oauthErr().Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build the OAuth request")
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("moneygram: OAuth request: %w", err)
+		return "", 0, oauthErr().Code(pkgErrors.CodeTransportFailed).Wrapf(err, "OAuth request did not complete")
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return "", 0, fmt.Errorf("moneygram: %w: OAuth token endpoint rejected credentials (HTTP 401): %s",
-			stellaranchor.ErrUnauthorized, truncate(string(body), 200))
+		return "", 0, oauthErr().
+			With("body", truncate(string(body), 200)).
+			Code(pkgErrors.CodeUnauthorized).
+			Wrapf(stellaranchor.ErrUnauthorized, "MoneyGram rejected the OAuth credentials")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", 0, fmt.Errorf("moneygram: OAuth token endpoint HTTP %d: %s",
-			resp.StatusCode, truncate(string(body), 200))
+		return "", 0, oauthErr().
+			With(pkgErrors.AttrStatusCode, resp.StatusCode).
+			With("body", truncate(string(body), 200)).
+			Code(pkgErrors.CodeHTTPError).
+			Errorf("OAuth token endpoint returned a non-2xx")
 	}
 
 	var tr oauthTokenResponse
 	if err := json.Unmarshal(body, &tr); err != nil {
-		return "", 0, fmt.Errorf("moneygram: decode OAuth response: %w", err)
+		return "", 0, oauthErr().Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the OAuth response")
 	}
 	if tr.AccessToken == "" {
-		return "", 0, fmt.Errorf("moneygram: OAuth response missing access_token")
+		return "", 0, oauthErr().Code(pkgErrors.CodeIncompleteResponse).Errorf("OAuth response has no access token")
 	}
 
 	ttl := time.Duration(tr.ExpiresIn) * time.Second

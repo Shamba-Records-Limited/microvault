@@ -2,13 +2,77 @@ package soroban
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
+
+// viewErr starts an error builder scoped to one read-only contract call.
+func viewErr(fnName string) oops.OopsErrorBuilder {
+	return oops.
+		In(errDomain).
+		Tags("soroban", "view").
+		With(pkgErrors.AttrContractFunction, fnName)
+}
+
+// callView simulates a read-only contract call and decodes its return value.
+// Every view goes through here, so the build, simulate, reject, empty-result
+// and decode failures are classified once rather than eleven times.
+func (s *service) callView(ctx context.Context, fnName string, args []xdr.ScVal) (xdr.ScVal, error) {
+	errb := viewErr(fnName)
+
+	op, err := s.buildInvokeContractOp(fnName, args)
+	if err != nil {
+		return xdr.ScVal{}, errb.Code(pkgErrors.CodeBuildFailed).
+			Wrapf(err, "could not build contract invocation")
+	}
+
+	adminKP := keypair.MustParseFull(s.adminPrivateKey)
+
+	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
+	if err != nil {
+		return xdr.ScVal{}, errb.Code(pkgErrors.CodeSimulationFailed).
+			Wrapf(err, "contract simulation could not be performed")
+	}
+
+	if simResp.Error != "" {
+		return xdr.ScVal{}, errb.
+			Code(pkgErrors.CodeSimulationRejected).
+			With("simulation_error", simResp.Error).
+			Wrapf(types.ErrSimulationFailed, "contract simulation rejected the call")
+	}
+
+	// ReturnValueXDR is a pointer and was dereferenced unchecked at every call
+	// site before this consolidation.
+	if len(simResp.Results) == 0 || simResp.Results[0].ReturnValueXDR == nil {
+		return xdr.ScVal{}, errb.Code(pkgErrors.CodeIncompleteResponse).
+			Wrapf(types.ErrNoSimulationResult, "simulation returned no value")
+	}
+
+	var result xdr.ScVal
+	if err := xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &result); err != nil {
+		return xdr.ScVal{}, errb.Code(pkgErrors.CodeDecodeFailed).
+			Wrapf(err, "could not decode the simulation result")
+	}
+
+	return result, nil
+}
+
+// userViewArgs converts a user address into the single argument the per-user
+// views take.
+func userViewArgs(fnName, userAddress string) ([]xdr.ScVal, error) {
+	userAddr, err := addressToScVal(userAddress)
+	if err != nil {
+		return nil, viewErr(fnName).Code(pkgErrors.CodeInvalidAddress).
+			With(pkgErrors.AttrAddress, userAddress).
+			Wrapf(err, "invalid user address")
+	}
+	return []xdr.ScVal{userAddr}, nil
+}
 
 // ============================================================================
 // View Functions (Read-Only)
@@ -16,340 +80,113 @@ import (
 
 // GetTreasuryAddress returns the treasury address from the vault contract
 func (s *service) GetTreasuryAddress(ctx context.Context) (string, error) {
-	op, err := s.buildInvokeContractOp("treasury", nil)
+	result, err := s.callView(ctx, "treasury", nil)
 	if err != nil {
 		return "", err
 	}
-
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
-	if err != nil {
-		return "", err
-	}
-
-	if simResp.Error != "" {
-		return "", fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return "", types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToAddress(resultXDR)
+	return scValToAddress(result)
 }
 
 // GetTotalBorrowed returns the total amount borrowed from the vault
 func (s *service) GetTotalBorrowed(ctx context.Context) (int64, error) {
-	op, err := s.buildInvokeContractOp("total_borrowed", nil)
+	result, err := s.callView(ctx, "total_borrowed", nil)
 	if err != nil {
 		return 0, err
 	}
-
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
-	if err != nil {
-		return 0, err
-	}
-
-	if simResp.Error != "" {
-		return 0, fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return 0, types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToI128(resultXDR)
+	return scValToI128(result)
 }
 
 // GetAvailableLiquidity returns the available liquidity in the vault
 func (s *service) GetAvailableLiquidity(ctx context.Context) (int64, error) {
-	op, err := s.buildInvokeContractOp("available_liquidity", nil)
+	result, err := s.callView(ctx, "available_liquidity", nil)
 	if err != nil {
 		return 0, err
 	}
-
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
-	if err != nil {
-		return 0, err
-	}
-
-	if simResp.Error != "" {
-		return 0, fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return 0, types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToI128(resultXDR)
+	return scValToI128(result)
 }
 
 // GetTotalManagedAssets returns the total assets under management
 func (s *service) GetTotalManagedAssets(ctx context.Context) (int64, error) {
-	op, err := s.buildInvokeContractOp("total_managed_assets", nil)
+	result, err := s.callView(ctx, "total_managed_assets", nil)
 	if err != nil {
 		return 0, err
 	}
-
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
-	if err != nil {
-		return 0, err
-	}
-
-	if simResp.Error != "" {
-		return 0, fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return 0, types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToI128(resultXDR)
+	return scValToI128(result)
 }
 
 // GetUtilizationRate returns the current utilization rate
 func (s *service) GetUtilizationRate(ctx context.Context) (int64, error) {
-	op, err := s.buildInvokeContractOp("utilization_rate", nil)
+	result, err := s.callView(ctx, "utilization_rate", nil)
 	if err != nil {
 		return 0, err
 	}
-
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
-	if err != nil {
-		return 0, err
-	}
-
-	if simResp.Error != "" {
-		return 0, fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return 0, types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToI128(resultXDR)
+	return scValToI128(result)
 }
 
 // GetBorrowAPR returns the current borrow APR
 func (s *service) GetBorrowAPR(ctx context.Context) (int64, error) {
-	op, err := s.buildInvokeContractOp("borrow_apr", nil)
+	result, err := s.callView(ctx, "borrow_apr", nil)
 	if err != nil {
 		return 0, err
 	}
-
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
-	if err != nil {
-		return 0, err
-	}
-
-	if simResp.Error != "" {
-		return 0, fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return 0, types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToI128(resultXDR)
+	return scValToI128(result)
 }
 
 // GetBorrowIndex returns the cumulative borrow index from the vault (WAD scale)
 func (s *service) GetBorrowIndex(ctx context.Context) (int64, error) {
-	op, err := s.buildInvokeContractOp("get_borrow_index", nil)
+	result, err := s.callView(ctx, "get_borrow_index", nil)
 	if err != nil {
 		return 0, err
 	}
-
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
-	if err != nil {
-		return 0, err
-	}
-
-	if simResp.Error != "" {
-		return 0, fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return 0, types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToI128(resultXDR)
+	return scValToI128(result)
 }
 
 // IsUserLocked checks if a user's vault shares are locked
 func (s *service) IsUserLocked(ctx context.Context, userAddress string) (bool, error) {
-	userAddr, err := addressToScVal(userAddress)
-	if err != nil {
-		return false, fmt.Errorf("invalid user address: %w", err)
-	}
+	const fnName = "is_locked"
 
-	op, err := s.buildInvokeContractOp("is_locked", []xdr.ScVal{userAddr})
+	args, err := userViewArgs(fnName, userAddress)
 	if err != nil {
 		return false, err
 	}
 
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
+	result, err := s.callView(ctx, fnName, args)
 	if err != nil {
 		return false, err
 	}
-
-	if simResp.Error != "" {
-		return false, fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return false, types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return false, fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToBool(resultXDR)
+	return scValToBool(result)
 }
 
 // GetLockPeriod returns the lock period in seconds
 func (s *service) GetLockPeriod(ctx context.Context) (uint64, error) {
-	op, err := s.buildInvokeContractOp("get_lock_period", nil)
+	result, err := s.callView(ctx, "get_lock_period", nil)
 	if err != nil {
 		return 0, err
 	}
-
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
-	if err != nil {
-		return 0, err
-	}
-
-	if simResp.Error != "" {
-		return 0, fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return 0, types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToU64(resultXDR)
+	return scValToU64(result)
 }
 
 // GetRemainingLockTime returns the remaining lock time for a user
 func (s *service) GetRemainingLockTime(ctx context.Context, userAddress string) (uint64, error) {
-	userAddr, err := addressToScVal(userAddress)
-	if err != nil {
-		return 0, fmt.Errorf("invalid user address: %w", err)
-	}
+	const fnName = "remaining_lock_time"
 
-	op, err := s.buildInvokeContractOp("remaining_lock_time", []xdr.ScVal{userAddr})
+	args, err := userViewArgs(fnName, userAddress)
 	if err != nil {
 		return 0, err
 	}
 
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
+	result, err := s.callView(ctx, fnName, args)
 	if err != nil {
 		return 0, err
 	}
-
-	if simResp.Error != "" {
-		return 0, fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return 0, types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToU64(resultXDR)
+	return scValToU64(result)
 }
 
 // IsPaused checks if the vault is currently paused
 func (s *service) IsPaused(ctx context.Context) (bool, error) {
-	op, err := s.buildInvokeContractOp("paused", nil)
+	result, err := s.callView(ctx, "paused", nil)
 	if err != nil {
 		return false, err
 	}
-
-	adminKP := keypair.MustParseFull(s.adminPrivateKey)
-	simResp, err := s.simulateContractCall(ctx, adminKP.Address(), op)
-	if err != nil {
-		return false, err
-	}
-
-	if simResp.Error != "" {
-		return false, fmt.Errorf("simulation error: %s", simResp.Error)
-	}
-
-	if len(simResp.Results) == 0 {
-		return false, types.ErrNoSimulationResult
-	}
-
-	var resultXDR xdr.ScVal
-	err = xdr.SafeUnmarshalBase64(*simResp.Results[0].ReturnValueXDR, &resultXDR)
-	if err != nil {
-		return false, fmt.Errorf("failed to decode result: %w", err)
-	}
-
-	return scValToBool(resultXDR)
+	return scValToBool(result)
 }

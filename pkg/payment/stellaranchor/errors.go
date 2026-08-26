@@ -2,9 +2,10 @@ package stellaranchor
 
 import "errors"
 
-// Sentinel errors. Wrap with fmt.Errorf("stellaranchor: ...: %w", err) at call
-// sites. Anchor-specific consumers (e.g. moneygram, future SDKs) should re-
-// wrap with their own prefix so log readers can tell which anchor failed.
+// Sentinel errors. Wrap these with an oops builder at the call site — see
+// tomlErr, authErr and anchorErr — so the error carries a domain, a code and
+// the attributes needed to diagnose it, while errors.Is against the sentinel
+// keeps working for callers that branch on the kind of failure.
 var (
 	// ErrInvalidConfig is returned by constructors when required configuration
 	// is missing or malformed.

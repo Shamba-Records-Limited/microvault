@@ -28,28 +28,37 @@ func (f *fakeRepo) Create(_ context.Context, tx *models.Transaction) error {
 	f.created = tx
 	return f.createErr
 }
+
 func (f *fakeRepo) BatchCreate(_ context.Context, _ []*models.Transaction) error { return f.createErr }
+
 func (f *fakeRepo) GetByID(context.Context, string) (*models.Transaction, error) {
 	return f.tx, f.getByIDErr
 }
+
 func (f *fakeRepo) GetByStellarHash(context.Context, string) (*models.Transaction, error) {
 	return f.byHash, f.byHashErr
 }
+
 func (f *fakeRepo) ListByExternalID(context.Context, string) ([]*models.Transaction, error) {
 	return f.list, f.listErr
 }
+
 func (f *fakeRepo) GetByLoanIDAndType(context.Context, string, string) (*models.Transaction, error) {
 	return f.tx, f.getByIDErr
 }
+
 func (f *fakeRepo) GetByLoanID(context.Context, string, int, int) ([]*models.Transaction, error) {
 	return f.list, f.listErr
 }
+
 func (f *fakeRepo) GetByUserID(context.Context, string, int, int) ([]*models.Transaction, error) {
 	return f.list, f.listErr
 }
+
 func (f *fakeRepo) GetByStatus(context.Context, string, int, int) ([]*models.Transaction, error) {
 	return f.list, f.listErr
 }
+
 func (f *fakeRepo) List(context.Context, string, string, int, int) ([]*models.Transaction, error) {
 	return f.list, f.listErr
 }

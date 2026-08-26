@@ -19,6 +19,7 @@ type ProviderID string
 const (
 	ProviderYellowCard ProviderID = "yellowcard"
 	ProviderMoneyGram  ProviderID = "moneygram"
+	ProviderFonbnk     ProviderID = "fonbnk"
 )
 
 // Provider is the single mandatory capability — every off-ramp must
@@ -188,4 +189,20 @@ type MobileMoneyNetwork struct {
 	Name   string
 	Code   string
 	Status string
+}
+
+// LocalCurrency maps a country to the currency its rails settle in, or "" when
+// the corridor is unsupported.
+func LocalCurrency(countryCode string) string {
+	switch countryCode {
+	case "KE":
+		return "KES"
+	case "NG":
+		return "NGN"
+	case "GH":
+		return "GHS"
+	case "UG":
+		return "UGX"
+	}
+	return ""
 }

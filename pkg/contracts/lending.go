@@ -31,6 +31,57 @@ type LoanNotifier interface {
 	NotifyRepaymentReceived(ctx context.Context, n LoanNotification) error
 	NotifyRepaymentReminder(ctx context.Context, n LoanNotification) error
 
+	// NotifyRepaymentFailed reports that a cash deposit could not be opened.
+	//
+	// The USSD screen has already told the borrower to expect an SMS by the
+	// time this fires — initiation runs in the background because it is far
+	// slower than a USSD session lives — so silence here would strand them
+	// waiting for a message that is never coming.
+	NotifyRepaymentFailed(ctx context.Context, n LoanNotification) error
+
+	// NotifyRepaymentReference carries the reference MoneyGram issues once the
+	// borrower commits in the webview. It is what they quote at the agent
+	// counter to hand cash over, so without it the repayment cannot complete
+	// however ready everything else is.
+	NotifyRepaymentReference(ctx context.Context, n LoanNotification) error
+
+	// NotifyRepaymentMoreInfo carries MoneyGram's transaction page when no
+	// reference has been issued yet.
+	//
+	// SEP-24 defines external_transaction_id as the ID of the external
+	// transaction that "started the deposit", so for a cash-in it only exists
+	// once the borrower has paid — after the point the code would have been
+	// useful. more_info_url is the field the spec designates for telling a user
+	// how to start a deposit, and it is populated from the first poll. Read from
+	// InteractiveURL.
+	NotifyRepaymentMoreInfo(ctx context.Context, n LoanNotification) error
+
+	// NotifyRepaymentInitiated carries the MoneyGram interactive URL for a
+	// borrower-initiated cash repayment. The USSD session ends before the
+	// borrower can act on it, so this SMS is the only way the link reaches
+	// them.
+	//
+	// Distinct from NotifyLoanCashPickupInitiated, which carries a link to
+	// collect money. This one carries a link to hand money over — the opposite
+	// message, and the borrower must not confuse the two.
+	NotifyRepaymentInitiated(ctx context.Context, n LoanNotification) error
+
+	// NotifyRepaymentWindowExpiring warns that an opened cash deposit is about
+	// to lapse. Sent once, and distinct from NotifyRepaymentReminder, which is
+	// driven by the loan's due date rather than by a deposit window.
+	NotifyRepaymentWindowExpiring(ctx context.Context, n LoanNotification) error
+
+	// NotifyRepaymentExpired tells the borrower an opened deposit lapsed
+	// unused and that they can start again. The loan is untouched: nothing was
+	// paid, so this is not a default notice.
+	NotifyRepaymentExpired(ctx context.Context, n LoanNotification) error
+
+	// NotifyLoanStatement sends the borrower a record of one loan —
+	// reference, amount and due date. Unlike the other methods this is
+	// user-initiated rather than lifecycle-driven: it answers a "My Loans"
+	// request, so it is sent on demand and repeats are expected.
+	NotifyLoanStatement(ctx context.Context, n LoanNotification) error
+
 	// NotifyLoanCashPickupInitiated sends the MoneyGram interactive URL to
 	// the user. The locked payout amount is unknown at this point and
 	// confirmed when the user opens the link; the template should make that
@@ -107,9 +158,9 @@ type LoanNotification struct {
 	LoanReference    string
 	UserID           string
 	PhoneNumber      string
-	Amount           int64      // Raw amount (stroops/cents) for consumers that need it
-	DisplayAmount    float64    // Display-ready (e.g. 5000.00)
-	DisplayCurrency  string     // e.g. "KES", "USD"
+	Amount           int64   // Raw amount (stroops/cents) for consumers that need it
+	DisplayAmount    float64 // Display-ready (e.g. 5000.00)
+	DisplayCurrency  string  // e.g. "KES", "USD"
 	Status           string
 	Reason           string     // For rejection notifications
 	RemainingBalance float64    // For repayment confirmations
@@ -128,6 +179,10 @@ type LoanNotification struct {
 	// has somewhere to go. Unlike InteractiveURL it stays valid after the
 	// withdrawal settles.
 	CashPickupInfoURL string
+
+	// RepaymentExpiresAt is when an opened cash deposit lapses. Only set on
+	// the repayment notifications; nil elsewhere.
+	RepaymentExpiresAt *time.Time
 
 	// Language optionally pins the SMS language (ISO code: en/sw/fr). When
 	// empty the notifier resolves it from the recipient's stored preference.

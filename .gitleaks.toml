@@ -7,7 +7,7 @@ useDefault = true
 paths = [
   '''pkg/services/stellar/testing/mock_rpc_client\.go''',
   '''pkg/services/stellar/testing/fixtures\.go''',
-  '''pkg/payment/moneygram/.*_test\.go''',
+    '''.*_test\.go''',
 ]
 
 # Or exclude specific test key patterns

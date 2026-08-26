@@ -6,10 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/services"
-	"gorm.io/gorm"
 )
 
 // --- fakes ---
@@ -30,7 +31,9 @@ func (f *acctRepo) GetByUserID(context.Context, string) (*models.Account, error)
 func (f *acctRepo) GetByPublicKey(context.Context, string) (*models.Account, error) {
 	return f.byPubKey, f.byPubKeyErr
 }
-func (f *acctRepo) GetNextAccountIndex(context.Context, string) (int, error)         { return 0, nil }
+
+func (f *acctRepo) GetNextAccountIndex(context.Context, string) (int, error) { return 0, nil }
+
 func (f *acctRepo) GetNextAccountIndexWithTx(context.Context, *gorm.DB) (int, error) { return 0, nil }
 func (f *acctRepo) EnsureAccountIndexFloor(context.Context, int64) error             { return nil }
 func (f *acctRepo) Update(context.Context, *models.Account) error                    { return nil }
@@ -43,14 +46,18 @@ type usrRepo struct {
 	byIDErr error
 }
 
-func (f *usrRepo) Create(context.Context, *models.User) error                      { return nil }
-func (f *usrRepo) CreateWithTx(context.Context, *gorm.DB, *models.User) error      { return nil }
-func (f *usrRepo) GetByID(context.Context, string) (*models.User, error)           { return f.byID, f.byIDErr }
+func (f *usrRepo) Create(context.Context, *models.User) error                 { return nil }
+func (f *usrRepo) CreateWithTx(context.Context, *gorm.DB, *models.User) error { return nil }
+func (f *usrRepo) GetByID(context.Context, string) (*models.User, error)      { return f.byID, f.byIDErr }
+
 func (f *usrRepo) GetByMobileNumber(context.Context, string) (*models.User, error) { return nil, nil }
-func (f *usrRepo) GetByNationalID(context.Context, string) (*models.User, error)   { return nil, nil }
+
+func (f *usrRepo) GetByNationalID(context.Context, string) (*models.User, error) { return nil, nil }
+
 func (f *usrRepo) GetByKYCStatus(context.Context, string, int, int) ([]*models.User, error) {
 	return nil, nil
 }
+
 func (f *usrRepo) GetByRole(context.Context, string, int, int) ([]*models.User, error) {
 	return nil, nil
 }

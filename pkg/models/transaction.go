@@ -68,6 +68,23 @@ const (
 	// which records the off-chain fiat leg the anchor pays out afterwards — a
 	// cash-pickup disbursement produces both.
 	TxTypeAnchorTransfer = "anchor_transfer"
+
+	// Transaction Types — Loan Repayment.
+	//
+	// Repayment is disbursement in reverse and is recorded the same way, as
+	// three rows for one movement of money rather than a single summary row:
+	// the borrower's cash at the counter, the anchor's USDC leg, and the
+	// treasury returning it to the vault (TxTypeVaultRepay, reused).
+
+	// TxTypeLoanRepayment is the off-chain leg: cash the borrower hands over
+	// at a MoneyGram agent, or pays in over a mobile-money paybill. It is what
+	// the borrower did, not what settled — the USDC leg is separate and can
+	// lag it or fail.
+	TxTypeLoanRepayment = "loan_repayment"
+
+	// TxTypeAnchorDeposit is the on-chain USDC leg of an anchor deposit:
+	// the anchor to the treasury. The mirror of TxTypeAnchorTransfer.
+	TxTypeAnchorDeposit = "anchor_deposit"
 )
 
 // Transaction categories. Derived from TxType rather than stored: every type is
@@ -84,7 +101,8 @@ const (
 // about has no ledger presence to claim.
 func TxCategoryFor(txType string) string {
 	switch txType {
-	case TxTypeVaultBorrow, TxTypeVaultRepay, TxTypeAnchorTransfer, TxTypeRefund:
+	case TxTypeVaultBorrow, TxTypeVaultRepay, TxTypeAnchorTransfer, TxTypeRefund,
+		TxTypeAnchorDeposit:
 		return TxCategoryOnChain
 	default:
 		return TxCategoryOffChain

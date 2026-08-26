@@ -265,45 +265,77 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Kitambulisho hiki kimeshasajiliwa. Weka tena, au wasiliana na msaada kama ni chako:",
 			"fr": "Cette pièce d'identité est déjà enregistrée. Ressaisissez, ou contactez le support si c'est vous:",
 		},
-		"reg_bio_gate": {
-			"en": "Add optional details for faster cash pickup?\n1. Fill bio info\n2. Skip",
-			"sw": "Ongeza maelezo ya hiari kwa uchukuaji wa pesa haraka?\n1. Jaza maelezo\n2. Ruka",
-			"fr": "Ajouter des détails facultatifs pour un retrait plus rapide?\n1. Remplir les infos\n2. Ignorer",
+		// My Details — the picker lists each field with its stored value so a
+		// user can see what is on file before choosing one to change.
+		"my_details_title": {
+			"en": "My Details",
+			"sw": "Maelezo Yangu",
+			"fr": "Mes Infos",
 		},
-		"reg_bio_birth_date": {
-			"en": "Date of birth YYYY-MM-DD (optional, reply 0 to skip):",
-			"sw": "Tarehe ya kuzaliwa YYYY-MM-DD (hiari, jibu 0 kuruka):",
-			"fr": "Date de naissance YYYY-MM-DD (facultatif, répondez 0 pour ignorer):",
+		"my_details_not_set": {
+			"en": "not set",
+			"sw": "haijawekwa",
+			"fr": "non defini",
 		},
-		"reg_bio_address": {
-			"en": "Street address (optional, reply 0 to skip):",
-			"sw": "Anwani ya mtaa (hiari, jibu 0 kuruka):",
-			"fr": "Adresse (facultatif, répondez 0 pour ignorer):",
+		"my_details_back": {
+			"en": "0. Back",
+			"sw": "0. Rudi",
+			"fr": "0. Retour",
 		},
-		"reg_bio_city": {
-			"en": "City/town (optional, reply 0 to skip):",
-			"sw": "Jiji/mji (hiari, jibu 0 kuruka):",
-			"fr": "Ville (facultatif, répondez 0 pour ignorer):",
+		"label_birth_date": {
+			"en": "DOB",
+			"sw": "Kuzaliwa",
+			"fr": "Naissance",
 		},
-		"reg_bio_postal_code": {
-			"en": "Postal code (optional, reply 0 to skip):",
-			"sw": "Msimbo wa posta (hiari, jibu 0 kuruka):",
-			"fr": "Code postal (facultatif, répondez 0 pour ignorer):",
+		"label_address": {
+			"en": "Address",
+			"sw": "Anwani",
+			"fr": "Adresse",
+		},
+		"label_city": {
+			"en": "City",
+			"sw": "Jiji",
+			"fr": "Ville",
+		},
+		"label_postal_code": {
+			"en": "Postal",
+			"sw": "Posta",
+			"fr": "Postal",
+		},
+		"bio_field_saved": {
+			"en": "Saved.",
+			"sw": "Imehifadhiwa.",
+			"fr": "Enregistre.",
+		},
+		"bio_prompt_birth_date": {
+			"en": "Date of birth YYYY-MM-DD (0 to cancel):",
+			"sw": "Tarehe ya kuzaliwa YYYY-MM-DD (0 kughairi):",
+			"fr": "Date de naissance YYYY-MM-DD (0 pour annuler):",
+		},
+		"bio_prompt_address": {
+			"en": "Street address (0 to cancel):",
+			"sw": "Anwani ya mtaa (0 kughairi):",
+			"fr": "Adresse (0 pour annuler):",
+		},
+		"bio_prompt_city": {
+			"en": "City/town (0 to cancel):",
+			"sw": "Jiji/mji (0 kughairi):",
+			"fr": "Ville (0 pour annuler):",
+		},
+		"bio_prompt_postal_code": {
+			"en": "Postal code (0 to cancel):",
+			"sw": "Msimbo wa posta (0 kughairi):",
+			"fr": "Code postal (0 pour annuler):",
+		},
+		"bio_invalid_date": {
+			"en": "Invalid date. Enter as YYYY-MM-DD (0 to cancel):",
+			"sw": "Tarehe batili. Weka kama YYYY-MM-DD (0 kughairi):",
+			"fr": "Date invalide. Entrez YYYY-MM-DD (0 pour annuler):",
 		},
 		"badge_no_security_q": {
 			"en": "Add security questions to protect your account.",
 			"sw": "Weka maswali ya usalama kulinda akaunti yako.",
 			"fr": "Ajoutez des questions de sécurité pour protéger votre compte.",
-		},
-		"bio_saved": {
-			"en": "Your details have been saved. Cash pickup will be faster next time.",
-			"sw": "Maelezo yako yamehifadhiwa. Kuchukua pesa kutakuwa haraka zaidi.",
-			"fr": "Vos informations sont enregistrées. Le retrait sera plus rapide.",
-		},
-		"reg_bio_invalid_date": {
-			"en": "Invalid date. Enter date of birth as YYYY-MM-DD (or 0 to skip):",
-			"sw": "Tarehe batili. Weka tarehe ya kuzaliwa kama YYYY-MM-DD (au 0 kuruka):",
-			"fr": "Date invalide. Entrez la date de naissance YYYY-MM-DD (ou 0 pour ignorer):",
 		},
 
 		// ── Loan Flow ───────────────────────────────────────────────
@@ -327,39 +359,81 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Kuchukua pesa kunahitaji angalau %s %.0f. Chagua pesa ya simu badala yake:",
 			"fr": "Le retrait en espèces exige au moins %s %.0f. Choisissez plutot mobile money:",
 		},
+		"loan_cash_pickup_max": {
+			"en": "Cash pickup allows at most %s %.0f. Choose mobile money instead:",
+			"sw": "Kuchukua pesa kunaruhusu kiwango cha juu cha %s %.0f. Chagua pesa ya simu badala yake:",
+			"fr": "Le retrait en espèces autorise au plus %s %.0f. Choisissez plutot mobile money:",
+		},
+		// The terms and the PIN gate share one screen: entering the PIN is the
+		// act of accepting what is displayed above it. The back and home hints
+		// are appended by withNavHint rather than spelled out here.
 		"loan_confirm_summary": {
-			"en": "Loan of %s %.0f for %d days\n1. Confirm\n0. Cancel",
-			"sw": "Mkopo wa %s %.0f kwa siku %d\n1. Thibitisha\n0. Ghairi",
-			"fr": "Pret de %s %.0f pour %d jours\n1. Confirmer\n0. Annuler",
+			"en": "Loan of %s %.0f for %d days\nEnter PIN to confirm:",
+			"sw": "Mkopo wa %s %.0f kwa siku %d\nWeka PIN kuthibitisha:",
+			"fr": "Pret de %s %.0f pour %d jours\nEntrez PIN pour confirmer:",
+		},
+		"loan_confirm_pin_format": {
+			"en": "Enter your 4-digit PIN.",
+			"sw": "Weka PIN yako ya tarakimu 4.",
+			"fr": "Entrez votre PIN à 4 chiffres.",
 		},
 		"loan_processing": {
 			"en": "Your loan of %s %.0f is being processed. You will receive a notification when disbursement is successful.",
 			"sw": "Mkopo wako wa %s %.0f unashughulikiwa. Utapokea arifa mara utakapotolewa.",
 			"fr": "Votre pret de %s %.0f est en cours de traitement. Vous recevrez une notification une fois le décaissement effectué.",
 		},
-		"my_loans_header": {
-			"en": "Your Loans:",
-			"sw": "Mikopo Yako:",
-			"fr": "Vos Prets:",
+		"my_loans_processing": {
+			"en": "Your loan is still being processed. We will text you when it is ready.",
+			"sw": "Mkopo wako bado unashughulikiwa. Tutakutumia SMS ukiwa tayari.",
+			"fr": "Votre pret est en cours de traitement. Nous vous enverrons un SMS.",
+		},
+		"my_loans_sent": {
+			"en": "We have sent your loan details by SMS.",
+			"sw": "Tumetuma maelezo ya mkopo wako kwa SMS.",
+			"fr": "Nous avons envoye les details de votre pret par SMS.",
 		},
 		"repay_header": {
-			"en": "Repay via M-Pesa:\nPayBill: 123456\nAccount: Your Loan Number\n\nActive Loans:",
-			"sw": "Lipa kupitia M-Pesa:\nPayBill: 123456\nAkaunti: Nambari ya Mkopo Wako\n\nMikopo Inayoendelea:",
-			"fr": "Remboursez via M-Pesa:\nPayBill: 123456\nCompte: Votre Numéro de Pret\n\nPrets Actifs:",
+			"en": "Repay a loan. Reply with a number:",
+			"sw": "Lipa mkopo. Jibu na nambari:",
+			"fr": "Rembourser un prêt. Répondez par un numéro:",
 		},
 		"repay_loan_line": {
-			"en": "Loan: %s\nDue: %s",
-			"sw": "Mkopo: %s\nInayodaiwa: %s",
-			"fr": "Pret: %s\nDu: %s",
+			"en": "%s - owe %s",
+			"sw": "%s - deni %s",
+			"fr": "%s - doit %s",
+		},
+		"repay_rail_header": {
+			"en": "Loan %s, owe %s.\nHow will you pay?",
+			"sw": "Mkopo %s, deni %s.\nUtalipaje?",
+			"fr": "Prêt %s, doit %s.\nComment payerez-vous?",
+		},
+		"repay_rail_cash": {
+			"en": "1. Cash at MoneyGram",
+			"sw": "1. Fedha taslimu MoneyGram",
+			"fr": "1. Especes a MoneyGram",
+		},
+		"repay_rail_mobile": {
+			"en": "2. Mobile money",
+			"sw": "2. Pesa ya simu",
+			"fr": "2. Argent mobile",
+		},
+		"repay_cash_sent": {
+			"en": "We sent you an SMS with a link to finish paying %s at a MoneyGram agent.",
+			"sw": "Tumekutumia SMS yenye kiungo cha kumaliza kulipa %s kwa wakala wa MoneyGram.",
+			"fr": "Nous vous avons envoye un SMS avec un lien pour payer %s chez un agent MoneyGram.",
+		},
+		"repay_paybill": {
+			"en": "Pay to PayBill %s.\nAccount: %s",
+			"sw": "Lipa kwa PayBill %s.\nAkaunti: %s",
+			"fr": "Payez au PayBill %s.\nCompte: %s",
+		},
+		"repay_no_rail": {
+			"en": "No repayment method is available right now. Please try again later.",
+			"sw": "Hakuna njia ya kulipa kwa sasa. Tafadhali jaribu tena baadaye.",
+			"fr": "Aucun moyen de remboursement disponible. Reessayez plus tard.",
 		},
 
 		// ── Loan Status ─────────────────────────────────────────────
-		"loan_status_pending":   {"en": "Pending", "sw": "Inasubiri", "fr": "En attente"},
-		"loan_status_approved":  {"en": "Approved", "sw": "Imeidhinishwa", "fr": "Approuvé"},
-		"loan_status_disbursed": {"en": "Disbursed", "sw": "Imetolewa", "fr": "Décaissé"},
-		"loan_status_repaid":    {"en": "Repaid", "sw": "Imelipwa", "fr": "Remboursé"},
-		"loan_status_defaulted": {"en": "Defaulted", "sw": "Imeshindwa kulipwa", "fr": "En défaut"},
-		"loan_status_unknown":   {"en": "Unknown", "sw": "Haijulikani", "fr": "Inconnu"},
 
 		// ── Security Question Text (by ID) ──────────────────────────
 		"sq_1": {

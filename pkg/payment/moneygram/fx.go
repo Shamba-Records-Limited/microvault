@@ -3,11 +3,11 @@ package moneygram
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
@@ -40,8 +40,6 @@ var ErrNoRateAvailable = errors.New("moneygram: no FX rate available from any so
 // local-currency exchange rate when MoneyGram's REST FX endpoint is
 // unavailable. The microvault integration wires `yellowcard.YellowcardAdapter`
 // behind a thin function adapter (FallbackRateFunc); tests can supply fakes.
-//
-// The returned rate is local-currency-per-USD (e.g. 153.50 KES / USD).
 type FallbackRateSource interface {
 	Get(ctx context.Context, currency string) (rate float64, err error)
 }
@@ -133,7 +131,8 @@ type FXOrchestrator struct {
 // terminal "reject the loan" condition.
 func NewFXOrchestrator(primary *FXRateClient, fallback FallbackRateSource, cfg FXOrchestratorConfig, logger *slog.Logger) (*FXOrchestrator, error) {
 	if primary == nil && fallback == nil {
-		return nil, fmt.Errorf("moneygram: %w: at least one of primary or fallback rate source must be configured", stellaranchor.ErrInvalidConfig)
+		return nil, fxErr().Code(pkgErrors.CodeMissingDependency).
+			Wrapf(stellaranchor.ErrInvalidConfig, "FX orchestrator needs at least one rate source")
 	}
 	if cfg.StaleCacheMaxAge == 0 {
 		cfg.StaleCacheMaxAge = 24 * time.Hour
@@ -164,12 +163,10 @@ func NewFXOrchestrator(primary *FXRateClient, fallback FallbackRateSource, cfg F
 //  3. On both failures, return the most recent cached value if its FetchedAt
 //     is within StaleCacheMaxAge, with the original source preserved.
 //  4. Else return ErrNoRateAvailable.
-//
-// The `Source` field on the result is the audit trail — it always reflects
-// where the underlying rate came from, even when served from cache.
 func (o *FXOrchestrator) Quote(ctx context.Context, req FXQuoteRequest) (*FXQuoteResult, error) {
 	if req.SendCurrency == "" || req.ReceiveCurrency == "" {
-		return nil, fmt.Errorf("moneygram: %w: SendCurrency and ReceiveCurrency required", stellaranchor.ErrInvalidConfig)
+		return nil, fxErr().Code(pkgErrors.CodeMissingAccount).
+			Wrapf(stellaranchor.ErrInvalidConfig, "FX quote needs a send and receive currency")
 	}
 
 	// 1) Primary — MoneyGram.
@@ -243,10 +240,18 @@ func (o *FXOrchestrator) EntryBufferPctFallback() float64 { return o.fallbackBuf
 // depending on country) — set them explicitly per environment.
 func (o *FXOrchestrator) ValidateAmount(amountUSD float64) error {
 	if amountUSD < o.cfg.MinUSD {
-		return fmt.Errorf("%w: %.2f USD < min %.2f", ErrAmountOutOfRange, amountUSD, o.cfg.MinUSD)
+		return fxErr().
+			With("amount_usd", amountUSD).
+			With("min_usd", o.cfg.MinUSD).
+			Code(pkgErrors.CodeBelowAnchorMinimum).
+			Wrapf(ErrAmountOutOfRange, "amount is below the corridor minimum")
 	}
 	if amountUSD > o.cfg.MaxUSD {
-		return fmt.Errorf("%w: %.2f USD > max %.2f", ErrAmountOutOfRange, amountUSD, o.cfg.MaxUSD)
+		return fxErr().
+			With("amount_usd", amountUSD).
+			With("max_usd", o.cfg.MaxUSD).
+			Code(pkgErrors.CodeInvalidAmount).
+			Wrapf(ErrAmountOutOfRange, "amount is above the corridor maximum")
 	}
 	return nil
 }

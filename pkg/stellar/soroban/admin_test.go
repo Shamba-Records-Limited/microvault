@@ -54,7 +54,7 @@ func TestPauseVault(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "simulation error",
+			errContains: "simulation rejected",
 		},
 		{
 			name: "unauthorized caller",
@@ -66,7 +66,7 @@ func TestPauseVault(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "simulation error",
+			errContains: "simulation rejected",
 		},
 	}
 
@@ -130,7 +130,7 @@ func TestUnpauseVault(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "simulation error",
+			errContains: "simulation rejected",
 		},
 	}
 
@@ -218,7 +218,7 @@ func TestSetMaxDeposit(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "simulation error",
+			errContains: "simulation rejected",
 		},
 	}
 
@@ -360,7 +360,7 @@ func TestSetLockPeriod(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "simulation error",
+			errContains: "simulation rejected",
 		},
 	}
 

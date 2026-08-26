@@ -9,6 +9,10 @@ import (
 
 	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/swagger"
+	_ "github.com/joho/godotenv/autoload"
+
 	routes "github.com/Shamba-Records-Limited/microvault/internal/core/pkg/routes"
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
 	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
@@ -29,9 +33,6 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 	"github.com/Shamba-Records-Limited/microvault/platform/cache"
 	"github.com/Shamba-Records-Limited/microvault/platform/database"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/swagger"
-	_ "github.com/joho/godotenv/autoload"
 )
 
 // @title microvault API
@@ -199,11 +200,16 @@ func main() {
 	} else {
 		notifier = &mvnotifications.NoOpNotifier{}
 	}
-	loanNotifier := mvnotifications.NewSMSLoanNotifier(notifier, nil)
-	_ = loanNotifier // will be wired to adapters when loan disbursement is integrated
+	loanNotifier, err := mvnotifications.NewSMSLoanNotifier(notifier)
+	if err != nil {
+		log.Fatalf("Failed to initialize loan notifier: %v", err)
+	}
 
 	// Initialize account notifier for registration and PIN lifecycle SMS
-	accountNotifier := mvnotifications.NewSMSAccountNotifier(notifier, nil)
+	accountNotifier, err := mvnotifications.NewSMSAccountNotifier(notifier)
+	if err != nil {
+		log.Fatalf("Failed to initialize account notifier: %v", err)
+	}
 	log.Println("Notification service initialized")
 
 	// ---- Initialize PIN Service ----
@@ -213,7 +219,15 @@ func main() {
 
 	// Initialize USSD handler with real services
 	// Note: loanService and disbursementService are nil - will be implemented later
-	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil, nil, pinService, accountNotifier)
+	handler := ussd.NewUSSDHandler(ussd.HandlerDeps{
+		SessionManager:  sessionMgr,
+		MenuRegistry:    menuRegistry,
+		UserService:     userServiceAdapter,
+		PINService:      pinService,
+		AccountNotifier: accountNotifier,
+		LoanNotifier:    loanNotifier,
+		RepayPaybill:    cfg.Mobile.RepayPaybill,
+	})
 	ussdService := ussd.NewUSSDService(handler)
 
 	// Register USSD providers

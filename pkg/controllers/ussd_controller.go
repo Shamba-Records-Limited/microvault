@@ -1,8 +1,9 @@
 package controllers
 
 import (
-	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	"github.com/gofiber/fiber/v2"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 )
 
 // USSDController handles USSD callback endpoints.

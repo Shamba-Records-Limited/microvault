@@ -3,12 +3,16 @@ package pin
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // Repository errors.
@@ -17,6 +21,13 @@ var (
 	// exist for the requested user.
 	ErrSecurityQuestionNotFound = errors.New("security questions not found for user")
 )
+
+// pinRepoErr starts an error builder for security-question persistence.
+func pinRepoErr(op string) oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainIdentity).
+		Tags("pin", "persistence").
+		With(pkgErrors.AttrOperation, op)
+}
 
 // SecurityQuestionRepository provides data access for the security_questions
 // table. It is safe for concurrent use because each method scopes its own
@@ -41,7 +52,8 @@ func (r *SecurityQuestionRepository) GetByUserID(ctx context.Context, userID str
 		Find(&questions)
 	if result.Error != nil {
 		log.Printf("SecurityQuestionRepository.GetByUserID: database error: %v", result.Error)
-		return nil, fmt.Errorf("get security questions for user %s: %w", userID, result.Error)
+		return nil, pinRepoErr("get_security_questions").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(result.Error, "could not read the security questions")
 	}
 	if len(questions) == 0 {
 		return nil, ErrSecurityQuestionNotFound
@@ -65,14 +77,18 @@ func (r *SecurityQuestionRepository) UpsertForUser(ctx context.Context, question
 				DoUpdates: clause.AssignmentColumns([]string{"answer_hash", "updated_at"}),
 			}).Create(&questions[i])
 			if result.Error != nil {
-				return fmt.Errorf("upsert question %d for user %s: %w",
-					questions[i].QuestionID, questions[i].UserID, result.Error)
+				return pinRepoErr("upsert_security_questions").
+					With(pkgErrors.AttrUserID, questions[i].UserID).
+					With("question_id", questions[i].QuestionID).
+					Code(pkgErrors.CodeStateWriteFailed).
+					Wrapf(result.Error, "could not upsert a security question")
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("upsert security questions: %w", err)
+		return pinRepoErr("upsert_security_questions").Code(pkgErrors.CodeStateWriteFailed).
+			Wrapf(err, "security question upsert transaction failed")
 	}
 	return nil
 }
@@ -88,7 +104,8 @@ func (r *SecurityQuestionRepository) GetQuestionIDsByUserID(ctx context.Context,
 		Order("question_id ASC").
 		Pluck("question_id", &ids)
 	if result.Error != nil {
-		return nil, fmt.Errorf("get question IDs for user %s: %w", userID, result.Error)
+		return nil, pinRepoErr("get_question_ids").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeNotFound).Wrapf(result.Error, "could not read the security question ids")
 	}
 	return ids, nil
 }
@@ -100,7 +117,8 @@ func (r *SecurityQuestionRepository) DeleteByUserID(ctx context.Context, userID 
 		Where("user_id = ?", userID).
 		Delete(&models.SecurityQuestion{})
 	if result.Error != nil {
-		return fmt.Errorf("delete security questions for user %s: %w", userID, result.Error)
+		return pinRepoErr("delete_security_questions").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(result.Error, "could not delete the security questions")
 	}
 	return nil
 }

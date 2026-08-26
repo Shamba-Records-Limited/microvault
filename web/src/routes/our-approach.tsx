@@ -226,8 +226,9 @@ export default function UseCasePage() {
             </div>
             <h3 className="font-semibold text-sm text-foreground mb-1">MoneyGram</h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Global cash-pickup network letting borrowers collect loan funds in
-              person at thousands of agent locations across Africa.
+              Global agent network working both ways: borrowers collect loan
+              funds in cash, then repay in cash at any of thousands of locations
+              across Africa.
             </p>
           </a>
 

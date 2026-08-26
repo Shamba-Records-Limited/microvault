@@ -10,6 +10,7 @@ import (
 var runtimeRenderedMenus = map[string]bool{
 	"register_national_id": true,
 	"loan_confirm":         true,
+	"my_details":           true,
 }
 
 func TestNavBackTargetsAreRenderable(t *testing.T) {
@@ -134,10 +135,17 @@ func TestCanGoBackAndHomeGates(t *testing.T) {
 			wantHome: false,
 		},
 		{
-			name:     "bio wizard keeps 0 as skip, home only",
+			name:     "my_details binds 0 itself, home only",
 			session:  &Session{UserID: "u1", Data: map[string]any{}},
-			menu:     "register_bio",
+			menu:     "my_details",
 			wantBack: false,
+			wantHome: true,
+		},
+		{
+			name:     "bio_edit steps back to the picker",
+			session:  &Session{UserID: "u1", Data: map[string]any{}},
+			menu:     "bio_edit",
+			wantBack: true,
 			wantHome: true,
 		},
 		{

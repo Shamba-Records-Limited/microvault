@@ -49,13 +49,6 @@ func DefaultRefundPollerConfig() RefundPollerConfig {
 
 // RefundPoller periodically checks YellowCard for refund status on disbursements
 // that failed after USDC was sent (direct settlement F3 failover).
-//
-// Flow:
-//  1. Fetch loans in DisbursementRefundPending status from local DB
-//  2. For each, call YC API to check current status
-//  3. On "refunded" to update to DisbursementRefundReceived, attempt fiat failover
-//  4. On "refund_failed" to update to DisbursementFailed, alert ops
-//  5. On "pending_refund" / "refund_processing" to skip, poll again next cycle
 type RefundPoller struct {
 	ycAdapter    *yellowcard.YellowcardAdapter
 	offRamp      offramp.Provider

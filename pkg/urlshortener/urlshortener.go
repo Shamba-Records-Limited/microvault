@@ -79,10 +79,6 @@ func NewDub(opts DubOptions) *Dub {
 
 // preview returns the og:title and og:description for longURL: the configured
 // overrides when set, else derived from the destination.
-//
-// Derivation drops the query and fragment. A MoneyGram interactive URL carries
-// a session token there, and an og:description is scraped and cached by
-// carriers and link-preview bots — it must never carry the token.
 func (d *Dub) preview(longURL string) (title, description string) {
 	title, description = d.previewTitle, d.previewDescription
 	if title != "" && description != "" {

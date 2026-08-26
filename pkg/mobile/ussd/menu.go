@@ -3,6 +3,8 @@ package ussd
 import (
 	"fmt"
 	"strings"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // NewMenuRegistry creates a new menu registry
@@ -21,7 +23,7 @@ func (mr *MenuRegistry) Register(menu *Menu) {
 func (mr *MenuRegistry) Get(menuID string) (*Menu, error) {
 	menu, ok := mr.menus[menuID]
 	if !ok {
-		return nil, fmt.Errorf("menu not found: %s", menuID)
+		return nil, ussdErr("get_menu", nil).With("menu", menuID).Code(pkgErrors.CodeNotFound).Errorf("menu is not registered")
 	}
 	return menu, nil
 }
@@ -59,7 +61,7 @@ func (m *Menu) Render(language string) string {
 		if label == "" {
 			label = option.Label["en"]
 		}
-		sb.WriteString(fmt.Sprintf("%s. %s\n", option.Key, label))
+		fmt.Fprintf(&sb, "%s. %s\n", option.Key, label)
 	}
 
 	return strings.TrimRight(sb.String(), "\n")
@@ -72,28 +74,7 @@ func (m *Menu) GetOption(key string) (*MenuOption, error) {
 			return &option, nil
 		}
 	}
-	return nil, fmt.Errorf("invalid option: %s", key)
-}
-
-// BuildMenuResponse creates a continue menu response
-func BuildMenuResponse(message string) *MenuResponse {
-	return &MenuResponse{
-		Type:    MenuTypeContinue,
-		Message: message,
-	}
-}
-
-// BuildEndResponse creates an end menu response
-func BuildEndResponse(message string) *MenuResponse {
-	return &MenuResponse{
-		Type:    MenuTypeEnd,
-		Message: message,
-	}
-}
-
-// Format formats the menu response
-func (mr *MenuResponse) Format() string {
-	return fmt.Sprintf("%s %s", mr.Type, mr.Message)
+	return nil, ussdErr("get_option", nil).With("option", key).Code(pkgErrors.CodeNotFound).Errorf("menu has no such option")
 }
 
 // NewMenuBuilder creates a new menu builder
@@ -120,12 +101,6 @@ func (mb *MenuBuilder) WithOption(key string, labels map[string]string, targetMe
 		Label:      labels,
 		TargetMenu: targetMenu,
 	})
-	return mb
-}
-
-// WithAuth sets whether the menu requires authentication
-func (mb *MenuBuilder) WithAuth(requiresAuth bool) *MenuBuilder {
-	mb.menu.RequiresAuth = requiresAuth
 	return mb
 }
 

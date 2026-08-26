@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/samber/oops"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,7 +98,12 @@ func TestTOML_Validate(t *testing.T) {
 		err := good.Validate(ValidateOptions{ExpectedSigningKey: "GA111111111111111111111111111111111111111111111111111111"})
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrTOMLValidation)
-		assert.Contains(t, err.Error(), "rotated")
+
+		// Asserted on the attribute, not the wording: which field drifted is
+		// the fact that matters, and it survives rephrasing.
+		var oopsErr oops.OopsError
+		require.ErrorAs(t, err, &oopsErr)
+		assert.Equal(t, "SIGNING_KEY", oopsErr.Context()["field"])
 	})
 
 	t.Run("USDC issuer changed", func(t *testing.T) {

@@ -6,9 +6,10 @@ import (
 	"log"
 	"time"
 
+	"gorm.io/gorm"
+
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
-	"gorm.io/gorm"
 )
 
 // Common errors for AccountRepository

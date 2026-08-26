@@ -4,8 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/samber/oops"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 type fakeProvider struct {
@@ -57,7 +60,11 @@ func TestRegistry_Resolve_ByOptions_MissingProvider(t *testing.T) {
 	r := NewRegistry()
 	_, err := r.Resolve(Request{Options: fakeOptions{id: "ghost"}})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ghost")
+	// The provider name is an attribute now, not message text: which provider
+	// was missing is the fact worth asserting, and it survives rewording.
+	var oopsErr oops.OopsError
+	require.ErrorAs(t, err, &oopsErr)
+	assert.Equal(t, "ghost", oopsErr.Context()[pkgErrors.AttrProvider])
 }
 
 func TestRegistry_Resolve_ByPayoutMethod(t *testing.T) {
@@ -85,7 +92,9 @@ func TestRegistry_Resolve_NoMatchingAlias(t *testing.T) {
 
 	_, err := r.Resolve(Request{PayoutMethod: "skywriting"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "skywriting")
+	var oopsErr oops.OopsError
+	require.ErrorAs(t, err, &oopsErr)
+	assert.Equal(t, "skywriting", oopsErr.Context()["payout_method"])
 }
 
 func TestRegistry_GetAndAll(t *testing.T) {

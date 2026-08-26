@@ -2,7 +2,6 @@ package classic
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"log/slog"
 	"strconv"
@@ -17,6 +16,10 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // RPCClient defines the interface for Stellar RPC operations
@@ -51,6 +54,11 @@ type Service interface {
 	// on the Stellar network. A failed load is reported as "not present" so the
 	// caller can attempt creation.
 	AccountExists(ctx context.Context, address string) (bool, error)
+}
+
+// classicErr starts an error builder for non-Soroban Stellar work.
+func classicErr(op string) oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainStellarClassic).Tags("classic").With(pkgErrors.AttrOperation, op)
 }
 
 type service struct {
@@ -583,6 +591,9 @@ func (s *service) AccountExists(ctx context.Context, address string) (bool, erro
 	if _, err := keypair.ParseAddress(address); err != nil {
 		return false, types.ErrInvalidStellarAddress
 	}
+	//nolint:nilerr // an account that does not load does not exist, which is
+	// exactly what this reports. Surfacing the RPC error would make "absent"
+	// indistinguishable from "unreachable" at every call site.
 	if _, err := s.rpcClient.LoadAccount(ctx, address); err != nil {
 		return false, nil
 	}
@@ -719,7 +730,9 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 		// definitive on-ledger failure (nothing moved, safe to retry) from an
 		// unknown outcome such as a poll timeout, where retrying risks a
 		// duplicate payment.
-		return nil, fmt.Errorf("%w: %w", types.ErrTransactionFailed, err)
+		return nil, classicErr("submit").Code(pkgErrors.CodeSubmitFailed).
+			With("cause", err.Error()).
+			Wrapf(types.ErrTransactionFailed, "transaction did not succeed on ledger")
 	}
 
 	if txResult.Status != protocol.TransactionStatusSuccess {
@@ -754,7 +767,8 @@ func hasAssetTrustline(ctx context.Context, client RPCClient, accountID string, 
 
 	trustlineAsset, err := asset.MustToTrustLineAsset().ToXDR()
 	if err != nil {
-		return false, fmt.Errorf("failed to convert asset to XDR: %w", err)
+		return false, classicErr("check_trustline").Code(pkgErrors.CodeEncodeFailed).
+			Wrapf(err, "could not convert the asset to XDR")
 	}
 
 	ledgerKey := xdr.LedgerKey{
@@ -767,14 +781,16 @@ func hasAssetTrustline(ctx context.Context, client RPCClient, accountID string, 
 
 	keyB64, err := xdr.MarshalBase64(ledgerKey)
 	if err != nil {
-		return false, fmt.Errorf("failed to marshal ledger key: %w", err)
+		return false, classicErr("check_trustline").Code(pkgErrors.CodeEncodeFailed).
+			Wrapf(err, "could not marshal the ledger key")
 	}
 
 	resp, err := client.GetLedgerEntries(ctx, protocol.GetLedgerEntriesRequest{
 		Keys: []string{keyB64},
 	})
 	if err != nil {
-		return false, fmt.Errorf("failed to get ledger entries: %w", err)
+		return false, classicErr("check_trustline").Code(pkgErrors.CodeTransportFailed).
+			Wrapf(err, "could not read ledger entries")
 	}
 
 	if len(resp.Entries) == 0 {

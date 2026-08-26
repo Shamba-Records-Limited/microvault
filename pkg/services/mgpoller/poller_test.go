@@ -317,11 +317,13 @@ func (t *fakeTreasury) CheckUSDCTrustline(_ context.Context, _ string) (bool, er
 }
 
 type fakeAlerts struct {
-	calls []string
+	calls  []string
+	bodies []string
 }
 
-func (a *fakeAlerts) AlertOps(subject, _ string) error {
+func (a *fakeAlerts) AlertOps(subject, body string) error {
 	a.calls = append(a.calls, subject)
+	a.bodies = append(a.bodies, body)
 	return nil
 }
 
@@ -354,8 +356,16 @@ func newTestPoller(t *testing.T) (*Poller, *mgFakeServer, *fakeFetcher, *fakeRec
 
 	// Verification defaults to passing. Refund tests that care override
 	// p.verifier directly rather than widening this helper's return.
-	p, err := NewPoller(c, fetcher, recorder, disb, treas,
-		&fakeVerifier{ok: true}, alerts, DefaultConfig(), nil)
+	p, err := NewPoller(PollerDeps{
+		Client:       c,
+		Fetcher:      fetcher,
+		Recorder:     recorder,
+		Disbursement: disb,
+		Treasury:     treas,
+		Verifier:     &fakeVerifier{ok: true},
+		Alerts:       alerts,
+		Config:       DefaultConfig(),
+	})
 	require.NoError(t, err)
 	return p, srv, fetcher, recorder, disb, treas, alerts
 }
@@ -981,7 +991,7 @@ func TestPoller_PendingUser_LogsOnly(t *testing.T) {
 }
 
 func TestPoller_RejectsBadConfig(t *testing.T) {
-	_, err := NewPoller(nil, nil, nil, nil, nil, nil, nil, DefaultConfig(), nil)
+	_, err := NewPoller(PollerDeps{Config: DefaultConfig()})
 	require.Error(t, err)
 }
 

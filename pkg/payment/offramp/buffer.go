@@ -3,11 +3,6 @@ package offramp
 // RateBuffer is a fractional safety margin deducted from a quoted FX rate to
 // hedge drift between the moment a borrower is quoted and the moment the
 // off-ramp settles.
-//
-// The margin belongs to the rate's *source*, not to the caller: a rate from
-// the anchor that will itself lock it needs less headroom than a proxy rate
-// from another provider. Callers therefore keep their own values and share
-// only this mechanism.
 type RateBuffer struct {
 	pct float64
 }
@@ -30,10 +25,6 @@ func NewRateBuffer(pct *float64, def float64) RateBuffer {
 func (b RateBuffer) Pct() float64 { return b.pct }
 
 // Apply returns rate reduced by the margin, clamped at zero.
-//
-// Reducing the rate is the conservative direction: it promises the borrower
-// fewer local units per USD than the source quoted, so the settled rate is
-// almost always in their favour. Slippage against them is what this hedges.
 func (b RateBuffer) Apply(rate float64) float64 {
 	r := rate * (1.0 - b.pct)
 	if r < 0 {

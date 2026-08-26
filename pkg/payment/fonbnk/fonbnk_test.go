@@ -59,7 +59,7 @@ func TestRoundTrip_InjectsHeaders(t *testing.T) {
 	cap := &capTransport{resp: &http.Response{StatusCode: 200, Body: http.NoBody}}
 	tr := &fonbnkTransport{clientID: "cid-1", clientSecret: "c2VjcmV0", base: cap}
 
-	req := httptest.NewRequest(http.MethodGet, "https://api.fonbnk.test/v1/quote?amount=10", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://api.fonbnk.test/v1/quote?amount=10", http.NoBody)
 	if _, err := tr.RoundTrip(req); err != nil {
 		t.Fatalf("RoundTrip: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestRoundTrip_InjectsHeaders(t *testing.T) {
 
 func TestRoundTrip_SignatureError(t *testing.T) {
 	tr := &fonbnkTransport{clientID: "c", clientSecret: "!!!!", base: &capTransport{}}
-	req := httptest.NewRequest(http.MethodGet, "https://api.fonbnk.test/x", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://api.fonbnk.test/x", http.NoBody)
 	if _, err := tr.RoundTrip(req); err == nil {
 		t.Error("expected RoundTrip to fail on signature error")
 	}
