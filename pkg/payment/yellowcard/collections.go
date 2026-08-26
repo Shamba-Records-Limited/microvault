@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/samber/oops"
+
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
@@ -21,40 +23,50 @@ import (
 // This file is the client surface only. Nothing in the platform consumes it
 // yet.
 
+// collectionErr starts an error builder for one collection call, scoped to the
+// collection it is about. Every failure below therefore names both the
+// operation and which collection it concerned.
+func collectionErr(op, collectionID string) oops.OopsErrorBuilder {
+	return ycErr(op).With(pkgErrors.AttrCollectionID, collectionID)
+}
+
 // collectionCall performs one JSON request against the collections API and
 // decodes the response.
 //
 // The send-side methods in yellowcard.go each inline this sequence. Repeating
 // it another eight times for one direction is not worth the symmetry, so the
 // collection methods share it. Signed and decoded identically either way.
-func collectionCall[T any](ctx context.Context, y *YellowcardAdapter, op, method, endpoint string, body any) (*T, error) {
+//
+// errb carries the operation and identifiers, so the caller decides what an
+// on-call engineer sees rather than this function guessing.
+func collectionCall[T any](ctx context.Context, y *YellowcardAdapter, errb oops.OopsErrorBuilder, method, endpoint string, body any) (*T, error) {
 	var reader io.Reader = http.NoBody
 	if body != nil {
 		encoded, err := json.Marshal(body)
 		if err != nil {
-			return nil, ycErr(op).Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not encode the request")
+			return nil, errb.Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not encode the request")
 		}
 		reader = bytes.NewReader(encoded)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, y.baseURL+endpoint, reader)
 	if err != nil {
-		return nil, ycErr(op).Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build the request")
+		return nil, errb.Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build the request")
 	}
 
 	resp, err := y.httpClient.Do(req)
 	if err != nil {
-		return nil, ycErr(op).Code(pkgErrors.CodeTransportFailed).Wrapf(err, "request did not complete")
+		return nil, errb.Code(pkgErrors.CodeTransportFailed).Wrapf(err, "request did not complete")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, y.parseError(resp)
+		return nil, parseErrorWith(errb, resp)
 	}
 
 	var out T
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, ycErr(op).Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the response")
+		return nil, errb.Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the response")
 	}
 	return &out, nil
 }
@@ -68,7 +80,7 @@ func collectionCall[T any](ctx context.Context, y *YellowcardAdapter, op, method
 // approval step can only fail the collection.
 func (y *YellowcardAdapter) SubmitCollection(ctx context.Context, req CollectionRequest) (*Collection, error) {
 	req.ForceAccept = true
-	return collectionCall[Collection](ctx, y, "submit_collection", http.MethodPost, "/receive", req)
+	return collectionCall[Collection](ctx, y, ycErr("submit_collection").With(pkgErrors.AttrSequenceID, req.SequenceID), http.MethodPost, "/receive", req)
 }
 
 // AcceptCollection approves a collection request for execution.
@@ -77,30 +89,30 @@ func (y *YellowcardAdapter) SubmitCollection(ctx context.Context, req Collection
 // client never reaches pending_approval and never needs this. It is wrapped
 // for requests submitted elsewhere.
 func (y *YellowcardAdapter) AcceptCollection(ctx context.Context, collectionID string) (*Collection, error) {
-	return collectionCall[Collection](ctx, y, "accept_collection", http.MethodPost, "/receive/"+collectionID+"/accept", nil)
+	return collectionCall[Collection](ctx, y, collectionErr("accept_collection", collectionID), http.MethodPost, "/receive/"+collectionID+"/accept", nil)
 }
 
 // DenyCollection rejects a collection request awaiting approval. See
 // AcceptCollection for why this is not on the normal path.
 func (y *YellowcardAdapter) DenyCollection(ctx context.Context, collectionID string) (*Collection, error) {
-	return collectionCall[Collection](ctx, y, "deny_collection", http.MethodPost, "/receive/"+collectionID+"/deny", nil)
+	return collectionCall[Collection](ctx, y, collectionErr("deny_collection", collectionID), http.MethodPost, "/receive/"+collectionID+"/deny", nil)
 }
 
 // LookupCollection retrieves a collection by YellowCard's own ID.
 func (y *YellowcardAdapter) LookupCollection(ctx context.Context, collectionID string) (*Collection, error) {
-	return collectionCall[Collection](ctx, y, "lookup_collection", http.MethodGet, "/receive/"+collectionID, nil)
+	return collectionCall[Collection](ctx, y, collectionErr("lookup_collection", collectionID), http.MethodGet, "/receive/"+collectionID, nil)
 }
 
 // LookupCollectionBySequenceID retrieves a collection by the sequence ID we
 // supplied at submission. This is the lookup that works after a crash between
 // submitting and persisting YellowCard's ID.
 func (y *YellowcardAdapter) LookupCollectionBySequenceID(ctx context.Context, sequenceID string) (*Collection, error) {
-	return collectionCall[Collection](ctx, y, "lookup_collection_by_sequence_id", http.MethodGet, "/receive/sequence-id/"+sequenceID, nil)
+	return collectionCall[Collection](ctx, y, ycErr("lookup_collection_by_sequence_id").With(pkgErrors.AttrSequenceID, sequenceID), http.MethodGet, "/receive/sequence-id/"+sequenceID, nil)
 }
 
 // CancelCollection stops a collection that has not yet completed.
 func (y *YellowcardAdapter) CancelCollection(ctx context.Context, collectionID string) (*Collection, error) {
-	return collectionCall[Collection](ctx, y, "cancel_collection", http.MethodPost, "/receive/"+collectionID+"/cancel", nil)
+	return collectionCall[Collection](ctx, y, collectionErr("cancel_collection", collectionID), http.MethodPost, "/receive/"+collectionID+"/cancel", nil)
 }
 
 // RefundCollection returns collected funds to the payer.
@@ -108,7 +120,7 @@ func (y *YellowcardAdapter) CancelCollection(ctx context.Context, collectionID s
 // YellowCard accepts this only from complete, cancelled or refund_failed;
 // anything else answers 400 PaymentInvalidState.
 func (y *YellowcardAdapter) RefundCollection(ctx context.Context, collectionID string) (*Collection, error) {
-	return collectionCall[Collection](ctx, y, "refund_collection", http.MethodPost, "/receive/"+collectionID+"/refund", nil)
+	return collectionCall[Collection](ctx, y, collectionErr("refund_collection", collectionID), http.MethodPost, "/receive/"+collectionID+"/refund", nil)
 }
 
 // ListCollectionsParams filters and paginates a collection listing. The zero
@@ -162,7 +174,7 @@ func (y *YellowcardAdapter) ListCollections(ctx context.Context, params ListColl
 		endpoint += "?" + q
 	}
 
-	resp, err := collectionCall[CollectionsResponse](ctx, y, "list_collections", http.MethodGet, endpoint, nil)
+	resp, err := collectionCall[CollectionsResponse](ctx, y, ycErr("list_collections"), http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/lo"
 	"github.com/samber/oops"
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
@@ -317,18 +318,29 @@ func (y *YellowcardAdapter) LookupPayment(ctx context.Context, paymentID string)
 // parseError reads a non-OK HTTP response body and returns a structured error,
 // preferring the YellowCard API error format when available.
 func (y *YellowcardAdapter) parseError(resp *http.Response) error {
+	return parseErrorWith(ycErr("api"), resp)
+}
+
+// parseErrorWith is parseError against a caller-supplied builder, so the
+// failing operation and its identifiers survive onto the error.
+//
+// The HTTP-error path is the common one, and parseError's own builder names
+// the operation "api" — which loses which call failed exactly when that is
+// what an on-call engineer needs.
+func parseErrorWith(errb oops.OopsErrorBuilder, resp *http.Response) error {
 	body, _ := io.ReadAll(resp.Body)
 
 	var apiErr APIError
 	if json.Unmarshal(body, &apiErr) == nil && apiErr.Code != "" {
-		return ycErr("api").
+		return errb.
 			With("api_code", apiErr.Code).
 			With("api_message", apiErr.Message).
+			With(pkgErrors.AttrStatusCode, resp.StatusCode).
 			Code(pkgErrors.CodeHTTPError).
 			Errorf("YellowCard returned an API error")
 	}
 
-	return ycErr("api").
+	return errb.
 		With(pkgErrors.AttrStatusCode, resp.StatusCode).
 		With("body", string(body)).
 		Code(pkgErrors.CodeHTTPError).
@@ -368,13 +380,9 @@ func FilterActiveChannels(channels []Channel, channelType string) []Channel {
 // is either a withdraw channel or a deposit one, so disbursement and
 // collection code must not draw from the same list.
 func FilterChannelsByRampType(channels []Channel, rampType string) []Channel {
-	result := make([]Channel, 0)
-	for _, ch := range channels {
-		if ch.RampType == rampType {
-			result = append(result, ch)
-		}
-	}
-	return result
+	return lo.Filter(channels, func(ch Channel, _ int) bool {
+		return ch.RampType == rampType
+	})
 }
 
 // FilterActiveNetworks returns networks that are active.

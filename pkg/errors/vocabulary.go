@@ -201,6 +201,7 @@ const (
 	AttrTxHash           = "tx_hash"
 	AttrMoneyGramTxID    = "mg_tx_id"
 	AttrSequenceID       = "sequence_id"
+	AttrCollectionID     = "collection_id"
 	AttrProvider         = "provider"
 	AttrContractFunction = "contract_function"
 	AttrOperation        = "operation"

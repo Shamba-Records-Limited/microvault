@@ -125,8 +125,11 @@ func TestCollectionPaths(t *testing.T) {
 			method: http.MethodGet, path: "/receive/c1",
 		},
 		{
-			name:   "lookup by sequence id",
-			call:   func(a *YellowcardAdapter) error { _, err := a.LookupCollectionBySequenceID(t.Context(), "seq-1"); return err },
+			name: "lookup by sequence id",
+			call: func(a *YellowcardAdapter) error {
+				_, err := a.LookupCollectionBySequenceID(t.Context(), "seq-1")
+				return err
+			},
 			method: http.MethodGet, path: "/receive/sequence-id/seq-1",
 		},
 	}
