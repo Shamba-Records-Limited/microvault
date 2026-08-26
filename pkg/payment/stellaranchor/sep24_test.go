@@ -134,6 +134,110 @@ func TestAnchorClient_InitiateDeposit_DefaultsAssetAndLang(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// SEP-24 offers memo/memo_type on the deposit request so a client can match
+// inbound payments to its own records. Every borrower's deposit lands on one
+// treasury address, so without it concurrent payments are distinguishable only
+// by amount and timing.
+func TestAnchorClient_InitiateDeposit_SendsMemo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+
+		assert.Equal(t, "LR-19F6C760B82-4bb8", got["memo"])
+		assert.Equal(t, "text", got["memo_type"])
+
+		fmt.Fprintln(w, `{"type":"interactive_customer_info_needed","url":"https://x/y","id":"id-1"}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateDeposit(context.Background(), "jwt", DepositRequest{
+		Amount:   "15.00",
+		Account:  "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+		Memo:     "LR-19F6C760B82-4bb8",
+		MemoType: "text",
+	})
+	require.NoError(t, err)
+}
+
+// memo_type is required alongside memo, so a caller that supplies one and not
+// the other must not produce a request the anchor rejects.
+func TestAnchorClient_InitiateDeposit_MemoTypeDefaultsToText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+		assert.Equal(t, "text", got["memo_type"])
+
+		fmt.Fprintln(w, `{"type":"interactive_customer_info_needed","url":"https://x/y","id":"id-1"}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateDeposit(context.Background(), "jwt", DepositRequest{
+		Amount:  "15.00",
+		Account: "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+		Memo:    "LR-19F6C760B82-4bb8",
+	})
+	require.NoError(t, err)
+}
+
+// No memo, no keys: an empty memo_type on the wire is not the same as an
+// absent one, and some anchors reject it.
+func TestAnchorClient_InitiateDeposit_OmitsMemoWhenUnset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+
+		_, hasMemo := got["memo"]
+		_, hasType := got["memo_type"]
+		assert.False(t, hasMemo)
+		assert.False(t, hasType)
+
+		fmt.Fprintln(w, `{"type":"interactive_customer_info_needed","url":"https://x/y","id":"id-1"}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateDeposit(context.Background(), "jwt", DepositRequest{
+		Amount:  "15.00",
+		Account: "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+	})
+	require.NoError(t, err)
+}
+
+// The withdrawal direction shares initiateInteractive but not the memo: there
+// the memo the borrower must quote comes back on the transaction response.
+func TestAnchorClient_InitiateWithdraw_SendsNoMemo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(body, &got))
+		_, hasMemo := got["memo"]
+		assert.False(t, hasMemo)
+
+		fmt.Fprintln(w, `{"type":"interactive_customer_info_needed","url":"https://x/y","id":"id-1"}`)
+	}))
+	defer srv.Close()
+
+	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: srv.URL}, srv.Client(), nil)
+	require.NoError(t, err)
+
+	_, err = c.InitiateWithdrawal(context.Background(), "jwt", WithdrawRequest{
+		Amount:  "15.00",
+		Account: "GD5NUMEX7LYHXGXCAD4PGW7JDMOUY2DKRGY5XZHJS5IONVHDKCJYGVCL",
+	})
+	require.NoError(t, err)
+}
+
 func TestAnchorClient_InitiateDeposit_RejectsMissingAmount(t *testing.T) {
 	c, err := NewAnchorClient(AnchorConfig{TransferServerURL: "http://example"}, nil, nil)
 	require.NoError(t, err)

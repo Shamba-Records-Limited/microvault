@@ -123,3 +123,69 @@ func TestHandlePayoutMethod_CashPickupFailsOpenWithoutRate(t *testing.T) {
 		t.Errorf("expected cash_pickup to proceed when no rate is available, got %v", session.Data["payout_method"])
 	}
 }
+
+// At the fake rate of 130 KES/USD, MoneyGram's 2,500 USD ceiling is KES
+// 325,000. The ceiling was previously advertised in ProviderInfo and checked
+// nowhere, so a loan of any size offered the cash rail and the anchor refused
+// it after the borrower had chosen it.
+func TestHandlePayoutMethod_CashPickupAboveAnchorMaximum(t *testing.T) {
+	h := newRateHarness(t, fakeRateSvc{})
+	session := payoutSession(40000000) // KES 400,000 ≈ 3,077 USD
+
+	resp, err := h.handlePayoutMethod(context.Background(), session, "1")
+	if err != nil {
+		t.Fatalf("handlePayoutMethod: %v", err)
+	}
+	if !strings.HasPrefix(resp, "CON ") {
+		t.Errorf("expected the payout menu to be re-rendered, got %q", resp)
+	}
+	if !strings.Contains(resp, "325000") {
+		t.Errorf("expected the KES equivalent of the 2500 USD ceiling, got %q", resp)
+	}
+	if !strings.Contains(resp, "at most") {
+		t.Errorf("the ceiling message must not read as a floor: %q", resp)
+	}
+	if strings.Contains(resp, "Cash Pickup") {
+		t.Errorf("cash pickup must be dropped from the menu, not re-offered: %q", resp)
+	}
+}
+
+// Between the two bounds the rail is offered and nothing is re-rendered.
+func TestHandlePayoutMethod_CashPickupInsideTheCorridor(t *testing.T) {
+	h := newRateHarness(t, fakeRateSvc{})
+	session := payoutSession(1300000) // KES 13,000 = 100 USD
+
+	resp, err := h.handlePayoutMethod(context.Background(), session, "1")
+	if err != nil {
+		t.Fatalf("handlePayoutMethod: %v", err)
+	}
+	if strings.Contains(resp, "at least") || strings.Contains(resp, "at most") {
+		t.Errorf("100 USD is inside the corridor; no limit screen expected: %q", resp)
+	}
+	if session.Data["payout_method"] != "cash_pickup" {
+		t.Errorf("expected the cash rail to be selected, got %v", session.Data["payout_method"])
+	}
+}
+
+// The floor rounds up and the ceiling rounds down, so the figure quoted is
+// always one the borrower can actually transact. Rounding the ceiling up would
+// name an amount the anchor rejects.
+func TestCashPickupLimitsRoundTowardTheUsableRange(t *testing.T) {
+	h := newRateHarness(t, fakeRateSvc{})
+
+	below, err := h.handlePayoutMethod(context.Background(), payoutSession(100000), "1")
+	if err != nil {
+		t.Fatalf("handlePayoutMethod: %v", err)
+	}
+	above, err := h.handlePayoutMethod(context.Background(), payoutSession(40000000), "1")
+	if err != nil {
+		t.Fatalf("handlePayoutMethod: %v", err)
+	}
+
+	if strings.Contains(below, "1949") {
+		t.Errorf("the floor must round up, not down: %q", below)
+	}
+	if strings.Contains(above, "325001") {
+		t.Errorf("the ceiling must round down, not up: %q", above)
+	}
+}

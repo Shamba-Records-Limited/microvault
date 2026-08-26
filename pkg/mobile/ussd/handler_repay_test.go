@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 )
 
 // repayLoanSvc is a LoanService whose repay surface is controllable.
@@ -34,16 +33,12 @@ func (s *repayLoanSvc) GetRepaymentQuote(_ context.Context, loanID string) (*Rep
 	return q, nil
 }
 
-func (s *repayLoanSvc) InitiateRepayment(_ context.Context, loanID, _ string) (*RepaymentInitiation, error) {
+func (s *repayLoanSvc) InitiateRepayment(_ context.Context, loanID, _ string) error {
 	if s.initiateErr != nil {
-		return nil, s.initiateErr
+		return s.initiateErr
 	}
 	s.initiated = append(s.initiated, loanID)
-	return &RepaymentInitiation{
-		LoanID:            loanID,
-		AmountUSDCStroops: s.quotes[loanID].AmountUSDCStroops,
-		ExpiresAt:         time.Now().Add(96 * time.Hour),
-	}, nil
+	return nil
 }
 
 func loanRow(id, ref, status string) map[string]any {
@@ -343,5 +338,40 @@ func TestRepay_UnquotableLoanIsListedButCannotUseCashRail(t *testing.T) {
 	rail, _ := h.handleRepayLoan(context.Background(), repaySession(), "1")
 	if strings.Contains(rail, "MoneyGram") {
 		t.Errorf("without a payoff the floor cannot be cleared: %q", rail)
+	}
+}
+
+// The screen must render from the quote it already has, never from the
+// initiation result. That is what lets LoanService.InitiateRepayment return
+// before MoneyGram has answered — the sandbox measured that handshake at 15.7s,
+// well past the point Africa's Talking abandons a USSD session.
+//
+// The latency guarantee itself belongs to the adapter, which runs the handshake
+// on its own goroutine. What is testable here is the coupling that would undo
+// it: if this screen ever reads a field off the initiation again, the handler
+// has to wait for it.
+func TestRepay_CashRailScreenRendersFromTheQuote(t *testing.T) {
+	svc := &repayLoanSvc{
+		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
+		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor, AmountLocalCents: 645000, LocalCurrency: "KES"}},
+	}
+	h := newRepayHarness(t, svc, "247247")
+
+	session := repaySession()
+	if _, err := h.handleRepayLoan(context.Background(), session, ""); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+
+	resp, err := h.handleRepayRail(context.Background(), session, "1")
+	if err != nil {
+		t.Fatalf("rail: %v", err)
+	}
+
+	// The quoted figure, which the handler had before initiation was called.
+	if !strings.Contains(resp, "KES 6450.00") {
+		t.Errorf("expected the already-quoted amount: %q", resp)
+	}
+	if !strings.Contains(resp, "SMS") {
+		t.Errorf("expected the check-your-SMS screen: %q", resp)
 	}
 }

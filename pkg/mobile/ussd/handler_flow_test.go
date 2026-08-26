@@ -56,9 +56,7 @@ func (fakeLoanSvc) GetRepaymentQuote(context.Context, string) (*RepaymentQuote, 
 	return nil, nil
 }
 
-func (fakeLoanSvc) InitiateRepayment(context.Context, string, string) (*RepaymentInitiation, error) {
-	return nil, nil
-}
+func (fakeLoanSvc) InitiateRepayment(context.Context, string, string) error { return nil }
 
 type fakePINSvc struct {
 	hasPIN    bool

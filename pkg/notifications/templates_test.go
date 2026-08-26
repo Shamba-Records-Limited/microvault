@@ -70,6 +70,24 @@ func TestRepaymentInitiatedFitsOneSegment(t *testing.T) {
 	}
 }
 
+// The more-info fallback carries the only link a borrower who never received a
+// reference has, so it is under the same one-segment constraint.
+func TestRepaymentMoreInfoFitsOneSegment(t *testing.T) {
+	n := SentinelLoanNotification()
+	for lang, tmpl := range localizedLoanTemplates() {
+		text := tmpl.RepaymentMoreInfo(n)
+		septets, _, ok := GSM7Len(text)
+		if !ok {
+			t.Errorf("%s: RepaymentMoreInfo is not GSM-7", lang)
+			continue
+		}
+		if got := Segments(septets); got != 1 {
+			t.Errorf("%s: RepaymentMoreInfo needs %d segments (%d septets), want 1:\n%s",
+				lang, got, septets, text)
+		}
+	}
+}
+
 // The cash-pickup initiation SMS must stay within a single GSM-7 segment so the
 // short-link URL is never split across concatenated parts — splitting breaks
 // both wrapping and auto-linkification in SMS inboxes.

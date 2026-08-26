@@ -6,7 +6,6 @@ import (
 
 	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/keypair"
-	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
@@ -37,8 +36,8 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 	const fnName = "borrow"
 
 	errb := treasuryErr(fnName).
-		With("amount", req.Amount).
-		With("recipient", req.RecipientAddress)
+		With(pkgErrors.AttrAmountStroops, req.Amount).
+		With(pkgErrors.AttrRecipient, req.RecipientAddress)
 
 	if req.Amount <= 0 {
 		return nil, errb.Code(pkgErrors.CodeInvalidAmount).Wrapf(types.ErrInvalidTransactionAmount, "borrow amount must be positive")
@@ -55,7 +54,7 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 
 	args := []xdr.ScVal{treasuryAddr, recipientAddr, amountVal}
 
-	txResp, err := s.invokeTreasuryOp(ctx, treasuryKP, fnName, args, errb)
+	txResp, err := s.invokeSigned(ctx, treasuryKP, fnName, args, errb)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +128,7 @@ func (s *service) repay(ctx context.Context, borrowerAddress string, amount int6
 	}
 
 	errb := treasuryErr(fnName).
-		With("amount", amount).
+		With(pkgErrors.AttrAmountStroops, amount).
 		With(pkgErrors.AttrBorrower, borrowerAddress)
 
 	if amount <= 0 {
@@ -150,7 +149,7 @@ func (s *service) repay(ctx context.Context, borrowerAddress string, amount int6
 		args = []xdr.ScVal{treasuryAddr, borrowerAddr, amountVal}
 	}
 
-	txResp, err := s.invokeTreasuryOp(ctx, treasuryKP, fnName, args, errb)
+	txResp, err := s.invokeSigned(ctx, treasuryKP, fnName, args, errb)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +196,7 @@ func (s *service) repay(ctx context.Context, borrowerAddress string, amount int6
 func (s *service) BumpYield(ctx context.Context, req types.BumpYieldRequest) (*types.BumpYieldResponse, error) {
 	const fnName = "bump_yield"
 
-	errb := treasuryErr(fnName).With("amount", req.Amount)
+	errb := treasuryErr(fnName).With(pkgErrors.AttrAmountStroops, req.Amount)
 
 	if req.Amount <= 0 {
 		return nil, errb.Code(pkgErrors.CodeInvalidAmount).Wrapf(types.ErrInvalidTransactionAmount, "contribution amount must be positive")
@@ -212,7 +211,7 @@ func (s *service) BumpYield(ctx context.Context, req types.BumpYieldRequest) (*t
 
 	args := []xdr.ScVal{treasuryAddr, amountVal}
 
-	txResp, err := s.invokeTreasuryOp(ctx, treasuryKP, fnName, args, errb)
+	txResp, err := s.invokeSigned(ctx, treasuryKP, fnName, args, errb)
 	if err != nil {
 		return nil, err
 	}
@@ -249,52 +248,13 @@ func (s *service) AccrueInterest(ctx context.Context) error {
 
 	treasuryKP := keypair.MustParseFull(s.treasuryPrivateKey)
 
-	txResp, err := s.invokeTreasuryOp(ctx, treasuryKP, fnName, nil, treasuryErr(fnName))
+	txResp, err := s.invokeSigned(ctx, treasuryKP, fnName, nil, treasuryErr(fnName))
 	if err != nil {
 		return err
 	}
 
 	log.Printf("AccrueInterest: interest accrued (tx: %s)", txResp.TransactionHash)
 	return nil
-}
-
-// invokeTreasuryOp builds, simulates and submits one treasury-signed contract
-// call. errb supplies the caller's attributes so every failure below carries
-// the same context without each call site restating it.
-func (s *service) invokeTreasuryOp(
-	ctx context.Context,
-	signerKP *keypair.Full,
-	fnName string,
-	args []xdr.ScVal,
-	errb oops.OopsErrorBuilder,
-) (*protocol.GetTransactionResponse, error) {
-	op, err := s.buildInvokeContractOp(fnName, args)
-	if err != nil {
-		return nil, errb.Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build contract invocation")
-	}
-
-	simResp, err := s.simulateContractCall(ctx, signerKP.Address(), op)
-	if err != nil {
-		return nil, errb.Code(pkgErrors.CodeSimulationFailed).Wrapf(err, "contract simulation could not be performed")
-	}
-
-	// A simulation that returns an error string is a contract-level rejection,
-	// not a transport failure. Wrapping the sentinel is what lets callers use
-	// errors.Is rather than matching on the message.
-	if simResp.Error != "" {
-		log.Printf("%s simulation error: %s", fnName, simResp.Error)
-		return nil, errb.
-			Code(pkgErrors.CodeSimulationRejected).
-			With("simulation_error", simResp.Error).
-			Wrapf(types.ErrSimulationFailed, "contract simulation rejected the call")
-	}
-
-	txResp, err := s.submitContractTransaction(ctx, signerKP, op, simResp)
-	if err != nil {
-		return nil, errb.Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "could not submit contract transaction")
-	}
-
-	return &txResp, nil
 }
 
 // contractInfoOrFallback reads the contract ID and function name off the

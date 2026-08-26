@@ -6,8 +6,22 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
+	"github.com/Shamba-Records-Limited/microvault/pkg/phone"
 )
+
+// gatewayErr starts an error builder for the Africa's Talking gateway contract.
+// Everything here is a malformed request or response from the gateway itself,
+// never a borrower-visible failure, so none of these carry a Public message.
+func gatewayErr(op string) oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainUSSD).
+		Tags("ussd", "gateway").
+		With(pkgErrors.AttrProvider, "africastalking").
+		With(pkgErrors.AttrOperation, op)
+}
 
 // AfricasTalkingUSSDAdapter implements the USSDProvider interface for Africa's Talking.
 type AfricasTalkingUSSDAdapter struct {
@@ -33,12 +47,18 @@ var _ ussd.USSDProvider = (*AfricasTalkingUSSDAdapter)(nil)
 func (a *AfricasTalkingUSSDAdapter) ParseRequest(ctx context.Context, data map[string]string) (*ussd.USSDRequest, error) {
 	sessionID := data["sessionId"]
 	if sessionID == "" {
-		return nil, fmt.Errorf("missing sessionId")
+		return nil, gatewayErr("parse_request").
+			Code(pkgErrors.CodeIncompleteResponse).
+			With("field", "sessionId").
+			Errorf("gateway request is missing a required field")
 	}
 
 	phoneNumber := data["phoneNumber"]
 	if phoneNumber == "" {
-		return nil, fmt.Errorf("missing phoneNumber")
+		return nil, gatewayErr("parse_request").
+			Code(pkgErrors.CodeMissingPhoneNumber).
+			With("session_id", sessionID).
+			Errorf("gateway request is missing a phone number")
 	}
 
 	// Normalize phone number - remove leading +
@@ -67,12 +87,17 @@ func (a *AfricasTalkingUSSDAdapter) ParseRequest(ctx context.Context, data map[s
 // Africa's Talking expects: "CON message" or "END message"
 func (a *AfricasTalkingUSSDAdapter) FormatResponse(ctx context.Context, response *ussd.USSDResponse) (any, error) {
 	if response == nil {
-		return nil, fmt.Errorf("response cannot be nil")
+		return nil, gatewayErr("format_response").
+			Code(pkgErrors.CodeMissingDependency).
+			Errorf("response cannot be nil")
 	}
 
 	// Validate response type
 	if response.Type != "CON" && response.Type != "END" {
-		return nil, fmt.Errorf("invalid response type: %s", response.Type)
+		return nil, gatewayErr("format_response").
+			Code(pkgErrors.CodeIncompleteResponse).
+			With("response_type", response.Type).
+			Errorf("response type must be CON or END")
 	}
 
 	// Format: "CON message" or "END message"
@@ -90,14 +115,21 @@ func (a *AfricasTalkingUSSDAdapter) ValidateRequest(ctx context.Context, data ma
 
 	for _, field := range requiredFields {
 		if data[field] == "" {
-			return fmt.Errorf("missing required field: %s", field)
+			return gatewayErr("validate_request").
+				Code(pkgErrors.CodeIncompleteResponse).
+				With("field", field).
+				With("session_id", data["sessionId"]).
+				Errorf("gateway request is missing a required field")
 		}
 	}
 
 	// Validate phone number format (basic validation)
 	phoneNumber := data["phoneNumber"]
 	if !strings.HasPrefix(phoneNumber, "+") && !strings.HasPrefix(phoneNumber, "254") {
-		return fmt.Errorf("invalid phone number format: %s", phoneNumber)
+		return gatewayErr("validate_request").
+			Code(pkgErrors.CodeInvalidAddress).
+			With("phone_number", phone.Redact(phoneNumber)).
+			Errorf("phone number is not in a recognised format")
 	}
 
 	return nil

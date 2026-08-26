@@ -31,11 +31,30 @@ type LoanNotifier interface {
 	NotifyRepaymentReceived(ctx context.Context, n LoanNotification) error
 	NotifyRepaymentReminder(ctx context.Context, n LoanNotification) error
 
+	// NotifyRepaymentFailed reports that a cash deposit could not be opened.
+	//
+	// The USSD screen has already told the borrower to expect an SMS by the
+	// time this fires — initiation runs in the background because it is far
+	// slower than a USSD session lives — so silence here would strand them
+	// waiting for a message that is never coming.
+	NotifyRepaymentFailed(ctx context.Context, n LoanNotification) error
+
 	// NotifyRepaymentReference carries the reference MoneyGram issues once the
 	// borrower commits in the webview. It is what they quote at the agent
 	// counter to hand cash over, so without it the repayment cannot complete
 	// however ready everything else is.
 	NotifyRepaymentReference(ctx context.Context, n LoanNotification) error
+
+	// NotifyRepaymentMoreInfo carries MoneyGram's transaction page when no
+	// reference has been issued yet.
+	//
+	// SEP-24 defines external_transaction_id as the ID of the external
+	// transaction that "started the deposit", so for a cash-in it only exists
+	// once the borrower has paid — after the point the code would have been
+	// useful. more_info_url is the field the spec designates for telling a user
+	// how to start a deposit, and it is populated from the first poll. Read from
+	// InteractiveURL.
+	NotifyRepaymentMoreInfo(ctx context.Context, n LoanNotification) error
 
 	// NotifyRepaymentInitiated carries the MoneyGram interactive URL for a
 	// borrower-initiated cash repayment. The USSD session ends before the

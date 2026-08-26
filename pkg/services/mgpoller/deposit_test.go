@@ -168,16 +168,28 @@ func (v *fakeVaultRepayer) count() int {
 
 type fakeRepaymentNotifier struct {
 	mu         sync.Mutex
+	err        error
 	received   []string
 	reminder   []string
 	expired    []string
 	references []string
+	moreInfo   []string
 }
 
 func (n *fakeRepaymentNotifier) NotifyRepaymentReference(loanID, reference string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.references = append(n.references, loanID+":"+reference)
+	return nil
+}
+
+func (n *fakeRepaymentNotifier) NotifyRepaymentMoreInfo(loanID string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.err != nil {
+		return n.err
+	}
+	n.moreInfo = append(n.moreInfo, loanID)
 	return nil
 }
 
@@ -736,8 +748,59 @@ func TestDeposit_Committed_DoesNotResendReference(t *testing.T) {
 		"polls every two minutes while the borrower walks to the counter; one SMS is enough")
 }
 
-// MoneyGram has not always issued a reference by the time the status flips.
-// Sending an empty code would be worse than sending nothing.
+// SEP-24 defines external_transaction_id as the external transaction that
+// "started the deposit", so on a cash-in it does not exist until after the
+// borrower has paid — the whole period they need instructions, it is empty.
+// more_info_url is populated from the first poll, and is the only thing they
+// can act on.
+func TestDeposit_NoReference_FallsBackToTheTransactionPage(t *testing.T) {
+	h := newTestDepositDriver(t)
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusPendingUserTransferStart,
+		`,"more_info_url":"https://extramps.moneygram.com/transaction-status?transaction_id=4a93bfcf&token=eyJhbGciOiJIUzI1NiJ9"`))
+	h.fetcher.recs = []RepaymentRecord{depositRec(h)}
+
+	h.driver.poll(context.Background())
+
+	assert.Equal(t, []string{"loan-1"}, h.notifier.moreInfo)
+	assert.Empty(t, h.notifier.references)
+	assert.Equal(t, []string{"loan-1"}, h.recorder.referencesSent,
+		"one marker covers both artifacts — the borrower needs telling once, not twice")
+}
+
+// A code a borrower can read out to an agent beats a link they must open on a
+// feature phone, so the reference wins whenever both are present.
+func TestDeposit_ReferenceWinsOverTheTransactionPage(t *testing.T) {
+	h := newTestDepositDriver(t)
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusPendingUserTransferStart,
+		`,"external_transaction_id":"MG-REF-4417","more_info_url":"https://extramps.moneygram.com/transaction-status?transaction_id=4a93bfcf"`))
+	h.fetcher.recs = []RepaymentRecord{depositRec(h)}
+
+	h.driver.poll(context.Background())
+
+	assert.Equal(t, []string{"loan-1:MG-REF-4417"}, h.notifier.references)
+	assert.Empty(t, h.notifier.moreInfo)
+}
+
+// The marker is spent before the send, so a failed send is terminal: no later
+// tick retries and the borrower is never told how to pay. That must page
+// someone rather than leave a warning in a log.
+func TestDeposit_FailedPayInstructionsAlertsOps(t *testing.T) {
+	h := newTestDepositDriver(t)
+	h.notifier.err = errors.New("loan has no phone number to notify")
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusPendingUserTransferStart,
+		`,"more_info_url":"https://extramps.moneygram.com/transaction-status?transaction_id=4a93bfcf"`))
+	h.fetcher.recs = []RepaymentRecord{depositRec(h)}
+
+	h.driver.poll(context.Background())
+
+	require.NotEmpty(t, h.alerts.bodies, "a borrower who cannot pay is not a warning-level event")
+	assert.Contains(t, h.alerts.bodies[0], "loan-1")
+	assert.Contains(t, h.alerts.bodies[0], "repayment_reference_sent",
+		"the alert must say how to recover, since nothing retries on its own")
+}
+
+// Neither artifact issued yet. Sending an empty code, or copy trailing off
+// where a link should be, is worse than sending nothing.
 func TestDeposit_Committed_WithoutReference_SendsNothing(t *testing.T) {
 	h := newTestDepositDriver(t)
 	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusPendingUserTransferStart, ""))
@@ -746,6 +809,115 @@ func TestDeposit_Committed_WithoutReference_SendsNothing(t *testing.T) {
 	h.driver.poll(context.Background())
 
 	assert.Empty(t, h.notifier.references)
+	assert.Empty(t, h.notifier.moreInfo)
 	assert.Empty(t, h.recorder.referencesSent, "no send, no marker — the next tick must retry")
 	assert.Contains(t, h.recorder.nextPolls, "loan-1")
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Deposit shortfall
+// ─────────────────────────────────────────────────────────────────────
+
+// SEP-24 defines amount_out as net of fee.total, and MoneyGram charges 3.00 USD
+// on a 23.40 deposit in the sandbox. If that holds at settlement the treasury
+// receives less than the borrower was quoted, and repaying the quoted figure
+// drains it a little on every repayment.
+//
+// Reported, not acted on: the only payload observed so far predates the
+// borrower paying and named amount_out_asset as fiat rather than USDC, so it
+// cannot be read as settled. The alert is what turns the first completed
+// deposit into evidence.
+func TestDeposit_ShortCredit_AlertsButStillRepaysQuotedPayoff(t *testing.T) {
+	h := newTestDepositDriver(t)
+	// Quoted 50 USDC, credited 47 — a 3 USDC fee.
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusCompleted, `,"amount_out":"47.0000000"`))
+	h.fetcher.recs = []RepaymentRecord{depositRec(h)}
+
+	h.driver.poll(context.Background())
+
+	require.NotEmpty(t, h.alerts.calls, "a silent treasury drain must page ops")
+	assert.Contains(t, h.alerts.calls[0], "short of the quoted payoff")
+
+	// Unchanged until a completed deposit settles the question.
+	require.Len(t, h.vault.calls, 1)
+	assert.Equal(t, int64(500000000), h.vault.calls[0].amount,
+		"the quoted payoff is still what closes the loan")
+}
+
+func TestDeposit_FullCredit_DoesNotAlert(t *testing.T) {
+	h := newTestDepositDriver(t)
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusCompleted, `,"amount_out":"50.0000000"`))
+	h.fetcher.recs = []RepaymentRecord{depositRec(h)}
+
+	h.driver.poll(context.Background())
+
+	assert.Empty(t, h.alerts.calls)
+	assert.NotEmpty(t, h.recorder.settled)
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Anchor deadline
+// ─────────────────────────────────────────────────────────────────────
+
+// MoneyGram states its own deadline and that is the binding one. The sandbox
+// reported roughly 24 hours against a REPAYMENT_WINDOW default of 96, so acting
+// on ours would keep a lapsed deposit live for three days and tell the borrower
+// they still had time to pay.
+func TestDeposit_AnchorDeadlineExpiresBeforeOurWindow(t *testing.T) {
+	h := newTestDepositDriver(t)
+
+	rec := depositRec(h)
+	rec.ExpiresAt = h.now.Add(72 * time.Hour) // what our window believed
+	h.fetcher.recs = []RepaymentRecord{rec}
+
+	// MoneyGram says the deposit lapsed an hour ago.
+	past := h.now.Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusIncomplete,
+		`,"user_action_required_by":"`+past+`"`))
+
+	h.driver.poll(context.Background())
+
+	assert.Equal(t, []string{"loan-1"}, h.recorder.expired,
+		"the anchor's deadline governs, not the configured window")
+}
+
+// The reminder lead is a fraction of the whole window, measured from
+// started_at. Deriving it from the time remaining would make the threshold
+// chase itself and only ever be met at expiry.
+func TestDeposit_ReminderLeadIsCappedByTheRealWindow(t *testing.T) {
+	h := newTestDepositDriver(t)
+
+	// A 24-hour window with 20 hours still to run. The configured lead is 24h,
+	// which under the old rule would have fired the reminder at initiation —
+	// telling the borrower nothing they had not just been told.
+	started := h.now.Add(-4 * time.Hour).UTC().Format(time.RFC3339)
+	deadline := h.now.Add(20 * time.Hour).UTC().Format(time.RFC3339)
+
+	rec := depositRec(h)
+	h.fetcher.recs = []RepaymentRecord{rec}
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusIncomplete,
+		`,"started_at":"`+started+`","user_action_required_by":"`+deadline+`"`))
+
+	h.driver.poll(context.Background())
+
+	assert.Empty(t, h.notifier.reminder,
+		"20 hours out on a 24-hour window is far too early to nudge")
+	assert.Empty(t, h.recorder.remindersSent)
+}
+
+func TestDeposit_ReminderFiresInsideTheCappedLead(t *testing.T) {
+	h := newTestDepositDriver(t)
+
+	// Same 24-hour window, now 1 hour from expiry — inside the 6-hour cap.
+	started := h.now.Add(-23 * time.Hour).UTC().Format(time.RFC3339)
+	deadline := h.now.Add(1 * time.Hour).UTC().Format(time.RFC3339)
+
+	rec := depositRec(h)
+	h.fetcher.recs = []RepaymentRecord{rec}
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusIncomplete,
+		`,"started_at":"`+started+`","user_action_required_by":"`+deadline+`"`))
+
+	h.driver.poll(context.Background())
+
+	assert.Equal(t, []string{"loan-1"}, h.notifier.reminder)
 }

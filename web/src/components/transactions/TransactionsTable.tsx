@@ -4,7 +4,7 @@
  * mobile-card renderers plus live-update highlighting and pagination.
  * @module components/transactions/TransactionsTable
  */
-import { ArrowSquareOut, Info } from "@phosphor-icons/react";
+import { ArrowRight, ArrowSquareOut, Info } from "@phosphor-icons/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -55,6 +55,36 @@ function formatTime(iso: string): string {
 
 function formatEventName(name: string): string {
   return name.replace(/_/g, " ");
+}
+
+/**
+ * Renders an operation summary, drawing any `→` in it as an icon.
+ *
+ * The summary is a plain string built in `lib/stellar.ts`, and the arrow used
+ * to ride along inside it. Rendered in a monospace face at 11-12px in muted
+ * grey, U+2192 either fell back to a substitute glyph or sat on the baseline
+ * rather than the x-height centre, so it read as a stray dash between the
+ * amount and the destination. An inline SVG has no glyph coverage to depend on
+ * and `items-center` puts it on the same optical line as the text either side.
+ */
+function OpSummary({ text, className }: { text: string; className?: string }) {
+  const parts = text.split("→");
+
+  if (parts.length === 1) {
+    return <span className={className}>{text}</span>;
+  }
+
+  return (
+    <span className={`inline-flex flex-wrap items-center gap-x-1.5 gap-y-1 ${className ?? ""}`}>
+      {parts.map((part, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: split of a fixed string, never reordered
+        <span key={i} className="inline-flex items-center gap-x-1.5">
+          {i > 0 && <ArrowRight weight="bold" className="h-3 w-3 shrink-0 text-foreground/70" aria-label="to" />}
+          <span className="break-all">{part.trim()}</span>
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /** Render a single event topic argument compactly. Stellar addresses get the
@@ -239,9 +269,10 @@ function TxTableRow({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
           <Badge variant="outline" className="capitalize font-normal rounded-md text-xs py-0.5 px-2">
             {formatEventName(tx.type)}
           </Badge>
-          <span className="text-muted-foreground font-mono text-xs">
-            {tx.summary}
-          </span>
+          <OpSummary
+            text={tx.summary}
+            className="text-muted-foreground font-mono text-xs"
+          />
         </div>
       </td>
     </tr>
@@ -292,7 +323,10 @@ function TxCard({ tx, isNew }: { tx: TransactionEntry; isNew: boolean }) {
         </Badge>
 
         <span className="text-muted-foreground font-mono uppercase tracking-wider text-[10px] self-start mt-0.5">Details</span>
-        <span className="font-mono text-[11px] text-foreground/90 break-all bg-muted/20 border border-border/30 rounded px-2 py-1.5">{tx.summary}</span>
+        <OpSummary
+          text={tx.summary}
+          className="font-mono text-[11px] text-foreground/90 bg-muted/20 border border-border/30 rounded px-2 py-1.5"
+        />
       </CardContent>
     </Card>
   );

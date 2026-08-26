@@ -317,11 +317,13 @@ func (t *fakeTreasury) CheckUSDCTrustline(_ context.Context, _ string) (bool, er
 }
 
 type fakeAlerts struct {
-	calls []string
+	calls  []string
+	bodies []string
 }
 
-func (a *fakeAlerts) AlertOps(subject, _ string) error {
+func (a *fakeAlerts) AlertOps(subject, body string) error {
 	a.calls = append(a.calls, subject)
+	a.bodies = append(a.bodies, body)
 	return nil
 }
 

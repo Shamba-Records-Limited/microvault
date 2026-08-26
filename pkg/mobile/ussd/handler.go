@@ -893,7 +893,7 @@ func (h *USSDHandler) handleLoanAmount(ctx context.Context, session *Session, in
 func (h *USSDHandler) handlePayoutMethod(ctx context.Context, session *Session, input string) (string, error) {
 	switch input {
 	case "1":
-		if body, ok := h.cashPickupBelowMinimum(ctx, session); ok {
+		if body, ok := h.cashPickupOutOfRange(ctx, session); ok {
 			return body, nil
 		}
 		session.Data["payout_method"] = "cash_pickup"
@@ -912,27 +912,37 @@ func (h *USSDHandler) handlePayoutMethod(ctx context.Context, session *Session, 
 // payoutOptionCashPickup is the payout menu key for the MoneyGram rail.
 const payoutOptionCashPickup = "1"
 
-// cashPickupBelowMinimum reports whether the pending loan converts to less than
-// the anchor's withdraw minimum, returning the payout menu re-rendered without
-// the cash-pickup option so the borrower can switch rails instead of losing the
-// session. Leaving the option on screen would just loop them back here.
+// cashPickupOutOfRange reports whether the pending loan converts to an amount
+// outside the anchor's withdraw corridor, returning the payout menu re-rendered
+// without the cash-pickup option so the borrower can switch rails instead of
+// losing the session. Leaving the option on screen would just loop them back
+// here.
 //
 // It fails open: without a usable rate the loan proceeds and the anchor
 // rejects it downstream, which beats blocking every cash pickup during an FX
 // outage.
-func (h *USSDHandler) cashPickupBelowMinimum(ctx context.Context, session *Session) (string, bool) {
+func (h *USSDHandler) cashPickupOutOfRange(ctx context.Context, session *Session) (string, bool) {
 	if h.rateService == nil {
 		return "", false
 	}
 	currency, _ := session.Data["local_currency"].(string)
 	rate, err := h.rateService.GetExchangeRate(ctx, currency)
 	if err != nil || rate <= 0 {
-		log.Printf("cashPickupBelowMinimum: exchange rate unavailable for %s: %v", currency, err)
+		log.Printf("cashPickupOutOfRange: exchange rate unavailable for %s: %v", currency, err)
 		return "", false
 	}
 
 	fiatAmount := float64(toInt64(session.Data["loan_amount_local"])) / 100.0
-	if fiatAmount/rate >= moneygram.MinWithdrawUSD {
+	usdAmount := fiatAmount / rate
+
+	msgKey := "loan_cash_pickup_min"
+	limitUSD := moneygram.MinWithdrawUSD
+	switch {
+	case usdAmount < moneygram.MinWithdrawUSD:
+	case usdAmount > moneygram.MaxWithdrawUSD:
+		msgKey = "loan_cash_pickup_max"
+		limitUSD = moneygram.MaxWithdrawUSD
+	default:
 		return "", false
 	}
 
@@ -952,7 +962,13 @@ func (h *USSDHandler) cashPickupBelowMinimum(ctx context.Context, session *Sessi
 		remaining.Options = append(remaining.Options, opt)
 	}
 
-	msg := Format(session.Language, "loan_cash_pickup_min", currency, math.Ceil(moneygram.MinWithdrawUSD*rate))
+	// Floor rounds up and ceiling rounds down, so the figure shown is always
+	// one the borrower can actually transact.
+	limitLocal := math.Ceil(limitUSD * rate)
+	if msgKey == "loan_cash_pickup_max" {
+		limitLocal = math.Floor(limitUSD * rate)
+	}
+	msg := Format(session.Language, msgKey, currency, limitLocal)
 	return "CON " + h.withNavHint(session, "payout_method", msg+"\n"+remaining.Render(session.Language)), true
 }
 
@@ -1290,6 +1306,9 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, _ s
 	session.Data["repay_loan_id"] = chosen.ID
 	session.Data["repay_loan_ref"] = chosen.Reference
 	session.Data["repay_payoff_stroops"] = chosen.PayoffStroops
+	// Carried across the turn so the confirmation screen quotes the same
+	// figure the borrower just saw, without re-running the FX cascade.
+	session.Data["repay_display_amount"] = chosen.DisplayAmount
 	session.CurrentMenu = "repay_rail"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", sessionSaveErr(session, err)
@@ -1306,9 +1325,16 @@ type repayLoanChoice struct {
 	DisplayAmount string
 }
 
-// cashRailEligible reports whether this payoff clears MoneyGram's floor.
+// cashRailEligible reports whether this payoff sits inside MoneyGram's cash-in
+// corridor. Both ends are theirs, so a payoff outside the range is refused at
+// their counter rather than by us, after the borrower has already travelled.
+//
+// Checked against the payoff rather than the principal: interest and the
+// service fee put the amount owed above the amount drawn, so a loan inside the
+// range at disbursement can be outside it at repayment.
 func (c repayLoanChoice) cashRailEligible() bool {
-	return c.PayoffStroops >= MinMoneyGramDepositStroops
+	return c.PayoffStroops >= MinMoneyGramDepositStroops &&
+		c.PayoffStroops <= MaxMoneyGramDepositStroops
 }
 
 // newestRepayableLoan returns the borrower's most recent outstanding loan.
@@ -1388,6 +1414,7 @@ func (h *USSDHandler) handleRepayRail(ctx context.Context, session *Session, inp
 		ID:            stringFromSession(session, "repay_loan_id"),
 		Reference:     stringFromSession(session, "repay_loan_ref"),
 		PayoffStroops: int64FromSession(session, "repay_payoff_stroops"),
+		DisplayAmount: stringFromSession(session, "repay_display_amount"),
 	}
 	if chosen.ID == "" {
 		return h.formatError(session.Language, "session_expired"), nil
@@ -1398,8 +1425,8 @@ func (h *USSDHandler) handleRepayRail(ctx context.Context, session *Session, inp
 		if chosen.cashRailEligible() {
 			return h.startCashRepayment(ctx, session, chosen)
 		}
-		// Below the floor the cash option was never rendered, so "1" is the
-		// paybill.
+		// Outside MoneyGram's corridor the cash option was never rendered, so
+		// "1" is the paybill.
 		return h.showPaybill(session, chosen)
 	case "2":
 		if chosen.cashRailEligible() {
@@ -1419,14 +1446,17 @@ func (h *USSDHandler) startCashRepayment(ctx context.Context, session *Session, 
 		return h.formatError(session.Language, "error"), nil
 	}
 
-	init, err := h.loanService.InitiateRepayment(ctx, chosen.ID, session.PhoneNumber)
-	if err != nil {
-		log.Printf("initiate repayment failed for loan %s: %v", chosen.ID, err)
+	// Returns before the deposit exists — see LoanService.InitiateRepayment.
+	// Only a refusal to start is reported here; everything after arrives by SMS.
+	if err := h.loanService.InitiateRepayment(ctx, chosen.ID, session.PhoneNumber); err != nil {
+		log.Printf("initiate repayment refused for loan %s: %v", chosen.ID, err)
 		return h.formatError(session.Language, "error"), nil
 	}
 
+	// The amount comes from the quote already on screen, not from the
+	// initiation, so this renders without waiting on MoneyGram.
 	return h.formatResponse(session.Language, "END",
-		Format(session.Language, "repay_cash_sent", formatUSDC(init.AmountUSDCStroops))), nil
+		Format(session.Language, "repay_cash_sent", chosen.DisplayAmount)), nil
 }
 
 // showPaybill renders the mobile-money details. No payment is initiated: the

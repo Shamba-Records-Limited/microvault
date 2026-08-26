@@ -1,7 +1,6 @@
 package soroban
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/samber/lo"
@@ -13,6 +12,17 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
+
+// decodeErr starts an error builder for the XDR encode/decode helpers. These
+// failures mean the ledger returned a shape we do not understand, which is a
+// protocol-level fault rather than a contract rejection.
+func decodeErr(op string) oops.OopsErrorBuilder {
+	return oops.
+		In(errDomain).
+		Tags("soroban", "xdr").
+		Code(pkgErrors.CodeDecodeFailed).
+		With(pkgErrors.AttrOperation, op)
+}
 
 // ============================================================================
 // Encoding Helpers (Go to Soroban)
@@ -90,7 +100,8 @@ func u64ToScVal(value uint64) xdr.ScVal {
 // scValToI128 extracts int64 from ScVal i128 result
 func scValToI128(val xdr.ScVal) (int64, error) {
 	if val.Type != xdr.ScValTypeScvI128 {
-		return 0, fmt.Errorf("expected i128, got %v", val.Type)
+		return 0, decodeErr("sc_val_i128").With("got_type", val.Type.String()).
+			Errorf("expected i128")
 	}
 	return int64(val.I128.Lo), nil
 }
@@ -98,7 +109,8 @@ func scValToI128(val xdr.ScVal) (int64, error) {
 // scValToBool extracts bool from ScVal
 func scValToBool(val xdr.ScVal) (bool, error) {
 	if val.Type != xdr.ScValTypeScvBool {
-		return false, fmt.Errorf("expected bool, got %v", val.Type)
+		return false, decodeErr("sc_val_bool").With("got_type", val.Type.String()).
+			Errorf("expected bool")
 	}
 	return bool(*val.B), nil
 }
@@ -106,7 +118,8 @@ func scValToBool(val xdr.ScVal) (bool, error) {
 // scValToU64 extracts uint64 from ScVal
 func scValToU64(val xdr.ScVal) (uint64, error) {
 	if val.Type != xdr.ScValTypeScvU64 {
-		return 0, fmt.Errorf("expected u64, got %v", val.Type)
+		return 0, decodeErr("sc_val_u64").With("got_type", val.Type.String()).
+			Errorf("expected u64")
 	}
 	return uint64(*val.U64), nil
 }
@@ -120,9 +133,11 @@ func scValToU64(val xdr.ScVal) (uint64, error) {
 // declaration order. Supports both V3 (events in SorobanMeta) and V4 (events at
 // top level) metadata.
 func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, vecIndex int) (xdr.ScVal, error) {
+	errb := decodeErr("extract_event").With("event", eventName).With("field", fieldName)
+
 	var meta xdr.TransactionMeta
 	if err := xdr.SafeUnmarshalBase64(resultMetaXDR, &meta); err != nil {
-		return xdr.ScVal{}, fmt.Errorf("failed to decode result meta: %w", err)
+		return xdr.ScVal{}, errb.Wrapf(err, "failed to decode result meta")
 	}
 
 	// Extract contract events from the appropriate metadata version.
@@ -131,7 +146,7 @@ func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, v
 	case 3:
 		v3 := meta.MustV3()
 		if v3.SorobanMeta == nil {
-			return xdr.ScVal{}, fmt.Errorf("no soroban metadata in V3 transaction")
+			return xdr.ScVal{}, errb.Errorf("no soroban metadata in V3 transaction")
 		}
 		events = v3.SorobanMeta.Events
 	case 4:
@@ -141,13 +156,16 @@ func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, v
 			return op.Events
 		})
 	default:
-		return xdr.ScVal{}, fmt.Errorf("unsupported transaction meta version: %d", meta.V)
+		return xdr.ScVal{}, errb.With("meta_version", meta.V).
+			Errorf("unsupported transaction meta version")
 	}
 
 	// Decode the expected contract address for matching.
 	contractBytes, err := strkey.Decode(strkey.VersionByteContract, contractID)
 	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("invalid contract ID: %w", err)
+		return xdr.ScVal{}, errb.Code(pkgErrors.CodeInvalidAddress).
+			With("contract_id", contractID).
+			Wrapf(err, "invalid contract ID")
 	}
 	var expectedContractID xdr.ContractId
 	copy(expectedContractID[:], contractBytes)
@@ -189,7 +207,8 @@ func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, v
 		}
 	}
 
-	return xdr.ScVal{}, fmt.Errorf("%s event not found in transaction metadata", eventName)
+	return xdr.ScVal{}, errb.Code(pkgErrors.CodeNotFound).
+		Errorf("%s event not found in transaction metadata", eventName)
 }
 
 // extractBorrowedRecipient returns the recipient address from the Borrowed
@@ -229,7 +248,8 @@ func extractYieldBumpedTotalManaged(resultMetaXDR string, contractID string) (in
 // scValToAddress extracts address string from ScVal
 func scValToAddress(val xdr.ScVal) (string, error) {
 	if val.Type != xdr.ScValTypeScvAddress {
-		return "", fmt.Errorf("expected address, got %v", val.Type)
+		return "", decodeErr("sc_val_address").With("got_type", val.Type.String()).
+			Errorf("expected address")
 	}
 
 	addr := val.Address
@@ -239,16 +259,19 @@ func scValToAddress(val xdr.ScVal) (string, error) {
 	case xdr.ScAddressTypeScAddressTypeContract:
 		return strkey.Encode(strkey.VersionByteContract, addr.ContractId[:])
 	default:
-		return "", fmt.Errorf("unknown address type: %v", addr.Type)
+		return "", decodeErr("sc_val_address").With("got_type", addr.Type.String()).
+			Errorf("unknown address type")
 	}
 }
 
 // ExtractContractInfo parses the base64-encoded transaction envelope XDR
 // and extracts the invoked contract ID and contract function name.
 func ExtractContractInfo(envelopeXDR string) (contractID string, functionName string, err error) {
+	errb := decodeErr("extract_contract_info")
+
 	var env xdr.TransactionEnvelope
 	if err := xdr.SafeUnmarshalBase64(envelopeXDR, &env); err != nil {
-		return "", "", fmt.Errorf("failed to decode envelope XDR: %w", err)
+		return "", "", errb.Wrapf(err, "failed to decode envelope XDR")
 	}
 
 	var tx xdr.Transaction
@@ -259,10 +282,12 @@ func ExtractContractInfo(envelopeXDR string) (contractID string, functionName st
 		if env.FeeBump.Tx.InnerTx.Type == xdr.EnvelopeTypeEnvelopeTypeTx {
 			tx = env.FeeBump.Tx.InnerTx.V1.Tx
 		} else {
-			return "", "", fmt.Errorf("unsupported inner transaction type")
+			return "", "", errb.With("envelope_type", env.FeeBump.Tx.InnerTx.Type.String()).
+				Errorf("unsupported inner transaction type")
 		}
 	default:
-		return "", "", fmt.Errorf("unsupported envelope type: %v", env.Type)
+		return "", "", errb.With("envelope_type", env.Type.String()).
+			Errorf("unsupported envelope type")
 	}
 
 	for _, op := range tx.Operations {
@@ -274,7 +299,8 @@ func ExtractContractInfo(envelopeXDR string) (contractID string, functionName st
 					contractIDBytes := *invokeContract.ContractAddress.ContractId
 					contractID, err := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
 					if err != nil {
-						return "", "", fmt.Errorf("failed to encode contract ID: %w", err)
+						return "", "", errb.Code(pkgErrors.CodeEncodeFailed).
+							Wrapf(err, "failed to encode contract ID")
 					}
 					return contractID, string(invokeContract.FunctionName), nil
 				}
@@ -282,5 +308,6 @@ func ExtractContractInfo(envelopeXDR string) (contractID string, functionName st
 		}
 	}
 
-	return "", "", fmt.Errorf("invoke contract host function not found in transaction")
+	return "", "", errb.Code(pkgErrors.CodeNotFound).
+		Errorf("invoke contract host function not found in transaction")
 }

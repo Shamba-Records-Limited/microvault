@@ -2,8 +2,9 @@ package soroban
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+
+	"github.com/samber/oops"
 
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -12,6 +13,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
@@ -114,11 +116,23 @@ func NewServiceWithClient(
 // Core Soroban Methods
 // ============================================================================
 
+// coreErr starts an error builder for the build/simulate/submit machinery every
+// contract call goes through, whoever signs it.
+func coreErr(op string) oops.OopsErrorBuilder {
+	return oops.
+		In(errDomain).
+		Tags("soroban").
+		With(pkgErrors.AttrOperation, op)
+}
+
 // getContractAddress parses the contract ID and returns an ScAddress
 func (s *service) getContractAddress() (xdr.ScAddress, error) {
 	contractBytes, err := strkey.Decode(strkey.VersionByteContract, s.contractID)
 	if err != nil {
-		return xdr.ScAddress{}, fmt.Errorf("invalid contract ID: %w", err)
+		return xdr.ScAddress{}, coreErr("contract_address").
+			Code(pkgErrors.CodeInvalidAddress).
+			With("contract_id", s.contractID).
+			Wrapf(err, "invalid contract ID")
 	}
 
 	var contractID xdr.ContractId
@@ -153,9 +167,12 @@ func (s *service) simulateContractCall(
 	sourceAddress string,
 	op *txnbuild.InvokeHostFunction,
 ) (*protocol.SimulateTransactionResponse, error) {
+	errb := coreErr("simulate").With(pkgErrors.AttrAddress, sourceAddress)
+
 	sourceAccount, err := s.rpcClient.LoadAccount(ctx, sourceAddress)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load source account: %w", err)
+		return nil, errb.Code(pkgErrors.CodeTransportFailed).
+			Wrapf(err, "could not load the source account")
 	}
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -168,19 +185,22 @@ func (s *service) simulateContractCall(
 		Operations: []txnbuild.Operation{op},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to build transaction: %w", err)
+		return nil, errb.Code(pkgErrors.CodeBuildFailed).
+			Wrapf(err, "could not build the simulation transaction")
 	}
 
 	txXDR, err := tx.Base64()
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode transaction: %w", err)
+		return nil, errb.Code(pkgErrors.CodeEncodeFailed).
+			Wrapf(err, "could not encode the simulation transaction")
 	}
 
 	simResp, err := s.rpcClient.SimulateTransaction(ctx, protocol.SimulateTransactionRequest{
 		Transaction: txXDR,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("simulation failed: %w", err)
+		return nil, errb.Code(pkgErrors.CodeSimulationFailed).
+			Wrapf(err, "the simulation request failed")
 	}
 
 	return &simResp, nil
@@ -195,10 +215,12 @@ func (s *service) submitContractTransaction(
 	simResp *protocol.SimulateTransactionResponse,
 ) (protocol.GetTransactionResponse, error) {
 	empty := protocol.GetTransactionResponse{}
+	errb := coreErr("submit").With(pkgErrors.AttrAddress, signerKP.Address())
 
 	sourceAccount, err := s.rpcClient.LoadAccount(ctx, signerKP.Address())
 	if err != nil {
-		return empty, fmt.Errorf("failed to load source account: %w", err)
+		return empty, errb.Code(pkgErrors.CodeTransportFailed).
+			Wrapf(err, "could not load the source account")
 	}
 
 	// Extract auth entries from simulation results
@@ -207,7 +229,8 @@ func (s *service) submitContractTransaction(
 		for _, authXDR := range *simResp.Results[0].AuthXDR {
 			var auth xdr.SorobanAuthorizationEntry
 			if err := xdr.SafeUnmarshalBase64(authXDR, &auth); err != nil {
-				return empty, fmt.Errorf("failed to decode auth: %w", err)
+				return empty, errb.Code(pkgErrors.CodeDecodeFailed).
+					Wrapf(err, "could not decode a simulation auth entry")
 			}
 			authEntries = append(authEntries, auth)
 		}
@@ -223,7 +246,8 @@ func (s *service) submitContractTransaction(
 	if simResp.TransactionDataXDR != "" {
 		var transactionData xdr.SorobanTransactionData
 		if err := xdr.SafeUnmarshalBase64(simResp.TransactionDataXDR, &transactionData); err != nil {
-			return empty, fmt.Errorf("failed to decode transaction data: %w", err)
+			return empty, errb.Code(pkgErrors.CodeDecodeFailed).
+				Wrapf(err, "could not decode the simulated transaction data")
 		}
 		transactionData.Resources.Instructions = xdr.Uint32(
 			uint64(transactionData.Resources.Instructions) * (100 + sorobanInstructionPadPct) / 100)
@@ -249,13 +273,15 @@ func (s *service) submitContractTransaction(
 		Operations: []txnbuild.Operation{op},
 	})
 	if err != nil {
-		return empty, fmt.Errorf("failed to build transaction: %w", err)
+		return empty, errb.Code(pkgErrors.CodeBuildFailed).
+			Wrapf(err, "could not build the contract transaction")
 	}
 
 	// Sign transaction
 	tx, err = tx.Sign(s.networkPassphrase, signerKP)
 	if err != nil {
-		return empty, fmt.Errorf("failed to sign transaction: %w", err)
+		return empty, errb.Code(pkgErrors.CodeBuildFailed).
+			Wrapf(err, "could not sign the contract transaction")
 	}
 
 	// Submit
@@ -264,7 +290,8 @@ func (s *service) submitContractTransaction(
 		Transaction: txXDR,
 	})
 	if err != nil {
-		return empty, fmt.Errorf("failed to submit transaction: %w", err)
+		return empty, errb.Code(pkgErrors.CodeSubmitFailed).
+			Wrapf(err, "could not submit the contract transaction")
 	}
 
 	// Poll for result
@@ -276,7 +303,11 @@ func (s *service) submitContractTransaction(
 	}
 
 	if txResp.Status != protocol.TransactionStatusSuccess {
-		return txResp, fmt.Errorf("transaction failed with status: %s", txResp.Status)
+		return txResp, errb.
+			Code(pkgErrors.CodeSubmitFailed).
+			With(pkgErrors.AttrTxHash, sendResp.Hash).
+			With("status", txResp.Status).
+			Wrapf(types.ErrTransactionFailed, "transaction did not succeed on ledger")
 	}
 
 	// GetTransaction's response does not echo the hash it was queried with, so
@@ -284,4 +315,44 @@ func (s *service) submitContractTransaction(
 	// submission — stamp it back on so callers return a real TxHash.
 	txResp.TransactionHash = sendResp.Hash
 	return txResp, nil
+}
+
+// invokeSigned builds, simulates and submits one signed contract call. errb
+// supplies the caller's attributes so every failure below carries the same
+// context without each call site restating it.
+func (s *service) invokeSigned(
+	ctx context.Context,
+	signerKP *keypair.Full,
+	fnName string,
+	args []xdr.ScVal,
+	errb oops.OopsErrorBuilder,
+) (*protocol.GetTransactionResponse, error) {
+	op, err := s.buildInvokeContractOp(fnName, args)
+	if err != nil {
+		return nil, errb.Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build contract invocation")
+	}
+
+	simResp, err := s.simulateContractCall(ctx, signerKP.Address(), op)
+	if err != nil {
+		return nil, errb.Code(pkgErrors.CodeSimulationFailed).Wrapf(err, "contract simulation could not be performed")
+	}
+
+	// A simulation that returns an error string is a contract-level rejection,
+	// not a transport failure. Wrapping the sentinel is what lets callers use
+	// errors.Is rather than matching on the message.
+	if simResp.Error != "" {
+		s.logger.Error("contract simulation rejected the call",
+			"contract_function", fnName, "simulation_error", simResp.Error)
+		return nil, errb.
+			Code(pkgErrors.CodeSimulationRejected).
+			With("simulation_error", simResp.Error).
+			Wrapf(types.ErrSimulationFailed, "contract simulation rejected the call")
+	}
+
+	txResp, err := s.submitContractTransaction(ctx, signerKP, op, simResp)
+	if err != nil {
+		return nil, errb.Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "could not submit contract transaction")
+	}
+
+	return &txResp, nil
 }

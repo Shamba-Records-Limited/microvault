@@ -7,6 +7,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
 )
 
@@ -194,34 +195,34 @@ type LoanService interface {
 	// no stale fallback) when the vault or FX is unavailable.
 	GetRepaymentQuote(ctx context.Context, loanID string) (*RepaymentQuote, error)
 
-	// InitiateRepayment locks the payoff in USDC and opens a MoneyGram cash
-	// deposit against it. The interactive URL is shortened and delivered by
-	// SMS rather than returned here: a USSD screen cannot carry a URL a
-	// feature-phone user could act on, and the borrower needs it after the
-	// session has ended.
+	// InitiateRepayment opens a MoneyGram cash deposit for the loan.
 	//
-	// The locked figure is what settles the loan however long the borrower
-	// takes to reach an agent, so this is the point the quote stops moving.
-	InitiateRepayment(ctx context.Context, loanID, phoneNumber string) (*RepaymentInitiation, error)
+	// It returns as soon as the request is accepted, not when the deposit
+	// exists. Quoting, SEP-10 authentication, SEP-24 initiation, link
+	// shortening and the SMS together took over fifteen seconds against the
+	// sandbox — past the point Africa's Talking abandons a USSD session, so
+	// waiting for them leaves the borrower's screen dead before it renders.
+	//
+	// Everything the borrower needs arrives by SMS: the interactive link on
+	// success, a failure notice otherwise. Nothing on the USSD screen depends
+	// on the outcome, which is what makes returning early honest rather than a
+	// shortcut. An error here means the request was refused outright.
+	InitiateRepayment(ctx context.Context, loanID, phoneNumber string) error
 }
 
-// RepaymentInitiation is what the borrower needs to be told after a cash
-// deposit has been opened. The amount is the locked payoff, in USDC, because
-// MoneyGram converts the cash at its own counter rate — a local-currency
-// figure quoted here is an estimate the agent may contradict.
-type RepaymentInitiation struct {
-	LoanID            string
-	AmountUSDCStroops int64
-	ExpiresAt         time.Time
-}
-
-// MinMoneyGramDepositStroops is MoneyGram's production on-ramp floor, 15 USDC
-// at seven decimals.
+// MoneyGram's production on-ramp bounds, in stroops.
 //
-// It is a hard limit on their side, so a payoff below it cannot use the cash
-// rail at all and the repay menu offers mobile money alone. A KES 1,000 loan
-// is roughly 7 USDC, which is well inside the excluded range.
-const MinMoneyGramDepositStroops int64 = 150_000_000
+// Both are hard limits on their side, so a payoff outside the range cannot use
+// the cash rail at all and the repay menu offers mobile money alone. A KES
+// 1,000 loan is roughly 7 USDC, well inside the excluded range at the bottom.
+//
+// Derived from the USD constants rather than written out again: the floor was
+// previously spelled here in stroops and in moneygram.MinWithdrawUSD in
+// dollars, which is two places for one number to be updated.
+const (
+	MinMoneyGramDepositStroops int64 = int64(moneygram.MinDepositUSD * 1e7)
+	MaxMoneyGramDepositStroops int64 = int64(moneygram.MaxDepositUSD * 1e7)
+)
 
 // RepaymentQuote is the live amount owed on a loan, computed from the vault
 // borrow_index + current FX. Stored repayment quotes are advisory only — this

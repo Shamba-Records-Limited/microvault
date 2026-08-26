@@ -359,6 +359,11 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Kuchukua pesa kunahitaji angalau %s %.0f. Chagua pesa ya simu badala yake:",
 			"fr": "Le retrait en espèces exige au moins %s %.0f. Choisissez plutot mobile money:",
 		},
+		"loan_cash_pickup_max": {
+			"en": "Cash pickup allows at most %s %.0f. Choose mobile money instead:",
+			"sw": "Kuchukua pesa kunaruhusu kiwango cha juu cha %s %.0f. Chagua pesa ya simu badala yake:",
+			"fr": "Le retrait en espèces autorise au plus %s %.0f. Choisissez plutot mobile money:",
+		},
 		// The terms and the PIN gate share one screen: entering the PIN is the
 		// act of accepting what is displayed above it. The back and home hints
 		// are appended by withNavHint rather than spelled out here.

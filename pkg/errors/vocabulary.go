@@ -84,6 +84,13 @@ const (
 	// amount is well-formed and the limit is someone else's.
 	CodeBelowAnchorMinimum = "below_anchor_minimum"
 
+	// CodeAboveAnchorMaximum is an amount over a provider's ceiling — for
+	// MoneyGram deposits, 950 USDC; for withdrawals, 2,500. Same shape as
+	// CodeBelowAnchorMinimum and separate from it because the two are actioned
+	// differently: below the floor the borrower waits or uses another rail,
+	// above the ceiling they must split the payment.
+	CodeAboveAnchorMaximum = "above_anchor_maximum"
+
 	// CodeSimulationRejected is a Soroban simulation returning a contract-level
 	// error. The call was well-formed and the contract refused it.
 	CodeSimulationRejected = "simulation_rejected"
@@ -186,6 +193,7 @@ const (
 	AttrUserID           = "user_id"
 	AttrAccountIndex     = "account_index"
 	AttrBorrower         = "borrower"
+	AttrRecipient        = "recipient"
 	AttrAddress          = "address"
 	AttrAmountStroops    = "amount_stroops"
 	AttrAmountLocal      = "amount_local"

@@ -221,6 +221,18 @@ type MoneyGramConfig struct {
 	RepaymentPollInterval    time.Duration // REPAYMENT_POLL_INTERVAL (seconds)
 	RepaymentReminderBefore  time.Duration // REPAYMENT_REMINDER_BEFORE (seconds)
 	RepaymentVaultMaxAttempt int           // REPAYMENT_VAULT_MAX_ATTEMPTS
+
+	// Per-row poll schedule. These write repayment_next_poll_at, which is what
+	// actually decides whether a row is returned — shortening
+	// RepaymentPollInterval alone changes how often the runner asks, not what
+	// it gets back, so a row parked 30 minutes out stays parked.
+	//
+	// Production wants them long: a deposit spends most of its window with the
+	// borrower walking to an agent, and polling harder learns nothing. Set them
+	// to a few seconds in development to watch a deposit move in real time.
+	RepaymentActiveBackoff     time.Duration // REPAYMENT_ACTIVE_BACKOFF (seconds), default 2m
+	RepaymentIdleBackoff       time.Duration // REPAYMENT_IDLE_BACKOFF (seconds), default 30m
+	RepaymentVaultRetryBackoff time.Duration // REPAYMENT_VAULT_RETRY_BACKOFF (seconds), default 1h
 }
 
 // PaymentsConfig bundles all payment provider configurations
@@ -349,6 +361,18 @@ func New() (*Config, error) {
 		return nil, err
 	}
 	repaymentVaultMaxAttempts, err := envPositiveInt("REPAYMENT_VAULT_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+	repaymentActiveBackoff, err := envSeconds("REPAYMENT_ACTIVE_BACKOFF")
+	if err != nil {
+		return nil, err
+	}
+	repaymentIdleBackoff, err := envSeconds("REPAYMENT_IDLE_BACKOFF")
+	if err != nil {
+		return nil, err
+	}
+	repaymentVaultRetryBackoff, err := envSeconds("REPAYMENT_VAULT_RETRY_BACKOFF")
 	if err != nil {
 		return nil, err
 	}
@@ -632,6 +656,10 @@ func New() (*Config, error) {
 				RepaymentPollInterval:    repaymentPollInterval,
 				RepaymentReminderBefore:  repaymentReminderBefore,
 				RepaymentVaultMaxAttempt: repaymentVaultMaxAttempts,
+
+				RepaymentActiveBackoff:     repaymentActiveBackoff,
+				RepaymentIdleBackoff:       repaymentIdleBackoff,
+				RepaymentVaultRetryBackoff: repaymentVaultRetryBackoff,
 
 				PollInterval:            mgPollInterval,
 				PollMaxBatch:            mgPollMaxBatch,

@@ -77,6 +77,20 @@ type DepositRequest struct {
 	Lang      string   // ISO-639-1, defaults to "en"
 	Account   string   // destination wallet G... address the anchor credits
 	Customer  Customer // optional SEP-9 prefill
+
+	// Memo asks the anchor to attach a memo to the Stellar payment it makes to
+	// Account. SEP-24 offers it precisely so a client can match inbound
+	// payments to its own records, and it is independent of the SEP-10 memo:
+	// that one identifies the borrower, this one can identify the loan.
+	//
+	// Optional in the specification, so an anchor may ignore it. MoneyGram
+	// does not: the sandbox echoes it on deposit_memo from the first poll, at
+	// status incomplete, well before the borrower finishes the webview.
+	//
+	// Every borrower's deposit lands on the same Account, so without this the
+	// payments are distinguishable on-chain only by amount and timing.
+	Memo     string
+	MemoType string // "text", "id" or "hash"; defaults to "text" when Memo is set
 }
 
 // DepositResponse is what MoneyGram returns from /transactions/deposit/interactive.
@@ -114,17 +128,49 @@ type Transaction struct {
 	MoreInfoURL           string `json:"more_info_url,omitempty"`
 	Message               string `json:"message,omitempty"`
 
-	// Deposit-side fields. The memo is chosen by the anchor, not by us, so it
-	// cannot carry ChildAccountMemo — deposits are attributed by the SEP-10
-	// session the transaction was created under, not by this value.
+	// Deposit-side fields. DepositMemo is the memo the anchor will use to
+	// transfer the asset to To, and MoneyGram populates it with whatever
+	// DepositRequest.Memo asked for — verified against the sandbox, which
+	// echoed "LR-1A03C985D8A-61ce" at status incomplete.
+	//
+	// It is a statement of intent until a payment actually exists: the field
+	// says what the anchor means to attach, not what landed on the ledger.
+	//
+	// This is never ChildAccountMemo. That one scopes the SEP-10 session and
+	// identifies the borrower; this one is per-transaction and is what makes
+	// concurrent deposits to a shared account distinguishable on-chain.
 	To              string `json:"to,omitempty"` // account the anchor credits
 	DepositMemo     string `json:"deposit_memo,omitempty"`
 	DepositMemoType string `json:"deposit_memo_type,omitempty"`
+
+	// UserActionRequiredBy is MoneyGram's own deadline for the borrower to act.
+	// It is theirs, not ours: a deposit lapses on this timestamp whatever our
+	// configured window says, so it is the figure to schedule and quote against.
+	UserActionRequiredBy string `json:"user_action_required_by,omitempty"`
+
+	// FeeDetails is what the borrower pays on top of the amount. SEP-24 carries
+	// it separately from amount_in, so a quote that ignores it understates what
+	// they hand over at the counter.
+	FeeDetails *FeeDetails `json:"fee_details,omitempty"`
 
 	// Refunded is the deprecated SEP-24 boolean, kept because some anchors
 	// still emit it. Refunds is the authoritative field.
 	Refunded bool     `json:"refunded,omitempty"`
 	Refunds  *Refunds `json:"refunds,omitempty"`
+}
+
+// FeeDetails is the SEP-24 breakdown of what an anchor charges.
+type FeeDetails struct {
+	Total   string      `json:"total"`
+	Asset   string      `json:"asset"`
+	Details []FeeDetail `json:"details,omitempty"`
+}
+
+// FeeDetail is one named line of a fee breakdown.
+type FeeDetail struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Amount      string `json:"amount"`
 }
 
 // Refunds describes money returned to the user for a transaction. For a
@@ -260,7 +306,13 @@ func NewAnchorClient(cfg AnchorConfig, httpClient *http.Client, logger *slog.Log
 // given JWT (from AuthClient/JWTCache), the USDC amount, and any prefilled
 // SEP-9 customer fields. Returns the interactive URL and MG transaction ID.
 func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req WithdrawRequest) (*WithdrawResponse, error) {
-	res, err := c.initiateInteractive(ctx, jwt, "withdraw", interactiveRequest(req))
+	res, err := c.initiateInteractive(ctx, jwt, "withdraw", interactiveRequest{
+		AssetCode: req.AssetCode,
+		Amount:    req.Amount,
+		Lang:      req.Lang,
+		Account:   req.Account,
+		Customer:  req.Customer,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +327,20 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 // cash the user hands over at its own rate at the counter, so a local-currency
 // figure quoted before this call is an estimate the agent may contradict.
 func (c *AnchorClient) InitiateDeposit(ctx context.Context, jwt string, req DepositRequest) (*DepositResponse, error) {
-	res, err := c.initiateInteractive(ctx, jwt, "deposit", interactiveRequest(req))
+	memoType := req.MemoType
+	if req.Memo != "" && memoType == "" {
+		memoType = "text"
+	}
+
+	res, err := c.initiateInteractive(ctx, jwt, "deposit", interactiveRequest{
+		AssetCode: req.AssetCode,
+		Amount:    req.Amount,
+		Lang:      req.Lang,
+		Account:   req.Account,
+		Memo:      req.Memo,
+		MemoType:  memoType,
+		Customer:  req.Customer,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -297,6 +362,8 @@ type interactiveRequest struct {
 	Amount    string
 	Lang      string
 	Account   string
+	Memo      string
+	MemoType  string
 	Customer  Customer
 }
 
@@ -430,6 +497,15 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 			Code(pkgErrors.CodeIncompleteResponse).Errorf("transaction response has no id")
 	}
 
+	// Deposits are new and MoneyGram's field population is not documented —
+	// testnet showed external_transaction_id empty at
+	// pending_user_transfer_start, which is where the reference was expected.
+	// Log the raw body so which field carries the borrower's code is an
+	// observation rather than a guess. Drop this once the shape is known.
+	if envelope.Transaction.Kind == "deposit" {
+		c.logDepositPayload(&envelope.Transaction, respBody)
+	}
+
 	// Refund payloads are the least-exercised part of the protocol and anchors
 	// vary in what they populate, so log the raw body verbatim the first time
 	// we see one. This is what confirms an anchor's actual refunds shape
@@ -443,6 +519,40 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 	return &envelope.Transaction, nil
 }
 
+// logDepositPayload records what an anchor actually returns for a deposit.
+//
+// The payload goes in as a nested object rather than an escaped string: a
+// quoted body has to be un-escaped by hand before anyone can read it, and
+// cannot be queried field-by-field in a log aggregator. The fields most likely
+// to be wanted are lifted alongside it so the common case needs no digging.
+func (c *AnchorClient) logDepositPayload(tx *Transaction, body []byte) {
+	attrs := []any{
+		"tx_id", tx.ID,
+		"status", tx.Status,
+		"external_transaction_id", tx.ExternalTransactionID,
+		"deposit_memo", tx.DepositMemo,
+		"more_info_url", tx.MoreInfoURL,
+		"amount_in", tx.AmountIn,
+		"amount_in_asset", tx.AmountInAsset,
+		"amount_out", tx.AmountOut,
+		"amount_out_asset", tx.AmountOutAsset,
+		"user_action_required_by", tx.UserActionRequiredBy,
+	}
+	if tx.FeeDetails != nil {
+		attrs = append(attrs, "fee_total", tx.FeeDetails.Total, "fee_asset", tx.FeeDetails.Asset)
+	}
+
+	// json.RawMessage marshals inline, so the handler emits real nested JSON
+	// rather than a quoted blob.
+	if json.Valid(body) {
+		attrs = append(attrs, "payload", json.RawMessage(body))
+	} else {
+		attrs = append(attrs, "payload_raw", truncate(string(body), 2000))
+	}
+
+	c.logger.Info("SEP-24 deposit transaction", attrs...)
+}
+
 // buildInteractiveBody marshals the request to JSON with SEP-24 fields plus the
 // flattened SEP-9 customer fields. SEP-9 keys are top-level (not nested) per
 // the protocol; we manually assemble the map so the Customer struct can stay
@@ -454,6 +564,8 @@ func buildInteractiveBody(kind string, req interactiveRequest) ([]byte, error) {
 		"lang":       req.Lang,
 		"account":    req.Account,
 	}
+	addIfSet(m, "memo", req.Memo)
+	addIfSet(m, "memo_type", req.MemoType)
 	addIfSet(m, "first_name", req.Customer.FirstName)
 	addIfSet(m, "last_name", req.Customer.LastName)
 	addIfSet(m, "mobile_number", req.Customer.MobileNumber)

@@ -9,7 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	stellartesting "github.com/Shamba-Records-Limited/microvault/pkg/stellar/testing"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
 // Verify MockRPCClient implements RPCClient interface
@@ -66,7 +70,7 @@ func TestGetTreasuryAddress(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "simulation error",
+			errContains: "simulation rejected",
 		},
 		{
 			name: "empty results",
@@ -145,7 +149,7 @@ func TestGetTotalBorrowed(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "simulation error",
+			errContains: "simulation rejected",
 		},
 	}
 
@@ -562,4 +566,51 @@ func TestBuildInvokeContractOp(t *testing.T) {
 			assert.Equal(t, xdr.ScSymbol(tt.functionName), op.HostFunction.InvokeContract.FunctionName)
 		})
 	}
+}
+
+// ============================================================================
+// callView — the shared read path
+// ============================================================================
+
+// A simulation the contract rejects must stay matchable with errors.Is. Every
+// caller that distinguishes "the contract said no" from "the network broke"
+// depends on the sentinel surviving the oops wrap.
+func TestCallView_SimulationRejectionKeepsTheSentinel(t *testing.T) {
+	mockClient := stellartesting.NewMockRPCClient()
+	mockClient.SimulateTransactionFunc = func(ctx context.Context, req protocol.SimulateTransactionRequest) (protocol.SimulateTransactionResponse, error) {
+		return stellartesting.NewSimulationResponse().
+			WithError("Error(Contract, #4)").
+			Build(), nil
+	}
+
+	_, err := newTestService(mockClient).GetBorrowIndex(context.Background())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, types.ErrSimulationFailed)
+
+	var oopsErr oops.OopsError
+	require.ErrorAs(t, err, &oopsErr)
+	assert.Equal(t, pkgErrors.CodeSimulationRejected, oopsErr.Code())
+	assert.Equal(t, "get_borrow_index", oopsErr.Context()[pkgErrors.AttrContractFunction])
+	assert.Equal(t, "Error(Contract, #4)", oopsErr.Context()["simulation_error"],
+		"the contract's own message belongs in an attribute, not the message")
+}
+
+// A result carrying no return value used to be dereferenced unchecked at each
+// of the eleven view call sites. A simulation that succeeds with nothing to
+// return is a malformed response, not a panic.
+func TestCallView_ResultWithNoReturnValue(t *testing.T) {
+	mockClient := stellartesting.NewMockRPCClient()
+	mockClient.SimulateTransactionFunc = func(ctx context.Context, req protocol.SimulateTransactionRequest) (protocol.SimulateTransactionResponse, error) {
+		return protocol.SimulateTransactionResponse{
+			Results: []protocol.SimulateHostFunctionResult{{ReturnValueXDR: nil}},
+		}, nil
+	}
+
+	require.NotPanics(t, func() {
+		_, err := newTestService(mockClient).GetTotalBorrowed(context.Background())
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, types.ErrNoSimulationResult)
+	})
 }
