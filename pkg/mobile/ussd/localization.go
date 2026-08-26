@@ -359,6 +359,11 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Kuchukua pesa kunahitaji angalau %s %.0f. Chagua pesa ya simu badala yake:",
 			"fr": "Le retrait en espèces exige au moins %s %.0f. Choisissez plutot mobile money:",
 		},
+		"loan_cash_pickup_max": {
+			"en": "Cash pickup allows at most %s %.0f. Choose mobile money instead:",
+			"sw": "Kuchukua pesa kunaruhusu kiwango cha juu cha %s %.0f. Chagua pesa ya simu badala yake:",
+			"fr": "Le retrait en espèces autorise au plus %s %.0f. Choisissez plutot mobile money:",
+		},
 		// The terms and the PIN gate share one screen: entering the PIN is the
 		// act of accepting what is displayed above it. The back and home hints
 		// are appended by withNavHint rather than spelled out here.
@@ -388,14 +393,44 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"fr": "Nous avons envoye les details de votre pret par SMS.",
 		},
 		"repay_header": {
-			"en": "Repay via M-Pesa:\nPayBill: 123456\nAccount: Your Loan Number\n\nActive Loans:",
-			"sw": "Lipa kupitia M-Pesa:\nPayBill: 123456\nAkaunti: Nambari ya Mkopo Wako\n\nMikopo Inayoendelea:",
-			"fr": "Remboursez via M-Pesa:\nPayBill: 123456\nCompte: Votre Numéro de Pret\n\nPrets Actifs:",
+			"en": "Repay a loan. Reply with a number:",
+			"sw": "Lipa mkopo. Jibu na nambari:",
+			"fr": "Rembourser un prêt. Répondez par un numéro:",
 		},
 		"repay_loan_line": {
-			"en": "Loan: %s\nDue: %s",
-			"sw": "Mkopo: %s\nInayodaiwa: %s",
-			"fr": "Pret: %s\nDu: %s",
+			"en": "%s - owe %s",
+			"sw": "%s - deni %s",
+			"fr": "%s - doit %s",
+		},
+		"repay_rail_header": {
+			"en": "Loan %s, owe %s.\nHow will you pay?",
+			"sw": "Mkopo %s, deni %s.\nUtalipaje?",
+			"fr": "Prêt %s, doit %s.\nComment payerez-vous?",
+		},
+		"repay_rail_cash": {
+			"en": "1. Cash at MoneyGram",
+			"sw": "1. Fedha taslimu MoneyGram",
+			"fr": "1. Especes a MoneyGram",
+		},
+		"repay_rail_mobile": {
+			"en": "2. Mobile money",
+			"sw": "2. Pesa ya simu",
+			"fr": "2. Argent mobile",
+		},
+		"repay_cash_sent": {
+			"en": "We sent you an SMS with a link to finish paying %s at a MoneyGram agent.",
+			"sw": "Tumekutumia SMS yenye kiungo cha kumaliza kulipa %s kwa wakala wa MoneyGram.",
+			"fr": "Nous vous avons envoye un SMS avec un lien pour payer %s chez un agent MoneyGram.",
+		},
+		"repay_paybill": {
+			"en": "Pay to PayBill %s.\nAccount: %s",
+			"sw": "Lipa kwa PayBill %s.\nAkaunti: %s",
+			"fr": "Payez au PayBill %s.\nCompte: %s",
+		},
+		"repay_no_rail": {
+			"en": "No repayment method is available right now. Please try again later.",
+			"sw": "Hakuna njia ya kulipa kwa sasa. Tafadhali jaribu tena baadaye.",
+			"fr": "Aucun moyen de remboursement disponible. Reessayez plus tard.",
 		},
 
 		// ── Loan Status ─────────────────────────────────────────────

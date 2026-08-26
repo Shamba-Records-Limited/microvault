@@ -111,12 +111,25 @@ pub struct Borrowed {
 }
 
 /// Emitted when the treasury repays borrowed funds.
+///
+/// `borrower` names who the repayment was made on behalf of. It is `None` for
+/// `repay` and `Some` for `repay_for`; the treasury is the payer either way.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Repaid {
     pub treasury: Address,
+    pub borrower: Option<Address>,
     pub amount: i128,
     pub total_borrowed: i128,
+}
+
+/// Emitted when assets are contributed to the vault without minting shares.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct YieldBumped {
+    pub from: Address,
+    pub amount: i128,
+    pub total_managed: i128,
 }
 
 /// Emitted when compound interest is accrued on borrowed funds.
@@ -746,6 +759,71 @@ impl MicrovaultContract {
     /// outstanding debt.
     #[when_not_paused]
     pub fn repay(e: &Env, treasury_caller: Address, amount: i128) -> Result<(), MicrovaultError> {
+        Self::repay_inner(e, treasury_caller, None, amount)
+    }
+
+    /// Repay borrowed funds on behalf of a named borrower. Treasury only.
+    ///
+    /// Behaves exactly as `repay`; the only difference is that `borrower` is
+    /// carried onto the `Repaid` event, giving the repayment the same on-chain
+    /// attribution `borrow` already gives disbursement. `borrower` does not
+    /// authorize anything — the treasury remains the payer.
+    #[when_not_paused]
+    pub fn repay_for(
+        e: &Env,
+        treasury_caller: Address,
+        borrower: Address,
+        amount: i128,
+    ) -> Result<(), MicrovaultError> {
+        Self::repay_inner(e, treasury_caller, Some(borrower), amount)
+    }
+
+    /// Contribute assets to the vault without minting shares.
+    ///
+    /// Raises `total_managed_assets`, and therefore the value of every existing
+    /// share, without changing `total_borrowed` or the share supply. Used to
+    /// return interest earned on loans the vault stopped counting as borrowed
+    /// at disbursement, which would otherwise accrue only to the treasury.
+    ///
+    /// A plain transfer to the contract has the same effect on share price;
+    /// this entrypoint exists so the contribution is attributable and countable
+    /// rather than indistinguishable from an accident.
+    #[when_not_paused]
+    pub fn bump_yield(e: &Env, from: Address, amount: i128) -> Result<(), MicrovaultError> {
+        from.require_auth();
+
+        if amount <= 0 {
+            return Err(MicrovaultError::InvalidAmount);
+        }
+
+        Self::accrue_interest(e);
+
+        let underlying_asset = Vault::query_asset(e);
+        let token_client = soroban_sdk::token::Client::new(e, &underlying_asset);
+        token_client.transfer(&from, e.current_contract_address(), &amount);
+
+        YieldBumped {
+            from,
+            amount,
+            total_managed: Self::raw_total_managed_assets(e),
+        }
+        .publish(e);
+
+        Ok(())
+    }
+
+    /// Trigger interest accrual. Callable by anyone.
+    pub fn accrue(e: &Env) {
+        Self::accrue_interest(e);
+    }
+
+    /// Shared body of `repay` and `repay_for`.
+    fn repay_inner(
+        e: &Env,
+        treasury_caller: Address,
+        borrower: Option<Address>,
+        amount: i128,
+    ) -> Result<(), MicrovaultError> {
         treasury_caller.require_auth();
 
         let treasury: Address = e
@@ -778,17 +856,13 @@ impl MicrovaultContract {
 
         Repaid {
             treasury: treasury_caller,
+            borrower,
             amount,
             total_borrowed: new_borrowed,
         }
         .publish(e);
 
         Ok(())
-    }
-
-    /// Trigger interest accrual. Callable by anyone.
-    pub fn accrue(e: &Env) {
-        Self::accrue_interest(e);
     }
 }
 

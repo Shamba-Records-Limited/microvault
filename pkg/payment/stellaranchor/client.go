@@ -111,6 +111,26 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, childMemo int64, req Wi
 	return resp, err
 }
 
+// InitiateDeposit fetches a JWT for childMemo and calls Anchor.InitiateDeposit,
+// with the same 401-retry semantics as InitiateWithdrawal.
+func (c *Client) InitiateDeposit(ctx context.Context, childMemo int64, req DepositRequest) (*DepositResponse, error) {
+	jwt, err := c.JWTCache.Get(ctx, childMemo)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Anchor.InitiateDeposit(ctx, jwt, req)
+	if isUnauthorized(err) {
+		c.JWTCache.Invalidate(childMemo)
+		jwt, err = c.JWTCache.Get(ctx, childMemo)
+		if err != nil {
+			return nil, err
+		}
+		return c.Anchor.InitiateDeposit(ctx, jwt, req)
+	}
+	return resp, err
+}
+
 // GetTransaction wraps Anchor.GetTransaction with the same JWT cache and
 // 401-retry semantics as InitiateWithdrawal.
 func (c *Client) GetTransaction(ctx context.Context, childMemo int64, txID string) (*Transaction, error) {

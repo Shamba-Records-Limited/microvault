@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 )
 
 // statementLoanSvc serves a fixed loan list and payoff quote.
@@ -63,7 +64,15 @@ func newLoansHarness(t *testing.T, loans LoanService, ln contracts.LoanNotifier)
 	NewStandardLoanMenuPreset().Initialize(reg)
 
 	user := &fakeUserSvc{user: map[string]any{"id": "u1"}, accounts: []any{map[string]any{}}}
-	return NewUSSDHandler(sm, reg, user, loans, fakeRateSvc{}, &fakePINSvc{hasPIN: true}, nil, ln)
+	return NewUSSDHandler(HandlerDeps{
+		SessionManager: sm,
+		MenuRegistry:   reg,
+		UserService:    user,
+		LoanService:    loans,
+		RateService:    fakeRateSvc{},
+		PINService:     &fakePINSvc{hasPIN: true},
+		LoanNotifier:   ln,
+	})
 }
 
 func loanRecord(id, ref string, due *time.Time) map[string]any {

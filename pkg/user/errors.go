@@ -12,14 +12,14 @@ var (
 	ErrNationalIDAlreadyExists   = errors.New("national ID already registered")
 
 	// Business logic errors
-	ErrCannotDeleteLastAdmin     = errors.New("cannot delete the last admin")
-	ErrInvalidKYCTransition      = errors.New("invalid KYC status transition")
-	ErrCannotModifyDeletedUser   = errors.New("cannot modify deleted user")
-	ErrUserAlreadyDeleted        = errors.New("user is already deleted")
-	ErrUserNotDeleted            = errors.New("user is not deleted")
-	ErrInvalidStatusTransition   = errors.New("invalid status transition")
-	ErrCannotDeleteSelf          = errors.New("cannot delete your own account")
-	ErrCannotChangeOwnRole       = errors.New("cannot change your own role")
+	ErrCannotDeleteLastAdmin   = errors.New("cannot delete the last admin")
+	ErrInvalidKYCTransition    = errors.New("invalid KYC status transition")
+	ErrCannotModifyDeletedUser = errors.New("cannot modify deleted user")
+	ErrUserAlreadyDeleted      = errors.New("user is already deleted")
+	ErrUserNotDeleted          = errors.New("user is not deleted")
+	ErrInvalidStatusTransition = errors.New("invalid status transition")
+	ErrCannotDeleteSelf        = errors.New("cannot delete your own account")
+	ErrCannotChangeOwnRole     = errors.New("cannot change your own role")
 
 	// Validation errors
 	ErrInvalidInput        = errors.New("invalid input")

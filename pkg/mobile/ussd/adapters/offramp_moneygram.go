@@ -13,22 +13,22 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 	phoneutil "github.com/Shamba-Records-Limited/microvault/pkg/phone"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
+
+// mgAdapterErr starts an error builder for the MoneyGram off-ramp adapter.
+func mgAdapterErr(op string) oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainOffRamp).
+		Tags("moneygram").
+		With(pkgErrors.AttrProvider, "moneygram").
+		With(pkgErrors.AttrOperation, op)
+}
 
 // MoneyGramOffRampAdapter implements OffRampService for MoneyGram Ramps
 // cash-pickup withdrawals.
-//
-// Unlike YellowCard's mobile-money flow, MoneyGram returns an interactive
-// webview URL that the user must open to complete KYC and confirm the
-// payout currency/amount. The URL is delivered to the user via SMS by the
-// USSD layer; this adapter's job is to obtain it and surface it on the
-// OffRampResult.
-//
-// Treasury USDC transfer happens later in the lifecycle, after the user
-// completes the webview and MoneyGram transitions the transaction to
-// pending_user_transfer_start. That step is driven by the background poller in
-// the lending module, not by this adapter — InitiateOffRamp only registers
-// intent.
 type MoneyGramOffRampAdapter struct {
 	client         *moneygram.Client
 	treasuryPubkey string // auth wallet — for child memo derivation
@@ -48,10 +48,10 @@ type MoneyGramOffRampConfig struct {
 // calling binary at startup.
 func NewMoneyGramOffRampAdapter(cfg MoneyGramOffRampConfig) (*MoneyGramOffRampAdapter, error) {
 	if cfg.Client == nil {
-		return nil, fmt.Errorf("moneygram off-ramp: client is required")
+		return nil, mgAdapterErr("new").With(pkgErrors.AttrDependency, "anchor_client").Code(pkgErrors.CodeMissingDependency).Errorf("required dependency is missing")
 	}
 	if cfg.FundsPubkey == "" {
-		return nil, fmt.Errorf("moneygram off-ramp: funds pubkey is required")
+		return nil, mgAdapterErr("new").With(pkgErrors.AttrDependency, "funds_pubkey").Code(pkgErrors.CodeMissingDependency).Errorf("required dependency is missing")
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -110,10 +110,10 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 	)
 
 	if req.AmountUSD <= 0 {
-		return nil, fmt.Errorf("moneygram off-ramp: amount must be positive (got %.2f)", req.AmountUSD)
+		return nil, mgAdapterErr("initiate").With("amount_usd", req.AmountUSD).Code(pkgErrors.CodeInvalidAmount).Errorf("amount must be positive")
 	}
 	if req.RecipientName == "" {
-		return nil, fmt.Errorf("moneygram off-ramp: recipient name is required for SEP-9 prefill")
+		return nil, mgAdapterErr("initiate").Code(pkgErrors.CodeMissingAccount).Errorf("recipient name is required for the SEP-9 prefill")
 	}
 
 	childMemo := stellaranchor.ChildAccountMemo(a.treasuryPubkey, opts.ChildAccountIndex)
@@ -147,7 +147,7 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 			"child_memo", childMemo,
 			"error", err,
 		)
-		return nil, fmt.Errorf("moneygram withdraw: %w", err)
+		return nil, mgAdapterErr("initiate").With(pkgErrors.AttrLoanID, req.LoanID).Code(pkgErrors.CodeDepositInitFailed).Wrapf(err, "anchor refused the withdrawal")
 	}
 
 	a.logger.Info("moneygram withdraw created",
@@ -181,12 +181,12 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 // MoneyGram requires Options — nil or wrong concrete type is rejected.
 func readMGOptions(opts offramp.ProviderOptions) (moneygram.Options, error) {
 	if opts == nil {
-		return moneygram.Options{}, fmt.Errorf("moneygram off-ramp: Request.Options is required (moneygram.Options)")
+		return moneygram.Options{}, mgAdapterErr("parse_options").Code(pkgErrors.CodeMissingAccount).Errorf("request options are required")
 	}
 	if v, ok := opts.(moneygram.Options); ok {
 		return v, nil
 	}
-	return moneygram.Options{}, fmt.Errorf("moneygram off-ramp: Request.Options must be moneygram.Options, got %T", opts)
+	return moneygram.Options{}, mgAdapterErr("parse_options").With("got_type", fmt.Sprintf("%T", opts)).Code(pkgErrors.CodeDecodeFailed).Errorf("request options are the wrong type")
 }
 
 // Status retrieves the status of a MoneyGram withdrawal. ref.ID is MG's
@@ -200,7 +200,7 @@ func (a *MoneyGramOffRampAdapter) Status(ctx context.Context, ref offramp.Provid
 
 	tx, err := a.client.GetTransaction(ctx, childMemo, ref.ID)
 	if err != nil {
-		return nil, fmt.Errorf("moneygram: get transaction: %w", err)
+		return nil, mgAdapterErr("get_status").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the anchor transaction")
 	}
 
 	out := &offramp.Status{
@@ -230,7 +230,7 @@ func (a *MoneyGramOffRampAdapter) Status(ctx context.Context, ref offramp.Provid
 func extractChildMemo(ref offramp.ProviderRef) (int64, error) {
 	v, ok := ref.Extra[MoneyGramRefChildMemoKey]
 	if !ok {
-		return 0, fmt.Errorf("moneygram: ProviderRef.Extra[%q] is required", MoneyGramRefChildMemoKey)
+		return 0, mgAdapterErr("child_memo").With("key", MoneyGramRefChildMemoKey).Code(pkgErrors.CodeMissingAccountIndex).Errorf("provider reference is missing the child memo")
 	}
 	switch x := v.(type) {
 	case int64:
@@ -240,7 +240,7 @@ func extractChildMemo(ref offramp.ProviderRef) (int64, error) {
 	case uint32:
 		return int64(x), nil
 	default:
-		return 0, fmt.Errorf("moneygram: ProviderRef.Extra[%q] must be int64, got %T", MoneyGramRefChildMemoKey, v)
+		return 0, mgAdapterErr("child_memo").With("key", MoneyGramRefChildMemoKey).With("got_type", fmt.Sprintf("%T", v)).Code(pkgErrors.CodeDecodeFailed).Errorf("child memo is the wrong type")
 	}
 }
 
@@ -274,7 +274,7 @@ func (a *MoneyGramOffRampAdapter) Quote(ctx context.Context, q offramp.QuoteRequ
 		ServiceOption:      moneygram.ServiceOptionCashPickup,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("moneygram fx rate: %w", err)
+		return nil, mgAdapterErr("quote").Code(pkgErrors.CodeRateUnavailable).Wrapf(err, "could not quote an FX rate")
 	}
 
 	return &offramp.ExchangeRate{

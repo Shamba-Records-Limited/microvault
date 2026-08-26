@@ -1,9 +1,10 @@
 package routes
 
 import (
+	"github.com/gofiber/fiber/v2"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/controllers"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
-	"github.com/gofiber/fiber/v2"
 )
 
 // PublicRoutes func for describe group of public routes.

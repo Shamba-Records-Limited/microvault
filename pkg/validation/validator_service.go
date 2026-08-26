@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -71,7 +72,8 @@ func (vs *ValidatorService) Validate(data interface{}) (map[string]string, error
 	}
 
 	// Check if it's validation errors
-	validationErrors, ok := err.(validator.ValidationErrors)
+	var validationErrors validator.ValidationErrors
+	ok := errors.As(err, &validationErrors)
 	if !ok {
 		return nil, err
 	}

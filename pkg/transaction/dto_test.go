@@ -36,7 +36,7 @@ func TestChangedFields_EveryPointerFieldIsMapped(t *testing.T) {
 	pointerFields := 0
 	for i := 0; i < v.NumField(); i++ {
 		f := v.Field(i)
-		if f.Kind() != reflect.Ptr || !f.CanSet() {
+		if f.Kind() != reflect.Pointer || !f.CanSet() {
 			continue
 		}
 		f.Set(reflect.New(f.Type().Elem()))

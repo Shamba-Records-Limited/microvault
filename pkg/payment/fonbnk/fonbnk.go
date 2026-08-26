@@ -8,6 +8,10 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // fonbnkTransport is a custom http.RoundTripper that injects the required
@@ -45,7 +49,12 @@ func (f *fonbnkTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	signature, err := generateSignature(f.clientSecret, timestamp, endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("fonbnk: failed to generate signature: %w", err)
+		return nil, oops.
+			In(pkgErrors.DomainOffRamp).
+			Tags("fonbnk").
+			With(pkgErrors.AttrProvider, "fonbnk").
+			Code(pkgErrors.CodeBuildFailed).
+			Wrapf(err, "could not generate the request signature")
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -60,6 +69,8 @@ func (f *fonbnkTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 type FonbnkAdapter struct {
 	httpClient *http.Client
 	baseURL    string
+	// clock is overridable in tests; nil means time.Now.
+	clock func() time.Time
 }
 
 // NewFonbnkAdapter builds the custom http.Client with the signing transport.

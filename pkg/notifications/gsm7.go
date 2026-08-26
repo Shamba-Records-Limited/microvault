@@ -10,11 +10,6 @@ import (
 // GSM 03.38 default alphabet. Runes outside it force the whole SMS to UCS-2,
 // which cuts a segment from 160 characters to 70; extension-table runes are
 // escaped and cost two septets each.
-//
-// gsm7Basic holds 127 runes, not 128: ESC (0x1B) is the prefix that introduces
-// an extension-table rune, never a character in its own right, so it is absent
-// and every code point above 0x1B sits one index lower than its spec position.
-// TestGSM7TableMatchesSpec pins that mapping.
 const (
 	gsm7Basic = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡" +
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"
@@ -59,6 +54,9 @@ func Segments(septets int) int {
 // produce, not the shortest.
 func SentinelLoanNotification() contracts.LoanNotification {
 	due := time.Now().Add(30 * 24 * time.Hour)
+	// Four days out renders as the widest ExpiresInText output, so the
+	// worst-case length is what gets measured rather than the "soon" fallback.
+	repaymentExpiry := time.Now().Add(4*24*time.Hour + time.Hour)
 	return contracts.LoanNotification{
 		LoanID:            "9f6c7601-b824-4bb8-91a2-0d3e5f7a1c22",
 		LoanReference:     "LR-19F6C760B82-4bb8",
@@ -74,6 +72,8 @@ func SentinelLoanNotification() contracts.LoanNotification {
 		InteractiveURL:    "https://microvault.outray.app/r/Xk9f2aQ7ab",
 		CashPickupRef:     "79342377",
 		CashPickupInfoURL: "https://mgv.link/Xk9f2aQ7ab",
+
+		RepaymentExpiresAt: &repaymentExpiry,
 	}
 }
 

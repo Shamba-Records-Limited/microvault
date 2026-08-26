@@ -52,12 +52,6 @@ type AfricasTalkingSMSResponse struct {
 
 // NewAfricasTalkingSMSAdapter creates a new Africa's Talking SMS adapter. A
 // timeout of zero falls back to DefaultTimeout.
-//
-// The transport is tuned explicitly rather than using http.DefaultTransport so
-// a stalled gateway is distinguishable from an unreachable one: dial and TLS
-// failures surface in seconds, while ResponseHeaderTimeout absorbs the slow
-// path. Idle connections are pooled and reused to keep a high send volume from
-// exhausting outbound ports.
 func NewAfricasTalkingSMSAdapter(username string, apiKey string, baseUrl string, timeout time.Duration) *AfricaTalkingSMSAdapter {
 	if timeout <= 0 {
 		timeout = DefaultTimeout

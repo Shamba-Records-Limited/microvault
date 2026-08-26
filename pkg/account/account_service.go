@@ -6,10 +6,11 @@ import (
 	"log"
 	"slices"
 
+	"gorm.io/gorm"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/services"
-	"github.com/Shamba-Records-Limited/microvault/pkg/models"
-	"gorm.io/gorm"
 )
 
 // Valid account status transitions

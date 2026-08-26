@@ -4,9 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
-	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
+	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
 )
 
 //
@@ -77,6 +79,7 @@ type USSDHandler struct {
 	loanService     LoanService
 	rateService     RateService
 	pinService      PINService
+	repayPaybill    string
 	accountNotifier contracts.AccountNotifier
 	loanNotifier    contracts.LoanNotifier
 }
@@ -191,7 +194,27 @@ type LoanService interface {
 	// the local figure applies the latest FX. Returns an error (hard-fail —
 	// no stale fallback) when the vault or FX is unavailable.
 	GetRepaymentQuote(ctx context.Context, loanID string) (*RepaymentQuote, error)
+
+	// InitiateRepayment opens a MoneyGram cash deposit for the loan.
+	//
+	// It returns as soon as the request is accepted, not when the deposit
+	// exists. Quoting, SEP-10 authentication, SEP-24 initiation, link
+	// shortening and the SMS together took over fifteen seconds against the
+	// sandbox — past the point Africa's Talking abandons a USSD session, so
+	// waiting for them leaves the borrower's screen dead before it renders.
+	//
+	// Everything the borrower needs arrives by SMS: the interactive link on
+	// success, a failure notice otherwise. Nothing on the USSD screen depends
+	// on the outcome, which is what makes returning early honest rather than a
+	// shortcut. An error here means the request was refused outright.
+	InitiateRepayment(ctx context.Context, loanID, phoneNumber string) error
 }
+
+// MoneyGram's production on-ramp bounds, in stroops.
+const (
+	MinMoneyGramDepositStroops int64 = int64(moneygram.MinDepositUSD * 1e7)
+	MaxMoneyGramDepositStroops int64 = int64(moneygram.MaxDepositUSD * 1e7)
+)
 
 // RepaymentQuote is the live amount owed on a loan, computed from the vault
 // borrow_index + current FX. Stored repayment quotes are advisory only — this

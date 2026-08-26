@@ -3,15 +3,21 @@ package rpc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strconv"
 
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // Verifier confirms the on-ledger outcome of a transaction someone else
 // claims to have submitted — an anchor reporting a refund, for example.
-//
+func verifyErr(op string) oops.OopsErrorBuilder {
+	return oops.In(pkgErrors.DomainStellarClassic).Tags("rpc", "verify").With(pkgErrors.AttrOperation, op)
+}
+
 // Unlike PollTransaction it does not wait: a single lookup either answers
 // definitively or reports the outcome as unknown, leaving the retry cadence to
 // the caller.
@@ -38,12 +44,13 @@ func NewVerifier(client TransactionGetter) *Verifier {
 // or escalate to a human.
 func (v *Verifier) TransactionSucceeded(ctx context.Context, txHash string) (bool, error) {
 	if txHash == "" {
-		return false, fmt.Errorf("rpc: empty transaction hash")
+		return false, verifyErr("transaction_succeeded").Code(pkgErrors.CodeMissingAccount).Errorf("transaction hash is empty")
 	}
 
 	resp, err := v.client.GetTransaction(ctx, protocol.GetTransactionRequest{Hash: txHash})
 	if err != nil {
-		return false, fmt.Errorf("rpc: get transaction %s: %w", txHash, err)
+		return false, verifyErr("transaction_succeeded").With(pkgErrors.AttrTxHash, txHash).
+			Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the transaction")
 	}
 
 	switch resp.Status {
@@ -52,9 +59,14 @@ func (v *Verifier) TransactionSucceeded(ctx context.Context, txHash string) (boo
 	case protocol.TransactionStatusFailed:
 		return false, nil
 	case protocol.TransactionStatusNotFound:
-		return false, fmt.Errorf("rpc: transaction %s not found on ledger", txHash)
+		return false, verifyErr("transaction_succeeded").With(pkgErrors.AttrTxHash, txHash).
+			Code(pkgErrors.CodeNotFound).Errorf("transaction is not on the ledger")
 	default:
-		return false, fmt.Errorf("rpc: unexpected status %q for transaction %s", resp.Status, txHash)
+		return false, verifyErr("transaction_succeeded").
+			With(pkgErrors.AttrTxHash, txHash).
+			With("status", resp.Status).
+			Code(pkgErrors.CodeIncompleteResponse).
+			Errorf("transaction has an unexpected status")
 	}
 }
 
@@ -68,24 +80,12 @@ type Payment struct {
 
 // PaymentsTo returns the successful payments in txHash addressed to
 // destination, in the named asset.
-//
-// assetIssuer, when non-empty, must also match. Asset codes are not unique —
-// anyone can issue an asset called USDC — so matching on code alone would let
-// a worthless look-alike settle a refund.
-//
-// This exists because "the transaction succeeded" is not the question worth
-// asking about an anchor's claimed refund — our own outbound payment to that
-// anchor also succeeded. What matters is that value moved in the right
-// direction, in the right asset, and how much. Reading it from the ledger
-// means a mislabelled or misread anchor field cannot drive a vault repay.
-//
-// Returns an error unless the transaction is on-ledger and succeeded.
 func (v *Verifier) PaymentsTo(ctx context.Context, txHash, destination, assetCode, assetIssuer string) ([]Payment, error) {
 	if txHash == "" {
-		return nil, fmt.Errorf("rpc: empty transaction hash")
+		return nil, verifyErr("payments_to").Code(pkgErrors.CodeMissingAccount).Errorf("transaction hash is empty")
 	}
 	if destination == "" {
-		return nil, fmt.Errorf("rpc: empty destination")
+		return nil, verifyErr("payments_to").Code(pkgErrors.CodeMissingAccount).Errorf("destination is empty")
 	}
 
 	resp, err := v.client.GetTransaction(ctx, protocol.GetTransactionRequest{
@@ -93,24 +93,33 @@ func (v *Verifier) PaymentsTo(ctx context.Context, txHash, destination, assetCod
 		Format: protocol.FormatJSON,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("rpc: get transaction %s: %w", txHash, err)
+		return nil, verifyErr("payments_to").With(pkgErrors.AttrTxHash, txHash).
+			Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the transaction")
 	}
 	switch resp.Status {
 	case protocol.TransactionStatusSuccess:
 	case protocol.TransactionStatusFailed:
-		return nil, fmt.Errorf("rpc: transaction %s failed on ledger", txHash)
+		return nil, verifyErr("payments_to").With(pkgErrors.AttrTxHash, txHash).
+			Code(pkgErrors.CodeSubmitFailed).Errorf("transaction failed on ledger")
 	case protocol.TransactionStatusNotFound:
-		return nil, fmt.Errorf("rpc: transaction %s not found on ledger", txHash)
+		return nil, verifyErr("payments_to").With(pkgErrors.AttrTxHash, txHash).
+			Code(pkgErrors.CodeNotFound).Errorf("transaction is not on the ledger")
 	default:
-		return nil, fmt.Errorf("rpc: unexpected status %q for transaction %s", resp.Status, txHash)
+		return nil, verifyErr("payments_to").
+			With(pkgErrors.AttrTxHash, txHash).
+			With("status", resp.Status).
+			Code(pkgErrors.CodeIncompleteResponse).
+			Errorf("transaction has an unexpected status")
 	}
 	if len(resp.EnvelopeJSON) == 0 {
-		return nil, fmt.Errorf("rpc: transaction %s has no envelope json", txHash)
+		return nil, verifyErr("payments_to").With(pkgErrors.AttrTxHash, txHash).
+			Code(pkgErrors.CodeIncompleteResponse).Errorf("transaction has no envelope JSON")
 	}
 
 	var envelope any
 	if err := json.Unmarshal(resp.EnvelopeJSON, &envelope); err != nil {
-		return nil, fmt.Errorf("rpc: decode envelope for %s: %w", txHash, err)
+		return nil, verifyErr("payments_to").With(pkgErrors.AttrTxHash, txHash).
+			Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the transaction envelope")
 	}
 
 	var out []Payment
@@ -130,11 +139,6 @@ func (v *Verifier) PaymentsTo(ctx context.Context, txHash, destination, assetCod
 }
 
 // collectPayments walks the decoded envelope for payment operation bodies.
-//
-// The walk is recursive rather than indexed because the nesting differs by
-// envelope type — a fee-bump buries the operations under
-// tx_fee_bump.tx.inner_tx.tx.tx, and MoneyGram's refunds arrive fee-bumped.
-// Searching by shape survives that without a branch per envelope variant.
 func collectPayments(node any) []Payment {
 	var out []Payment
 

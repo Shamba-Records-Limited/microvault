@@ -92,14 +92,42 @@ type RepayRequest struct {
 	Amount int64 // Amount to repay in smallest unit (stroops)
 }
 
-// RepayResponse represents the result of a repay operation
+// RepayForRequest represents a request to repay borrowed funds on behalf of a
+// named borrower. The treasury remains the payer; BorrowerAddress is recorded
+// in the on-chain Repaid event for attribution and authorizes nothing.
+type RepayForRequest struct {
+	BorrowerAddress string // Child account recorded in the Repaid event
+	Amount          int64  // Amount to repay in smallest unit (stroops)
+}
+
+// RepayResponse represents the result of a repay operation.
+// BorrowerAddress and EventBorrower are empty for an unattributed repay.
 type RepayResponse struct {
 	TxHash           string
 	AmountRepaid     int64
+	BorrowerAddress  string // Borrower the repayment was made for, as requested
+	EventBorrower    string // Borrower address extracted from the on-chain Repaid event
 	Ledger           int64
 	Status           string
 	ContractID       string
 	ContractFunction string
+}
+
+// BumpYieldRequest represents a request to contribute assets to the vault
+// without minting shares. The treasury is always the source of the funds.
+type BumpYieldRequest struct {
+	Amount int64 // Amount to contribute in smallest unit (stroops)
+}
+
+// BumpYieldResponse represents the result of a bump-yield operation
+type BumpYieldResponse struct {
+	TxHash             string
+	AmountContributed  int64
+	TotalManagedAssets int64 // Managed assets after the contribution, from the YieldBumped event
+	Ledger             int64
+	Status             string
+	ContractID         string
+	ContractFunction   string
 }
 
 // VaultStatus represents the current state of the vault

@@ -6,9 +6,10 @@ import (
 	"os"
 	"strconv"
 
+	_ "github.com/joho/godotenv/autoload"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/Shamba-Records-Limited/microvault/platform/database"
-	_ "github.com/joho/godotenv/autoload"
 )
 
 func main() {

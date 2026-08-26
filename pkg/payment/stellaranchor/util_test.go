@@ -54,7 +54,7 @@ func TestDoHTTPWithRetry_RecoversFromGOAWAY(t *testing.T) {
 	client := &http.Client{Transport: rt}
 
 	resp, err := doHTTPWithRetry(context.Background(), client, func() (*http.Request, error) {
-		return http.NewRequest(http.MethodGet, "http://anchor.test/auth", nil)
+		return http.NewRequest(http.MethodGet, "http://anchor.test/auth", http.NoBody)
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -70,7 +70,7 @@ func TestDoHTTPWithRetry_NonTransientFailsFast(t *testing.T) {
 	client := &http.Client{Transport: rt}
 
 	_, err := doHTTPWithRetry(context.Background(), client, func() (*http.Request, error) {
-		return http.NewRequest(http.MethodGet, "http://anchor.test/auth", nil)
+		return http.NewRequest(http.MethodGet, "http://anchor.test/auth", http.NoBody)
 	})
 	if err == nil {
 		t.Fatal("expected error")

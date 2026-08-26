@@ -1,8 +1,9 @@
 package repository
 
 import (
-	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"gorm.io/gorm"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 type Repositories struct {

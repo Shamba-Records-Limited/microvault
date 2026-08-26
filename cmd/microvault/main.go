@@ -9,6 +9,10 @@ import (
 
 	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/swagger"
+	_ "github.com/joho/godotenv/autoload"
+
 	routes "github.com/Shamba-Records-Limited/microvault/internal/core/pkg/routes"
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
 	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
@@ -29,9 +33,6 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 	"github.com/Shamba-Records-Limited/microvault/platform/cache"
 	"github.com/Shamba-Records-Limited/microvault/platform/database"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/swagger"
-	_ "github.com/joho/godotenv/autoload"
 )
 
 // @title microvault API
@@ -218,7 +219,15 @@ func main() {
 
 	// Initialize USSD handler with real services
 	// Note: loanService and disbursementService are nil - will be implemented later
-	handler := ussd.NewUSSDHandler(sessionMgr, menuRegistry, userServiceAdapter, nil, nil, pinService, accountNotifier, loanNotifier)
+	handler := ussd.NewUSSDHandler(ussd.HandlerDeps{
+		SessionManager:  sessionMgr,
+		MenuRegistry:    menuRegistry,
+		UserService:     userServiceAdapter,
+		PINService:      pinService,
+		AccountNotifier: accountNotifier,
+		LoanNotifier:    loanNotifier,
+		RepayPaybill:    cfg.Mobile.RepayPaybill,
+	})
 	ussdService := ussd.NewUSSDService(handler)
 
 	// Register USSD providers

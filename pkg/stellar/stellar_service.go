@@ -22,7 +22,10 @@ type (
 	BorrowRequest                       = types.BorrowRequest
 	BorrowResponse                      = types.BorrowResponse
 	RepayRequest                        = types.RepayRequest
+	RepayForRequest                     = types.RepayForRequest
 	RepayResponse                       = types.RepayResponse
+	BumpYieldRequest                    = types.BumpYieldRequest
+	BumpYieldResponse                   = types.BumpYieldResponse
 	VaultStatus                         = types.VaultStatus
 	ContractError                       = types.ContractError
 )
@@ -148,6 +151,14 @@ func (s *service) BorrowFromVault(ctx context.Context, req BorrowRequest) (*Borr
 
 func (s *service) RepayToVault(ctx context.Context, req RepayRequest) (*RepayResponse, error) {
 	return s.sorobanService.RepayToVault(ctx, req)
+}
+
+func (s *service) RepayForVault(ctx context.Context, req RepayForRequest) (*RepayResponse, error) {
+	return s.sorobanService.RepayForVault(ctx, req)
+}
+
+func (s *service) BumpYield(ctx context.Context, req BumpYieldRequest) (*BumpYieldResponse, error) {
+	return s.sorobanService.BumpYield(ctx, req)
 }
 
 func (s *service) AccrueInterest(ctx context.Context) error {

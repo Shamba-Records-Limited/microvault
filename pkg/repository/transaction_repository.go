@@ -6,10 +6,11 @@ import (
 	"log"
 	"time"
 
-	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
-	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 )
 
 // Common errors for TransactionRepository
@@ -133,11 +134,6 @@ func (r *transactionRepository) GetByStellarHash(ctx context.Context, txHash str
 }
 
 // ListByExternalID retrieves every transaction sharing a provider reference.
-//
-// One anchor transaction produces several legs — a MoneyGram cash pickup writes
-// an anchor_transfer, an off_ramp and possibly a refund, all under the same
-// request ID — so this returns a set. It is the reverse lookup: a provider
-// quotes a reference and this finds what it touched.
 func (r *transactionRepository) ListByExternalID(ctx context.Context, externalID string) ([]*models.Transaction, error) {
 	var transactions []*models.Transaction
 	result := r.db.WithContext(ctx).
@@ -154,10 +150,6 @@ func (r *transactionRepository) ListByExternalID(ctx context.Context, externalID
 
 // GetByLoanIDAndType retrieves the transaction of a given type for a loan,
 // returning nil when there is none.
-//
-// This is how a webhook finds the row it needs to update. It replaces a lookup
-// by external ID, which stopped identifying a single row once every leg of an
-// anchor transaction began carrying the same provider reference.
 func (r *transactionRepository) GetByLoanIDAndType(ctx context.Context, loanID, txType string) (*models.Transaction, error) {
 	var tx models.Transaction
 	result := r.db.WithContext(ctx).

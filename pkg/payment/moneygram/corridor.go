@@ -9,15 +9,15 @@ const DefaultOriginatingCountry = "USA"
 // quoting purposes.
 const DefaultSendCurrency = "USD"
 
-// Withdraw bounds published by MoneyGram's SEP-24 /info, in USD. The floor
+// Corridor bounds published by MoneyGram's SEP-24 /info, in USD. The floor
 // rose from 1 to 15 with the 2026-08-01 anchor migration; see
 // internal-docs/moneygram-integration.md Appendix D.
-//
-// Nothing reads /info at runtime, so these are the single source of truth for
-// the limit across the USSD gate and the adapter's advertised provider info.
 const (
 	MinWithdrawUSD = 15.0
 	MaxWithdrawUSD = 2500.0
+
+	MinDepositUSD = 15.0
+	MaxDepositUSD = 950.0
 )
 
 // currencyToCountry maps a payout currency to the ISO-3 country MoneyGram

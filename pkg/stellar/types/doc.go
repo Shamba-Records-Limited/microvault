@@ -4,8 +4,9 @@
 // dto.go carries the inputs and outputs for both surfaces: classic operations
 // (CreateAccountRequest, EstablishTrustlineRequest, SponsoredPaymentTransaction*,
 // SendUSDC*, MultiSigConfig) and Vault contract operations (BorrowRequest,
-// RepayRequest, and their responses). Keeping them here lets classic and soroban
-// depend on one shared vocabulary without importing each other.
+// RepayRequest, RepayForRequest, BumpYieldRequest, and their responses). Keeping
+// them here lets classic and soroban depend on one shared vocabulary without
+// importing each other.
 //
 // errors.go holds the sentinel errors callers match with errors.Is — transaction
 // build/sign/submit failures, validation failures, and terminal transaction

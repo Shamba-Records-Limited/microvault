@@ -2,14 +2,23 @@ package stellaranchor
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
+
+// tomlErr starts an error builder for SEP-1 work. The domain is shared with
+// the rest of the anchor client; the tag is what separates TOML discovery from
+// authentication and transfers when filtering.
+func tomlErr() oops.OopsErrorBuilder {
+	return oops.In(errDomain).Tags("sep1", "toml")
+}
 
 // TOML is the parsed subset of a Stellar SEP-1 stellar.toml that matters for
 // the MoneyGram Ramps integration. Fields not used by this SDK are not
@@ -39,42 +48,48 @@ type Currency struct {
 // https://{homeDomain}/.well-known/stellar.toml. It does NOT validate
 // semantically — call TOML.Validate to enforce environment-specific
 // expectations (passphrase, signing key, USDC issuer).
-//
-// httpClient may be nil; http.DefaultClient is used in that case. The
-// response is capped at 64 KiB — well above the size of any well-formed
-// stellar.toml — to avoid pathological responses exhausting memory.
 func FetchTOML(ctx context.Context, httpClient *http.Client, homeDomain string) (*TOML, error) {
+	errb := tomlErr().With("home_domain", homeDomain)
+
 	if homeDomain == "" {
-		return nil, fmt.Errorf("stellaranchor: %w: empty home domain", ErrInvalidConfig)
+		return nil, errb.Code(pkgErrors.CodeMissingAccount).Wrapf(ErrInvalidConfig, "home domain is empty")
 	}
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
 
 	url := "https://" + strings.TrimSuffix(homeDomain, "/") + "/.well-known/stellar.toml"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	errb = errb.With("url", url)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("stellaranchor: build TOML request: %w", err)
+		return nil, errb.Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build the stellar.toml request")
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("stellaranchor: %w: %v", ErrTOMLFetch, err)
+		// Both the transport cause and the sentinel are kept: callers match on
+		// ErrTOMLFetch, and the cause is what says why.
+		return nil, errb.Code(pkgErrors.CodeTransportFailed).
+			With("cause", err.Error()).
+			Wrapf(ErrTOMLFetch, "stellar.toml request did not complete")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("stellaranchor: %w: HTTP %d from %s", ErrTOMLFetch, resp.StatusCode, url)
+		return nil, errb.Code(pkgErrors.CodeHTTPError).
+			With(pkgErrors.AttrStatusCode, resp.StatusCode).
+			Wrapf(ErrTOMLFetch, "anchor returned a non-200 for stellar.toml")
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
-		return nil, fmt.Errorf("stellaranchor: read TOML body: %w", err)
+		return nil, errb.Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the stellar.toml body")
 	}
 
 	var parsed TOML
 	if _, err := toml.Decode(string(body), &parsed); err != nil {
-		return nil, fmt.Errorf("stellaranchor: decode TOML: %w", err)
+		return nil, errb.Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode stellar.toml")
 	}
 	return &parsed, nil
 }
@@ -92,34 +107,52 @@ type ValidateOptions struct {
 // SEP-10 + SEP-24 withdrawal flow against MoneyGram, and matches any
 // expectations supplied in opts.
 func (t *TOML) Validate(opts ValidateOptions) error {
+	// missingField reports a required stellar.toml key that is absent. The key
+	// is an attribute so all four group as one error rather than four.
+	missingField := func(field string) error {
+		return tomlErr().
+			Code(pkgErrors.CodeIncompleteResponse).
+			With("field", field).
+			Wrapf(ErrTOMLValidation, "stellar.toml is missing a required field")
+	}
+
+	// changedField reports a pinned value the anchor no longer matches. Both
+	// sides are attributes: a signing-key rotation is diagnosed by comparing
+	// them, and neither belongs in the message.
+	changedField := func(field, got, want string) error {
+		return tomlErr().
+			Code(pkgErrors.CodeIncompleteResponse).
+			With("field", field).
+			With("got", got).
+			With("want", want).
+			Wrapf(ErrTOMLValidation, "stellar.toml value differs from the pinned expectation")
+	}
+
 	if t.SigningKey == "" {
-		return fmt.Errorf("stellaranchor: %w: SIGNING_KEY missing", ErrTOMLValidation)
+		return missingField("SIGNING_KEY")
 	}
 	if t.WebAuthEndpoint == "" {
-		return fmt.Errorf("stellaranchor: %w: WEB_AUTH_ENDPOINT missing", ErrTOMLValidation)
+		return missingField("WEB_AUTH_ENDPOINT")
 	}
 	if t.TransferServerSEP24 == "" {
-		return fmt.Errorf("stellaranchor: %w: TRANSFER_SERVER_SEP0024 missing", ErrTOMLValidation)
+		return missingField("TRANSFER_SERVER_SEP0024")
 	}
 	if t.NetworkPassphrase == "" {
-		return fmt.Errorf("stellaranchor: %w: NETWORK_PASSPHRASE missing", ErrTOMLValidation)
+		return missingField("NETWORK_PASSPHRASE")
 	}
 	if opts.ExpectedNetworkPassphrase != "" && t.NetworkPassphrase != opts.ExpectedNetworkPassphrase {
-		return fmt.Errorf("stellaranchor: %w: NETWORK_PASSPHRASE mismatch (got %q, want %q)",
-			ErrTOMLValidation, t.NetworkPassphrase, opts.ExpectedNetworkPassphrase)
+		return changedField("NETWORK_PASSPHRASE", t.NetworkPassphrase, opts.ExpectedNetworkPassphrase)
 	}
 	if opts.ExpectedSigningKey != "" && t.SigningKey != opts.ExpectedSigningKey {
-		return fmt.Errorf("stellaranchor: %w: SIGNING_KEY rotated (got %q, want %q)",
-			ErrTOMLValidation, t.SigningKey, opts.ExpectedSigningKey)
+		return changedField("SIGNING_KEY", t.SigningKey, opts.ExpectedSigningKey)
 	}
 	if opts.ExpectedUSDCIssuer != "" {
 		issuer := t.AssetIssuer("USDC")
 		if issuer == "" {
-			return fmt.Errorf("stellaranchor: %w: USDC currency missing", ErrTOMLValidation)
+			return missingField("CURRENCIES[USDC]")
 		}
 		if issuer != opts.ExpectedUSDCIssuer {
-			return fmt.Errorf("stellaranchor: %w: USDC issuer changed (got %q, want %q)",
-				ErrTOMLValidation, issuer, opts.ExpectedUSDCIssuer)
+			return changedField("CURRENCIES[USDC].issuer", issuer, opts.ExpectedUSDCIssuer)
 		}
 	}
 	return nil
@@ -146,7 +179,11 @@ func DefaultTOMLClient() *http.Client {
 			// SEP-1 TOMLs should not redirect off-host; reject to avoid
 			// being pointed at an attacker-controlled stellar.toml.
 			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
-				return fmt.Errorf("stellaranchor: cross-host redirect to %s blocked", req.URL.Host)
+				return tomlErr().
+					Code(pkgErrors.CodePermissionDenied).
+					With("from_host", via[0].URL.Host).
+					With("to_host", req.URL.Host).
+					Errorf("cross-host redirect blocked while fetching stellar.toml")
 			}
 			return nil
 		},

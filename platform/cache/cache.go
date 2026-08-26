@@ -7,8 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 )
 
 // Instances map and reader/writer lock

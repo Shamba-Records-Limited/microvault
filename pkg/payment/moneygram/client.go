@@ -10,11 +10,6 @@ import (
 
 // Config bundles everything required to construct a Client: TOML-derived
 // values, treasury secret, and optional REST credentials for the FX Rate API.
-//
-// Fetch the TOML at startup (stellaranchor.FetchTOML), validate it
-// (TOML.Validate), and pass the relevant fields here. Doing it that way means
-// TOML rotation surfaces as an explicit re-Validate at boot, not as a silent
-// runtime drift.
 type Config struct {
 	// HomeDomain — e.g. "stellar.moneygram.com".
 	HomeDomain string
@@ -124,9 +119,6 @@ func New(cfg Config) (*Client, error) {
 // NewFXOrchestrator returns an FX orchestrator with this client's FXRate
 // sub-client (if available) as the primary source. fallback may be nil when
 // MG REST credentials are configured and the consumer wants MG-only quoting.
-//
-// Returns an error if both sources are nil — callers should check
-// HasFXRate() first if they want to skip wiring entirely.
 func (c *Client) NewFXOrchestrator(fallback FallbackRateSource, cfg FXOrchestratorConfig) (*FXOrchestrator, error) {
 	return NewFXOrchestrator(c.FXRate, fallback, cfg, c.cfg.Logger)
 }

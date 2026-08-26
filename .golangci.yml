@@ -1,0 +1,161 @@
+# golangci-lint configuration.
+#
+# Neither module had one before, so this is the first machine-enforced
+# statement of the conventions that were previously reviewer-enforced. The
+# linter set is deliberately weighted toward correctness over style: the style
+# rules are cheap to fix and rarely cause outages, while the correctness ones
+# (errcheck, nilerr, bodyclose, sqlclosecheck) catch the class of bug this
+# codebase has actually shipped.
+#
+# Adoption is incremental. `make lint` reports everything; `make lint-new`
+# limits the report to code changed against main, which is what a pull request
+# should be held to while the backlog is worked down. new-from-rev is
+# deliberately NOT set here — baking it into the config would make CI silently
+# stop checking older code, and hide the size of the backlog rather than
+# shrinking it.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    # Correctness — these catch real defects.
+    - errcheck # unchecked errors
+    - govet # suspicious constructs
+    - staticcheck # bugs, performance, deprecations
+    - ineffassign # assignments never read
+    - unused # dead code
+    - nilerr # returning nil when err is non-nil
+    - nilnil # returning (nil, nil) from a (T, error)
+    - bodyclose # unclosed HTTP response bodies
+    - sqlclosecheck # unclosed sql.Rows / sql.Stmt
+    - rowserrcheck # unchecked sql.Rows.Err
+    - errorlint # errors.Is/As instead of == and type assertions
+    - contextcheck # context passed correctly across call boundaries
+    - noctx # HTTP requests built without a context
+    - makezero # append to a make()d slice with a non-zero length
+    - durationcheck # multiplying two durations
+    - exhaustive # unhandled enum cases in a switch
+
+    # Style and clarity.
+    - revive # golint's successor; broad style rules
+    - gocritic # opinionated diagnostics and simplifications
+    - misspell
+    - unconvert # redundant type conversions
+    - wastedassign
+    - predeclared # shadowing predeclared identifiers
+    - nolintlint # //nolint must name a linter and give a reason
+
+    # Security.
+    - gosec
+
+  settings:
+    errcheck:
+      # Deferred Close on a reader and best-effort logging are the two cases
+      # where the error genuinely is not actionable. Everything else must be
+      # handled or explicitly discarded with a reason.
+      check-type-assertions: true
+      check-blank: false
+
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+    exhaustive:
+      # Only enforced where a default case is absent, so switches that
+      # deliberately handle a subset stay legal.
+      default-signifies-exhaustive: true
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+      # The performance tag is deliberately off. Its checks — hugeParam,
+      # rangeValCopy — fire almost exclusively on Stellar SDK types
+      # (xdr.ScVal, protocol responses), which the SDK's own API passes by
+      # value. Taking pointers to them to satisfy the linter would make this
+      # code diverge from every example in the SDK docs and buy nothing
+      # measurable on paths that are already dominated by network round trips.
+      disabled-checks:
+        # Fires on the early-return style the code-style guidance requires.
+        - ifElseChain
+
+    gosec:
+      excludes:
+        # Integer conversion overflow. The codebase converts between int64
+        # stroops and sized ints constantly, always within ranges fixed by the
+        # protocol, and the check has no way to see that.
+        - G115
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
+    revive:
+      rules:
+        - name: exported
+          # Disabled: the codebase documents exported symbols thoroughly by
+          # convention, and this rule mostly produces noise about comment
+          # prefixes on symbols whose doc comments are already better than
+          # what it would ask for.
+          disabled: true
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: increment-decrement
+        - name: var-declaration
+        - name: package-comments
+          disabled: true
+
+  exclusions:
+    generated: lax
+    rules:
+      # Deferred Close on an HTTP response body. The read has already happened
+      # or failed by this point, so the close error is not actionable.
+      - source: 'defer .*\.Close\(\)'
+        linters:
+          - errcheck
+
+      # Tests may ignore errors from helpers and use weak randomness; neither
+      # is a production concern.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - bodyclose
+          - contextcheck
+
+      # USSD handlers must always return a renderable screen with a nil error:
+      # a non-nil error aborts the session and the borrower sees nothing at
+      # all. Every "returns nil despite err" in this tree is that convention,
+      # not a swallowed failure — the error is logged and turned into an error
+      # screen on the line above.
+      - path: pkg/mobile/ussd/
+        linters:
+          - nilerr
+
+      # Generated Swagger docs.
+      - path: cmd/.*/docs/
+        linters:
+          - revive
+          - gocritic
+          - misspell
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/Shamba-Records-Limited

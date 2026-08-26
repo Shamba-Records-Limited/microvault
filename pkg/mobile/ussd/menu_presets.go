@@ -177,14 +177,9 @@ func (p *StandardLoanMenuPreset) Initialize(registry *MenuRegistry) {
 		Build()
 	registry.Register(pinChangeConfirmMenu)
 
-	// PIN verification gate for repayment. Loan origination has no separate
-	// gate: its PIN prompt lives on the loan_confirm screen beside the terms.
-	pinVerifyRepayMenu := NewMenuBuilder("pin_verify_repay").
-		WithTitle("en", "Enter your 4-digit PIN:").
-		WithTitle("sw", "Weka PIN yako ya tarakimu 4:").
-		WithTitle("fr", "Entrez votre PIN à 4 chiffres:").
-		Build()
-	registry.Register(pinVerifyRepayMenu)
+	// No standalone PIN menus. Loan origination prompts on the loan_confirm
+	// screen beside the terms; repayment has no gate at all, because nothing
+	// leaves the borrower's wallet as a result of the USSD session.
 
 	// Security Questions Setup
 	secQ1SelectMenu := NewMenuBuilder("security_q1_select").

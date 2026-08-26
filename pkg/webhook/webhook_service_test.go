@@ -25,7 +25,9 @@ func (f *fakeDisb) UpdateDisbursementStatus(_ string, status string) error {
 	f.statuses = append(f.statuses, status)
 	return nil
 }
+
 func (f *fakeDisb) NotifyDisbursementComplete(string) error { f.notifiedComplete = true; return nil }
+
 func (f *fakeDisb) RecordDisbursementCompletion(_ string, fin CompletionFinancials) error {
 	f.completion = &fin
 	return nil

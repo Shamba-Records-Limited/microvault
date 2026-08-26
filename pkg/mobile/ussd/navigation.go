@@ -2,7 +2,6 @@ package ussd
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"unicode/utf8"
 )
@@ -41,7 +40,13 @@ var navBackTargets = map[string]string{
 	"loan_amount":              "main",
 	"payout_method":            "loan_amount",
 	"loan_confirm":             "payout_method",
-	"pin_verify_repay":         "main",
+	"pin_verify_loan":          "loan_confirm",
+	// repay_loan renders a live list of loans rather than a registered menu,
+	// so stepping back off the rail screen returns to main rather than
+	// re-rendering a menu the registry does not hold. pin_verify_repay is
+	// absent because the repay PIN gate was dropped: nothing leaves the
+	// borrower's wallet as a result of the USSD session.
+	"repay_rail": "main",
 }
 
 // navBackClears lists the session keys a menu owns. Stepping back off a menu
@@ -121,7 +126,7 @@ func (h *USSDHandler) handleNavigation(ctx context.Context, session *Session, in
 		}
 		session.CurrentMenu = "main"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", true, fmt.Errorf("failed to save session: %w", err)
+			return "", true, sessionSaveErr(session, err)
 		}
 		resp, err := h.showMainMenu(session)
 		return resp, true, err
@@ -136,7 +141,7 @@ func (h *USSDHandler) handleNavigation(ctx context.Context, session *Session, in
 		target := navBackTargets[menuID]
 		session.CurrentMenu = target
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", true, fmt.Errorf("failed to save session: %w", err)
+			return "", true, sessionSaveErr(session, err)
 		}
 		resp, err := h.renderMenu(ctx, session, target)
 		return resp, true, err
