@@ -65,12 +65,7 @@
 // anything. Its channels are ramp-scoped too, so an off-ramp must not be
 // priced against a deposit channel's fees.
 //
-// Fonbnk prices a quote for real but sets the amount on one leg and computes
-// the other. Only the crypto amount is known here, so an off-ramp is quoted
-// twice: once at an indicative fiat amount to learn the corridor's rate, then
-// again at the fiat the requested crypto is actually worth, so the banded fees
-// land in the right band.
-//
-// Design notes are in the knowledge vault at
-// Microvault/fonbnk-onramp-offramp-implementation.md.
+// Fonbnk prices a quote for real, with the amount on the crypto leg in both
+// directions — the side we always know — so one call prices the corridor at
+// the size actually being moved.
 package relay

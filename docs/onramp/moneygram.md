@@ -5,7 +5,7 @@ agent**, including the SEP-24 interactive deposit, the poller that drives it,
 the treasury-to-vault leg, and every config override on this path.
 
 This is the mirror of [MoneyGram cash pickup](../offramp/moneygram.md), but it
-is not that flow reversed — see [§ Why a deposit is not a withdrawal
+is not that flow reversed, see [§ Why a deposit is not a withdrawal
 backwards](#why-a-deposit-is-not-a-withdrawal-backwards).
 
 ---
@@ -15,22 +15,22 @@ backwards](#why-a-deposit-is-not-a-withdrawal-backwards).
 1. At the USSD menu the borrower picks a loan to repay. We quote the payoff,
    check it fits MoneyGram's cash-in corridor, and **lock the quote**.
 2. We open a SEP-24 **deposit** with MoneyGram and get back a webview URL. That
-   URL is SMS'd to the borrower — they open it, do KYC, and pick an agent.
+   URL is SMS'd to the borrower. They open it, do KYC, and pick an agent.
 3. MoneyGram issues either a **reference number** or a **transaction page**. We
    SMS whichever exists, because the borrower cannot pay without one.
 4. The borrower hands cash to the agent. MoneyGram sends USDC to the treasury
    with our memo attached.
 5. The **poller** sees `completed`, tells the borrower their money arrived, then
-   calls `repay_for` on the Vault — treasury pays, borrower gets the credit.
+   calls `repay_for` on the Vault, treasury pays, borrower gets the credit.
 
 Three files carry most of the weight:
 
 - [`loan_service_adapter.go`](../../../microvault-credit/internal/credit/adapters/loan_service_adapter.go)
-  (credit module) — `InitiateRepayment` and `runRepaymentInitiation`: quoting,
+  (credit module), `InitiateRepayment` and `runRepaymentInitiation`: quoting,
   the corridor gate, and opening the SEP-24 deposit.
-- [`pkg/services/mgpoller/deposit.go`](../../pkg/services/mgpoller/deposit.go) —
+- [`pkg/services/mgpoller/deposit.go`](../../pkg/services/mgpoller/deposit.go):
   `DepositDriver`, the whole cash-in state machine.
-- [`pkg/payment/stellaranchor/sep24.go`](../../pkg/payment/stellaranchor/sep24.go) —
+- [`pkg/payment/stellaranchor/sep24.go`](../../pkg/payment/stellaranchor/sep24.go):
   `InitiateDeposit` and the SEP-24 transaction shape both directions share.
 
 ---
@@ -50,7 +50,7 @@ of pointless requests.
 So cadence lives in a **`repayment_next_poll_at` column**, not in the ticker.
 The runner's interval only decides how often we *ask* which rows are due; the
 column decides which rows come back. This is worth internalising before
-debugging anything timing-related — turning `REPAYMENT_POLL_INTERVAL` down does
+debugging anything timing-related, turning `REPAYMENT_POLL_INTERVAL` down does
 not make a parked deposit poll sooner. See [§ Config](#config--overrides-on-this-path).
 
 Both directions share the generic
@@ -68,30 +68,30 @@ when the request could never have produced one: the anchor must be wired, and a
 loan ID and phone number must both be present. Both checks are local.
 
 **Background**, because everything past that talks to MoneyGram and took over
-fifteen seconds against the sandbox — past the point Africa's Talking abandons
+fifteen seconds against the sandbox, past the point Africa's Talking abandons
 the session. `runRepaymentInitiation` runs on its own context with a 2-minute
 timeout, and every exit path SMSes the outcome.
 
 The background half:
 
 1. **Quote the payoff** and check it against MoneyGram's cash-in corridor
-   (15–950 USD, `MinDepositUSD` / `MaxDepositUSD` in
+   (15-950 USD, `MinDepositUSD` / `MaxDepositUSD` in
    [`corridor.go`](../../pkg/payment/moneygram/corridor.go)). The USSD menu
    already hides the rail for an ineligible payoff, but this path is reachable
    without that screen. The two ends carry different error codes because they
-   are actioned differently — below the floor the borrower uses mobile money,
+   are actioned differently, below the floor the borrower uses mobile money,
    above the ceiling they must split the payment.
 2. **Derive the child-account memo** for the SEP-10 session. This scopes the
    custodial treasury to one borrower, exactly as on the withdrawal side.
 3. **Post the SEP-24 deposit**, with the treasury as the destination account and
    a request-side `memo` naming the loan.
-4. **Lock the quote** — write `repayment_status=initiated`,
+4. **Lock the quote**, write `repayment_status=initiated`,
    `repayment_payoff_stroops`, `repayment_locked_at`, `repayment_expires_at` and
    `repayment_mg_tx_id` in one update.
 5. **SMS the webview link.**
 
 > If step 4 fails after step 3 succeeded, the deposit exists at MoneyGram and we
-> have no record of it — the poller will never drive it, and a borrower who pays
+> have no record of it. The poller will never drive it, and a borrower who pays
 > is unreconciled. That branch logs `CRITICAL` for exactly this reason.
 
 ### Two memos, two jobs
@@ -104,8 +104,8 @@ answer different questions.
 | SEP-10 child-account memo | The auth JWT | *Which borrower is this session?* |
 | SEP-24 request `memo` | The Stellar payment MoneyGram makes | *Which loan is being settled?* |
 
-The **child-account memo** is `stellaranchor.ChildAccountMemo(seed, index)` —
-a sha256 derivation namespaced by the key it is seeded with. It is seeded from
+The **child-account memo** is `stellaranchor.ChildAccountMemo(seed, index)`, a
+sha256 derivation namespaced by the key it is seeded with. It is seeded from
 the **auth wallet** (`MONEYGRAM_AUTH_SECRET`), *not* the treasury. The poller
 seeds it the same way. Seeding the two sides differently puts the deposit in a
 memo space the poller never queries, so the borrower could pay and nothing would
@@ -115,7 +115,7 @@ ever see it. The two are identical by default because both env vars fall back to
 The **deposit memo** is the loan reference (falling back to the loan ID),
 truncated to MEMO_TEXT's 28 bytes. Every borrower's deposit lands on the one
 treasury address, so without it the payments are told apart only by amount and
-timing. It is optional in the spec and MoneyGram may drop it — `deposit_memo` on
+timing. It is optional in the spec and MoneyGram may drop it, `deposit_memo` on
 the polled transaction reports what was actually attached. **Confirmed honoured
 on testnet:** MoneyGram echoes back `deposit_memo` and `deposit_memo_type=text`.
 
@@ -139,8 +139,8 @@ and MoneyGram issues two different artifacts at two different times.
 | `more_info_url` | The field the spec designates for telling a user how to start a deposit. Populated from the first poll onward. |
 
 So the reference alone could never arrive in time. `sendPayInstructionsOnce`
-prefers the reference — a code a borrower can read out beats a link they must
-open on a feature phone — and falls back to the transaction page.
+prefers the reference. A code a borrower can read out beats a link they must
+open on a feature phone, and falls back to the transaction page.
 
 Two properties of this send worth knowing:
 
@@ -150,7 +150,7 @@ Two properties of this send worth knowing:
   retried every tick for the rest of the window. The consequence is that a
   failure here is *terminal* for the loan: no later tick retries, and the deposit
   sits open until it lapses with the borrower never told how to use it. That is
-  why `notifyPayInstructions` raises an ops alert naming the remedy — clear
+  why `notifyPayInstructions` raises an ops alert naming the remedy, clear
   `repayment_reference_sent` and the next tick resends.
 
 The more-info link is shortened before it is sent. The notifier tries dub on
@@ -159,7 +159,7 @@ MoneyGram's raw URL, then falls back to our own `/r/{code}` redirect using
 
 ---
 
-## Poller lifecycle — what each status does
+## Poller lifecycle, what each status does
 
 | MG status | What we do |
 |---|---|
@@ -167,7 +167,7 @@ MoneyGram's raw URL, then falls back to our own `/r/{code}` redirect using
 | `pending_user_transfer_start` | Committed: agent chosen, walking to the counter. They tend to pay within the hour, so active backoff. |
 | `completed` | Cash reached the treasury as USDC. Notify, then settle the vault leg. See below. |
 | `refunded` | MoneyGram returned the borrower's cash. Their money is back and the loan is untouched, so this **ends the rail rather than failing a debt**. |
-| `too_small` / `too_large` | Our own corridor gate should have prevented these. Alert *and* fail — it means the amount gate and MoneyGram's limits disagree. |
+| `too_small` / `too_large` | Our own corridor gate should have prevented these. Alert *and* fail. It means the amount gate and MoneyGram's limits disagree. |
 | `expired` / `no_market` / `error` | Fail the rail. No funds moved. |
 | `on_hold` | MoneyGram is doing extra checks. Alert ops, change nothing, active backoff. |
 | `pending_*` (anchor, external, stellar, trust, user, user_transfer_complete) | In flight on someone else's side. Active backoff. |
@@ -196,7 +196,7 @@ MoneyGram's real 24-hour deadline that would fire the reminder at the moment of
 initiation, saying nothing the borrower was not just told.
 
 So the lead is capped at a quarter of the window that actually applies, measured
-from `started_at` — not from the time remaining, which would make the threshold
+from `started_at`, not from the time remaining, which would make the threshold
 chase itself and only ever be met at expiry.
 
 ---
@@ -212,9 +212,9 @@ transfer is our leg, and a retry on it is not something they should hear about.
 Then two preconditions, each of which withholds the vault leg and alerts rather
 than guessing:
 
-- **No borrower address** — we could still call plain `repay`, but that silently
+- **No borrower address**. We could still call plain `repay`, but that silently
   drops the attribution the whole rail exists to produce.
-- **No locked payoff** — nothing to repay.
+- **No locked payoff**, nothing to repay.
 
 Then `repay_for(borrower, amount)` on the Vault. The treasury is the payer; the
 borrower authorises nothing and the address is carried onto the `Repaid` event
@@ -235,20 +235,20 @@ when a *human is told*, not when to stop. Past the ceiling the retry slows to
 `DepositVaultRetryBackoff` (default 1h), because by then the cause is unlikely
 to clear on its own and hammering a broken RPC every two minutes helps nobody.
 
-Attempts only ever increment, so the alert fires on `==` rather than `>=` —
-alerting on `>=` would page ops on every subsequent tick.
+Attempts only ever increment, so the alert fires on `==` rather than `>=`.
+Alerting on `>=` would page ops on every subsequent tick.
 
 The count is persisted (`repayment_vault_attempts`) so a restart does not reset
 the ceiling.
 
-### The fee discrepancy — open question
+### The fee discrepancy, open question
 
 SEP-24 defines `amount_out` as `amount_in` less `fee.total`, so a fee-bearing
-corridor credits the treasury with **less than the borrower was quoted** —
+corridor credits the treasury with **less than the borrower was quoted**.
 MoneyGram charges 3.00 USD on a 23.40 deposit in the sandbox.
 
 `checkDepositShortfall` reports this and does not act on it. The repay still
-uses the quoted payoff, which means the treasury absorbs any difference — a slow
+uses the quoted payoff, which means the treasury absorbs any difference, a slow
 drain rather than a visible failure, hence the ops alert.
 
 Whether `amount_out` is genuinely net of the fee is **unconfirmed**: the only
@@ -283,7 +283,7 @@ All on `loans`, in the credit module's
 | `funds_received` | **Live.** USDC on the treasury, vault leg not yet confirmed. The borrower has been told. |
 | `settled` | Terminal. Vault leg confirmed. The only state that flips `loans.status` to `repaid`. |
 | `expired` | Terminal. Window elapsed unpaid; the lock is released and the borrower owes what they owed before. |
-| `failed` | Terminal. The rail failed **before funds moved**. Never used for a failed vault leg — money on the treasury stays at `funds_received` so reconciliation keeps retrying. |
+| `failed` | Terminal. The rail failed **before funds moved**. Never used for a failed vault leg, money on the treasury stays at `funds_received` so reconciliation keeps retrying. |
 
 `repayment_status` and `loans.status` are allowed to disagree for a window:
 `funds_received` deliberately does not flip the loan to `repaid`, because the
@@ -309,7 +309,7 @@ Under `MoneyGramConfig` ([`config.go`](../../pkg/config/config.go)), from
 ### Watching a deposit move in development
 
 The three backoff overrides exist for this. Setting `REPAYMENT_POLL_INTERVAL`
-alone does nothing for a row parked 30 minutes out — it changes how often the
+alone does nothing for a row parked 30 minutes out. It changes how often the
 runner asks, not what it gets back. Set the backoffs:
 
 ```
@@ -327,14 +327,14 @@ defaults in place rather than config restating them.
 
 | Symptom | What it means | Action |
 |---|---|---|
-| `Repayment instructions not delivered` alert | The pay-instructions SMS failed and the marker is already spent. The borrower will never be told how to pay. | **Manual** — clear `repayment_reference_sent_at` on the loan; the next tick resends. |
-| `Repayment settled on-chain but not recorded` | `repay_for` landed but the row did not update. | **Urgent, manual** — record the settlement by hand. Do not let the loan be repaid again. |
+| `Repayment instructions not delivered` alert | The pay-instructions SMS failed and the marker is already spent. The borrower will never be told how to pay. | **Manual**, clear `repayment_reference_sent_at` on the loan; the next tick resends. |
+| `Repayment settled on-chain but not recorded` | `repay_for` landed but the row did not update. | **Urgent, manual**, record the settlement by hand. Do not let the loan be repaid again. |
 | `Repayment vault leg stuck` | `repay_for` has failed 10 times. Borrower paid, their USDC is on the treasury, loan still open. | Investigate the RPC / vault. The retry continues on its own at 1h. |
 | `Repayment deposit short of the quoted payoff` | MoneyGram credited less than quoted; the treasury is absorbing the difference. | See [§ The fee discrepancy](#the-fee-discrepancy--open-question). Collect evidence before changing behaviour. |
-| `Repayment missing borrower address` / `missing locked payoff` | Funds received but the vault leg cannot be attributed or sized. | **Manual** — backfill the loan row; the next tick proceeds. |
+| `Repayment missing borrower address` / `missing locked payoff` | Funds received but the vault leg cannot be attributed or sized. | **Manual**, backfill the loan row; the next tick proceeds. |
 | `MoneyGram deposit outside anchor limits` | `too_small` / `too_large`. Our corridor gate disagrees with MoneyGram's. | Reconcile `corridor.go` against MoneyGram's published limits. |
 | `MoneyGram deposit on hold` | Compliance check. | Coordinate with MoneyGram. Nothing to do locally. |
-| `loan has no phone number to notify` | The loan row was loaded without its user association. | Fixed — `GetByID` now preloads `User`. If it recurs, check for a new `Get*` that does not. |
+| `loan has no phone number to notify` | The loan row was loaded without its user association. | Fixed, `GetByID` now preloads `User`. If it recurs, check for a new `Get*` that does not. |
 
 ---
 
@@ -351,8 +351,8 @@ defaults in place rather than config restating them.
 
 ## Related
 
-- [On-ramp overview](./README.md) — shared conventions across cash-in rails.
-- [MoneyGram cash pickup](../offramp/moneygram.md) — the same anchor, the other
+- [On-ramp overview](./README.md), shared conventions across cash-in rails.
+- [MoneyGram cash pickup](../offramp/moneygram.md): the same anchor, the other
   direction: SEP-24 withdrawal, treasury send, and refund settlement.
-- [Soroban / Vault](../soroban/vault.md) — `repay_for`, the call this rail
+- [Soroban / Vault](../soroban/vault.md), `repay_for`, the call this rail
   triggers on-chain.

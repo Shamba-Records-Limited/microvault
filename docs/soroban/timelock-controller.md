@@ -35,7 +35,7 @@ Roles are stored as `Symbol` constants and managed by the `stellar-access::acces
 | Proposer | `"proposer"` | Addresses passed in `proposers` at construction | Call `schedule_op` to queue new operations. |
 | Canceler | `"canceler"` (one `l`) | Auto-granted to every proposer at construction | Call `cancel_op` on operations in the `Waiting` state. |
 | Executor | `"executor"` | Addresses passed in `executors` at construction | Call `execute_op` on `Ready` operations. **If `executors` is empty, anyone can execute.** |
-| Admin | — | `admin` argument at construction (defaults to the contract itself) | Call `update_delay` and `upgrade`. When the contract is its own admin, these calls must themselves be timelocked. |
+| Admin |, | `admin` argument at construction (defaults to the contract itself) | Call `update_delay` and `upgrade`. When the contract is its own admin, these calls must themselves be timelocked. |
 
 The on-chain symbol is `canceler` with a single `l` to match the OpenZeppelin Stellar Contracts naming. CLI calls and role checks must use that spelling exactly.
 
@@ -213,5 +213,5 @@ stellar contract invoke --id $TIMELOCK_ID --source deployer --network-passphrase
 - **The role symbol is `canceler` (one `l`).** The English word has two; the on-chain symbol has one. Mismatching this in role-grant or role-check calls produces silent permission failures.
 - **No executors configured = open execution.** If you deploy with `executors: []`, anyone can call `execute_op` on a `Ready` operation. This is sometimes intentional (e.g. for fully decentralized execution after the delay), but combined with proposers-only-as-cancelers it means a single proposer compromise plus the configured delay is enough for an attacker to drain owner-gated functions. Default to a curated executor set for production.
 - **Self-administration leaves no instant escape hatch.** When `admin = None`, `update_delay` and `upgrade` on the controller itself can only run via a full timelocked round-trip. Plan deploys carefully: you cannot shorten the delay or upgrade in an emergency without first scheduling and waiting.
-- **Same `(target, function, args, predecessor, salt)` is single-shot.** After `execute_op` marks the slot `Done`, the same tuple cannot be scheduled again. This is by design — it is what makes the operation ID a stable handle — but it means rerunning an operation requires a fresh salt.
+- **Same `(target, function, args, predecessor, salt)` is single-shot.** After `execute_op` marks the slot `Done`, the same tuple cannot be scheduled again. This is by design. It is what makes the operation ID a stable handle, but it means rerunning an operation requires a fresh salt.
 - **`__check_auth` only validates contexts that target this controller.** Any auth context routed elsewhere panics with `TimelockError::Unauthorized`. This is what prevents a scheduled op against the vault from also being usable as authorization for a different contract in the same transaction.

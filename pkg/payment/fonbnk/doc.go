@@ -87,7 +87,4 @@
 // the quote. In sandbox only, the quote's fieldsToCreateOrder carries
 // depositSandboxForcedFlow and payoutSandboxForcedFlow to force an outcome;
 // which values a leg accepts varies, so read the field's own options.
-//
-// Design notes and the corridor decisions behind this package are in the
-// knowledge vault at Microvault/fonbnk-onramp-offramp-implementation.md.
 package fonbnk
