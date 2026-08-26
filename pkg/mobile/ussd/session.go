@@ -17,7 +17,6 @@ import (
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
-// NewSessionManager creates a new session manager
 // ErrSessionNotFound marks a session that is genuinely absent from the cache,
 // as distinct from a cache that cannot be read. Both end the borrower's turn,
 // but only one of them is an outage.

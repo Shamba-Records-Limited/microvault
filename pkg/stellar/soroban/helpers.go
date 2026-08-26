@@ -126,12 +126,6 @@ func scValToU64(val xdr.ScVal) (uint64, error) {
 
 // extractEventField parses the transaction result metadata XDR and returns the
 // named field of a contract event emitted by the vault.
-//
-// Events declared with #[contractevent] publish the snake_cased struct name as
-// topic[0] and their fields as data. The SDK's default data format is a map
-// keyed by field name; vecIndex covers the vec format, where fields appear in
-// declaration order. Supports both V3 (events in SorobanMeta) and V4 (events at
-// top level) metadata.
 func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, vecIndex int) (xdr.ScVal, error) {
 	errb := decodeErr("extract_event").With("event", eventName).With("field", fieldName)
 

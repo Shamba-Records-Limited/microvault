@@ -36,11 +36,6 @@ const (
 
 // FXRate is a single rate entry returned by GET /fx-rate/v1/rates for one
 // (origin, sendCurrency, destination, serviceOption) corridor.
-//
-// IMPORTANT: per MoneyGram's own documentation, this rate is an *estimation*,
-// not a formal quote. It does not bind MoneyGram to honour the rate at the
-// time of pickup — the locked rate appears as `amount_out` on the SEP-24
-// transaction object after the user completes the interactive webview.
 type FXRate struct {
 	ServiceOption   string    `json:"serviceOption"`
 	SendCurrency    string    `json:"sendCurrency"`

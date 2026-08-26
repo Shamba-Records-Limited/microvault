@@ -13,11 +13,6 @@ import (
 type LoanMessage func(n contracts.LoanNotification) string
 
 // LoanTemplates holds one message renderer per loan lifecycle event.
-//
-// The copy here is deliberately brand-free: it names no company, no support
-// URL, and no USSD code, because those differ per builder and per deployment.
-// Builders supply their own wording through [WithLoanTemplates]; fields left
-// nil fall back to these defaults.
 type LoanTemplates struct {
 	Approved LoanMessage
 	Rejected LoanMessage
@@ -105,11 +100,6 @@ func DaysUntilDue(n contracts.LoanNotification) int {
 
 // ExpiresInText renders how long remains on an opened cash deposit, in whole
 // hours or days.
-//
-// Rounded down and coarse on purpose: the borrower is being told when to reach
-// an agent, and "2 days" is actionable in a way "47h 12m" is not. Returns
-// "soon" when the window has no expiry or has already passed, so the copy
-// never reads as a negative duration.
 func ExpiresInText(n contracts.LoanNotification) string {
 	if n.RepaymentExpiresAt == nil {
 		return "soon"

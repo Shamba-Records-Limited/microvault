@@ -23,12 +23,6 @@ import (
 )
 
 // ussdErr starts an error builder for USSD work.
-//
-// Almost nothing in this package returns an error: a handler must render a
-// screen, and a non-nil error aborts the session so the borrower sees nothing.
-// The exceptions are failures that make continuing impossible — a session that
-// cannot be persisted, a menu that cannot be rendered — and those are what
-// these builders are for.
 func ussdErr(op string, session *Session) oops.OopsErrorBuilder {
 	b := oops.In(pkgErrors.DomainUSSD).Tags("ussd").With(pkgErrors.AttrOperation, op)
 	if session != nil {
@@ -103,9 +97,6 @@ func safeInput(menu, input string) string {
 	return fmt.Sprintf("%q", input)
 }
 
-// NewUSSDHandler creates a new USSD handler. The pinService and
-// accountNotifier parameters may be nil; if so, PIN verification gates and
-// registration SMS notifications are silently skipped.
 // HandlerDeps are the collaborators and settings a USSDHandler needs.
 // SessionManager and MenuRegistry are required; the services may be nil, in
 // which case the flows that need them degrade to an error screen.
@@ -474,11 +465,6 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 // handleRecoverOffer handles the choice presented when registration hits an
 // already-registered national ID: recover the existing account onto this SIM,
 // or re-enter the ID (in case of a typo).
-//
-// Recovery is gated on security questions. The registered SIM is gone, so the
-// possession factor that backs a same-SIM PIN reset is absent; national ID
-// alone is semi-public and far too weak to transfer an account holding loans.
-// Without security questions this must go to a human.
 func (h *USSDHandler) handleRecoverOffer(ctx context.Context, session *Session, input string) (string, error) {
 	switch input {
 	case "1": // Recover this account on this phone
@@ -685,12 +671,6 @@ func (h *USSDHandler) handleMyDetails(ctx context.Context, session *Session, inp
 }
 
 // handleBioEdit writes one field and returns to the picker.
-//
-// Only the edited field is sent: UpdateBio ignores empty values, so the other
-// three are left untouched rather than rewritten with what the screen happened
-// to be showing. There is deliberately no way to clear a field from here — an
-// empty entry re-prompts rather than erasing, since "" is indistinguishable
-// from "leave alone" in BioUpdate.
 func (h *USSDHandler) handleBioEdit(ctx context.Context, session *Session, input string) (string, error) {
 	key, _ := session.Data["bio_field"].(string)
 	if key == "" {
@@ -817,13 +797,6 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 // delivery must never block or delay a USSD response — a slow gateway can
 // breach the turn deadline. Uses a detached context (the request ctx is
 // cancelled the moment the handler returns).
-//
-// The timeout is a leak guard, not a delivery deadline — the notifier's retry
-// sequence is finite and self-bounding, so it decides when to give up. This
-// must never cancel a send mid-sequence, since that suppresses retries that
-// were meant to run (at 15s it cancelled during the first attempt and no retry
-// ever ran). Delivery stays best effort, but a give-up is logged rather than
-// dropped — a silently lost welcome SMS looks identical to one never sent.
 func (h *USSDHandler) notifyAsync(send func(ctx context.Context) error) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -917,10 +890,6 @@ const payoutOptionCashPickup = "1"
 // without the cash-pickup option so the borrower can switch rails instead of
 // losing the session. Leaving the option on screen would just loop them back
 // here.
-//
-// It fails open: without a usable rate the loan proceeds and the anchor
-// rejects it downstream, which beats blocking every cash pickup during an FX
-// outage.
 func (h *USSDHandler) cashPickupOutOfRange(ctx context.Context, session *Session) (string, bool) {
 	if h.rateService == nil {
 		return "", false
@@ -978,11 +947,6 @@ func (h *USSDHandler) cashPickupOutOfRange(ctx context.Context, session *Session
 // terms and the PIN gate are one screen, so entering a correct PIN is both the
 // acceptance of the displayed terms and the authorization to borrow — there is
 // no separate keystroke to agree.
-//
-// Navigation is intercepted upstream: "0" steps back to the payout picker and
-// "00" abandons the flow, so anything reaching here was meant as a PIN. A
-// malformed entry re-renders the terms rather than cancelling, because
-// cancelling a loan on a typo loses the user their place in a metered session.
 func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, input string) (string, error) {
 	if h.pinService == nil {
 		return h.submitLoan(ctx, session)
@@ -1176,11 +1140,6 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 // than rendering it on screen. A statement runs to reference, amount and due
 // date, which crowds a 160-character USSD display and is gone the moment the
 // session ends; an SMS stays on the handset to refer back to at an agent.
-//
-// Only the most recent loan is sent. The product allows one active loan at a
-// time — a borrower clears it before drawing again — so the newest record is
-// the one that matters. GetUserLoans returns newest first (the repository
-// orders by created_at DESC), so that is index 0.
 func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (string, error) {
 	if h.loanService == nil {
 		return h.formatResponse(session.Language, "END", "no_loans"), nil
@@ -1237,15 +1196,6 @@ func isQuotable(status string) bool {
 }
 
 // loanStatement builds the notification the statement SMS renders from.
-//
-// The amount is the live payoff figure from GetRepaymentQuote, not the sum
-// disbursed: principal scaled by the vault's borrow_index growth since
-// origination, plus any fees the quote already folds in. Anything added to
-// that quote later — administrative fees, taxes — reaches this SMS without
-// touching it. Quoting hard-fails rather than falling back to a stale figure,
-// so a borrower is never told they owe a number nobody stands behind.
-//
-// Reports false when the record has no reference or the quote is unavailable.
 func (h *USSDHandler) loanStatement(ctx context.Context, session *Session, loan any) (contracts.LoanNotification, bool) {
 	loanMap, ok := loan.(map[string]any)
 	if !ok {
@@ -1328,21 +1278,12 @@ type repayLoanChoice struct {
 // cashRailEligible reports whether this payoff sits inside MoneyGram's cash-in
 // corridor. Both ends are theirs, so a payoff outside the range is refused at
 // their counter rather than by us, after the borrower has already travelled.
-//
-// Checked against the payoff rather than the principal: interest and the
-// service fee put the amount owed above the amount drawn, so a loan inside the
-// range at disbursement can be outside it at repayment.
 func (c repayLoanChoice) cashRailEligible() bool {
 	return c.PayoffStroops >= MinMoneyGramDepositStroops &&
 		c.PayoffStroops <= MaxMoneyGramDepositStroops
 }
 
 // newestRepayableLoan returns the borrower's most recent outstanding loan.
-//
-// One loan, not a list. The product allows a single active loan at a time — a
-// borrower clears it before drawing again — so a selection screen would offer a
-// choice that does not exist. This mirrors handleMyLoans, which takes index 0
-// of the same newest-first ordering. Revisit when concurrent loans ship.
 func (h *USSDHandler) newestRepayableLoan(ctx context.Context, session *Session) (repayLoanChoice, bool, error) {
 	loans, err := h.loanService.GetUserLoans(ctx, session.UserID)
 	if err != nil {
@@ -1437,10 +1378,6 @@ func (h *USSDHandler) handleRepayRail(ctx context.Context, session *Session, inp
 }
 
 // startCashRepayment locks the payoff and opens a MoneyGram cash deposit.
-//
-// The session ends here. The interactive URL cannot be followed from a USSD
-// screen and the borrower needs it after hanging up, so it goes by SMS and
-// this screen only says so.
 func (h *USSDHandler) startCashRepayment(ctx context.Context, session *Session, chosen repayLoanChoice) (string, error) {
 	if h.loanService == nil {
 		return h.formatError(session.Language, "error"), nil
@@ -1471,17 +1408,6 @@ func (h *USSDHandler) showPaybill(session *Session, chosen repayLoanChoice) (str
 }
 
 // formatOwed renders what the borrower owes, in their own currency.
-//
-// Local currency, not USDC: a borrower reads KES, and the quote already
-// carries a converted figure sourced from the FX cascade — MoneyGram's rate
-// when its credentials are configured, YellowCard's otherwise.
-//
-// It remains an estimate. MoneyGram converts the cash at its own counter rate,
-// so the agent's figure can differ; the SEP-24 deposit itself is denominated in
-// USDC and that is what settles the loan.
-//
-// Falls back to USDC when the quote carries no local figure, which is what a
-// failed FX cascade leaves behind.
 func formatOwed(quote *RepaymentQuote) string {
 	if quote == nil {
 		return "\u2014"

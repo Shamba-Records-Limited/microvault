@@ -27,10 +27,8 @@ func relayErr(op string) oops.OopsErrorBuilder {
 // builder's own source reports failures in the same domain as the platform's.
 func SourceErr(op string) oops.OopsErrorBuilder { return relayErr(op) }
 
-// RateRequest asks every source to price one corridor at one amount.
-//
-// Amount is always in crypto units. Fees are banded, so a rate is only
-// meaningful against the amount actually being moved.
+// RateRequest asks every source to price one corridor. CryptoAmount is always
+// in crypto units; fees are banded, so a rate needs the real amount.
 type RateRequest struct {
 	Direction    string
 	FiatCurrency string
@@ -54,11 +52,8 @@ func (r RateRequest) validate(errb oops.OopsErrorBuilder) error {
 	return nil
 }
 
-// RateQuote is one provider's price for a corridor at a specific amount.
-//
-// EffectiveRate is fiat per unit of crypto after every fee on both legs:
-// maximise it on an off-ramp, minimise it on an on-ramp. It is never a
-// provider's headline rate.
+// RateQuote is one provider's price for a corridor. EffectiveRate is fiat per
+// unit of crypto after all fees — never a provider's headline rate.
 type RateQuote struct {
 	Provider      string
 	Direction     string
@@ -87,12 +82,8 @@ type RateSource interface {
 	QuoteRate(ctx context.Context, req RateRequest) (*RateQuote, error)
 }
 
-// DirectionalSource narrows a source to the directions it can actually price.
-//
-// Optional: a source that does not implement it is asked for every direction.
-// Implement it on a one-way rail — MoneyGram cash pickup pays out but cannot
-// collect — so the Router skips the call instead of logging a failure per
-// transaction.
+// DirectionalSource narrows a source to the directions it can price. Optional:
+// a source that does not implement it is asked for every direction.
 type DirectionalSource interface {
 	RateSource
 	SupportsDirection(direction string) bool
@@ -178,11 +169,8 @@ func (r *Router) DefaultProvider() string { return r.defaultProvider }
 // Enabled reports whether routing is on.
 func (r *Router) Enabled() bool { return r.enabled }
 
-// Best returns the winning quote for a corridor.
-//
-// With routing off it quotes only the default provider, so turning the switch
-// off is always safe under load. With routing on a single source failing is
-// tolerated; every source failing is not.
+// Best returns the winning quote for a corridor. Routing off quotes only the
+// default provider; routing on tolerates one source failing, not all.
 func (r *Router) Best(ctx context.Context, req RateRequest) (*RateQuote, error) {
 	errb := relayErr("best").
 		With(pkgErrors.AttrDirection, req.Direction).
@@ -231,12 +219,8 @@ func (r *Router) Best(ctx context.Context, req RateRequest) (*RateQuote, error) 
 	return &best, nil
 }
 
-// BestWithinMargin is Best plus the round-trip guard.
-//
-// It quotes the opposite direction as well and refuses when selling would
-// yield less than buying costs, by more than MinRoundTripMarginPct. Doubles
-// the quote calls, so it belongs on treasury-scale movements rather than on
-// every borrower transaction.
+// BestWithinMargin is Best plus the round-trip guard. Doubles the quote calls,
+// so it suits treasury-scale movements rather than every transaction.
 func (r *Router) BestWithinMargin(ctx context.Context, req RateRequest) (*RateQuote, error) {
 	best, err := r.Best(ctx, req)
 	if err != nil {

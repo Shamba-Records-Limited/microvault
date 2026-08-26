@@ -68,9 +68,6 @@ func NewChallengeService(authConfig *config.AuthConfig, stellarConfig *config.St
 // GenerateChallenge creates a new Stellar transaction challenge for authentication.
 // The generated transaction contains a random nonce and must be signed by the admin's
 // private key to prove ownership. The transaction is never submitted to the network.
-//
-// Returns a Challenge containing the transaction envelope and metadata, or an error
-// if challenge generation or storage fails.
 func (s *challengeService) GenerateChallenge() (*Challenge, error) {
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
@@ -149,9 +146,6 @@ func (s *challengeService) GenerateChallenge() (*Challenge, error) {
 //  1. The challenge exists and hasn't expired
 //  2. The transaction matches the original challenge
 //  3. The transaction is signed by the admin's private key
-//
-// The challenge is deleted after verification to prevent reuse (replay attacks).
-// Returns an error if any validation step fails.
 func (s *challengeService) VerifySignedChallenge(challengeID, signedTxB64 string) error {
 	challenge, err := s.store.Get(challengeID)
 	if err != nil {

@@ -62,9 +62,6 @@ func legSpecFrom(leg QuoteLeg, amount *float64) LegSpec {
 
 // ConfirmOrder reports that the user has paid. Only an order in
 // deposit_awaiting can be confirmed; confirming twice is an error.
-//
-// Pass the deposit's transferInstructions.fieldsToConfirmOrder — a crypto
-// deposit wants blockchainTransactionHash.
 func (a *FonbnkAdapter) ConfirmOrder(ctx context.Context, orderID string, fields map[string]string) (*Order, error) {
 	body := struct {
 		OrderID              string            `json:"orderId"`
@@ -86,10 +83,6 @@ func (a *FonbnkAdapter) CancelOrder(ctx context.Context, orderID string) (*Order
 
 // TriggerIntermediateAction sends a new STK push, or submits the OTP that
 // unlocks one.
-//
-// Only valid on stk_push, otp_stk_push and redirect deposits. Calling it once
-// attempts have reached the cap expires the order, so callers must gate on
-// TransferInstructions.CanRetryIntermediateAction first.
 func (a *FonbnkAdapter) TriggerIntermediateAction(ctx context.Context, orderID string, fields map[string]string) (*Order, error) {
 	body := struct {
 		OrderID                     string            `json:"orderId"`

@@ -17,15 +17,8 @@ import (
 // unrelated error whose text happened to contain "locked" wrongly triggered it.
 // stellartypes.ErrSharesLocked ("shares are locked") is exactly such an error
 // and is reachable from this codebase.
-//
-// These tests pin the behaviour to errors.Is so neither can happen again.
 
 // pinVerifyHandlers are the entry points that gate on a verified PIN.
-//
-// Loan origination prompts on the loan_confirm screen beside the terms rather
-// than on a menu of its own. Repayment has no gate at all: nothing leaves the
-// borrower's wallet as a result of the USSD session, and a forgotten PIN must
-// not become a reason not to repay.
 func pinVerifyHandlers(h *USSDHandler) map[string]func(context.Context, *Session, string) (string, error) {
 	return map[string]func(context.Context, *Session, string) (string, error){
 		"loan_confirm": h.handleLoanConfirm,

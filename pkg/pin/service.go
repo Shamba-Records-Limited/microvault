@@ -69,10 +69,6 @@ type QuestionAnswer struct {
 }
 
 // pinErr starts an error builder for PIN operations.
-//
-// Lockouts carry a Public message: the borrower reads it on a feature phone,
-// so it must be GSM-7 clean and say nothing technical. Everything else stays
-// developer-facing.
 func pinErr(op string) oops.OopsErrorBuilder {
 	return oops.In(pkgErrors.DomainIdentity).Tags("pin").With(pkgErrors.AttrOperation, op)
 }
@@ -80,9 +76,6 @@ func pinErr(op string) oops.OopsErrorBuilder {
 // Service provides PIN management operations including creation, verification,
 // change, reset, and security question handling. It sends SMS notifications
 // as side effects of certain operations via an [contracts.AccountNotifier].
-//
-// All methods that access the database accept a [context.Context] for
-// cancellation and timeout propagation.
 type Service struct {
 	userRepo    repository.UserRepository
 	sqRepo      *SecurityQuestionRepository
@@ -115,9 +108,6 @@ func NewService(
 	}
 }
 
-// SetPIN creates a PIN for a user who does not yet have one. The PIN is
-// validated for strength, hashed with bcrypt, and stored. Returns a
-// validation error if the PIN is weak.
 // HashPIN validates a raw PIN and returns its bcrypt hash at the shared
 // BcryptCost. It is the single entry point for turning a PIN into a stored
 // hash — used by SetPIN, ResetPIN, and atomic registration — so PIN validation
@@ -163,9 +153,6 @@ func (s *Service) SetPIN(ctx context.Context, userID, pin string) error {
 // increments the attempt counter and sends an SMS notification. If the
 // maximum attempts are exceeded the account is locked and a lockout
 // notification is sent.
-//
-// Returns (true, nil) on success, (false, nil) on wrong PIN (with side
-// effects), or (false, error) on system errors or if the account is locked.
 func (s *Service) VerifyPIN(ctx context.Context, userID, pin string) (bool, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
@@ -449,8 +436,6 @@ func formatLockDuration(until time.Time) string {
 	return fmt.Sprintf("%d minutes", mins)
 }
 
-// handleFailedAttempt increments the attempt counter, optionally locks the
-// account, persists the change, and sends the appropriate SMS notification.
 // notifyAsync sends an account notification off the caller's request path. PIN
 // operations run on the USSD turn, where a slow SMS gateway would otherwise
 // block the response and risk breaching the USSD deadline. Uses a detached

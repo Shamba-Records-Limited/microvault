@@ -182,9 +182,6 @@ type ChargedFee struct {
 }
 
 // Cashout is the pricing of one leg.
-//
-// ExchangeRateAfterFees is amountBeforeFees/amountAfterFeesUsd — a per-leg
-// figure, not what the user pays or receives. Use EffectiveRate on Quote.
 type Cashout struct {
 	Rate                       float64            `json:"exchangeRate"`
 	RateAfterFees              float64            `json:"exchangeRateAfterFees"`
@@ -392,9 +389,6 @@ type LegSpec struct {
 
 // QuoteDepositLeg is a quote's deposit side. TransferType pins the deposit
 // shape and narrows the offer search; leaving it unset lets Fonbnk choose.
-//
-// Fonbnk rejects unknown keys, so this field exists on the quote deposit leg
-// only.
 type QuoteDepositLeg struct {
 	LegSpec
 	TransferType string `json:"transferType,omitempty"`
@@ -433,10 +427,6 @@ func (q Quote) Direction() string {
 
 // EffectiveRate is the fiat that changes hands per unit of crypto, after fees
 // on both legs. Maximise it on an off-ramp, minimise it on an on-ramp.
-//
-// This is the figure to compare across providers. Cashout.RateAfterFees is
-// not: it mixes a pre-fee local amount with a post-fee USD one and moves
-// opposite to the user's outcome.
 func (q Quote) EffectiveRate() (float64, bool) {
 	switch q.Direction() {
 	case OrderTypeOffRamp:

@@ -190,3 +190,19 @@ type MobileMoneyNetwork struct {
 	Code   string
 	Status string
 }
+
+// LocalCurrency maps a country to the currency its rails settle in, or "" when
+// the corridor is unsupported.
+func LocalCurrency(countryCode string) string {
+	switch countryCode {
+	case "KE":
+		return "KES"
+	case "NG":
+		return "NGN"
+	case "GH":
+		return "GHS"
+	case "UG":
+		return "UGX"
+	}
+	return ""
+}

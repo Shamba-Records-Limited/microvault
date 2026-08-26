@@ -113,11 +113,6 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, childMemo int64, req Wi
 
 // InitiateDeposit fetches a JWT for childMemo and calls Anchor.InitiateDeposit,
 // with the same 401-retry semantics as InitiateWithdrawal.
-//
-// The memo is what attributes the deposit. MoneyGram chooses the deposit_memo
-// on the inbound payment and we cannot make it carry ours, so the borrower is
-// identified by the SEP-10 session the transaction was created under — which is
-// exactly what childMemo scopes.
 func (c *Client) InitiateDeposit(ctx context.Context, childMemo int64, req DepositRequest) (*DepositResponse, error) {
 	jwt, err := c.JWTCache.Get(ctx, childMemo)
 	if err != nil {

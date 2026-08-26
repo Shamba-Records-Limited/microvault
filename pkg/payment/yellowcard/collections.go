@@ -15,13 +15,8 @@ import (
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
-// Collections are YellowCard's pay-in direction: funds move from a payer's
-// bank or mobile-money account into our YellowCard balance. The endpoints sit
-// under /receive — YellowCard renamed Collections to Receives alongside the
-// Payments-to-Sends rename, and only the current paths are wired here.
-//
-// This file is the client surface only. Nothing in the platform consumes it
-// yet.
+// Collections are YellowCard's pay-in direction, served by the /receive
+// endpoints. See doc.go.
 
 // collectionErr starts an error builder for one collection call, scoped to the
 // collection it is about. Every failure below therefore names both the
@@ -30,15 +25,8 @@ func collectionErr(op, collectionID string) oops.OopsErrorBuilder {
 	return ycErr(op).With(pkgErrors.AttrCollectionID, collectionID)
 }
 
-// collectionCall performs one JSON request against the collections API and
-// decodes the response.
-//
-// The send-side methods in yellowcard.go each inline this sequence. Repeating
-// it another eight times for one direction is not worth the symmetry, so the
-// collection methods share it. Signed and decoded identically either way.
-//
-// errb carries the operation and identifiers, so the caller decides what an
-// on-call engineer sees rather than this function guessing.
+// collectionCall performs one signed JSON request and decodes the response.
+// errb carries the operation and identifiers the failure should name.
 func collectionCall[T any](ctx context.Context, y *YellowcardAdapter, errb oops.OopsErrorBuilder, method, endpoint string, body any) (*T, error) {
 	var reader io.Reader = http.NoBody
 	if body != nil {
@@ -71,23 +59,15 @@ func collectionCall[T any](ctx context.Context, y *YellowcardAdapter, errb oops.
 	return &out, nil
 }
 
-// SubmitCollection opens a collection request, locking in a rate.
-//
-// ForceAccept is set unconditionally. Left false, YellowCard parks the request
-// in pending_approval awaiting an explicit accept, and that window expires
-// after five minutes in production and ten in sandbox. Nothing here has a
-// human in the loop — the payer has already committed to the amount — so an
-// approval step can only fail the collection.
+// SubmitCollection opens a collection request, locking in a rate. ForceAccept
+// is set unconditionally so the request never parks in pending_approval.
 func (y *YellowcardAdapter) SubmitCollection(ctx context.Context, req CollectionRequest) (*Collection, error) {
 	req.ForceAccept = true
 	return collectionCall[Collection](ctx, y, ycErr("submit_collection").With(pkgErrors.AttrSequenceID, req.SequenceID), http.MethodPost, "/receive", req)
 }
 
-// AcceptCollection approves a collection request for execution.
-//
-// SubmitCollection sets forceAccept, so a collection opened through this
-// client never reaches pending_approval and never needs this. It is wrapped
-// for requests submitted elsewhere.
+// AcceptCollection approves a collection request. Unreachable for collections
+// opened here, which force-accept; wrapped for requests submitted elsewhere.
 func (y *YellowcardAdapter) AcceptCollection(ctx context.Context, collectionID string) (*Collection, error) {
 	return collectionCall[Collection](ctx, y, collectionErr("accept_collection", collectionID), http.MethodPost, "/receive/"+collectionID+"/accept", nil)
 }

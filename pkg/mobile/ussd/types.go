@@ -211,14 +211,6 @@ type LoanService interface {
 }
 
 // MoneyGram's production on-ramp bounds, in stroops.
-//
-// Both are hard limits on their side, so a payoff outside the range cannot use
-// the cash rail at all and the repay menu offers mobile money alone. A KES
-// 1,000 loan is roughly 7 USDC, well inside the excluded range at the bottom.
-//
-// Derived from the USD constants rather than written out again: the floor was
-// previously spelled here in stroops and in moneygram.MinWithdrawUSD in
-// dollars, which is two places for one number to be updated.
 const (
 	MinMoneyGramDepositStroops int64 = int64(moneygram.MinDepositUSD * 1e7)
 	MaxMoneyGramDepositStroops int64 = int64(moneygram.MaxDepositUSD * 1e7)

@@ -190,9 +190,6 @@ func (s *service) repay(ctx context.Context, borrowerAddress string, amount int6
 // BumpYield contributes treasury-held assets to the vault without minting
 // shares, raising the value of every existing share. Used to return interest
 // earned on loans the vault stopped counting as borrowed at disbursement.
-//
-// A plain USDC transfer to the contract has the same effect on share price;
-// this call exists so the contribution is attributable and countable on-chain.
 func (s *service) BumpYield(ctx context.Context, req types.BumpYieldRequest) (*types.BumpYieldResponse, error) {
 	const fnName = "bump_yield"
 

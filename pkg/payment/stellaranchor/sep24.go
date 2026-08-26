@@ -175,10 +175,6 @@ type FeeDetail struct {
 
 // Refunds describes money returned to the user for a transaction. For a
 // withdrawal this is the anchor sending our USDC back on Stellar.
-//
-// Amounts are denominated in amount_in_asset (USDC for our withdrawals) and
-// are the anchor's own account of what it did. They are not reliable enough to
-// settle against — read NetRefundedStroops before using them.
 type Refunds struct {
 	AmountRefunded string          `json:"amount_refunded"`
 	AmountFee      string          `json:"amount_fee"`
@@ -223,15 +219,6 @@ func (r *Refunds) StellarPayments() []RefundPayment {
 
 // NetRefundedStroops is the anchor's stated refund total in stroops, taken as
 // AmountRefunded less AmountFee.
-//
-// Treat this as a cross-check, never as the amount to settle against. It is
-// only as good as the anchor's bookkeeping, and MoneyGram's does not hold:
-// it reports AmountRefunded already net of the withdrawal fee and then repeats
-// that fee in AmountFee, so this subtracts it twice and understates what MG
-// actually sent. Take the figure that moves money from the ledger.
-//
-// Parsing is exact — SEP-24 amounts are decimal strings and float conversion
-// would lose stroops on values like "49.9999999".
 func (r *Refunds) NetRefundedStroops() (int64, error) {
 	if r == nil {
 		return 0, nil
@@ -322,10 +309,6 @@ func (c *AnchorClient) InitiateWithdrawal(ctx context.Context, jwt string, req W
 // InitiateDeposit calls POST /transactions/deposit/interactive with the given
 // JWT (from AuthClient/JWTCache), the USDC amount, and any prefilled SEP-9
 // customer fields. Returns the interactive URL and MG transaction ID.
-//
-// Amount is denominated in USDC, not local currency: MoneyGram converts the
-// cash the user hands over at its own rate at the counter, so a local-currency
-// figure quoted before this call is an estimate the agent may contradict.
 func (c *AnchorClient) InitiateDeposit(ctx context.Context, jwt string, req DepositRequest) (*DepositResponse, error) {
 	memoType := req.MemoType
 	if req.Memo != "" && memoType == "" {
@@ -520,11 +503,6 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 }
 
 // logDepositPayload records what an anchor actually returns for a deposit.
-//
-// The payload goes in as a nested object rather than an escaped string: a
-// quoted body has to be un-escaped by hand before anyone can read it, and
-// cannot be queried field-by-field in a log aggregator. The fields most likely
-// to be wanted are lifted alongside it so the common case needs no digging.
 func (c *AnchorClient) logDepositPayload(tx *Transaction, body []byte) {
 	attrs := []any{
 		"tx_id", tx.ID,

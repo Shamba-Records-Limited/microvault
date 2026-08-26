@@ -2,11 +2,6 @@ package stellaranchor
 
 // iso2to3 maps ISO-3166-1 alpha-2 country codes to alpha-3.
 // MoneyGram's SEP-9 address_country_code requires alpha-3.
-//
-// Limited to the corridors microvault and similar wallets are expected to
-// serve initially. Extend as new corridors come online; missing entries
-// cause CountryISO3 to return "" so callers can omit the field rather than
-// guess.
 var iso2to3 = map[string]string{
 	// East Africa
 	"KE": "KEN", "UG": "UGA", "TZ": "TZA", "RW": "RWA", "BI": "BDI", "ET": "ETH", "SS": "SSD",

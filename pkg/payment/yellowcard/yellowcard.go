@@ -234,10 +234,6 @@ func (y *YellowcardAdapter) GetRates(ctx context.Context, currency string) ([]Ra
 }
 
 // SubmitPayment sends a disbursement request to YellowCard.
-//
-// Uses the /send endpoint (formerly /payments). YellowCard renamed Payments to
-// Sends; the request/response schema is unchanged. The legacy /payments path is
-// deprecated but still functional.
 func (y *YellowcardAdapter) SubmitPayment(ctx context.Context, req PaymentRequest) (*PaymentResponse, error) {
 	endpoint := fmt.Sprintf("%s/send", y.baseURL)
 
@@ -286,9 +282,6 @@ func (y *YellowcardAdapter) SubmitPayment(ctx context.Context, req PaymentReques
 }
 
 // LookupPayment retrieves payment details by ID.
-//
-// Uses the /send/{id} endpoint (formerly /payments/{id}). See SubmitPayment for
-// the Payments→Sends rename note.
 func (y *YellowcardAdapter) LookupPayment(ctx context.Context, paymentID string) (*PaymentDetails, error) {
 	endpoint := fmt.Sprintf("%s/send/%s", y.baseURL, paymentID)
 

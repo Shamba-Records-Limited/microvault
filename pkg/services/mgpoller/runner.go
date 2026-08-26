@@ -63,11 +63,6 @@ func (f FetchFunc[T]) Fetch(ctx context.Context, limit int) ([]T, error) {
 }
 
 // Driver applies the state transition for a single record.
-//
-// Drive returns nothing on purpose. One record's failure must not abort the
-// batch — every record gets its turn each tick — so a driver logs what went
-// wrong and returns, rather than handing the runner an error it could only
-// discard anyway.
 type Driver[T any] interface {
 	Drive(ctx context.Context, rec T)
 }

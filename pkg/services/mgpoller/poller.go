@@ -1,38 +1,5 @@
 // Package mgpoller polls MoneyGram for SEP-24 transaction status changes
 // and drives the existing disbursement state machine accordingly.
-//
-// MoneyGram does not publish webhooks. The integration plan in
-// internal-docs/moneygram-integration.md §10 makes polling the canonical
-// driver for cash-pickup loans:
-//
-//  1. After InitiateWithdrawal, MG returns an interactive URL. The user
-//     opens it (delivered via SMS by the USSD layer) and completes KYC.
-//  2. MG transitions the SEP-24 transaction to pending_user_transfer_start.
-//     The poller observes this and sends USDC from treasury to MG's
-//     anchor account using the memo embedded in the tx response.
-//  3. MG processes the payment and transitions to
-//     pending_user_transfer_complete. The poller backfills the locked
-//     payout amount, currency, and cash-pickup reference number on the
-//     loan row, then SMSes the reference to the user.
-//  4. completed / refunded / expired / error are terminal; the poller
-//     transitions disbursement_status accordingly and stops polling.
-//
-// The poller mirrors pkg/webhook/refund_poller.go's lifecycle conventions:
-// Start(ctx) runs a ticker loop and exits on context cancellation.
-//
-// # Layout
-//
-// The package is split by what varies. runner.go holds Runner, which knows
-// only how to wake on a cadence, ask a Fetcher for a batch, and hand each
-// record to a Driver — nothing about which way money is moving.
-// withdrawal.go holds the cash-out state machine described above, as one
-// Driver implementation. Poller wires the two together and stays the
-// package's entry point: NewPoller, Start, and the dependency interfaces
-// declared here are unchanged by the split.
-//
-// The seam exists because the same cadence-and-batch loop drives repayment
-// cash-in, whose state machine is otherwise unrelated. Splitting it means the
-// second direction adds a Driver rather than another branch through this one.
 package mgpoller
 
 import (
@@ -120,10 +87,6 @@ type RefundRecord struct {
 
 // PaymentVerifier confirms that a Stellar transaction an anchor claims to have
 // made actually succeeded on-ledger.
-//
-// Optional: a nil verifier skips confirmation and trusts the anchor, which is
-// logged. Supplying one means we never repay the vault against a refund that
-// did not land.
 type PaymentVerifier interface {
 	TransactionSucceeded(ctx context.Context, txHash string) (bool, error)
 

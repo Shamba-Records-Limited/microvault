@@ -10,9 +10,6 @@ import (
 // mergeInto copies every non-nil func field of override onto a copy of base and
 // returns it. base and override must be pointers to the same struct type whose
 // fields are all funcs. A nil override yields base unchanged.
-//
-// Reflection keeps this to one loop rather than a nil check per event, and it
-// runs once per language at construction, never on a send path.
 func mergeInto[T any](base, override *T) *T {
 	if override == nil {
 		return base

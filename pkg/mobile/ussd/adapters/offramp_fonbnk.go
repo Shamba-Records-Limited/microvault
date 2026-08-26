@@ -101,11 +101,6 @@ func (a *FonbnkOffRampAdapter) ID() offramp.ProviderID { return offramp.Provider
 
 // Initiate opens an order, sends the treasury's USDC against it and confirms
 // the deposit.
-//
-// The order is created before any funds move, so a failure up to that point
-// leaves the treasury untouched. Once the USDC is sent the order is settled
-// whether or not the confirm call lands, which is why a failed confirm does
-// not fail the disbursement — see the Confirmed flag on the payload.
 func (a *FonbnkOffRampAdapter) Initiate(ctx context.Context, req offramp.Request) (*offramp.Result, error) {
 	opts, err := readFonbnkOptions(req.Options)
 	if err != nil {
@@ -301,20 +296,20 @@ func depositTarget(order *fonbnk.Order) (address, memo string, err error) {
 			Code(pkgErrors.CodeIncompleteResponse).Errorf("order carries no transfer instructions")
 	}
 
-	for _, detail := range instructions.TransferDetails {
-		switch detail.ID {
-		case fonbnk.DetailRecipientWalletAddress:
-			address = detail.Value
-		case detailCryptoAdditionalData:
-			memo = detail.Value
-		}
-	}
+	address = transferDetail(instructions.TransferDetails, fonbnk.DetailRecipientWalletAddress)
+	memo = transferDetail(instructions.TransferDetails, detailCryptoAdditionalData)
 	if address == "" {
 		return "", "", fonbnkAdapterErr("deposit_target").
 			With("transfer_type", instructions.Type).
 			Code(pkgErrors.CodeIncompleteResponse).Errorf("order names no recipient wallet address")
 	}
 	return address, memo, nil
+}
+
+// transferDetail reads one instruction line by id.
+func transferDetail(details []fonbnk.TransferDetail, id string) string {
+	detail, _ := lo.Find(details, func(d fonbnk.TransferDetail) bool { return d.ID == id })
+	return detail.Value
 }
 
 // detailCryptoAdditionalData carries a Stellar memo when the payout wallet
@@ -326,22 +321,7 @@ func localCurrencyFor(req offramp.Request) string {
 	if req.NetworkCode != "" && len(req.NetworkCode) == 3 {
 		return req.NetworkCode
 	}
-	return currencyForCountry(req.CountryCode)
-}
-
-// currencyForCountry maps the countries this rail serves to their currency.
-func currencyForCountry(countryCode string) string {
-	switch countryCode {
-	case "KE":
-		return "KES"
-	case "NG":
-		return "NGN"
-	case "GH":
-		return "GHS"
-	case "UG":
-		return "UGX"
-	}
-	return ""
+	return offramp.LocalCurrency(req.CountryCode)
 }
 
 // readFonbnkOptions extracts the typed fonbnk.Options from a Request.

@@ -6,13 +6,6 @@ import "errors"
 // tomlErr, authErr and anchorErr — so the error carries a domain, a code and
 // the attributes needed to diagnose it, while errors.Is against the sentinel
 // keeps working for callers that branch on the kind of failure.
-//
-// The sentinels themselves stay plain errors.New: they are the matching
-// substrate, and wrapping them here would make every consumer depend on oops
-// to compare against them.
-//
-// Anchor-specific consumers (e.g. moneygram, future SDKs) add their own domain
-// when re-wrapping, so log readers can tell which anchor failed.
 var (
 	// ErrInvalidConfig is returned by constructors when required configuration
 	// is missing or malformed.

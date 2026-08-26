@@ -3,11 +3,6 @@ package fonbnk
 import "github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 
 // Options carries Fonbnk-specific extras attached to offramp.Request.
-//
-// UserEmail and UserIP are required by Fonbnk on every order and identify the
-// end user it resolves the order against. Neither exists for a USSD borrower,
-// so the caller decides what to send — see the vault doc's open question on
-// the identity model.
 type Options struct {
 	UserEmail string
 	UserIP    string

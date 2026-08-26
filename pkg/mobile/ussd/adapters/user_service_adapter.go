@@ -301,10 +301,6 @@ func (a *UserServiceAdapter) confirmChainStatus(ctx context.Context, address str
 // transaction off the USSD request path. It uses a background context so it
 // outlives the USSD turn, retries transient failures, and records the outcome
 // on accounts.chain_status so a failure is queryable rather than log-only.
-//
-// The row is already committed by the time this runs — a failure here is not
-// rolled back. accounts.chain_status is what marks it for reconciliation, and
-// EnsureOnChainAccount is what heals it before lending.
 func (a *UserServiceAdapter) createSponsoredAccountAsync(userID, accountID string, req stellar.CreateAccountRequest) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -575,12 +571,6 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 }
 
 // deriveChildKeypair derives a child keypair using BIP44 path: m/44'/148'/accountIndex'
-//
-// accountIndex is `accounts.account_index` unmodified. Callers must not offset
-// it: the index is what identifies the key, so anything that shifts it derives
-// a valid keypair for the wrong account. Indices are also never reclaimed —
-// deleting a row does not delete the Stellar account it created — which is why
-// account_index_seq is monotonic.
 func (a *UserServiceAdapter) deriveChildKeypair(accountIndex int) (*keypair.Full, error) {
 	// BIP44 path for Stellar: m/44'/148'/accountIndex'/0'/0'
 	// All indices are hardened (') for security

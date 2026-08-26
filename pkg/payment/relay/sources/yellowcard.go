@@ -55,10 +55,6 @@ func NewYellowCardSource(cfg YellowCardSourceConfig) (*YellowCardSource, error) 
 func (s *YellowCardSource) Name() string { return YellowCardProviderName }
 
 // QuoteRate prices the corridor at the requested crypto amount.
-//
-// Rate.Sell is USD to local and Rate.Buy is local to USD, both named from the
-// customer's side, so an off-ramp reads Sell and an on-ramp reads Buy. Using
-// one for the other inverts every routing decision.
 func (s *YellowCardSource) QuoteRate(ctx context.Context, req relay.RateRequest) (*relay.RateQuote, error) {
 	errb := relay.SourceErr("quote_rate").
 		With(pkgErrors.AttrProvider, s.Name()).

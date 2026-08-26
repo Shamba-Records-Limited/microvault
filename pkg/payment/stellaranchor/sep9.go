@@ -5,9 +5,6 @@ import "strings"
 // Customer carries the subset of SEP-9 fields MoneyGram honours when passed
 // at SEP-24 withdrawal initiation. MoneyGram silently ignores SEP-9 keys it
 // does not support (email_address, id_*, occupation, etc.).
-//
-// All fields are optional from MoneyGram's perspective; populate as much as
-// you can to reduce friction in MoneyGram's interactive webview.
 type Customer struct {
 	FirstName          string `json:"first_name,omitempty"`
 	LastName           string `json:"last_name,omitempty"`

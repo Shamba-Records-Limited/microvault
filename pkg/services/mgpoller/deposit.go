@@ -11,18 +11,8 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 )
 
-// This file holds the deposit direction: cash in, an agent counter to
-// MoneyGram to the treasury, settling a borrower's loan. It is the second
-// implementation of Runner's Driver.
-//
-// The two directions differ in more than sign. A withdrawal is something we
-// started and MoneyGram must finish, so it is polled hard until it resolves. A
-// deposit is something the borrower must finish and nothing on our side
-// compels them to: the window is four to five days, most of which they spend
-// doing nothing. Cadence therefore lives in a repayment_next_poll_at column
-// rather than in the ticker — a restart would lose in-memory timers, and a
-// 30-second tick against MoneyGram for three days is tens of thousands of
-// pointless requests.
+// The deposit direction: cash in at an agent counter, settling a borrower's
+// loan. Cadence lives in repayment_next_poll_at, not the ticker — see doc.go.
 
 // RepaymentRecord is the projection of a loan row with a borrower repayment in
 // flight. The lending module builds these from rows whose repayment_status is
@@ -90,10 +80,8 @@ type RepaymentRecorder interface {
 	// transaction. Idempotent.
 	RecordDepositUpdate(ctx context.Context, loanID string, tx *stellaranchor.Transaction) error
 
-	// MarkFundsReceived records that the borrower's cash reached the treasury
-	// as USDC. Writes repayment_status=funds_received and the anchor's Stellar
-	// transaction. loans.status deliberately does not move yet: the borrower is
-	// told at this point, and the vault leg may still be retrying.
+	// MarkFundsReceived records the borrower's cash reaching the treasury as
+	// USDC. loans.status deliberately does not move until the vault leg lands.
 	MarkFundsReceived(ctx context.Context, loanID string, tx *stellaranchor.Transaction) error
 
 	// MarkSettled records the confirmed treasury-to-vault leg. This is the
@@ -267,14 +255,8 @@ func (d *DepositDriver) Drive(ctx context.Context, rec RepaymentRecord) {
 		"message", tx.Message,
 	)
 
-	// MoneyGram states its own deadline, and it is the one that binds: the
-	// deposit lapses on user_action_required_by whatever our configured window
-	// says. Observed at roughly 24 hours against a REPAYMENT_WINDOW default of
-	// 96, so acting on ours would keep a dead deposit live for three days and
-	// tell the borrower they still had time.
-	//
-	// Applied to this tick's copy as well as persisted, so expiry and the
-	// reminder use the real deadline now rather than one poll later.
+	// MoneyGram's own deadline binds, not REPAYMENT_WINDOW. Applied to this
+	// tick's copy as well as persisted, so expiry uses it now.
 	if deadline, ok := parseAnchorTime(tx.UserActionRequiredBy); ok {
 		rec.ExpiresAt = deadline
 	}
@@ -370,12 +352,8 @@ func (d *DepositDriver) handleIncomplete(ctx context.Context, rec RepaymentRecor
 	d.reschedule(ctx, rec, d.cfg.DepositIdleBackoff)
 }
 
-// shouldRemind reports whether the single pre-expiry reminder is due.
-//
-// The lead time is capped at a quarter of the window that actually applies.
-// DepositReminderBefore defaults to 24h, which was sized for a four-day window;
-// against MoneyGram's real 24-hour deadline that would put the reminder at the
-// moment of initiation, where it says nothing the borrower was not just told.
+// shouldRemind reports whether the single pre-expiry reminder is due. The lead
+// is capped at a fraction of the window that actually applies.
 func (d *DepositDriver) shouldRemind(rec RepaymentRecord, tx *stellaranchor.Transaction, now time.Time) bool {
 	if rec.ReminderSent || rec.ExpiresAt.IsZero() || d.cfg.DepositReminderBefore <= 0 {
 		return false
@@ -383,14 +361,8 @@ func (d *DepositDriver) shouldRemind(rec RepaymentRecord, tx *stellaranchor.Tran
 	return !now.Before(rec.ExpiresAt.Add(-d.reminderLead(rec, tx)))
 }
 
-// reminderLead is how long before expiry the reminder goes out.
-//
-// Capped at a fraction of the whole window, measured from when MoneyGram
-// started the deposit — not from the time remaining, which would make the
-// threshold chase itself and only ever be met at expiry.
-//
-// Falls back to the configured lead when started_at is missing, which is the
-// old behaviour and safe for the long windows it was sized for.
+// reminderLead is how long before expiry the reminder goes out, measured from
+// started_at. Falls back to the configured lead when started_at is missing.
 func (d *DepositDriver) reminderLead(rec RepaymentRecord, tx *stellaranchor.Transaction) time.Duration {
 	lead := d.cfg.DepositReminderBefore
 
@@ -428,12 +400,8 @@ func parseAnchorTime(s string) (time.Time, bool) {
 	return t, true
 }
 
-// handleCompleted settles a deposit whose cash reached the treasury.
-//
-// Order matters and is deliberate. The borrower is told the moment the funds
-// land, before the vault leg is attempted, because from their side the
-// repayment is done — the treasury-to-vault transfer is our leg, and a retry
-// on it is not something they should hear about.
+// handleCompleted settles a deposit whose cash reached the treasury. The
+// borrower is told before the vault leg is attempted; see doc.go.
 func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord, tx *stellaranchor.Transaction) {
 	if rec.RepaymentStatus != repaymentFundsReceived {
 		if err := d.recorder.MarkFundsReceived(ctx, rec.LoanID, tx); err != nil {
@@ -466,17 +434,8 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 		return
 	}
 
-	// Observe what actually arrived before repaying. SEP-24 defines amount_out
-	// as amount_in less fee.total, so a fee-bearing corridor credits the
-	// treasury with less than the borrower was quoted — and MoneyGram charges
-	// 3.00 USD on a 23.40 deposit in the sandbox.
-	//
-	// The repay still uses the quoted payoff. Whether amount_out is genuinely
-	// net of the fee is unconfirmed: the only payload seen so far predates the
-	// borrower paying, and reported amount_out_asset as fiat rather than USDC,
-	// so it cannot be read as settled. Changing what is repaid on that basis
-	// would be guessing. This records the discrepancy so the first completed
-	// deposit answers it with evidence.
+	// Record what arrived versus what was quoted. The repay still uses the
+	// quoted payoff — whether amount_out is net of the fee is unconfirmed.
 	d.checkDepositShortfall(rec, tx)
 
 	hash, err := d.vault.RepayForBorrower(ctx, rec.LoanID, rec.BorrowerAddress, rec.PayoffStroops)
@@ -502,13 +461,8 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 		"vault_tx_hash", hash)
 }
 
-// checkDepositShortfall compares what MoneyGram credited against what the
-// borrower was quoted.
-//
-// Reports only — it does not change the vault repay. A shortfall means the
-// treasury is repaying the vault more than it received, which is a slow drain
-// rather than a visible failure, so it is worth an ops alert even while the
-// cause is still being established.
+// checkDepositShortfall compares what MoneyGram credited against the quote.
+// Reports only: a shortfall is a slow treasury drain, so it alerts.
 func (d *DepositDriver) checkDepositShortfall(rec RepaymentRecord, tx *stellaranchor.Transaction) {
 	arrived, ok := usdcStroops(tx.AmountOut)
 	if !ok || arrived <= 0 {
@@ -555,16 +509,8 @@ func usdcStroops(s string) (int64, bool) {
 	return int64(v * 1e7), true
 }
 
-// vaultLegFailed records a failed treasury-to-vault leg and decides how loudly
-// to react.
-//
-// The borrower is never told. From their side the repayment is done — the cash
-// reached the treasury and they were notified at that point — and this leg is
-// ours. The row stays at funds_received, which is what brings it back here.
-//
-// Retrying never stops. The borrower's USDC is already on the treasury, so
-// there is no state in which abandoning the leg is correct; the ceiling decides
-// when a human is told, not when to give up.
+// vaultLegFailed records a failed treasury-to-vault leg. The borrower is never
+// told and the retry never stops; the ceiling only decides when ops are.
 func (d *DepositDriver) vaultLegFailed(ctx context.Context, rec RepaymentRecord, cause error) {
 	attempts := rec.VaultAttempts + 1
 
@@ -599,23 +545,8 @@ func (d *DepositDriver) vaultLegFailed(ctx context.Context, rec RepaymentRecord,
 	d.reschedule(ctx, rec, backoff)
 }
 
-// sendPayInstructionsOnce tells the borrower how to hand over the cash.
-//
-// Two artifacts can carry that, and MoneyGram issues them at different points:
-//
-//   - external_transaction_id — the reference quoted at the counter. SEP-24
-//     defines it as the external transaction that "started the deposit", so on
-//     a cash-in it does not exist until the borrower has already paid. Testnet
-//     confirms it empty through pending_user_transfer_start.
-//   - more_info_url — the field the spec designates for telling a user how to
-//     start a deposit. Populated from the first poll onward.
-//
-// Prefer the reference, because a code a borrower can read out beats a link
-// they must open on a feature phone. Fall back to the page, because a borrower
-// holding neither cannot pay at all.
-//
-// Sent once either way, marked before the send. The borrower cannot pay without
-// this, so a silent failure strands a repayment everything else is ready for.
+// sendPayInstructionsOnce tells the borrower how to hand over the cash,
+// preferring the reference over the transaction page. See doc.go.
 func (d *DepositDriver) sendPayInstructionsOnce(ctx context.Context, rec RepaymentRecord, tx *stellaranchor.Transaction) {
 	if rec.ReferenceSent {
 		return
@@ -652,14 +583,8 @@ func (d *DepositDriver) sendPayInstructionsOnce(ctx context.Context, rec Repayme
 	})
 }
 
-// notifyPayInstructions sends the one message the borrower cannot pay without,
-// and escalates when it does not go out.
-//
-// The marker is already spent by the time this runs, so a failure here is
-// terminal for the loan: no later tick retries, and the deposit sits open until
-// it lapses with the borrower never told how to use it. A log line is too
-// quiet for that — it needs a human to clear the marker and let the next tick
-// resend.
+// notifyPayInstructions sends the message the borrower cannot pay without.
+// The marker is already spent, so a failure alerts rather than logs.
 func (d *DepositDriver) notifyPayInstructions(kind string, rec RepaymentRecord, send func(RepaymentNotifier) error) {
 	if d.notifier == nil {
 		d.logger.Error("no repayment notifier configured, borrower cannot be told how to pay",

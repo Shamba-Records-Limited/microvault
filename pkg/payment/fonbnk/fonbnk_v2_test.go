@@ -365,18 +365,20 @@ func TestQuoteOnRamp_SendsTransferTypeOnDepositOnly(t *testing.T) {
 	defer srv.Close()
 
 	fiat := FiatLeg{CurrencyCode: "KES", CountryIsoCode: "KE", CarrierCode: "ke_safaricom", TransferType: TransferTypeOTPSTKPush}
-	_, err := a.QuoteOnRamp(context.Background(), fiat, CryptoLeg{CurrencyCode: "STELLAR_USDC"}, 2653)
+	_, err := a.QuoteOnRamp(context.Background(), fiat, CryptoLeg{CurrencyCode: "STELLAR_USDC"}, 20)
 	require.NoError(t, err)
 
 	deposit := body["deposit"].(map[string]any)
 	payout := body["payout"].(map[string]any)
 	assert.Equal(t, TransferTypeOTPSTKPush, deposit["transferType"])
-	assert.NotContains(t, payout, "transferType")
-	assert.NotContains(t, payout, "amount", "only one leg carries an amount")
-	assert.Equal(t, 2653.0, deposit["amount"])
+	assert.NotContains(t, payout, "transferType", "transferType is legal on the quote deposit leg only")
+	// The amount rides the crypto leg in both directions, which on an on-ramp
+	// is the payout.
+	assert.NotContains(t, deposit, "amount", "only one leg carries an amount")
+	assert.Equal(t, 20.0, payout["amount"])
 }
 
-func TestQuoteOffRamp_AmountOnPayoutOnly(t *testing.T) {
+func TestQuoteOffRamp_AmountOnTheCryptoLeg(t *testing.T) {
 	var body map[string]any
 	a, srv := newV2Adapter(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
@@ -388,13 +390,13 @@ func TestQuoteOffRamp_AmountOnPayoutOnly(t *testing.T) {
 	_, err := a.QuoteOffRamp(context.Background(),
 		CryptoLeg{CurrencyCode: "STELLAR_USDC"},
 		FiatLeg{CurrencyCode: "KES", CountryIsoCode: "KE", CarrierCode: "ke_safaricom"},
-		2498)
+		20)
 	require.NoError(t, err)
 
 	deposit := body["deposit"].(map[string]any)
 	payout := body["payout"].(map[string]any)
-	assert.NotContains(t, deposit, "amount")
-	assert.Equal(t, 2498.0, payout["amount"])
+	assert.NotContains(t, payout, "amount", "only one leg carries an amount")
+	assert.Equal(t, 20.0, deposit["amount"], "the crypto leg carries it on an off-ramp")
 	assert.Equal(t, ChannelCrypto, deposit["paymentChannel"])
 }
 

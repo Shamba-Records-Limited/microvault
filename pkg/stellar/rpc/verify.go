@@ -14,10 +14,6 @@ import (
 
 // Verifier confirms the on-ledger outcome of a transaction someone else
 // claims to have submitted — an anchor reporting a refund, for example.
-//
-// verifyErr starts an error builder for on-ledger verification. The
-// transaction hash is the attribute that matters: every failure here is
-// diagnosed by looking the transaction up.
 func verifyErr(op string) oops.OopsErrorBuilder {
 	return oops.In(pkgErrors.DomainStellarClassic).Tags("rpc", "verify").With(pkgErrors.AttrOperation, op)
 }
@@ -84,18 +80,6 @@ type Payment struct {
 
 // PaymentsTo returns the successful payments in txHash addressed to
 // destination, in the named asset.
-//
-// assetIssuer, when non-empty, must also match. Asset codes are not unique —
-// anyone can issue an asset called USDC — so matching on code alone would let
-// a worthless look-alike settle a refund.
-//
-// This exists because "the transaction succeeded" is not the question worth
-// asking about an anchor's claimed refund — our own outbound payment to that
-// anchor also succeeded. What matters is that value moved in the right
-// direction, in the right asset, and how much. Reading it from the ledger
-// means a mislabelled or misread anchor field cannot drive a vault repay.
-//
-// Returns an error unless the transaction is on-ledger and succeeded.
 func (v *Verifier) PaymentsTo(ctx context.Context, txHash, destination, assetCode, assetIssuer string) ([]Payment, error) {
 	if txHash == "" {
 		return nil, verifyErr("payments_to").Code(pkgErrors.CodeMissingAccount).Errorf("transaction hash is empty")
@@ -155,11 +139,6 @@ func (v *Verifier) PaymentsTo(ctx context.Context, txHash, destination, assetCod
 }
 
 // collectPayments walks the decoded envelope for payment operation bodies.
-//
-// The walk is recursive rather than indexed because the nesting differs by
-// envelope type — a fee-bump buries the operations under
-// tx_fee_bump.tx.inner_tx.tx.tx, and MoneyGram's refunds arrive fee-bumped.
-// Searching by shape survives that without a branch per envelope variant.
 func collectPayments(node any) []Payment {
 	var out []Payment
 

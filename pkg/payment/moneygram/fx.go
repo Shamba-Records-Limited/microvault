@@ -40,8 +40,6 @@ var ErrNoRateAvailable = errors.New("moneygram: no FX rate available from any so
 // local-currency exchange rate when MoneyGram's REST FX endpoint is
 // unavailable. The microvault integration wires `yellowcard.YellowcardAdapter`
 // behind a thin function adapter (FallbackRateFunc); tests can supply fakes.
-//
-// The returned rate is local-currency-per-USD (e.g. 153.50 KES / USD).
 type FallbackRateSource interface {
 	Get(ctx context.Context, currency string) (rate float64, err error)
 }
@@ -165,9 +163,6 @@ func NewFXOrchestrator(primary *FXRateClient, fallback FallbackRateSource, cfg F
 //  3. On both failures, return the most recent cached value if its FetchedAt
 //     is within StaleCacheMaxAge, with the original source preserved.
 //  4. Else return ErrNoRateAvailable.
-//
-// The `Source` field on the result is the audit trail — it always reflects
-// where the underlying rate came from, even when served from cache.
 func (o *FXOrchestrator) Quote(ctx context.Context, req FXQuoteRequest) (*FXQuoteResult, error) {
 	if req.SendCurrency == "" || req.ReceiveCurrency == "" {
 		return nil, fxErr().Code(pkgErrors.CodeMissingAccount).

@@ -339,7 +339,6 @@ func (r *userRepository) Update(ctx context.Context, user *models.User) error {
 	return nil
 }
 
-// Restore restores a soft-deleted user
 // UpdateMobileNumber rebinds the user to a new MSISDN. See the interface docs.
 func (r *userRepository) UpdateMobileNumber(ctx context.Context, userID, mobileNumber string) error {
 	result := r.db.WithContext(ctx).

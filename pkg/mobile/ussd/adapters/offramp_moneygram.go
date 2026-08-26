@@ -29,18 +29,6 @@ func mgAdapterErr(op string) oops.OopsErrorBuilder {
 
 // MoneyGramOffRampAdapter implements OffRampService for MoneyGram Ramps
 // cash-pickup withdrawals.
-//
-// Unlike YellowCard's mobile-money flow, MoneyGram returns an interactive
-// webview URL that the user must open to complete KYC and confirm the
-// payout currency/amount. The URL is delivered to the user via SMS by the
-// USSD layer; this adapter's job is to obtain it and surface it on the
-// OffRampResult.
-//
-// Treasury USDC transfer happens later in the lifecycle, after the user
-// completes the webview and MoneyGram transitions the transaction to
-// pending_user_transfer_start. That step is driven by the background poller in
-// the lending module, not by this adapter — InitiateOffRamp only registers
-// intent.
 type MoneyGramOffRampAdapter struct {
 	client         *moneygram.Client
 	treasuryPubkey string // auth wallet — for child memo derivation

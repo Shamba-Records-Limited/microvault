@@ -822,11 +822,6 @@ func TestDeposit_Committed_WithoutReference_SendsNothing(t *testing.T) {
 // on a 23.40 deposit in the sandbox. If that holds at settlement the treasury
 // receives less than the borrower was quoted, and repaying the quoted figure
 // drains it a little on every repayment.
-//
-// Reported, not acted on: the only payload observed so far predates the
-// borrower paying and named amount_out_asset as fiat rather than USDC, so it
-// cannot be read as settled. The alert is what turns the first completed
-// deposit into evidence.
 func TestDeposit_ShortCredit_AlertsButStillRepaysQuotedPayoff(t *testing.T) {
 	h := newTestDepositDriver(t)
 	// Quoted 50 USDC, credited 47 — a 3 USDC fee.

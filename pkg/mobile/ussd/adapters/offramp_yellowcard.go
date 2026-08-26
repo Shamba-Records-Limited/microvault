@@ -268,10 +268,6 @@ type disbursementParams struct {
 
 // tryDirectSettlement submits a payment with directSettlement=true and then
 // sends USDC from treasury to the YC-issued Stellar wallet address (blocking).
-//
-// The request includes settlementInfo with cryptoCurrency, cryptoNetwork, and
-// cryptoAmount. YC returns the same fields plus walletAddress, cryptoUSDRate,
-// cryptoLocalRate, and expiresAt in the response.
 func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *disbursementParams) (*offramp.Result, error) {
 	loanID := p.req.LoanID
 
@@ -736,11 +732,6 @@ func (a *YellowCardOffRampAdapter) AvailableBalance(ctx context.Context) (float6
 
 // validateNetwork resolves a network code or name to a YellowCard network ID
 // and verifies the network is active in the given country.
-//
-// If no exact match is found by code or name, it falls back to the first active
-// MoMo network linked to the disbursement channel. This handles cases where the
-// stored network code (e.g. from Africa's Talking) doesn't map to a YellowCard
-// network (e.g. "SANDBOX" vs "M PESA").
 func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryCode, networkCode, networkName string) (networkID string, resolvedName string, err error) {
 	networks, err := a.getNetworksWithCache(ctx, countryCode)
 	if err != nil {

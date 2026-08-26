@@ -48,10 +48,6 @@ type Currency struct {
 // https://{homeDomain}/.well-known/stellar.toml. It does NOT validate
 // semantically — call TOML.Validate to enforce environment-specific
 // expectations (passphrase, signing key, USDC issuer).
-//
-// httpClient may be nil; http.DefaultClient is used in that case. The
-// response is capped at 64 KiB — well above the size of any well-formed
-// stellar.toml — to avoid pathological responses exhausting memory.
 func FetchTOML(ctx context.Context, httpClient *http.Client, homeDomain string) (*TOML, error) {
 	errb := tomlErr().With("home_domain", homeDomain)
 

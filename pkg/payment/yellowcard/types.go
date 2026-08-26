@@ -108,9 +108,6 @@ type Party = Sender
 
 // CollectionSource is the account a collection draws funds from. AccountNumber
 // and NetworkID are not required for bank receives in production.
-//
-// In sandbox, AccountNumber 1111111111 simulates a successful source and
-// 0000000000 a failing one, for both "momo" and "bank".
 type CollectionSource struct {
 	AccountType   string `json:"accountType"`
 	AccountNumber string `json:"accountNumber,omitempty"`
@@ -130,11 +127,6 @@ type BankInfo struct {
 // CollectionRequest submits a pay-in to YellowCard. Either Amount (USD) or
 // LocalAmount must be specified, not both. ForceAccept is always set to true
 // by SubmitCollection to skip the approval window.
-//
-// Recipient is required when CustomerType is "retail" — despite the name, on a
-// receive it describes the party the money is collected from. Country and
-// Currency are only required when selecting by ChannelType instead of
-// ChannelID.
 type CollectionRequest struct {
 	ChannelID    string           `json:"channelId"`
 	SequenceID   string           `json:"sequenceId"`
@@ -238,10 +230,6 @@ type SettlementInfo struct {
 // PaymentRequest represents a disbursement request to the YellowCard API.
 // Either Amount (USD) or LocalAmount must be specified, not both.
 // ForceAccept is always set to true to skip the approval window.
-//
-// For direct settlement, set DirectSettlement=true and include SettlementInfo
-// with CryptoCurrency, CryptoNetwork, and CryptoAmount. YellowCard returns
-// these plus WalletAddress, CryptoUSDRate, CryptoLocalRate, and ExpiresAt.
 type PaymentRequest struct {
 	ChannelID        string          `json:"channelId"`
 	SequenceID       string          `json:"sequenceId"`
@@ -327,11 +315,6 @@ type PaymentDetails struct {
 }
 
 // WebhookEvent represents an incoming webhook payload from YellowCard.
-//
-// YC delivers payment data and event metadata together at the top level —
-// there is no nested "data" envelope. Settlement structure (amount,
-// directSettlement, etc.) is NOT included in the webhook; consumers that
-// need those details must call LookupPayment(PaymentID).
 type WebhookEvent struct {
 	PaymentID      string          `json:"id"`
 	SequenceID     string          `json:"sequenceId"`
@@ -429,11 +412,6 @@ const (
 
 // Ramp type constants. A channel serves one direction: withdraw channels are
 // disbursements out, deposit channels are collections in.
-//
-// RampTypeWithdraw is confirmed against live channel responses.
-// RampTypeDeposit is the documented counterpart but has not yet been seen on a
-// response — if channel filtering for collections comes back empty, check this
-// value first.
 const (
 	RampTypeWithdraw = "withdraw"
 	RampTypeDeposit  = "deposit"

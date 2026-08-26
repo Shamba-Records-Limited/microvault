@@ -345,11 +345,6 @@ func TestRepay_UnquotableLoanIsListedButCannotUseCashRail(t *testing.T) {
 // initiation result. That is what lets LoanService.InitiateRepayment return
 // before MoneyGram has answered — the sandbox measured that handshake at 15.7s,
 // well past the point Africa's Talking abandons a USSD session.
-//
-// The latency guarantee itself belongs to the adapter, which runs the handshake
-// on its own goroutine. What is testable here is the coupling that would undo
-// it: if this screen ever reads a field off the initiation again, the handler
-// has to wait for it.
 func TestRepay_CashRailScreenRendersFromTheQuote(t *testing.T) {
 	svc := &repayLoanSvc{
 		loans:  []any{loanRow("l1", "LN-1", "disbursed")},

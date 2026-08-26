@@ -10,8 +10,8 @@ import (
 
 // FonbnkQuoter is the slice of the Fonbnk client this source needs.
 type FonbnkQuoter interface {
-	QuoteOffRamp(ctx context.Context, crypto fonbnk.CryptoLeg, fiat fonbnk.FiatLeg, payoutAmount float64) (*fonbnk.Quote, error)
-	QuoteOnRamp(ctx context.Context, fiat fonbnk.FiatLeg, crypto fonbnk.CryptoLeg, depositAmount float64) (*fonbnk.Quote, error)
+	QuoteOffRamp(ctx context.Context, crypto fonbnk.CryptoLeg, fiat fonbnk.FiatLeg, cryptoAmount float64) (*fonbnk.Quote, error)
+	QuoteOnRamp(ctx context.Context, fiat fonbnk.FiatLeg, crypto fonbnk.CryptoLeg, cryptoAmount float64) (*fonbnk.Quote, error)
 }
 
 // FonbnkSource prices a corridor with Fonbnk.

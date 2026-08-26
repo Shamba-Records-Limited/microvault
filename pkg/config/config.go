@@ -170,16 +170,6 @@ type FonbnkConfig struct {
 }
 
 // MoneyGramConfig holds all MoneyGram-related configuration.
-//
-// MoneyGram acts as both a Stellar SEP-1/9/10/24 anchor (for the cash-pickup
-// off-ramp flow) and a REST API provider (for FX rates). The two sets of
-// credentials are independent: HomeDomain + ServerSigningKey are derived
-// from MG's published TOML and used for SEP-10 auth; ClientID + ClientSecret
-// are issued through the MG developer portal for OAuth 2.0 client_credentials
-// against the REST API.
-//
-// MoneyGram is the platform's default cash-pickup anchor — there is no
-// enable flag; the credentials below are always required at boot.
 type MoneyGramConfig struct {
 	// SEP-1 / 9 / 10 / 24 — Stellar anchor protocol
 	HomeDomain        string // e.g. "stellar.moneygram.com"
@@ -710,11 +700,6 @@ func parsePINLockout() time.Duration {
 	return 15 * time.Minute
 }
 
-// envSeconds reads a bare integer count of seconds, matching the convention
-// used by USSD_SESSION_TIMEOUT and PIN_LOCKOUT_SECONDS. Returns zero when
-// unset so callers can fall back to their own default. A malformed value is
-// an error rather than a silent default: these exist to be tuned, and a typo
-// quietly ignored would look like the tuning had no effect.
 // envBool reads a boolean, false when unset. Unlike the multi-sig flags this
 // does not fail on an empty value, so adding it breaks no existing deployment.
 func envBool(key string) (bool, error) {
@@ -851,12 +836,6 @@ func (c *MoneyGramConfig) FundsAddress() (string, error) {
 }
 
 // TreasuryAddress derives the treasury's public address from its secret key.
-//
-// This is the account the vault's repay and repay_for entrypoints spend from,
-// and therefore the account a borrower's cash deposit must be credited to. It
-// is not necessarily MoneyGram's funds wallet: FundsSecret defaults to the
-// treasury secret but can be set separately, and crediting a deposit to a
-// funds wallet the vault cannot spend from would strand the repayment.
 func (c *StellarConfig) TreasuryAddress() (string, error) {
 	kp, err := keypair.ParseFull(c.TreasurySecretKey)
 	if err != nil {
@@ -873,14 +852,6 @@ func (c *MoneyGramConfig) HasRESTCredentials() bool {
 
 // validateUSDCIssuerAlignment rejects a MoneyGram issuer override that names a
 // different asset from the vault's.
-//
-// The vault is constructed with USDC_ISSUER and refunds are repaid into it, so
-// an override describes an asset the vault cannot accept. Startup is the only
-// place this surfaces loudly: at runtime it presents as refunds that silently
-// never settle, because the on-ledger issuer check rejects every payment and
-// the loan simply sits in refund_pending.
-//
-// An unset override is not a mismatch — it inherits USDC_ISSUER.
 func validateUSDCIssuerAlignment(moneygramIssuer, stellarIssuer string) error {
 	if moneygramIssuer == "" || stellarIssuer == "" {
 		return nil

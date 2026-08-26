@@ -10,11 +10,6 @@ import (
 // GSM 03.38 default alphabet. Runes outside it force the whole SMS to UCS-2,
 // which cuts a segment from 160 characters to 70; extension-table runes are
 // escaped and cost two septets each.
-//
-// gsm7Basic holds 127 runes, not 128: ESC (0x1B) is the prefix that introduces
-// an extension-table rune, never a character in its own right, so it is absent
-// and every code point above 0x1B sits one index lower than its spec position.
-// TestGSM7TableMatchesSpec pins that mapping.
 const (
 	gsm7Basic = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡" +
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"

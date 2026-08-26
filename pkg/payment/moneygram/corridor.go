@@ -12,13 +12,6 @@ const DefaultSendCurrency = "USD"
 // Corridor bounds published by MoneyGram's SEP-24 /info, in USD. The floor
 // rose from 1 to 15 with the 2026-08-01 anchor migration; see
 // internal-docs/moneygram-integration.md Appendix D.
-//
-// Nothing reads /info at runtime, so these are the single source of truth for
-// the limits across the USSD gates and the adapter's advertised provider info.
-//
-// The two directions have the same floor and different ceilings — cash-in is
-// capped at 950 and cash-out at 2,500 — so they stay as four constants rather
-// than a shared pair.
 const (
 	MinWithdrawUSD = 15.0
 	MaxWithdrawUSD = 2500.0

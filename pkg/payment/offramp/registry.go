@@ -13,15 +13,6 @@ func registryErr(op string) oops.OopsErrorBuilder {
 
 // Registry maps ProviderIDs to Provider implementations and resolves an
 // incoming Request to the right provider. The resolution order is:
-//
-//  1. If Request.Options is set, use Options.ProviderID() — the caller has
-//     pinned a specific provider by attaching its options.
-//  2. Otherwise, look up Request.PayoutMethod in the alias table (empty
-//     PayoutMethod is treated as PayoutMethodMobileMoney).
-//
-// A Registry is safe for concurrent reads after construction; concurrent
-// Register / Alias calls are not synchronised — register everything during
-// boot, then freeze.
 type Registry struct {
 	providers map[ProviderID]Provider
 	aliases   map[string]ProviderID

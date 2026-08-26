@@ -14,14 +14,9 @@ import (
 // an agent counter. It is one implementation of Runner's Driver — the state
 // machine only, with the ticker and batching left to runner.go.
 
-// Disbursement status strings the poller writes. These match the canonical
-// DisbursementStatus* constants in the lending module's loan model. We hardcode
-// them here because this package can't import from the lending module without a
-// layering inversion.
-//
-// statusRefundPending is intentionally not in the lending module's enum yet
-// — added inline here to mirror what the existing YC flow writes; reconcile
-// in a follow-up that also fixes YC's "complete" vs the model's "completed".
+// Disbursement status strings the poller writes, duplicated from the lending
+// module's loan model to avoid a layering inversion. statusRefundPending is not
+// in that enum yet.
 const (
 	statusProcessing     = "processing"
 	statusCompleted      = "completed"
@@ -127,10 +122,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		stellaranchor.StatusPendingAnchor,
 		stellaranchor.StatusPendingExternal,
 		stellaranchor.StatusPendingStellar:
-		// In-flight, no action needed this cycle. pending_stellar is
-		// the natural transient state right after our SendUSDC while
-		// the network confirms the payment to MG's anchor. Status is
-		// already logged unconditionally above.
+		// In-flight elsewhere; status is logged unconditionally above.
 
 	default:
 		p.logger.Warn("unexpected MoneyGram status",
@@ -138,11 +130,8 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 	}
 }
 
-// handlePendingUserTransferStart sends USDC from treasury to MG's anchor
-// account using the memo MG provided. Idempotency is best-effort: if MG's
-// tx.stellar_transaction_id is already populated we skip. There is a
-// small window between SendUSDC succeeding and MG observing the payment
-// where re-sending is theoretically possible — see §22 / poller TODOs.
+// handlePendingUserTransferStart sends treasury USDC to MG's anchor account
+// using the memo MG provided. Idempotency is best-effort; see doc.go.
 func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
 	if tx.StellarTransactionID != "" || rec.HasStellarSend {
 		// Already observed — wait for MG to advance. Logged because this is
@@ -166,10 +155,8 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 		return
 	}
 
-	// Claim the send before submitting. If the process dies between submission
-	// and RecordSendUSDC, the claim is already durable, so the next tick sees
-	// HasStellarSend and refuses to pay twice. Failing to claim means we cannot
-	// guarantee idempotency, so we don't send at all.
+	// Claim the send before submitting: a durable claim is what stops the next
+	// tick paying twice. No claim, no send.
 	if err := p.recorder.RecordSendAttempt(ctx, rec.LoanID); err != nil {
 		p.logger.Error("could not claim send attempt; refusing to send",
 			"loan_id", rec.LoanID, "error", err)
@@ -225,13 +212,8 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 // drift alert if the locked payout deviates from what the user saw at
 // USSD entry.
 func (p *Poller) handlePendingUserTransferComplete(_ context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
-	// MG has received our USDC and the cash is collectable at an agent. Move
-	// the loan off its initiated status exactly once and tell the borrower
-	// how to collect. The status transition is itself the idempotency guard,
-	// so the SMS is not re-sent on every 30s tick.
-	//
-	// Not terminal: the loan keeps being polled until MG reports completed
-	// (the borrower actually collected).
+	// Cash is collectable. The status transition is the idempotency guard, so
+	// the SMS is not re-sent every tick. Not terminal — polling continues.
 	if rec.DisbursementStatus != statusProcessing {
 		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusProcessing); err != nil {
 			// Bail before notifying — sending an SMS we failed to record
@@ -282,17 +264,8 @@ func (p *Poller) handleCompleted(rec LoanRecord, _ *stellaranchor.Transaction) {
 	}
 }
 
-// handleRefunded settles a MoneyGram refund. The usual cause is the borrower
-// cancelling in MG's own UI, so this is an expected path rather than a failure.
-//
-// It runs in two stages across ticks. First the loan is marked refund_pending,
-// which is not terminal for this poller — the loan keeps being fetched. Then,
-// once MG reports the refund payments, the funds are confirmed on-ledger, the
-// vault is repaid with what actually came back, and the loan reaches
-// refund_received.
-//
-// Splitting it this way means every step is retried on the next tick until it
-// succeeds. Nothing depends on a single observation.
+// handleRefunded settles a MoneyGram refund, an expected path rather than a
+// failure. Runs in stages across ticks so every step is retried; see doc.go.
 func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
 	if rec.DisbursementStatus != statusRefundPending {
 		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusRefundPending); err != nil {
@@ -347,15 +320,8 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 	p.settleRefund(ctx, rec, lastHash, net)
 }
 
-// ledgerRefundTotal sums the anchor's refund payments as they appear on-ledger.
-//
-// This is the only amount safe to repay the vault with. An anchor's own refund
-// arithmetic can disagree with what it actually sent: MoneyGram reports
-// amount_refunded already net of its withdrawal fee and then restates that fee
-// in amount_fee, so deriving the total from those fields subtracts it twice.
-//
-// Reports false when the total cannot be established, leaving the loan in
-// refund_pending for the next tick rather than guessing.
+// ledgerRefundTotal sums the refund payments as they appear on-ledger — the
+// only amount safe to repay with. False leaves the loan for the next tick.
 func (p *Poller) ledgerRefundTotal(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction, payments []stellaranchor.RefundPayment) (int64, bool) {
 	dest := p.refundDestination()
 	if p.verifier == nil || dest == "" {
@@ -516,14 +482,9 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 	}
 }
 
-// settleFromStellarTx settles a refund using tx.stellar_transaction_id, which
-// MoneyGram repoints at the refund payment once one lands. Reports whether the
-// refund was found and settled.
-//
-// The hash alone proves nothing: before the refund exists this field names our
-// own outbound payment to the anchor, and that transaction also succeeded.
-// Requiring a payment *into* RefundDestination, in USDC, and taking the amount
-// from the ledger is what makes the distinction safe.
+// settleFromStellarTx settles a refund from tx.stellar_transaction_id. The hash
+// alone proves nothing — it names our own outbound payment until a refund lands,
+// so a USDC payment into RefundDestination is what is actually required.
 func (p *Poller) settleFromStellarTx(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) bool {
 	hash := strings.TrimSpace(tx.StellarTransactionID)
 	if hash == "" || p.verifier == nil {
@@ -557,15 +518,8 @@ func (p *Poller) settleFromStellarTx(ctx context.Context, rec LoanRecord, tx *st
 	return true
 }
 
-// refundDestination is the wallet MoneyGram returns funds to — the SEP-24
-// funds account the withdrawal was made from.
-//
-// The fallback to the SEP-10 auth account only holds where the two wallets are
-// configured to the same secret, which is true in development and not in
-// staging or production. Where they differ, an unset RefundDestination makes
-// this look for the refund at an account it will never arrive in, and the
-// refund never settles. Callers are expected to set it explicitly; New logs
-// when they have not.
+// refundDestination is the wallet MoneyGram returns funds to. The fallback to
+// the SEP-10 auth account only holds where both use the same secret.
 func (p *Poller) refundDestination() string {
 	if p.cfg.RefundDestination != "" {
 		return p.cfg.RefundDestination
@@ -587,12 +541,9 @@ func (p *Poller) refundAssetIssuer() string {
 	return ""
 }
 
-// awaitRefundDetails counts consecutive ticks spent waiting for MoneyGram to
-// publish refund payments, and escalates once past the configured ceiling.
-//
-// The count is in memory: it drives alerting, not money movement, so losing it
-// on restart costs at most a repeated escalation. Polling continues after the
-// alert in case MG backfills the object later — what stops is the silence.
+// awaitRefundDetails counts ticks spent waiting for MoneyGram to publish refund
+// payments and escalates past the ceiling. The count is in memory; it only
+// drives alerting.
 func (p *Poller) awaitRefundDetails(rec LoanRecord, tx *stellaranchor.Transaction) {
 	p.refundWaitMu.Lock()
 	p.refundWaits[rec.LoanID]++

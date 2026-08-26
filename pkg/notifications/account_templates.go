@@ -11,9 +11,6 @@ type AccountMessage func(n contracts.AccountNotification) string
 
 // AccountTemplates holds one message renderer per account and PIN lifecycle
 // event.
-//
-// As with [LoanTemplates], the copy here names no company and no USSD code.
-// Builders override the fields they care about through [WithAccountTemplates].
 type AccountTemplates struct {
 	// RegistrationSuccess welcomes a user after successful registration.
 	RegistrationSuccess AccountMessage

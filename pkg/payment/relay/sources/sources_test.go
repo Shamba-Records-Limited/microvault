@@ -199,32 +199,32 @@ type fakeFonbnk struct {
 	err  error
 }
 
-func (f *fakeFonbnk) QuoteOffRamp(_ context.Context, _ fonbnk.CryptoLeg, _ fonbnk.FiatLeg, payoutAmount float64) (*fonbnk.Quote, error) {
+func (f *fakeFonbnk) QuoteOffRamp(_ context.Context, _ fonbnk.CryptoLeg, _ fonbnk.FiatLeg, cryptoAmount float64) (*fonbnk.Quote, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	f.offRampAmounts = append(f.offRampAmounts, payoutAmount)
+	f.offRampAmounts = append(f.offRampAmounts, cryptoAmount)
 	return &fonbnk.Quote{
 		Deposit: fonbnk.QuoteLeg{CurrencyType: fonbnk.CurrencyTypeCrypto, Cashout: fonbnk.Cashout{
-			AmountBeforeFees: payoutAmount / f.rate, AmountAfterFees: payoutAmount / f.rate,
+			AmountBeforeFees: cryptoAmount, AmountAfterFees: cryptoAmount,
 		}},
 		Payout: fonbnk.QuoteLeg{CurrencyType: fonbnk.CurrencyTypeFiat, Cashout: fonbnk.Cashout{
-			AmountBeforeFees: payoutAmount, AmountAfterFees: payoutAmount,
+			AmountBeforeFees: cryptoAmount * f.rate, AmountAfterFees: cryptoAmount * f.rate,
 		}},
 	}, nil
 }
 
-func (f *fakeFonbnk) QuoteOnRamp(_ context.Context, _ fonbnk.FiatLeg, _ fonbnk.CryptoLeg, depositAmount float64) (*fonbnk.Quote, error) {
+func (f *fakeFonbnk) QuoteOnRamp(_ context.Context, _ fonbnk.FiatLeg, _ fonbnk.CryptoLeg, cryptoAmount float64) (*fonbnk.Quote, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	f.onRampAmounts = append(f.onRampAmounts, depositAmount)
+	f.onRampAmounts = append(f.onRampAmounts, cryptoAmount)
 	return &fonbnk.Quote{
 		Deposit: fonbnk.QuoteLeg{CurrencyType: fonbnk.CurrencyTypeFiat, Cashout: fonbnk.Cashout{
-			AmountBeforeFees: depositAmount, AmountAfterFees: depositAmount,
+			AmountBeforeFees: cryptoAmount * f.rate, AmountAfterFees: cryptoAmount * f.rate,
 		}},
 		Payout: fonbnk.QuoteLeg{CurrencyType: fonbnk.CurrencyTypeCrypto, Cashout: fonbnk.Cashout{
-			AmountBeforeFees: depositAmount / f.rate, AmountAfterFees: depositAmount / f.rate,
+			AmountBeforeFees: cryptoAmount, AmountAfterFees: cryptoAmount,
 		}},
 	}, nil
 }
@@ -240,18 +240,16 @@ func fonbnkSource(t *testing.T, client FonbnkQuoter) *FonbnkSource {
 	return s
 }
 
-// Fonbnk prices from a fiat amount, so the off-ramp probes once at an
-// indicative figure and re-quotes at the fiat the requested crypto is worth —
-// otherwise a banded fee lands in the wrong band.
-func TestFonbnkSource_OffRampRequotesAtTheRealAmount(t *testing.T) {
+// The amount rides the crypto leg, which is the side we always know, so one
+// call prices the corridor at the size actually being moved.
+func TestFonbnkSource_OffRampQuotesOnceAtTheCryptoAmount(t *testing.T) {
 	client := &fakeFonbnk{rate: 123.4}
 
 	got, err := fonbnkSource(t, client).QuoteRate(context.Background(), kesRequest(relay.DirectionOffRamp))
 	require.NoError(t, err)
 
-	require.Len(t, client.offRampAmounts, 2, "one probe, one real quote")
-	assert.Equal(t, 2000.0, client.offRampAmounts[0], "the probe uses the indicative rate")
-	assert.InDelta(t, 2468.0, client.offRampAmounts[1], 0.0001, "the re-quote uses the corridor's own rate")
+	require.Len(t, client.offRampAmounts, 1, "no probe round trip is needed")
+	assert.Equal(t, 20.0, client.offRampAmounts[0])
 	assert.InDelta(t, 123.4, got.EffectiveRate, 0.0001)
 	assert.InDelta(t, 20.0, got.CryptoAmount, 0.0001)
 }
