@@ -69,6 +69,8 @@ func (f *fonbnkTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 type FonbnkAdapter struct {
 	httpClient *http.Client
 	baseURL    string
+	// clock is overridable in tests; nil means time.Now.
+	clock func() time.Time
 }
 
 // NewFonbnkAdapter builds the custom http.Client with the signing transport.

@@ -249,6 +249,12 @@ type PaymentsConfig struct {
 	// Distinct from the MoneyGram orchestrator's buffers, which apply on the
 	// cascade path and carry their own per-leg settings.
 	EntryFXBufferPct *float64
+
+	// EnableProviderRelaySwitch turns on per-transaction routing between
+	// providers on effective post-fee rate. Off routes every transaction to
+	// YellowCard, the default provider. From
+	// ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH; unset is off.
+	EnableProviderRelaySwitch bool
 }
 
 // AfricasTalkingConfig holds all SMS/USSD-related configuration for Africa's Talking
@@ -378,6 +384,11 @@ func New() (*Config, error) {
 	}
 
 	mgRefundMaxAttempts, err := envPositiveInt("MONEYGRAM_REFUND_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+
+	enableRelaySwitch, err := envBool("ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH")
 	if err != nil {
 		return nil, err
 	}
@@ -623,7 +634,8 @@ func New() (*Config, error) {
 			AccountIndexBase:        accountIndexBase,
 		},
 		Payments: PaymentsConfig{
-			EntryFXBufferPct: entryFXBuffer,
+			EntryFXBufferPct:          entryFXBuffer,
+			EnableProviderRelaySwitch: enableRelaySwitch,
 			YellowCard: YellowCardConfig{
 				PublicKey:    ycPublicKey,
 				SecretKey:    ycSecretKey,
@@ -703,6 +715,20 @@ func parsePINLockout() time.Duration {
 // unset so callers can fall back to their own default. A malformed value is
 // an error rather than a silent default: these exist to be tuned, and a typo
 // quietly ignored would look like the tuning had no effect.
+// envBool reads a boolean, false when unset. Unlike the multi-sig flags this
+// does not fail on an empty value, so adding it breaks no existing deployment.
+func envBool(key string) (bool, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return false, nil
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("error parsing %s: expected a boolean, got %q", key, raw)
+	}
+	return v, nil
+}
+
 func envSeconds(key string) (time.Duration, error) {
 	raw := os.Getenv(key)
 	if raw == "" {

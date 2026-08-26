@@ -61,6 +61,10 @@ const (
 
 	// DomainPersistence covers repositories and the database layer.
 	DomainPersistence = "persistence"
+
+	// DomainPaymentRelay covers per-transaction routing between ramp
+	// providers, and the margin guard on it.
+	DomainPaymentRelay = "payment-relay"
 )
 
 // Codes are machine-readable failure identifiers, passed to oops.Code. They are
@@ -183,6 +187,18 @@ const (
 
 	// CodeSendFailed is an outbound notification that could not be delivered.
 	CodeSendFailed = "send_failed"
+
+	// CodeMerchantNotPermitted is a provider refusing an operation because our
+	// account lacks the capability, not because credentials are bad.
+	CodeMerchantNotPermitted = "merchant_not_permitted"
+
+	// CodeCorridorUnavailable is a well-formed deposit/payout pair that cannot
+	// be traded right now.
+	CodeCorridorUnavailable = "corridor_unavailable"
+
+	// CodeMarginTooLow is a round trip that would sell crypto for less than it
+	// costs to buy back, by more than the configured floor.
+	CodeMarginTooLow = "margin_too_low"
 )
 
 // Attribute keys are passed to oops .With. Consistency matters more here than
@@ -202,6 +218,8 @@ const (
 	AttrMoneyGramTxID    = "mg_tx_id"
 	AttrSequenceID       = "sequence_id"
 	AttrCollectionID     = "collection_id"
+	AttrOrderID          = "order_id"
+	AttrQuoteID          = "quote_id"
 	AttrProvider         = "provider"
 	AttrContractFunction = "contract_function"
 	AttrOperation        = "operation"
