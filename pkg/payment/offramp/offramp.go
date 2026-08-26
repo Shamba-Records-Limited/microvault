@@ -19,6 +19,7 @@ type ProviderID string
 const (
 	ProviderYellowCard ProviderID = "yellowcard"
 	ProviderMoneyGram  ProviderID = "moneygram"
+	ProviderFonbnk     ProviderID = "fonbnk"
 )
 
 // Provider is the single mandatory capability — every off-ramp must

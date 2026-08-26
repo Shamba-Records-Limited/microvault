@@ -22,22 +22,27 @@ func (a *FonbnkAdapter) CreateQuote(ctx context.Context, req QuoteRequest) (*Quo
 	return call[Quote](ctx, a, errb, http.MethodPost, pathQuote, req)
 }
 
-// QuoteOffRamp prices selling crypto for fiat paid out over a payment channel.
-func (a *FonbnkAdapter) QuoteOffRamp(ctx context.Context, crypto CryptoLeg, fiat FiatLeg, payoutAmount float64) (*Quote, error) {
+// QuoteOffRamp prices selling cryptoAmount of crypto for fiat paid out over a
+// payment channel.
+//
+// The amount goes on the crypto leg in both directions, because that is the
+// side we always know: a loan is denominated in USDC, not in shillings.
+func (a *FonbnkAdapter) QuoteOffRamp(ctx context.Context, crypto CryptoLeg, fiat FiatLeg, cryptoAmount float64) (*Quote, error) {
 	return a.CreateQuote(ctx, QuoteRequest{
-		Deposit: QuoteDepositLeg{LegSpec: crypto.depositSpec()},
-		Payout:  fiat.spec(&payoutAmount),
+		Deposit: QuoteDepositLeg{LegSpec: crypto.depositSpec(&cryptoAmount)},
+		Payout:  fiat.spec(nil),
 	})
 }
 
-// QuoteOnRamp prices buying crypto with fiat collected over a payment channel.
-func (a *FonbnkAdapter) QuoteOnRamp(ctx context.Context, fiat FiatLeg, crypto CryptoLeg, depositAmount float64) (*Quote, error) {
+// QuoteOnRamp prices buying cryptoAmount of crypto with fiat collected over a
+// payment channel. See QuoteOffRamp on which leg carries the amount.
+func (a *FonbnkAdapter) QuoteOnRamp(ctx context.Context, fiat FiatLeg, crypto CryptoLeg, cryptoAmount float64) (*Quote, error) {
 	return a.CreateQuote(ctx, QuoteRequest{
 		Deposit: QuoteDepositLeg{
-			LegSpec:      fiat.spec(&depositAmount),
+			LegSpec:      fiat.spec(nil),
 			TransferType: fiat.TransferType,
 		},
-		Payout: crypto.payoutSpec(),
+		Payout: crypto.payoutSpec(&cryptoAmount),
 	})
 }
 
@@ -46,15 +51,16 @@ type CryptoLeg struct {
 	CurrencyCode string
 }
 
-func (c CryptoLeg) depositSpec() LegSpec {
+func (c CryptoLeg) depositSpec(amount *float64) LegSpec {
 	return LegSpec{
 		PaymentChannel: ChannelCrypto,
 		CurrencyType:   CurrencyTypeCrypto,
 		CurrencyCode:   c.CurrencyCode,
+		Amount:         amount,
 	}
 }
 
-func (c CryptoLeg) payoutSpec() LegSpec { return c.depositSpec() }
+func (c CryptoLeg) payoutSpec(amount *float64) LegSpec { return c.depositSpec(amount) }
 
 // FiatLeg names a fiat side of a corridor. TransferType is only honoured on a
 // quote's deposit leg.

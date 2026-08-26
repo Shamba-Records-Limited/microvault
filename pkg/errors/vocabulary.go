@@ -199,6 +199,10 @@ const (
 	// CodeMarginTooLow is a round trip that would sell crypto for less than it
 	// costs to buy back, by more than the configured floor.
 	CodeMarginTooLow = "margin_too_low"
+
+	// CodePanicRecovered is a panic caught at a goroutine boundary. Always a
+	// bug, never an expected condition.
+	CodePanicRecovered = "panic_recovered"
 )
 
 // Attribute keys are passed to oops .With. Consistency matters more here than
