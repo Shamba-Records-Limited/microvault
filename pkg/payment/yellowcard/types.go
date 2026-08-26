@@ -101,6 +101,105 @@ type Sender struct {
 	BusinessName       string `json:"businessName,omitempty"`
 }
 
+// Party is the KYC block YellowCard attaches to a transaction. The shape is
+// the same in both directions; YellowCard names it "sender" on a send and
+// "recipient" on a receive.
+type Party = Sender
+
+// CollectionSource is the account a collection draws funds from. AccountNumber
+// and NetworkID are not required for bank receives in production.
+//
+// In sandbox, AccountNumber 1111111111 simulates a successful source and
+// 0000000000 a failing one, for both "momo" and "bank".
+type CollectionSource struct {
+	AccountType   string `json:"accountType"`
+	AccountNumber string `json:"accountNumber,omitempty"`
+	NetworkID     string `json:"networkId,omitempty"`
+	AccountName   string `json:"accountName,omitempty"`
+	AccountBank   string `json:"accountBank,omitempty"`
+}
+
+// BankInfo is where the payer must send the funds. YellowCard populates it on
+// the collection once the request is accepted; it is absent beforehand.
+type BankInfo struct {
+	Name          string `json:"name"`
+	AccountNumber string `json:"accountNumber"`
+	AccountName   string `json:"accountName"`
+}
+
+// CollectionRequest submits a pay-in to YellowCard. Either Amount (USD) or
+// LocalAmount must be specified, not both. ForceAccept is always set to true
+// by SubmitCollection to skip the approval window.
+//
+// Recipient is required when CustomerType is "retail" — despite the name, on a
+// receive it describes the party the money is collected from. Country and
+// Currency are only required when selecting by ChannelType instead of
+// ChannelID.
+type CollectionRequest struct {
+	ChannelID    string           `json:"channelId"`
+	SequenceID   string           `json:"sequenceId"`
+	CustomerUID  string           `json:"customerUID"`
+	CustomerType string           `json:"customerType"`
+	ForceAccept  bool             `json:"forceAccept"`
+	Source       CollectionSource `json:"source"`
+	Recipient    Party            `json:"recipient,omitzero"`
+	Amount       float64          `json:"amount,omitempty"`
+	LocalAmount  float64          `json:"localAmount,omitempty"`
+	Currency     string           `json:"currency,omitempty"`
+	Country      string           `json:"country,omitempty"`
+	ChannelType  string           `json:"channelType,omitempty"`
+	Reason       string           `json:"reason,omitempty"`
+	// RedirectURL is required when the selected channel needs a redirect and
+	// ForceAccept is true. The South African collection channel is one.
+	RedirectURL string `json:"redirectUrl,omitempty"`
+}
+
+// Collection is a collection request as YellowCard reports it. Submit, accept,
+// deny, lookup, cancel and refund all answer with this same shape.
+type Collection struct {
+	ID         string `json:"id"`
+	ChannelID  string `json:"channelId"`
+	SequenceID string `json:"sequenceId"`
+	PartnerID  string `json:"partnerId"`
+	// DepositID identifies the underlying deposit YellowCard books against the
+	// collection. Absent until the request is accepted.
+	DepositID       string  `json:"depositId,omitempty"`
+	Currency        string  `json:"currency"`
+	Country         string  `json:"country"`
+	Amount          float64 `json:"amount"`
+	ConvertedAmount float64 `json:"convertedAmount"`
+	Rate            float64 `json:"rate"`
+	Status          string  `json:"status"`
+	// Reference is what the payer quotes when sending the funds.
+	Reference     string `json:"reference,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	ForceAccept   bool   `json:"forceAccept,omitempty"`
+	RequestSource string `json:"requestSource,omitempty"`
+	FiatWallet    string `json:"fiatWallet,omitempty"`
+	// RefundRetry counts YellowCard's refund attempts. Only set once a refund
+	// has been requested.
+	RefundRetry int `json:"refundRetry,omitempty"`
+
+	Recipient Party            `json:"recipient"`
+	Source    CollectionSource `json:"source"`
+	BankInfo  *BankInfo        `json:"bankInfo,omitempty"`
+
+	ServiceFeeAmountUSD   float64 `json:"serviceFeeAmountUSD,omitempty"`
+	ServiceFeeAmountLocal float64 `json:"serviceFeeAmountLocal,omitempty"`
+	PartnerFeeAmountUSD   float64 `json:"partnerFeeAmountUSD,omitempty"`
+	PartnerFeeAmountLocal float64 `json:"partnerFeeAmountLocal,omitempty"`
+
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
+// CollectionsResponse wraps the collections array returned from the YellowCard
+// list-collections endpoint.
+type CollectionsResponse struct {
+	Collections []Collection `json:"collections"`
+}
+
 // Destination represents where funds should be sent.
 type Destination struct {
 	AccountNumber string `json:"accountNumber"`
@@ -328,9 +427,16 @@ const (
 	ChannelTypeBank = "bank"
 )
 
-// Ramp type constants.
+// Ramp type constants. A channel serves one direction: withdraw channels are
+// disbursements out, deposit channels are collections in.
+//
+// RampTypeWithdraw is confirmed against live channel responses.
+// RampTypeDeposit is the documented counterpart but has not yet been seen on a
+// response — if channel filtering for collections comes back empty, check this
+// value first.
 const (
 	RampTypeWithdraw = "withdraw"
+	RampTypeDeposit  = "deposit"
 )
 
 // Customer type constants.

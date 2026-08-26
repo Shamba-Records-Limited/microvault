@@ -364,6 +364,19 @@ func FilterActiveChannels(channels []Channel, channelType string) []Channel {
 	return result
 }
 
+// FilterChannelsByRampType returns channels serving one direction. A channel
+// is either a withdraw channel or a deposit one, so disbursement and
+// collection code must not draw from the same list.
+func FilterChannelsByRampType(channels []Channel, rampType string) []Channel {
+	result := make([]Channel, 0)
+	for _, ch := range channels {
+		if ch.RampType == rampType {
+			result = append(result, ch)
+		}
+	}
+	return result
+}
+
 // FilterActiveNetworks returns networks that are active.
 func FilterActiveNetworks(networks []Network) []Network {
 	result := make([]Network, 0)
