@@ -233,5 +233,7 @@ separate, looser bound used for rate validation.
   the webhook-driven YellowCard flow.
 - [yellowcard.md](./yellowcard.md) — the mobile-money off-ramp: two settlement
   modes, the direct→fiat pivot, and the webhook state machine.
+- [On-ramp / MoneyGram cash-in](../onramp/moneygram.md) — the same anchor in the
+  other direction: a borrower repaying a loan with cash at an agent counter.
 - [Soroban / Vault](../soroban/vault.md) — the borrow and repay calls the
   off-ramp triggers on-chain.
