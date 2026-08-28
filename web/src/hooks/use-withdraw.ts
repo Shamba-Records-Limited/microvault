@@ -30,7 +30,7 @@ export function useWithdraw(address: string | undefined) {
       const rawAmount = BigInt(Math.round(amount * Number(USDC_SCALE)));
       const tx = await buildWithdrawTx(address, rawAmount);
       const { signedTxXdr } = await StellarWalletsKit.signTransaction(
-        tx.toXDR(),
+        tx.toXdr(),
         { networkPassphrase, address },
       );
       return submitSignedTx(signedTxXdr);
