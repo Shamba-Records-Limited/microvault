@@ -295,12 +295,12 @@ export async function buildWithdrawTx(
 export async function submitSignedTx(
   signedXdr: string,
 ): Promise<rpc.Api.GetTransactionResponse> {
-  const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+  const tx = TransactionBuilder.fromXdr(signedXdr, networkPassphrase);
   const sendResponse = await server.sendTransaction(tx);
 
   if (sendResponse.status === "ERROR") {
     throw new Error(
-      `Transaction send failed: ${sendResponse.errorResult?.toXDR("base64")}`,
+      `Transaction send failed: ${sendResponse.errorResult?.toXdr("base64")}`,
     );
   }
 

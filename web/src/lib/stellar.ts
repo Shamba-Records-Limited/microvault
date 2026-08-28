@@ -99,7 +99,7 @@ function formatOpSummary(op: any): string {
       if (fnParam?.value) {
         try {
           const decoded = scValToNative(
-            xdr.ScVal.fromXDR(fnParam.value, "base64"),
+            xdr.ScVal.fromXdr(fnParam.value, "base64"),
           );
           if (typeof decoded === "string" && decoded.length > 0) {
             return `invoke ${decoded}`;
