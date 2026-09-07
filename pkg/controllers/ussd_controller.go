@@ -34,12 +34,16 @@ func NewUSSDController(ussdService *ussd.USSDService) *USSDController {
 func (ctrl *USSDController) HandleCallback(c *fiber.Ctx) error {
 	provider := c.Params("provider")
 	data := make(map[string]string)
-	c.Request().PostArgs().VisitAll(func(key, value []byte) {
+	for key, value := range c.Request().PostArgs().All() {
 		data[string(key)] = string(value)
-	})
+	}
 	resp, err := ctrl.ussdService.HandleRequest(c.Context(), provider, data)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString("END An error occurred. Please try again.")
 	}
-	return c.SendString(resp.(string))
+	text, ok := resp.(string)
+	if !ok {
+		return c.Status(fiber.StatusInternalServerError).SendString("END An error occurred. Please try again.")
+	}
+	return c.SendString(text)
 }

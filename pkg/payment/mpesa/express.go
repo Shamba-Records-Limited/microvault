@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -278,6 +279,13 @@ func ParseExpressCallback(raw []byte) (*ExpressCallback, error) {
 	}
 
 	inner := envelope.Body.STKCallback
+	if inner.CheckoutRequestID == "" {
+		// Every real callback carries the checkout id it resolves. A body
+		// without one is not a payment we can correlate or trust.
+		return nil, mpesaErr("parse_express_callback").
+			Code(pkgErrors.CodeDecodeFailed).
+			Wrapf(errMissingCheckoutRequestID, "callback without a checkout request id")
+	}
 	callback := &ExpressCallback{
 		MerchantRequestID: inner.MerchantRequestID,
 		CheckoutRequestID: inner.CheckoutRequestID,
@@ -308,6 +316,8 @@ func ParseExpressCallback(raw []byte) (*ExpressCallback, error) {
 	}
 	return callback, nil
 }
+
+var errMissingCheckoutRequestID = errors.New("callback without a checkout request id")
 
 // ExpressOutcome is what a result code means to the borrower.
 type ExpressOutcome struct {

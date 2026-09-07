@@ -273,7 +273,20 @@ func main() {
 	smsCallbackHandler := sms.NewDeliveryReportHandler()
 	smsCallbackController := controllers.NewSMSCallbackController(smsCallbackHandler)
 
-	routes.PublicRoutes(app, authController, ussdController, webhookController, smsCallbackController) // Register public routes
+	// Daraja callbacks are registered only when the integration is configured.
+	// Unauthenticated by design — Daraja signs nothing; the unguessable slug
+	// and the source-IP allowlist are the controls, and a production deploy
+	// without an allowlist fails closed inside the controller.
+	var darajaController *controllers.DarajaCallbackController
+	if cfg.Payments.Mpesa.CallbackSlug != "" {
+		resolveLoan := func(ctx context.Context, reference string) (string, error) {
+			return repos.Mpesa.GetLoanIDByReference(ctx, reference)
+		}
+		darajaController = controllers.NewDarajaCallbackController(
+			repos.Mpesa, cfg.Payments.Mpesa, cfg.Server.ServerEnvironment, resolveLoan)
+	}
+
+	routes.PublicRoutes(app, authController, ussdController, webhookController, smsCallbackController, darajaController) // Register public routes
 
 	// Create a channel to listen for OS signals
 	sigChan := make(chan os.Signal, 1)

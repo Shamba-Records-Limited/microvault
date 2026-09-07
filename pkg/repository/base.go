@@ -11,6 +11,7 @@ type Repositories struct {
 	User        UserRepository
 	Account     AccountRepository
 	Transaction TransactionRepository
+	Mpesa       MpesaTransactionRepository
 }
 
 func NewRepositories(db *gorm.DB) (*Repositories, error) {
@@ -33,10 +34,16 @@ func NewRepositories(db *gorm.DB) (*Repositories, error) {
 		return nil, err
 	}
 
+	mpesa, err := NewMpesaTransactionRepository(db)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Repositories{
 		// Core repositories
 		Transaction: transaction,
 		User:        user,
 		Account:     account,
+		Mpesa:       mpesa,
 	}, nil
 }

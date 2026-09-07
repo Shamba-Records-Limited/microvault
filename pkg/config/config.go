@@ -232,6 +232,7 @@ type PaymentsConfig struct {
 	YellowCard YellowCardConfig
 	Fonbnk     FonbnkConfig
 	MoneyGram  MoneyGramConfig
+	Mpesa      MpesaConfig
 
 	// EntryFXBufferPct is the flat safety margin the loan adapter applies when
 	// it re-quotes the entry rate from a provider's own Quoter, as a fraction
@@ -383,6 +384,25 @@ func New() (*Config, error) {
 	}
 
 	mgRefundMaxAttempts, err := envPositiveInt("MONEYGRAM_REFUND_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+
+	mpesaConsumerKey := os.Getenv("MPESA_CONSUMER_KEY")
+	mpesaConsumerSecret := os.Getenv("MPESA_CONSUMER_SECRET")
+	mpesaCollectionShortcode, _ := strconv.ParseUint(os.Getenv("MPESA_COLLECTION_SHORTCODE"), 10, 64)
+	mpesaDisbursementShortcode, _ := strconv.ParseUint(os.Getenv("MPESA_DISBURSEMENT_SHORTCODE"), 10, 64)
+	mpesaPasskey := os.Getenv("MPESA_PASSKEY")
+	mpesaInitiatorName := os.Getenv("MPESA_INITIATOR_NAME")
+	mpesaInitiatorPassword := os.Getenv("MPESA_INITIATOR_PASSWORD")
+	mpesaCallbackBaseURL := os.Getenv("MPESA_CALLBACK_BASE_URL")
+	mpesaCallbackSlug := os.Getenv("MPESA_CALLBACK_SLUG")
+	mpesaAllowedCIDRs := splitEnv("MPESA_CALLBACK_ALLOWED_CIDRS", ",")
+	mpesaSTKPollInterval, err := envSeconds("MPESA_STK_POLL_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	mpesaSTKMaxAttempts, err := envPositiveInt("MPESA_STK_MAX_ATTEMPTS")
 	if err != nil {
 		return nil, err
 	}
@@ -645,6 +665,21 @@ func New() (*Config, error) {
 			EntryFXBufferPct:          entryFXBuffer,
 			EnableProviderRelaySwitch: enableRelaySwitch,
 			LoanReferencePrefix:       loanRefPrefix,
+			Mpesa: MpesaConfig{
+				ConsumerKey:           mpesaConsumerKey,
+				ConsumerSecret:        mpesaConsumerSecret,
+				CollectionShortcode:   uint(mpesaCollectionShortcode),
+				DisbursementShortcode: uint(mpesaDisbursementShortcode),
+				Passkey:               mpesaPasskey,
+				InitiatorName:         mpesaInitiatorName,
+				InitiatorPassword:     mpesaInitiatorPassword,
+				CallbackBaseURL:       mpesaCallbackBaseURL,
+				CallbackSlug:          mpesaCallbackSlug,
+				CallbackAllowedCIDRs:  mpesaAllowedCIDRs,
+				STKPollInterval:       firstNonZeroDuration(mpesaSTKPollInterval, 5*time.Second),
+				STKMaxAttempts:        firstNonZeroInt(mpesaSTKMaxAttempts, 3),
+				ReferencePrefix:       loanRefPrefix,
+			},
 			YellowCard: YellowCardConfig{
 				PublicKey:    ycPublicKey,
 				SecretKey:    ycSecretKey,
@@ -756,6 +791,22 @@ func envPositiveInt(key string) (int, error) {
 		return 0, fmt.Errorf("error parsing %s: expected a positive integer, got %q", key, raw)
 	}
 	return n, nil
+}
+
+// splitEnv splits a comma-separated list, trimming blanks.
+func splitEnv(key, sep string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, sep)
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // envNonNegativeInt64 reads a bare non-negative integer, zero when unset.
@@ -881,4 +932,67 @@ func validateUSDCIssuerAlignment(moneygramIssuer, stellarIssuer string) error {
 			moneygramIssuer, stellarIssuer)
 	}
 	return nil
+}
+
+// MpesaConfig holds the Safaricom Daraja integration settings. Builder-injected:
+// the platform ships no production shortcode, and the callback path must not be
+// guessable.
+type MpesaConfig struct {
+	// ConsumerKey and ConsumerSecret sign the access-token mint.
+	ConsumerKey    string
+	ConsumerSecret string
+
+	// CollectionShortcode receives C2B and M-Pesa Express payments.
+	CollectionShortcode uint
+
+	// DisbursementShortcode funds payouts and is the PartyA of balance and
+	// reversal queries against the payout side.
+	DisbursementShortcode uint
+
+	// Passkey signs the M-Pesa Express password.
+	Passkey string
+
+	// InitiatorName and InitiatorPassword are the M-PESA API operator.
+	InitiatorName     string
+	InitiatorPassword string
+
+	// CallbackBaseURL is the public base the result and validation URLs are
+	// built from. Through the OutRay tunnel on testnet; an owned domain later.
+	CallbackBaseURL string
+
+	// CallbackSlug is the unguessable path segment the callback URLs hang off.
+	// Daraja signs nothing, so an attacker who learns the path can post forged
+	// confirmations; the slug is the only thing making that path non-obvious.
+	CallbackSlug string
+
+	// CallbackAllowedCIDRs is the Safaricom egress range, enforced on the
+	// callback group in production. Log-only when empty.
+	CallbackAllowedCIDRs []string
+
+	// STKPollInterval bounds how often the poller asks Daraja about a pending
+	// prompt.
+	STKPollInterval time.Duration
+
+	// STKMaxAttempts is how many poll rounds a pending prompt gets before a
+	// human is told, not how long the borrower has.
+	STKMaxAttempts int
+
+	// ReferencePrefix is the loan-reference namespace the C2B validator checks
+	// against. It must equal PaymentsConfig.LoanReferencePrefix, and it is
+	// loaded from the same LOAN_REFERENCE_PREFIX variable.
+	ReferencePrefix string
+}
+
+func firstNonZeroDuration(v, fallback time.Duration) time.Duration {
+	if v == 0 {
+		return fallback
+	}
+	return v
+}
+
+func firstNonZeroInt(v, fallback int) int {
+	if v == 0 {
+		return fallback
+	}
+	return v
 }
