@@ -194,7 +194,10 @@ type C2BNotification struct {
 	LastName   string
 }
 
-type c2bNotificationWire struct {
+// C2BNotificationWire is the wire shape of a C2B validation or confirmation
+// payload. Exported so the receiving routes can name it in their OpenAPI
+// definitions.
+type C2BNotificationWire struct {
 	TransactionType   string `json:"TransactionType"`
 	TransID           string `json:"TransID"`
 	TransTime         string `json:"TransTime"`
@@ -212,7 +215,7 @@ type c2bNotificationWire struct {
 
 // ParseC2BNotification decodes a validation or confirmation payload.
 func ParseC2BNotification(raw []byte) (*C2BNotification, error) {
-	var wire c2bNotificationWire
+	var wire C2BNotificationWire
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return nil, mpesaErr("parse_c2b_notification").
 			Code(pkgErrors.CodeDecodeFailed).

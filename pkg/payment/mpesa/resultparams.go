@@ -78,11 +78,17 @@ func (r Result) ResultCodeInt() (int64, bool) {
 	return parsed, true
 }
 
-type resultEnvelope struct {
-	Result rawResult `json:"Result"`
+// ResultEnvelope is the wire shape every Initiator-bearing endpoint posts to
+// a ResultURL or QueueTimeOutURL. Exported so the receiving routes can name it
+// in their OpenAPI definitions.
+type ResultEnvelope struct {
+	Result RawResult `json:"Result"`
 }
 
-type rawResult struct {
+// RawResult is the Result object as it arrives on the wire. ResultCode is
+// held raw because Daraja sends it as a number on some endpoints and a string
+// on others.
+type RawResult struct {
 	ResultType               FlexibleInt64   `json:"ResultType"`
 	ResultCode               json.RawMessage `json:"ResultCode"`
 	ResultDesc               string          `json:"ResultDesc"`
@@ -167,7 +173,7 @@ func scalarString(raw json.RawMessage) string {
 
 // ParseResult decodes an asynchronous result envelope.
 func ParseResult(raw []byte) (*Result, error) {
-	var envelope resultEnvelope
+	var envelope ResultEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return nil, mpesaErr("parse_result").
 			Code(pkgErrors.CodeDecodeFailed).

@@ -279,26 +279,43 @@ type ExpressCallback struct {
 // Succeeded reports whether the customer paid.
 func (e ExpressCallback) Succeeded() bool { return e.ResultCode == 0 }
 
-type expressCallbackEnvelope struct {
-	Body struct {
-		STKCallback struct {
-			MerchantRequestID string        `json:"MerchantRequestID"`
-			CheckoutRequestID string        `json:"CheckoutRequestID"`
-			ResultCode        FlexibleInt64 `json:"ResultCode"`
-			ResultDesc        string        `json:"ResultDesc"`
-			CallbackMetadata  *struct {
-				Item []struct {
-					Name  string          `json:"Name"`
-					Value json.RawMessage `json:"Value"`
-				} `json:"Item"`
-			} `json:"CallbackMetadata"`
-		} `json:"stkCallback"`
-	} `json:"Body"`
+// ExpressCallbackEnvelope is the wire shape of an M-Pesa Express result
+// delivery. Exported so the receiving route can name it in its OpenAPI
+// definition.
+type ExpressCallbackEnvelope struct {
+	Body ExpressCallbackBody `json:"Body"`
+}
+
+// ExpressCallbackBody wraps the stkCallback object.
+type ExpressCallbackBody struct {
+	STKCallback ExpressCallbackResult `json:"stkCallback"`
+}
+
+// ExpressCallbackResult is the outcome of one STK push as it arrives on the
+// wire. CallbackMetadata is absent unless the customer paid.
+type ExpressCallbackResult struct {
+	MerchantRequestID string                         `json:"MerchantRequestID"`
+	CheckoutRequestID string                         `json:"CheckoutRequestID"`
+	ResultCode        FlexibleInt64                  `json:"ResultCode"`
+	ResultDesc        string                         `json:"ResultDesc"`
+	CallbackMetadata  *ExpressCallbackMetadataHolder `json:"CallbackMetadata"`
+}
+
+// ExpressCallbackMetadataHolder carries the receipt entries on success.
+type ExpressCallbackMetadataHolder struct {
+	Item []ExpressCallbackMetadataItem `json:"Item"`
+}
+
+// ExpressCallbackMetadataItem is one CallbackMetadata entry. Value is held raw
+// because its JSON type depends on Name.
+type ExpressCallbackMetadataItem struct {
+	Name  string          `json:"Name"`
+	Value json.RawMessage `json:"Value"`
 }
 
 // ParseExpressCallback decodes an M-Pesa Express callback.
 func ParseExpressCallback(raw []byte) (*ExpressCallback, error) {
-	var envelope expressCallbackEnvelope
+	var envelope ExpressCallbackEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return nil, mpesaErr("parse_express_callback").
 			Code(pkgErrors.CodeDecodeFailed).

@@ -85,9 +85,16 @@ func cidrMatch(ip, cidr string) bool {
 
 // STKCallback receives the M-Pesa Express result.
 // @Description M-Pesa Express payment callback
+// @Summary Record an STK push result
 // @Tags Daraja
 // @Accept json
 // @Produce json
+// @Param slug path string true "Callback slug"
+// @Param body body mpesa.ExpressCallbackEnvelope true "Express result delivery"
+// @Success 200 {string} string "Recorded or dropped"
+// @Failure 400 {object} fiber.Error "Undecodable callback"
+// @Failure 403 {object} fiber.Error "Source not permitted"
+// @Failure 500 {object} fiber.Error "Failed to record the observation"
 // @Router /callbacks/daraja/{slug}/stk/result [post]
 func (ctrl *DarajaCallbackController) STKCallback(c *fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
@@ -131,6 +138,16 @@ func (ctrl *DarajaCallbackController) STKCallback(c *fiber.Ctx) error {
 
 // C2BValidation receives the validation callback. Responds inside the budget
 // with the accept/reject decision.
+// @Description Decide whether to accept an incoming C2B payment. Any answer other than ResultCode 0 rejects it.
+// @Summary Validate a C2B payment
+// @Tags Daraja
+// @Accept json
+// @Produce json
+// @Param slug path string true "Callback slug"
+// @Param body body mpesa.C2BNotificationWire true "Validation notification"
+// @Success 200 {object} mpesa.ValidationResponse "Accept/reject decision"
+// @Failure 400 {object} fiber.Error "Undecodable notification"
+// @Failure 403 {object} fiber.Error "Source not permitted"
 // @Router /callbacks/daraja/{slug}/c2b/validation [post]
 func (ctrl *DarajaCallbackController) C2BValidation(c *fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
@@ -168,6 +185,17 @@ func (ctrl *DarajaCallbackController) C2BValidation(c *fiber.Ctx) error {
 }
 
 // C2BConfirmation receives the confirmation callback after a payment settled.
+// @Description Record a settled C2B payment as an observation for the poller to confirm
+// @Summary Record a C2B confirmation
+// @Tags Daraja
+// @Accept json
+// @Produce json
+// @Param slug path string true "Callback slug"
+// @Param body body mpesa.C2BNotificationWire true "Confirmation notification"
+// @Success 200 {string} string "Recorded"
+// @Failure 400 {object} fiber.Error "Undecodable confirmation"
+// @Failure 403 {object} fiber.Error "Source not permitted"
+// @Failure 500 {object} fiber.Error "Failed to record the observation"
 // @Router /callbacks/daraja/{slug}/c2b/confirmation [post]
 func (ctrl *DarajaCallbackController) C2BConfirmation(c *fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
@@ -202,6 +230,18 @@ func (ctrl *DarajaCallbackController) C2BConfirmation(c *fiber.Ctx) error {
 // AsyncResult receives the result of a Transaction Status, Account Balance or
 // Reversal query. The result URL and the timeout URL are distinct routes —
 // they cannot be told apart by their payload.
+// @Description Record the result of an asynchronous Daraja query
+// @Summary Record an async query result
+// @Tags Daraja
+// @Accept json
+// @Produce json
+// @Param slug path string true "Callback slug"
+// @Param kind path string true "Query family" Enums(status, balance, reversal)
+// @Param body body mpesa.ResultEnvelope true "Result delivery"
+// @Success 200 {string} string "Recorded"
+// @Failure 400 {object} fiber.Error "Undecodable result"
+// @Failure 403 {object} fiber.Error "Source not permitted"
+// @Failure 500 {object} fiber.Error "Failed to record the observation"
 // @Router /callbacks/daraja/{slug}/{kind}/result [post]
 func (ctrl *DarajaCallbackController) AsyncResult(c *fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
@@ -213,6 +253,18 @@ func (ctrl *DarajaCallbackController) AsyncResult(c *fiber.Ctx) error {
 // AsyncTimeout receives the queue-timeout delivery. A timeout is never a
 // failure — it moves the record to unknown, and the poller resolves it with
 // TransactionStatus.
+// @Description Record a queue-timeout delivery as unknown for the poller to resolve
+// @Summary Record an async queue timeout
+// @Tags Daraja
+// @Accept json
+// @Produce json
+// @Param slug path string true "Callback slug"
+// @Param kind path string true "Query family" Enums(status, balance, reversal)
+// @Param body body mpesa.ResultEnvelope true "Timeout delivery"
+// @Success 200 {string} string "Recorded"
+// @Failure 400 {object} fiber.Error "Undecodable result"
+// @Failure 403 {object} fiber.Error "Source not permitted"
+// @Failure 500 {object} fiber.Error "Failed to record the observation"
 // @Router /callbacks/daraja/{slug}/{kind}/timeout [post]
 func (ctrl *DarajaCallbackController) AsyncTimeout(c *fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
