@@ -1,6 +1,10 @@
 package mpesa
 
-import "time"
+import (
+	"time"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/cashin"
+)
 
 // The types here are the provider-specific extras a cash-in contract would
 // carry. They are plain structs with no marker method, because the contract
@@ -16,6 +20,8 @@ type Options struct {
 	TransactionDesc string
 }
 
+func (Options) ProviderID() cashin.ProviderID { return cashin.ProviderMpesa }
+
 // ExpressPayload is what an M-Pesa Express collection returns.
 //
 // A prompt that was accepted is not a payment. CheckoutRequestID identifies
@@ -27,6 +33,8 @@ type ExpressPayload struct {
 	CustomerMessage   string
 	PromptedAmountKES int64
 }
+
+func (ExpressPayload) ProviderID() cashin.ProviderID { return cashin.ProviderMpesa }
 
 // C2BPayload is what a paybill collection produces.
 type C2BPayload struct {
@@ -48,6 +56,8 @@ type C2BPayload struct {
 	PaidAt            time.Time
 }
 
+func (C2BPayload) ProviderID() cashin.ProviderID { return cashin.ProviderMpesa }
+
 // ReversalPayload is what a reversal result carries.
 type ReversalPayload struct {
 	TransactionID         string
@@ -59,3 +69,13 @@ type ReversalPayload struct {
 	// in an audit record, never in a log line.
 	CreditPartyPublicName string
 }
+
+func (ReversalPayload) ProviderID() cashin.ProviderID { return cashin.ProviderMpesa }
+
+// Compile-time satisfaction of the contract markers.
+var (
+	_ cashin.ProviderOptions = Options{}
+	_ cashin.ProviderPayload = ExpressPayload{}
+	_ cashin.ProviderPayload = C2BPayload{}
+	_ cashin.ProviderPayload = ReversalPayload{}
+)
