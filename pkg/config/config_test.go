@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/loanref"
+)
 
 // TestMoneyGramSecretResolution documents the invariant that an explicitly
 // configured MONEYGRAM_AUTH_SECRET / MONEYGRAM_FUNDS_SECRET overrides the
@@ -85,6 +89,45 @@ func TestUSDCIssuerAlignment(t *testing.T) {
 			}
 			if !tt.wantErr && err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// An invalid LOAN_REFERENCE_PREFIX must fail startup, not the first repayment.
+func TestNew_LoanReferencePrefixValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		ok    bool
+	}{
+		{"default unset", "", true},
+		{"valid", "AA", true},
+		{"too short", "A", false},
+		{"too long", "AAA", false},
+		{"lowercase", "aa", false},
+		{"confusable I", "AI", false},
+		{"confusable O", "OA", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			if tc.value != "" {
+				t.Setenv("LOAN_REFERENCE_PREFIX", tc.value)
+			}
+			cfg, err := New()
+			if tc.ok {
+				if err != nil {
+					t.Fatalf("New() with %q: %v", tc.value, err)
+				}
+				want := loanref.DefaultPrefix
+				if tc.value != "" {
+					want = tc.value
+				}
+				if cfg.Payments.LoanReferencePrefix != want {
+					t.Errorf("prefix = %q, want %q", cfg.Payments.LoanReferencePrefix, want)
+				}
+			} else if err == nil {
+				t.Fatalf("New() with %q should have failed", tc.value)
 			}
 		})
 	}

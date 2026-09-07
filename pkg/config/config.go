@@ -12,6 +12,8 @@ import (
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/loanref"
 )
 
 // Config holds all configuration for the application, composed of sub-configs.
@@ -245,6 +247,13 @@ type PaymentsConfig struct {
 	// YellowCard, the default provider. From
 	// ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH; unset is off.
 	EnableProviderRelaySwitch bool
+
+	// LoanReferencePrefix is the 2-character namespace prefix on generated loan
+	// references, defaulting to loanref.DefaultPrefix. From
+	// LOAN_REFERENCE_PREFIX. The check character is derived over the prefix, so
+	// every component that validates or generates a reference must read the
+	// same configured value.
+	LoanReferencePrefix string
 }
 
 // AfricasTalkingConfig holds all SMS/USSD-related configuration for Africa's Talking
@@ -376,6 +385,11 @@ func New() (*Config, error) {
 	mgRefundMaxAttempts, err := envPositiveInt("MONEYGRAM_REFUND_MAX_ATTEMPTS")
 	if err != nil {
 		return nil, err
+	}
+
+	loanRefPrefix := loanref.DefaultPrefix
+	if v := os.Getenv("LOAN_REFERENCE_PREFIX"); v != "" {
+		loanRefPrefix = v
 	}
 
 	enableRelaySwitch, err := envBool("ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH")
@@ -541,6 +555,10 @@ func New() (*Config, error) {
 		return nil, err
 	}
 
+	if err := loanref.ValidatePrefix(loanRefPrefix); err != nil {
+		return nil, fmt.Errorf("LOAN_REFERENCE_PREFIX: %w", err)
+	}
+
 	if treasurySecretKey != "" {
 		_, err := keypair.ParseFull(treasurySecretKey)
 		if err != nil {
@@ -626,6 +644,7 @@ func New() (*Config, error) {
 		Payments: PaymentsConfig{
 			EntryFXBufferPct:          entryFXBuffer,
 			EnableProviderRelaySwitch: enableRelaySwitch,
+			LoanReferencePrefix:       loanRefPrefix,
 			YellowCard: YellowCardConfig{
 				PublicKey:    ycPublicKey,
 				SecretKey:    ycSecretKey,
