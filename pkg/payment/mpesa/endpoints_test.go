@@ -116,7 +116,7 @@ func TestAsync_QueueTimeoutIsUnknownNotFailed(t *testing.T) {
 		if callback.Outcome != OutcomeUnknown {
 			t.Errorf("outcome = %q, want unknown", callback.Outcome)
 		}
-		if callback.Result.ResultCode == 0 {
+		if callback.Result.ResultCode == "0" {
 			t.Error("the timeout body carried a success code, which is why the body cannot be trusted to classify it")
 		}
 	}
@@ -256,8 +256,8 @@ func TestReversal_InsufficientBalance(t *testing.T) {
 	stub.Deliver()
 
 	callback, _ := ParseCallback(CallbackResult, <-result)
-	if callback.Outcome != OutcomeFailed || callback.Result.ResultCode != 1 {
-		t.Errorf("outcome = %q, code = %d", callback.Outcome, callback.Result.ResultCode)
+	if callback.Outcome != OutcomeFailed || callback.Result.ResultCode != "1" {
+		t.Errorf("outcome = %q, code = %q", callback.Outcome, callback.Result.ResultCode)
 	}
 }
 

@@ -2,6 +2,7 @@ package mpesa
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -198,8 +199,9 @@ func TestExpressQuery_PendingErrorsAndResolvedSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExpressQuery after resolution: %v", err)
 	}
-	if query.ResultCode.Int64() != 0 {
-		t.Errorf("result code = %d", query.ResultCode.Int64())
+	code, outcome := query.Outcome()
+	if code != 0 || outcome.Message != "Payment received." {
+		t.Errorf("outcome = %d %q", code, outcome.Message)
 	}
 }
 
@@ -243,6 +245,45 @@ func TestExpressOutcomeFor(t *testing.T) {
 	unknown := ExpressOutcomeFor(999999)
 	if unknown.Retryable || !unknown.Operational {
 		t.Errorf("unknown code = %+v", unknown)
+	}
+}
+
+// Daraja also sends an alphanumeric result code, SFC_IC0003 ("the operator
+// does not exist"), paired with 2028. Held as raw JSON it must fold onto 2028
+// and never collapse into success 0.
+func TestExpressQueryOutcome_StringCode(t *testing.T) {
+	cases := []struct {
+		name     string
+		raw      string
+		wantCode int64
+		wantOp   bool
+	}{
+		{"numeric zero", `{"ResultCode":0}`, 0, false},
+		{"quoted zero", `{"ResultCode":"0"}`, 0, false},
+		{"numeric 1032", `{"ResultCode":1032}`, 1032, false},
+		{"SFC_IC0003", `{"ResultCode":"SFC_IC0003"}`, 2028, true},
+		{"unknown string", `{"ResultCode":"XYZ_9999"}`, 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var q ExpressQueryResponse
+			if err := json.Unmarshal([]byte(tc.raw), &q); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			code, outcome := q.Outcome()
+			if tc.name == "numeric zero" || tc.name == "quoted zero" {
+				if outcome.Message != "Payment received." {
+					t.Errorf("zero code gave %q, want success", outcome.Message)
+				}
+				return
+			}
+			if code != tc.wantCode {
+				t.Errorf("code = %d, want %d", code, tc.wantCode)
+			}
+			if outcome.Operational != tc.wantOp {
+				t.Errorf("operational = %v, want %v", outcome.Operational, tc.wantOp)
+			}
+		})
 	}
 }
 

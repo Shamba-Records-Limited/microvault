@@ -87,13 +87,18 @@ func TestParseResult_ResultParameterBothShapes(t *testing.T) {
 // sample. A plain int64 field fails exactly when something has gone wrong.
 func TestParseResult_ResultCodeBothTypes(t *testing.T) {
 	asString, _ := ParseResult(fixture(t, "b2b_success_result.json"))
-	if asString.ResultCode != 0 || !asString.Succeeded() {
-		t.Errorf("quoted result code = %d", asString.ResultCode)
+	if asString.ResultCode != "0" || !asString.Succeeded() {
+		t.Errorf("quoted result code = %q", asString.ResultCode)
 	}
 
 	asNumber, _ := ParseResult(fixture(t, "b2b_failure_result.json"))
-	if asNumber.ResultCode != 2001 || asNumber.Succeeded() {
-		t.Errorf("numeric result code = %d", asNumber.ResultCode)
+	if asNumber.ResultCode != "2001" || asNumber.Succeeded() {
+		t.Errorf("numeric result code = %q", asNumber.ResultCode)
+	}
+	// A string code like a reversal's R000002 must be preserved verbatim, not
+	// folded into a number — folding it to 0 would read a failure as success.
+	if n, ok := asNumber.ResultCodeInt(); !ok || n != 2001 {
+		t.Errorf("ResultCodeInt = %d, %v", n, ok)
 	}
 }
 

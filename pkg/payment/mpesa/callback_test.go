@@ -35,8 +35,8 @@ func TestParseCallback_ResultClassification(t *testing.T) {
 	if failure.Outcome != OutcomeFailed || !failure.Outcome.Terminal() {
 		t.Errorf("failure classified as %q", failure.Outcome)
 	}
-	if failure.Result.ResultCode != 2001 {
-		t.Errorf("result code = %d", failure.Result.ResultCode)
+	if failure.Result.ResultCode != "2001" {
+		t.Errorf("result code = %q", failure.Result.ResultCode)
 	}
 }
 

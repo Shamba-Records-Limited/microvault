@@ -156,6 +156,29 @@ const (
 	// CodeDuplicateRequest is an idempotency key already seen.
 	CodeDuplicateRequest = "duplicate_request"
 
+	// CodeSubscriberLocked is a provider refusing to start because the party
+	// already has a transaction in flight — Daraja's "Unable to lock subscriber,
+	// a transaction is already in process for the current subscriber". Distinct
+	// from CodeDuplicateRequest: a duplicate is the same request sent twice and
+	// must not be retried, a lock is a different request queued behind one and
+	// may be retried after a wait.
+	CodeSubscriberLocked = "subscriber_locked"
+
+	// CodeRateLimited is a provider throttling us — Daraja's spike-arrest and
+	// quota codes. Distinct from a generic non-2xx because it is transient and
+	// retryable after a backoff, and worth alerting on separately so a sustained
+	// throttle is visible rather than buried in a generic error dashboard.
+	CodeRateLimited = "rate_limited"
+
+	// CodeSubscriptionUnavailable is a provider API we have not been onboarded
+	// to — Daraja's 403.001, returned when a product exists but our account
+	// carries no subscription to it. Distinct from CodeMerchantNotPermitted,
+	// which is a capability the account lacks; this is a commercial agreement
+	// that has not been made, and it never resolves by retrying. It warrants
+	// its own code because the fix is a call to the provider, and it should be
+	// caught at configuration, not discovered at runtime.
+	CodeSubscriptionUnavailable = "subscription_unavailable"
+
 	// CodeInsufficientLiquidity is the vault unable to fund a borrow.
 	CodeInsufficientLiquidity = "insufficient_liquidity"
 

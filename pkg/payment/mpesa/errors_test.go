@@ -74,8 +74,9 @@ func TestClassify(t *testing.T) {
 		{"bad request alt", 400, "400.003.02", "Bad Request", pkgErrors.CodeBuildFailed},
 		{"invalid payload", 400, "400.002.05", "Invalid Request Payload", pkgErrors.CodeBuildFailed},
 		{"method not allowed", 405, "405.001", "GET Method Not Allowed", pkgErrors.CodeBuildFailed},
-		{"spike arrest", 500, "500.003.02", "Error Occurred: Spike Arrest Violation", pkgErrors.CodeHTTPError},
-		{"quota", 500, "500.003.03", "Quota Violation", pkgErrors.CodeHTTPError},
+		{"spike arrest", 500, "500.003.02", "Error Occurred: Spike Arrest Violation", pkgErrors.CodeRateLimited},
+		{"quota", 500, "500.003.03", "Quota Violation", pkgErrors.CodeRateLimited},
+		{"subscription unavailable", 403, "403.001", "subscription_not_available", pkgErrors.CodeSubscriptionUnavailable},
 		{"duplicate originator", 500, "500.002.1001", "Duplicate OriginatorConversationID", pkgErrors.CodeDuplicateRequest},
 		{"urls already registered", 500, "500.003.1001", "Urls are already registered.", pkgErrors.CodeDuplicateRequest},
 		{"duplicate notification", 500, "500.003.1001", "Duplicate notification info, SP ID is xxx", pkgErrors.CodeDuplicateRequest},
@@ -97,7 +98,7 @@ func TestClassify(t *testing.T) {
 // actioned differently, so the code alone cannot classify it.
 func TestClassify_STKInternalIsOverloaded(t *testing.T) {
 	cases := map[string]string{
-		"Unable to lock subscriber, a transaction is already in process for the current subscriber": pkgErrors.CodeDuplicateRequest,
+		"Unable to lock subscriber, a transaction is already in process for the current subscriber": pkgErrors.CodeSubscriberLocked,
 		"Merchant does not exist":                    pkgErrors.CodeUnauthorized,
 		"Wrong credentials":                          pkgErrors.CodeUnauthorized,
 		"The Password parameter provided is invalid": pkgErrors.CodeUnauthorized,
@@ -128,7 +129,7 @@ func TestParseError_NonJSONBody(t *testing.T) {
 
 func TestResultError_Unwraps(t *testing.T) {
 	err := resultError(mpesaErr("test"), pkgErrors.CodeUnauthorized, &ResultError{
-		ResultCode: 2001,
+		ResultCode: "2001",
 		ResultDesc: "The initiator information is invalid.",
 	})
 
@@ -136,7 +137,7 @@ func TestResultError_Unwraps(t *testing.T) {
 	if !errors.As(err, &result) {
 		t.Fatal("errors.As did not reach *ResultError")
 	}
-	if result.ResultCode != 2001 {
-		t.Errorf("result code = %d", result.ResultCode)
+	if result.ResultCode != "2001" {
+		t.Errorf("result code = %q", result.ResultCode)
 	}
 }

@@ -169,12 +169,39 @@ func validateExpress(errb oopsBuilder, req ExpressRequest) error {
 
 // ExpressQueryResponse reports the state of a checkout.
 type ExpressQueryResponse struct {
-	ResponseCode        string        `json:"ResponseCode"`
-	ResponseDescription string        `json:"ResponseDescription"`
-	MerchantRequestID   string        `json:"MerchantRequestID"`
-	CheckoutRequestID   string        `json:"CheckoutRequestID"`
-	ResultCode          FlexibleInt64 `json:"ResultCode"`
-	ResultDesc          string        `json:"ResultDesc"`
+	ResponseCode        string `json:"ResponseCode"`
+	ResponseDescription string `json:"ResponseDescription"`
+	MerchantRequestID   string `json:"MerchantRequestID"`
+	CheckoutRequestID   string `json:"CheckoutRequestID"`
+
+	// ResultCode is held raw because Daraja sends it as a number, a quoted
+	// number, or an alphanumeric code. SFC_IC0003 ("the operator does not
+	// exist") is the documented case, and collapsing it into an integer would
+	// make an unmappable failure read as success 0.
+	ResultCode json.RawMessage `json:"ResultCode"`
+
+	ResultDesc string `json:"ResultDesc"`
+}
+
+// Outcome resolves the raw result code to a code and a borrower-facing
+// outcome. Numeric codes come from the table; SFC_IC0003 is folded onto 2028,
+// which Safaricom pairs it with. An unrecognised value yields the operational,
+// non-retryable fallback rather than a mistaken success.
+func (q ExpressQueryResponse) Outcome() (int64, ExpressOutcome) {
+	var numeric int64
+	if err := json.Unmarshal(q.ResultCode, &numeric); err == nil {
+		return numeric, ExpressOutcomeFor(numeric)
+	}
+	var text string
+	if err := json.Unmarshal(q.ResultCode, &text); err == nil {
+		if code, ok := strconv.ParseInt(text, 10, 64); ok == nil {
+			return code, ExpressOutcomeFor(code)
+		}
+		if text == "SFC_IC0003" {
+			return 2028, ExpressOutcomeFor(2028)
+		}
+	}
+	return 0, ExpressOutcomeFor(-1)
 }
 
 // ExpressQuery asks Daraja for the state of a checkout.
@@ -318,7 +345,8 @@ var expressOutcomes = map[int64]ExpressOutcome{
 	8006: {Operational: true, Message: "We could not process the payment. Please try again later."},
 }
 
-// ExpressOutcomeFor reports what a result code means. An undocumented code is
+// ExpressOutcomeFor reports what a result code means. An undocumented code —
+// including the sentinel -1 used for an unparseable or unrecognised one — is
 // treated as operational and not retryable, so an unknown failure is neither
 // blamed on the borrower nor retried blindly.
 func ExpressOutcomeFor(resultCode int64) ExpressOutcome {

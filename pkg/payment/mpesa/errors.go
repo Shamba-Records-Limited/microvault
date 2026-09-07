@@ -42,7 +42,7 @@ func (e *DarajaError) Error() string {
 // customer PIN on M-Pesa Express — so each endpoint maps its own codes to
 // outcomes and this type carries the raw values for the ones that do not.
 type ResultError struct {
-	ResultCode               int64
+	ResultCode               string
 	ResultDesc               string
 	ConversationID           string
 	OriginatorConversationID string
@@ -50,23 +50,24 @@ type ResultError struct {
 }
 
 func (e *ResultError) Error() string {
-	return fmt.Sprintf("daraja result %d: %s", e.ResultCode, e.ResultDesc)
+	return fmt.Sprintf("daraja result %s: %s", e.ResultCode, e.ResultDesc)
 }
 
 // Synchronous Daraja error codes. Daraja spells the same condition differently
 // per API, which is why these are grouped rather than switched on individually.
 const (
-	errCodeInvalidPayload      = "400.002.05"
-	errCodeBadRequest          = "400.002.02"
-	errCodeBadRequestAlt       = "400.003.02"
-	errCodeInvalidAuthType     = "400.008.01"
-	errCodeInvalidGrantType    = "400.008.02"
-	errCodeMethodNotAllowed    = "405.001"
-	errCodeSpikeArrest         = "500.003.02"
-	errCodeQuotaViolation      = "500.003.03"
-	errCodeInternalServer      = "500.003.1001"
-	errCodeSTKInternal         = "500.001.1001"
-	errCodeDuplicateOriginator = "500.002.1001"
+	errCodeInvalidPayload          = "400.002.05"
+	errCodeBadRequest              = "400.002.02"
+	errCodeBadRequestAlt           = "400.003.02"
+	errCodeInvalidAuthType         = "400.008.01"
+	errCodeInvalidGrantType        = "400.008.02"
+	errCodeSubscriptionUnavailable = "403.001"
+	errCodeMethodNotAllowed        = "405.001"
+	errCodeSpikeArrest             = "500.003.02"
+	errCodeQuotaViolation          = "500.003.03"
+	errCodeInternalServer          = "500.003.1001"
+	errCodeSTKInternal             = "500.001.1001"
+	errCodeDuplicateOriginator     = "500.002.1001"
 )
 
 // tokenRejectedCodes are the four spellings Daraja uses for a rejected access
@@ -140,18 +141,16 @@ func classify(status int, darajaCode, message string) (code, hint string) {
 		return pkgErrors.CodeUnauthorized, ""
 	case errCodeBadRequest, errCodeBadRequestAlt, errCodeInvalidPayload, errCodeMethodNotAllowed:
 		return pkgErrors.CodeBuildFailed, ""
+	case errCodeSubscriptionUnavailable:
+		return pkgErrors.CodeSubscriptionUnavailable, "We hold no subscription for this product. It is a commercial gap, not a transient failure — do not retry."
 	case errCodeSpikeArrest, errCodeQuotaViolation:
-		// TODO: CodeRateLimited — a retryable throttle is worth alerting on
-		// separately from a generic non-2xx.
-		return pkgErrors.CodeHTTPError, "Daraja is throttling; back off rather than retrying immediately."
+		return pkgErrors.CodeRateLimited, "Daraja is throttling; back off rather than retrying immediately."
 	case errCodeDuplicateOriginator:
 		return pkgErrors.CodeDuplicateRequest, "This exact request already reached M-Pesa. Resolve the original with TransactionStatus; do not send it again."
 	case errCodeSTKInternal:
 		switch {
 		case strings.Contains(lower, "lock subscriber"):
-			// TODO: CodeSubscriberLocked — a transaction is already in flight
-			// for this MSISDN, which is a wait, not a failure.
-			return pkgErrors.CodeDuplicateRequest, "A prompt is already in flight for this subscriber. Wait at least a minute."
+			return pkgErrors.CodeSubscriberLocked, "A prompt is already in flight for this subscriber. Wait at least a minute."
 		case strings.Contains(lower, "merchant does not exist"):
 			return pkgErrors.CodeUnauthorized, "The shortcode does not match the one the app went live with."
 		case strings.Contains(lower, "credential"), strings.Contains(lower, "password"):

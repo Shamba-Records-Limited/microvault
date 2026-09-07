@@ -166,8 +166,8 @@ func TestPollerRace_QueryBeforeCallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExpressQuery before the callback: %v", err)
 	}
-	if query.ResultCode.Int64() != 0 {
-		t.Errorf("query result code = %d", query.ResultCode.Int64())
+	if code, _ := query.Outcome(); code != 0 {
+		t.Errorf("query result code = %d", code)
 	}
 
 	// The callback then arrives and says the same thing, so a caller that acted

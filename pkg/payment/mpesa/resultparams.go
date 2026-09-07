@@ -2,6 +2,7 @@ package mpesa
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,12 @@ import (
 // success and failure rather than the endpoint: ResultCode arrives as a number
 // on a successful reversal and as a string on a failed one. A plain int64 field
 // therefore fails to unmarshal exactly when something has already gone wrong.
+//
+// A value that is neither a number nor a quoted number is an error, not a
+// zero. Some Daraja result codes are strings — SFC_IC0003 is "the operator does
+// not exist" — and defaulting an unparseable value to 0 would read a failure
+// as a success wherever ResultCode is compared to zero. Returning the error
+// makes a string-coded result fail loudly at parse instead.
 type FlexibleInt64 int64
 
 // UnmarshalJSON accepts 0, "0", "" and null.
@@ -26,7 +33,7 @@ func (f *FlexibleInt64) UnmarshalJSON(raw []byte) error {
 	}
 	parsed, err := strconv.ParseInt(text, 10, 64)
 	if err != nil {
-		return err
+		return fmt.Errorf("mpesa: result value %q is not a number", text)
 	}
 	*f = FlexibleInt64(parsed)
 	return nil
@@ -38,8 +45,14 @@ func (f FlexibleInt64) Int64() int64 { return int64(f) }
 // Result is the asynchronous envelope every Initiator-bearing endpoint posts to
 // a ResultURL or a QueueTimeOutURL.
 type Result struct {
-	ResultType               int64
-	ResultCode               int64
+	ResultType int64
+
+	// ResultCode is the code as Daraja sent it, held as a string rather than an
+	// integer because the namespace is not numeric. Reversal failure results
+	// carry R000001 and R000002, and folding those into an integer would make
+	// an unmappable failure read as success 0. Use ResultCodeInt for the
+	// numeric cases and the per-family outcome lookups to classify it.
+	ResultCode               string
 	ResultDesc               string
 	OriginatorConversationID string
 	ConversationID           string
@@ -52,21 +65,30 @@ type Result struct {
 	Reference Parameters
 }
 
-// Succeeded reports whether Daraja processed the request. Zero is the only
-// success; every other code means something else happened.
-func (r Result) Succeeded() bool { return r.ResultCode == 0 }
+// Succeeded reports whether Daraja processed the request. "0" is the only
+// success; every other code, numeric or not, means something else happened.
+func (r Result) Succeeded() bool { return r.ResultCode == "0" }
+
+// ResultCodeInt reports the result code as an integer when it is one.
+func (r Result) ResultCodeInt() (int64, bool) {
+	parsed, err := strconv.ParseInt(r.ResultCode, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
+}
 
 type resultEnvelope struct {
 	Result rawResult `json:"Result"`
 }
 
 type rawResult struct {
-	ResultType               FlexibleInt64 `json:"ResultType"`
-	ResultCode               FlexibleInt64 `json:"ResultCode"`
-	ResultDesc               string        `json:"ResultDesc"`
-	OriginatorConversationID string        `json:"OriginatorConversationID"`
-	ConversationID           string        `json:"ConversationID"`
-	TransactionID            string        `json:"TransactionID"`
+	ResultType               FlexibleInt64   `json:"ResultType"`
+	ResultCode               json.RawMessage `json:"ResultCode"`
+	ResultDesc               string          `json:"ResultDesc"`
+	OriginatorConversationID string          `json:"OriginatorConversationID"`
+	ConversationID           string          `json:"ConversationID"`
+	TransactionID            string          `json:"TransactionID"`
 
 	ResultParameters *struct {
 		ResultParameter json.RawMessage `json:"ResultParameter"`
@@ -154,7 +176,7 @@ func ParseResult(raw []byte) (*Result, error) {
 
 	result := &Result{
 		ResultType:               envelope.Result.ResultType.Int64(),
-		ResultCode:               envelope.Result.ResultCode.Int64(),
+		ResultCode:               scalarString(envelope.Result.ResultCode),
 		ResultDesc:               envelope.Result.ResultDesc,
 		OriginatorConversationID: envelope.Result.OriginatorConversationID,
 		ConversationID:           envelope.Result.ConversationID,

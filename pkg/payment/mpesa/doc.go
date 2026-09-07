@@ -21,7 +21,7 @@
 // the transaction later completed. Treat it as unknown and resolve it with
 // TransactionStatus. Retrying on a timeout is how money moves twice.
 //
-// The two deliveries cannot be told apart by their payload — a timeout body
+// The two deliveries cannot be told apart by their payload; a timeout body
 // names Safaricom's own internal listener, not ours — so ParseResult takes the
 // kind as an argument. Route each URL to a distinct handler and pass the kind
 // that URL was registered as.
