@@ -41,8 +41,29 @@ func (s *repayLoanSvc) InitiateRepayment(_ context.Context, loanID, _ string) er
 	return nil
 }
 
+// promptingLoanSvc adds an M-Pesa prompt surface to the repay fake.
+type promptingLoanSvc struct {
+	repayLoanSvc
+	prompted  []string
+	promptErr error
+}
+
+func (s *promptingLoanSvc) PromptRepayment(_ context.Context, loanID, _ string) error {
+	if s.promptErr != nil {
+		return s.promptErr
+	}
+	s.prompted = append(s.prompted, loanID)
+	return nil
+}
+
 func loanRow(id, ref, status string) map[string]any {
 	return map[string]any{"id": id, "loan_reference": &ref, "status": status}
+}
+
+func loanRowRepaying(id, ref, status, repaymentStatus string) map[string]any {
+	row := loanRow(id, ref, status)
+	row["repayment_status"] = repaymentStatus
+	return row
 }
 
 // newRepayHarness wires a handler whose only interesting dependency is the
@@ -52,6 +73,16 @@ func newRepayHarness(t *testing.T, svc *repayLoanSvc, paybill string) *USSDHandl
 	h := newHarness(t, &fakeUserSvc{user: map[string]any{"id": "u1"}}, &fakePINSvc{hasPIN: true})
 	h.loanService = svc
 	h.repayPaybill = paybill
+	return h
+}
+
+// newPromptHarness enables the STK prompt rail, modelling a builder with
+// Daraja configured.
+func newPromptHarness(t *testing.T, svc *promptingLoanSvc, paybill string) *USSDHandler {
+	t.Helper()
+	h := newRepayHarness(t, &svc.repayLoanSvc, paybill)
+	h.mpesaPrompter = svc
+	h.mpesaPromptOn = true
 	return h
 }
 
@@ -368,5 +399,121 @@ func TestRepay_CashRailScreenRendersFromTheQuote(t *testing.T) {
 	}
 	if !strings.Contains(resp, "SMS") {
 		t.Errorf("expected the check-your-SMS screen: %q", resp)
+	}
+}
+
+// No prompt capability, no prompt option — even with the flag set — so a
+// builder without a prompt-capable loan service never offers what cannot run.
+func TestRepay_MpesaPromptHiddenWithoutCapability(t *testing.T) {
+	svc := &repayLoanSvc{
+		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
+		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
+	}
+	h := newRepayHarness(t, svc, "")
+	h.mpesaPromptOn = true
+
+	resp, _ := h.handleRepayLoan(context.Background(), repaySession(), "")
+
+	if strings.Contains(resp, "M-Pesa") {
+		t.Errorf("no prompter behind the loan service, so no prompt option: %q", resp)
+	}
+}
+
+func TestRepay_MpesaPromptOfferedWhenAvailable(t *testing.T) {
+	svc := &promptingLoanSvc{repayLoanSvc: repayLoanSvc{
+		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
+		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
+	}}
+	h := newPromptHarness(t, svc, "")
+
+	resp, _ := h.handleRepayLoan(context.Background(), repaySession(), "")
+
+	if !strings.Contains(resp, "M-Pesa") {
+		t.Errorf("expected the prompt rail to be offered: %q", resp)
+	}
+}
+
+func TestRepay_MpesaPromptPushesAndEndsTheSession(t *testing.T) {
+	svc := &promptingLoanSvc{repayLoanSvc: repayLoanSvc{
+		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
+		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
+	}}
+	h := newPromptHarness(t, svc, "")
+
+	session := repaySession()
+	if _, err := h.handleRepayLoan(context.Background(), session, ""); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+
+	// Cash is option 1, the prompt option 2.
+	resp, err := h.handleRepayRail(context.Background(), session, "2")
+	if err != nil {
+		t.Fatalf("rail: %v", err)
+	}
+
+	if len(svc.prompted) != 1 || svc.prompted[0] != "l1" {
+		t.Fatalf("expected the prompt to be pushed for l1, got %v", svc.prompted)
+	}
+	if !strings.HasPrefix(resp, "END ") {
+		t.Errorf("the session must end once the prompt is sent: %q", resp)
+	}
+	if !strings.Contains(resp, "PIN") {
+		t.Errorf("the borrower must be told what happens next: %q", resp)
+	}
+}
+
+func TestRepay_MpesaPromptRefusalShowsError(t *testing.T) {
+	svc := &promptingLoanSvc{repayLoanSvc: repayLoanSvc{
+		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
+		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
+	}, promptErr: errors.New("push declined")}
+	h := newPromptHarness(t, svc, "")
+
+	session := repaySession()
+	if _, err := h.handleRepayLoan(context.Background(), session, ""); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+
+	resp, _ := h.handleRepayRail(context.Background(), session, "2")
+
+	if strings.Contains(resp, "was sent") {
+		t.Errorf("a refused push must not claim a prompt is on the phone: %q", resp)
+	}
+}
+
+// A prompt in flight is announced, and the prompt rail is withheld while it
+// is — a second push against the same handset is one Daraja refuses.
+func TestRepay_MpesaPromptWithheldWhileInFlight(t *testing.T) {
+	svc := &promptingLoanSvc{repayLoanSvc: repayLoanSvc{
+		loans:  []any{loanRowRepaying("l1", "LN-1", "disbursed", "initiated")},
+		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
+	}}
+	h := newPromptHarness(t, svc, "")
+
+	session := repaySession()
+	resp, err := h.handleRepayLoan(context.Background(), session, "")
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+
+	if !strings.Contains(resp, "in flight") {
+		t.Errorf("the borrower must be told a prompt is already moving: %q", resp)
+	}
+	if strings.Contains(resp, "M-Pesa prompt") {
+		t.Errorf("no second prompt while one is in flight: %q", resp)
+	}
+}
+
+func TestRepay_FundsReceivedIsAnnounced(t *testing.T) {
+	svc := &promptingLoanSvc{repayLoanSvc: repayLoanSvc{
+		loans:  []any{loanRowRepaying("l1", "LN-1", "disbursed", "funds_received")},
+		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
+	}}
+	h := newPromptHarness(t, svc, "")
+
+	resp, _ := h.handleRepayLoan(context.Background(), repaySession(), "")
+
+	if !strings.Contains(resp, "received") {
+		t.Errorf("the borrower must be told the payment landed: %q", resp)
 	}
 }

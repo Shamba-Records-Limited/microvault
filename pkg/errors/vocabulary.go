@@ -209,6 +209,11 @@ const (
 	// CodeDepositInitFailed is the anchor refusing to open a cash deposit.
 	CodeDepositInitFailed = "deposit_init_failed"
 
+	// CodeRepaymentInFlight is a second repayment started while one is already
+	// moving — e.g. an STK prompt pushed at a loan whose prompt has not
+	// resolved yet.
+	CodeRepaymentInFlight = "repayment_in_flight"
+
 	// CodeQuoteFailed is a payoff that could not be computed — vault index or
 	// FX unavailable. The quote hard-fails rather than serving a stale figure.
 	CodeQuoteFailed = "quote_failed"

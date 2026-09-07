@@ -408,14 +408,34 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"fr": "Prêt %s, doit %s.\nComment payerez-vous?",
 		},
 		"repay_rail_cash": {
-			"en": "1. Cash at MoneyGram",
-			"sw": "1. Fedha taslimu MoneyGram",
-			"fr": "1. Especes a MoneyGram",
+			"en": "Cash at MoneyGram",
+			"sw": "Fedha taslimu MoneyGram",
+			"fr": "Especes a MoneyGram",
 		},
 		"repay_rail_mobile": {
-			"en": "2. Mobile money",
-			"sw": "2. Pesa ya simu",
-			"fr": "2. Argent mobile",
+			"en": "Mobile money",
+			"sw": "Pesa ya simu",
+			"fr": "Argent mobile",
+		},
+		"repay_rail_mpesa": {
+			"en": "M-Pesa prompt",
+			"sw": "Mwanko wa M-Pesa",
+			"fr": "Invite M-Pesa",
+		},
+		"repay_mpesa_sent": {
+			"en": "An M-Pesa request for %s was sent to your phone. Enter your PIN to pay.",
+			"sw": "Ombi la M-Pesa la %s limetumwa kwa simu yako. Weka PIN yako kulipa.",
+			"fr": "Une demande M-Pesa de %s a ete envoyee a votre telephone. Entrez votre PIN pour payer.",
+		},
+		"repay_mpesa_inflight": {
+			"en": "M-Pesa request in flight (%s). Wait for it or check M-Pesa messages.",
+			"sw": "Ombi la M-Pesa linaendelea (%s). Subiri au angalia ujumbe wa M-Pesa.",
+			"fr": "Demande M-Pesa en cours (%s). Attendez ou verifiez les messages M-Pesa.",
+		},
+		"repay_mpesa_received": {
+			"en": "Payment of %s received. Your loan is being settled.",
+			"sw": "Malipo ya %s yamepokelewa. Mkopo wako unafungwa.",
+			"fr": "Paiement de %s recu. Votre pret est en cours de reglement.",
 		},
 		"repay_cash_sent": {
 			"en": "We sent you an SMS with a link to finish paying %s at a MoneyGram agent.",
