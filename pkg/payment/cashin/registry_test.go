@@ -50,9 +50,10 @@ func TestResolve_ExplicitOptionsWins(t *testing.T) {
 func TestResolve_AliasDefault(t *testing.T) {
 	r := NewRegistry()
 	_ = r.Register(fakeProvider{id: "mpesa"})
-	_ = r.Alias(CollectionMethodPrompt, "mpesa")
+	_ = r.Alias(CollectionMethodPayBill, "mpesa")
 
-	// Empty method defaults to Prompt.
+	// Empty method defaults to the passive rail: a caller that forgot to
+	// choose must not silently push a prompt at someone's handset.
 	got, err := r.Resolve(Request{})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)

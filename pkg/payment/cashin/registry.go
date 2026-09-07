@@ -13,6 +13,12 @@ func registryErr(op string) oops.OopsErrorBuilder {
 
 // Registry maps ProviderIDs to Provider implementations and resolves an
 // incoming Request to the right provider. The resolution order is:
+//
+//  1. Options naming a provider explicitly (Options.ProviderID) wins outright.
+//  2. Otherwise the request's CollectionMethod is looked up in the aliases;
+//     an empty method defaults to CollectionMethodPayBill, the passive rail,
+//     because a caller that forgot to choose a method must not silently push
+//     an STK prompt at a borrower's handset.
 type Registry struct {
 	providers map[ProviderID]Provider
 	aliases   map[CollectionMethod]ProviderID
@@ -88,7 +94,7 @@ func (r *Registry) Resolve(req Request) (Provider, error) {
 
 	method := req.CollectionMethod
 	if method == "" {
-		method = CollectionMethodPrompt
+		method = CollectionMethodPayBill
 	}
 	id, ok := r.aliases[method]
 	if !ok {

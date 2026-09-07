@@ -60,6 +60,10 @@ func (f *fakeRepo) GetByTransID(ctx context.Context, transID string) (*models.Mp
 	return nil, repository.ErrMpesaNotFound
 }
 
+func (f *fakeRepo) GetByCheckoutID(ctx context.Context, checkoutID string) (*models.MpesaTransaction, error) {
+	return nil, repository.ErrMpesaNotFound
+}
+
 func (f *fakeRepo) DuePoll(ctx context.Context, limit int) ([]*models.MpesaTransaction, error) {
 	return nil, nil
 }

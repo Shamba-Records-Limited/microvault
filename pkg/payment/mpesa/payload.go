@@ -6,10 +6,8 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/cashin"
 )
 
-// The types here are the provider-specific extras a cash-in contract would
-// carry. They are plain structs with no marker method, because the contract
-// package that would define the marker interface does not exist yet. Satisfying
-// it later is one method per type and no change to any field.
+// The types here are the provider-specific extras the cashin contract carries.
+// Each satisfies the ProviderOptions or ProviderPayload marker.
 
 // Options carries M-Pesa-specific extras for a collection request.
 type Options struct {
@@ -35,6 +33,14 @@ type ExpressPayload struct {
 }
 
 func (ExpressPayload) ProviderID() cashin.ProviderID { return cashin.ProviderMpesa }
+
+// PayBillPayload is the instruction set for a passive paybill collection.
+type PayBillPayload struct {
+	Shortcode        uint
+	AccountReference string
+}
+
+func (PayBillPayload) ProviderID() cashin.ProviderID { return cashin.ProviderMpesa }
 
 // C2BPayload is what a paybill collection produces.
 type C2BPayload struct {
@@ -78,4 +84,5 @@ var (
 	_ cashin.ProviderPayload = ExpressPayload{}
 	_ cashin.ProviderPayload = C2BPayload{}
 	_ cashin.ProviderPayload = ReversalPayload{}
+	_ cashin.ProviderPayload = PayBillPayload{}
 )

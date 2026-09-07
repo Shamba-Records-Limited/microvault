@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/lo"
+
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/phone"
 )
@@ -86,6 +88,31 @@ type ExpressResponse struct {
 	ResponseCode        string `json:"ResponseCode"`
 	ResponseDescription string `json:"ResponseDescription"`
 	CustomerMessage     string `json:"CustomerMessage"`
+
+	// Set on some in-band business failures that bypass the HTTP classifier.
+	ErrorCode    string `json:"errorCode,omitempty"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
+}
+
+// Accepted reports whether Daraja took the prompt for delivery. An accepted
+// prompt is not a payment — only the callback or a query can say which.
+func (r ExpressResponse) Accepted() bool { return r.ResponseCode == "0" }
+
+// ExpressRejection classifies an in-band express decline (HTTP 200,
+// ResponseCode non-zero) that never reaches the transport classifier.
+func ExpressRejection(resp *ExpressResponse) error {
+	message := lo.CoalesceOrEmpty(resp.ErrorMessage, resp.ResponseDescription)
+	code, hint := classify(http.StatusOK, resp.ErrorCode, message)
+	errb := mpesaErr("express").
+		With("daraja_response_code", resp.ResponseCode)
+	if resp.ErrorCode != "" {
+		errb = errb.With("daraja_code", resp.ErrorCode)
+	}
+	errb = errb.Code(code)
+	if hint != "" {
+		errb = errb.Hint(hint)
+	}
+	return errb.Errorf("Daraja declined the express push: %s", message)
 }
 
 // Express pushes a payment prompt to the payer's handset.

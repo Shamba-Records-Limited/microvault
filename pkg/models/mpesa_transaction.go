@@ -18,6 +18,7 @@ const (
 	MpesaSourceC2BConfirmation MpesaTransactionSource = "c2b_confirmation"
 	MpesaSourcePull            MpesaTransactionSource = "pull"
 	MpesaSourceStatusResult    MpesaTransactionSource = "status_result"
+	MpesaSourceSTKQuery        MpesaTransactionSource = "stk_query"
 )
 
 // MpesaTransactionConfirmVia is how an observation was independently verified.
@@ -25,9 +26,9 @@ type MpesaTransactionConfirmVia string
 
 // The confirmation paths.
 const (
-	MpesaConfirmViaSTKQuery           MpesaTransactionConfirmVia = "stk_query"
-	MpesaConfirmViaPull               MpesaTransactionConfirmVia = "pull"
-	MpesaConfirmViaTransactionStatus  MpesaTransactionConfirmVia = "transaction_status"
+	MpesaConfirmViaSTKQuery          MpesaTransactionConfirmVia = "stk_query"
+	MpesaConfirmViaPull              MpesaTransactionConfirmVia = "pull"
+	MpesaConfirmViaTransactionStatus MpesaTransactionConfirmVia = "transaction_status"
 )
 
 // MpesaTransactionReversal is the state of a reversal for this transaction.
@@ -56,8 +57,8 @@ type MpesaTransaction struct {
 	// TransID is the M-Pesa receipt. Unique-indexed. The idempotency key.
 	TransID string `json:"trans_id" gorm:"column:trans_id;type:varchar(20);uniqueIndex;not null"`
 
-	Source     MpesaTransactionSource      `json:"source" gorm:"type:varchar(20);not null;index"`
-	Confirmed  bool                        `json:"confirmed" gorm:"not null;default:false"`
+	Source       MpesaTransactionSource      `json:"source" gorm:"type:varchar(20);not null;index"`
+	Confirmed    bool                        `json:"confirmed" gorm:"not null;default:false"`
 	ConfirmedVia *MpesaTransactionConfirmVia `json:"confirmed_via,omitempty" gorm:"type:varchar(20)"`
 
 	BillRefNumber string  `json:"bill_ref_number" gorm:"type:varchar(20);index"`
@@ -79,16 +80,16 @@ type MpesaTransaction struct {
 	// confirmation.
 	ThirdPartyTransID *string `json:"third_party_trans_id,omitempty"`
 
-	CheckoutRequestID  *string `json:"checkout_request_id,omitempty" gorm:"index"` // STK
-	MerchantRequestID  *string `json:"merchant_request_id,omitempty"`               // STK
-	SequenceID         *string `json:"sequence_id,omitempty" gorm:"type:varchar(200);index"`
+	CheckoutRequestID *string `json:"checkout_request_id,omitempty" gorm:"index"` // STK
+	MerchantRequestID *string `json:"merchant_request_id,omitempty"`              // STK
+	SequenceID        *string `json:"sequence_id,omitempty" gorm:"type:varchar(200);index"`
 
 	// RawPayload is the bytes as received. It is not optional: when a
 	// reconciliation disagrees with a callback, the bytes settle it.
 	RawPayload datatypes.JSON `json:"raw_payload" gorm:"type:jsonb;not null"`
 
-	Reversal MpesaTransactionReversal `json:"reversal_state" gorm:"column:reversal_state;type:varchar(20);not null;default:'none'"`
-	NextPollAt *time.Time             `json:"next_poll_at,omitempty" gorm:"index"`
+	Reversal   MpesaTransactionReversal `json:"reversal_state" gorm:"column:reversal_state;type:varchar(20);not null;default:'none'"`
+	NextPollAt *time.Time               `json:"next_poll_at,omitempty" gorm:"index"`
 
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime;not null"`
 	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime;not null"`

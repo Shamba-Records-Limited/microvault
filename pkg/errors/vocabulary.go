@@ -156,6 +156,11 @@ const (
 	// CodeDuplicateRequest is an idempotency key already seen.
 	CodeDuplicateRequest = "duplicate_request"
 
+	// CodeUnsupportedOperation is a caller reaching a capability through an
+	// entry point that does not serve it — a programming error at the call
+	// site, not a runtime condition, so it is never retryable.
+	CodeUnsupportedOperation = "unsupported_operation"
+
 	// CodeSubscriberLocked is a provider refusing to start because the party
 	// already has a transaction in flight — Daraja's "Unable to lock subscriber,
 	// a transaction is already in process for the current subscriber". Distinct

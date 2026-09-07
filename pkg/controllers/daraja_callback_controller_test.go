@@ -36,6 +36,10 @@ func (f *fakeMpesaRepo) GetByTransID(ctx context.Context, transID string) (*mode
 	return nil, repository.ErrMpesaNotFound
 }
 
+func (f *fakeMpesaRepo) GetByCheckoutID(ctx context.Context, checkoutID string) (*models.MpesaTransaction, error) {
+	return nil, repository.ErrMpesaNotFound
+}
+
 func (f *fakeMpesaRepo) DuePoll(ctx context.Context, limit int) ([]*models.MpesaTransaction, error) {
 	return nil, nil
 }

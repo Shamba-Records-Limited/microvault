@@ -35,6 +35,10 @@ type MpesaTransactionRepository interface {
 	// callback against.
 	GetByTransID(ctx context.Context, transID string) (*models.MpesaTransaction, error)
 
+	// GetByCheckoutID fetches one observation by its STK checkout request ID,
+	// e.g. to tie a query-confirmed payment back to its callback row.
+	GetByCheckoutID(ctx context.Context, checkoutID string) (*models.MpesaTransaction, error)
+
 	// DuePoll returns unconfirmed observations whose NextPollAt has come due,
 	// newest last so a stuck poll does not starve newer ones.
 	DuePoll(ctx context.Context, limit int) ([]*models.MpesaTransaction, error)
@@ -103,6 +107,20 @@ func (r *mpesaTransactionRepository) GetByTransID(ctx context.Context, transID s
 	}
 	if result.Error != nil {
 		log.Printf("MpesaTransactionRepository.GetByTransID: database error: %v", result.Error)
+		return nil, ErrMpesaNotFound
+	}
+	return &tx, nil
+}
+
+// GetByCheckoutID fetches one observation by its STK checkout request ID.
+func (r *mpesaTransactionRepository) GetByCheckoutID(ctx context.Context, checkoutID string) (*models.MpesaTransaction, error) {
+	var tx models.MpesaTransaction
+	result := r.db.WithContext(ctx).Where("checkout_request_id = ?", checkoutID).First(&tx)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil, ErrMpesaNotFound
+	}
+	if result.Error != nil {
+		log.Printf("MpesaTransactionRepository.GetByCheckoutID: database error: %v", result.Error)
 		return nil, ErrMpesaNotFound
 	}
 	return &tx, nil
