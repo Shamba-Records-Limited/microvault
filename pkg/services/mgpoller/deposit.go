@@ -9,6 +9,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
+	"github.com/Shamba-Records-Limited/microvault/pkg/utils"
 )
 
 // The deposit direction: cash in at an agent counter, settling a borrower's
@@ -464,7 +465,7 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 // checkDepositShortfall compares what MoneyGram credited against the quote.
 // Reports only: a shortfall is a slow treasury drain, so it alerts.
 func (d *DepositDriver) checkDepositShortfall(rec RepaymentRecord, tx *stellaranchor.Transaction) {
-	arrived, ok := usdcStroops(tx.AmountOut)
+	arrived, ok := utils.ParseDecimalStroops(tx.AmountOut)
 	if !ok || arrived <= 0 {
 		d.logger.Warn("deposit completed without a readable amount_out",
 			"loan_id", rec.LoanID, "amount_out", tx.AmountOut, "amount_out_asset", tx.AmountOutAsset)
@@ -498,15 +499,6 @@ func (d *DepositDriver) checkDepositShortfall(rec RepaymentRecord, tx *stellaran
 			"amount_out=%s %s, fee_total=%s.",
 			rec.LoanID, arrived, rec.PayoffStroops, shortfall,
 			tx.AmountOut, tx.AmountOutAsset, feeTotal))
-}
-
-// usdcStroops parses a SEP-24 decimal amount into USDC stroops.
-func usdcStroops(s string) (int64, bool) {
-	v, err := parseDecimal(s)
-	if err != nil || v < 0 {
-		return 0, false
-	}
-	return int64(v * 1e7), true
 }
 
 // vaultLegFailed records a failed treasury-to-vault leg. The borrower is never

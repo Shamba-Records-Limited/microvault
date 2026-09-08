@@ -418,9 +418,19 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"fr": "Argent mobile",
 		},
 		"repay_rail_mpesa": {
-			"en": "M-Pesa prompt",
-			"sw": "Mwanko wa M-Pesa",
-			"fr": "Invite M-Pesa",
+			"en": "M-PESA prompt",
+			"sw": "Mwanko wa M-PESA",
+			"fr": "Invite M-PESA",
+		},
+		"repay_mobile_header": {
+			"en": "Pay %s by mobile money. Reply with a number:",
+			"sw": "Lipa %s kwa pesa ya simu. Jibu na nambari:",
+			"fr": "Payez %s par argent mobile. Repondez par un numero:",
+		},
+		"repay_mobile_paybill": {
+			"en": "Get PayBill details",
+			"sw": "Pata maelezo ya PayBill",
+			"fr": "Obtenir les details PayBill",
 		},
 		"repay_mpesa_sent": {
 			"en": "An M-Pesa request for %s was sent to your phone. Enter your PIN to pay.",
@@ -437,15 +447,25 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Malipo ya %s yamepokelewa. Mkopo wako unafungwa.",
 			"fr": "Paiement de %s recu. Votre pret est en cours de reglement.",
 		},
+		"repay_mg_inflight": {
+			"en": "A MoneyGram repayment of %s is already in progress. Wait for it to complete.",
+			"sw": "Malipo ya MoneyGram ya %s tayari yanaendelea. Subiri yamalizike.",
+			"fr": "Un remboursement MoneyGram de %s est deja en cours. Attendez qu'il se termine.",
+		},
+		"repay_open_inflight": {
+			"en": "A repayment of %s is already in progress. Wait for it to complete or expire.",
+			"sw": "Malipo ya %s tayari yanaendelea. Subiri yamalizike au yasizike.",
+			"fr": "Un remboursement de %s est deja en cours. Attendez qu'il se termine ou expire.",
+		},
 		"repay_cash_sent": {
 			"en": "We sent you an SMS with a link to finish paying %s at a MoneyGram agent.",
 			"sw": "Tumekutumia SMS yenye kiungo cha kumaliza kulipa %s kwa wakala wa MoneyGram.",
 			"fr": "Nous vous avons envoye un SMS avec un lien pour payer %s chez un agent MoneyGram.",
 		},
 		"repay_paybill": {
-			"en": "Pay to PayBill %s.\nAccount: %s",
-			"sw": "Lipa kwa PayBill %s.\nAkaunti: %s",
-			"fr": "Payez au PayBill %s.\nCompte: %s",
+			"en": "Pay %s to PayBill %s.\nAccount: %s\nWe have sent you these details by SMS.",
+			"sw": "Lipa %s kwa PayBill %s.\nAkaunti: %s\nTumekutumia maelezo haya kwa SMS.",
+			"fr": "Payez %s au PayBill %s.\nCompte: %s\nNous vous avons envoye ces details par SMS.",
 		},
 		"repay_no_rail": {
 			"en": "No repayment method is available right now. Please try again later.",

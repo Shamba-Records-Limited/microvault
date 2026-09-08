@@ -5,7 +5,20 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 )
+
+// paybillNotifier records the paybill SMS it was asked to send.
+type paybillNotifier struct {
+	contracts.LoanNotifier
+	sent []contracts.LoanNotification
+}
+
+func (c *paybillNotifier) NotifyRepaymentPaybill(_ context.Context, n contracts.LoanNotification) error {
+	c.sent = append(c.sent, n)
+	return nil
+}
 
 // repayLoanSvc is a LoanService whose repay surface is controllable.
 type repayLoanSvc struct {
@@ -17,7 +30,6 @@ type repayLoanSvc struct {
 	initiated   []string
 	initiateErr error
 }
-
 func (s *repayLoanSvc) GetUserLoans(context.Context, string) ([]any, error) {
 	return s.loans, nil
 }
@@ -63,6 +75,15 @@ func loanRow(id, ref, status string) map[string]any {
 func loanRowRepaying(id, ref, status, repaymentStatus string) map[string]any {
 	row := loanRow(id, ref, status)
 	row["repayment_status"] = repaymentStatus
+	return row
+}
+
+// loanRowRepayingVia is loanRowRepaying with the rail the in-flight repayment
+// belongs to — the menu reads the provider to tell an M-Pesa prompt from a
+// MoneyGram cash deposit.
+func loanRowRepayingVia(id, ref, status, repaymentStatus, provider string) map[string]any {
+	row := loanRowRepaying(id, ref, status, repaymentStatus)
+	row["repayment_provider"] = provider
 	return row
 }
 
@@ -259,7 +280,13 @@ func TestRepay_FirstOptionIsPaybillWhenCashRailHidden(t *testing.T) {
 		t.Fatalf("select: %v", err)
 	}
 
-	resp, _ := h.handleRepayRail(context.Background(), session, "1")
+	// Below the cash floor the only rail is mobile money.
+	sub, _ := h.handleRepayRail(context.Background(), session, "1")
+	if !strings.Contains(sub, "Get PayBill") {
+		t.Fatalf("expected the paybill option in the mobile-money menu: %q", sub)
+	}
+
+	resp, _ := h.handleRepayMobile(context.Background(), session, "1")
 
 	if len(svc.initiated) != 0 {
 		t.Error("a below-floor payoff must never reach MoneyGram")
@@ -281,7 +308,12 @@ func TestRepay_PaybillShowsLoanReferenceAsAccount(t *testing.T) {
 		t.Fatalf("select: %v", err)
 	}
 
-	resp, _ := h.handleRepayRail(context.Background(), session, "2")
+	// Cash is rail 1, mobile money rail 2; paybill is the only sub-option
+	// without a prompter wired.
+	if _, err := h.handleRepayRail(context.Background(), session, "2"); err != nil {
+		t.Fatalf("rail: %v", err)
+	}
+	resp, _ := h.handleRepayMobile(context.Background(), session, "1")
 
 	// The reference is what attributes an unsolicited paybill payment to a
 	// loan; without it the money arrives with nothing tying it to a borrower.
@@ -424,12 +456,21 @@ func TestRepay_MpesaPromptOfferedWhenAvailable(t *testing.T) {
 		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
 		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
 	}}
-	h := newPromptHarness(t, svc, "")
+	h := newPromptHarness(t, svc, "247247")
 
-	resp, _ := h.handleRepayLoan(context.Background(), repaySession(), "")
+	session := repaySession()
+	if _, err := h.handleRepayLoan(context.Background(), session, ""); err != nil {
+		t.Fatalf("select: %v", err)
+	}
 
-	if !strings.Contains(resp, "M-Pesa") {
-		t.Errorf("expected the prompt rail to be offered: %q", resp)
+	// The prompt now lives one level down, in the mobile-money menu.
+	if _, err := h.handleRepayRail(context.Background(), session, "2"); err != nil {
+		t.Fatalf("rail: %v", err)
+	}
+	resp, _ := h.handleRepayMobile(context.Background(), session, "")
+
+	if !strings.Contains(resp, "M-PESA") {
+		t.Errorf("expected the prompt option to be offered: %q", resp)
 	}
 }
 
@@ -438,17 +479,20 @@ func TestRepay_MpesaPromptPushesAndEndsTheSession(t *testing.T) {
 		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
 		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
 	}}
-	h := newPromptHarness(t, svc, "")
+	h := newPromptHarness(t, svc, "247247")
 
 	session := repaySession()
 	if _, err := h.handleRepayLoan(context.Background(), session, ""); err != nil {
 		t.Fatalf("select: %v", err)
 	}
 
-	// Cash is option 1, the prompt option 2.
-	resp, err := h.handleRepayRail(context.Background(), session, "2")
-	if err != nil {
+	// Cash is rail 1, mobile money rail 2; the prompt is sub-option 1.
+	if _, err := h.handleRepayRail(context.Background(), session, "2"); err != nil {
 		t.Fatalf("rail: %v", err)
+	}
+	resp, err := h.handleRepayMobile(context.Background(), session, "1")
+	if err != nil {
+		t.Fatalf("mobile: %v", err)
 	}
 
 	if len(svc.prompted) != 1 || svc.prompted[0] != "l1" {
@@ -467,53 +511,130 @@ func TestRepay_MpesaPromptRefusalShowsError(t *testing.T) {
 		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
 		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
 	}, promptErr: errors.New("push declined")}
-	h := newPromptHarness(t, svc, "")
+	h := newPromptHarness(t, svc, "247247")
 
 	session := repaySession()
 	if _, err := h.handleRepayLoan(context.Background(), session, ""); err != nil {
 		t.Fatalf("select: %v", err)
 	}
 
-	resp, _ := h.handleRepayRail(context.Background(), session, "2")
+	if _, err := h.handleRepayRail(context.Background(), session, "2"); err != nil {
+		t.Fatalf("rail: %v", err)
+	}
+	resp, _ := h.handleRepayMobile(context.Background(), session, "1")
 
 	if strings.Contains(resp, "was sent") {
 		t.Errorf("a refused push must not claim a prompt is on the phone: %q", resp)
 	}
 }
 
-// A prompt in flight is announced, and the prompt rail is withheld while it
-// is — a second push against the same handset is one Daraja refuses.
-func TestRepay_MpesaPromptWithheldWhileInFlight(t *testing.T) {
+// An open repayment blocks every rail — there is no cancel, and a second
+// payment against the same loan is a double payment we cannot reverse. The
+// borrower is told to wait, and the session ends with no option to start
+// another.
+func TestRepay_MpesaInFlightBlocksAllRails(t *testing.T) {
 	svc := &promptingLoanSvc{repayLoanSvc: repayLoanSvc{
-		loans:  []any{loanRowRepaying("l1", "LN-1", "disbursed", "initiated")},
+		loans:  []any{loanRowRepayingVia("l1", "LN-1", "disbursed", "initiated", "mpesa")},
 		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
 	}}
-	h := newPromptHarness(t, svc, "")
+	h := newPromptHarness(t, svc, "247247")
 
-	session := repaySession()
-	resp, err := h.handleRepayLoan(context.Background(), session, "")
+	resp, err := h.handleRepayLoan(context.Background(), repaySession(), "")
 	if err != nil {
 		t.Fatalf("select: %v", err)
 	}
 
-	if !strings.Contains(resp, "in flight") {
-		t.Errorf("the borrower must be told a prompt is already moving: %q", resp)
+	if !strings.HasPrefix(resp, "END ") {
+		t.Errorf("an open repayment ends the session with no rail offered: %q", resp)
 	}
-	if strings.Contains(resp, "M-Pesa prompt") {
-		t.Errorf("no second prompt while one is in flight: %q", resp)
+	if !strings.Contains(resp, "in progress") {
+		t.Errorf("the borrower must be told a repayment is in progress: %q", resp)
 	}
 }
 
-func TestRepay_FundsReceivedIsAnnounced(t *testing.T) {
+func TestRepay_FundsReceivedBlocksAllRails(t *testing.T) {
 	svc := &promptingLoanSvc{repayLoanSvc: repayLoanSvc{
-		loans:  []any{loanRowRepaying("l1", "LN-1", "disbursed", "funds_received")},
+		loans:  []any{loanRowRepayingVia("l1", "LN-1", "disbursed", "funds_received", "mpesa")},
 		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
 	}}
-	h := newPromptHarness(t, svc, "")
+	h := newPromptHarness(t, svc, "247247")
 
-	resp, _ := h.handleRepayLoan(context.Background(), repaySession(), "")
+	resp, err := h.handleRepayLoan(context.Background(), repaySession(), "")
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
 
-	if !strings.Contains(resp, "received") {
-		t.Errorf("the borrower must be told the payment landed: %q", resp)
+	// Landed but not yet settled still blocks: another payment could double up.
+	if !strings.HasPrefix(resp, "END ") {
+		t.Errorf("funds received ends the session with no rail offered: %q", resp)
+	}
+	if !strings.Contains(resp, "in progress") {
+		t.Errorf("the borrower must be told a repayment is in progress: %q", resp)
+	}
+}
+
+// A MoneyGram cash repayment in flight shares the initiated status. It blocks
+// every rail like any other, and the menu names MoneyGram rather than claim an
+// M-Pesa prompt is on the handset.
+func TestRepay_MoneyGramInFlightBlocksAndIsNamed(t *testing.T) {
+	svc := &promptingLoanSvc{repayLoanSvc: repayLoanSvc{
+		loans:  []any{loanRowRepayingVia("l1", "LN-1", "disbursed", "initiated", "moneygram")},
+		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor}},
+	}}
+	h := newPromptHarness(t, svc, "247247")
+
+	resp, err := h.handleRepayLoan(context.Background(), repaySession(), "")
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+
+	if !strings.HasPrefix(resp, "END ") {
+		t.Errorf("an open repayment ends the session with no rail offered: %q", resp)
+	}
+	if !strings.Contains(resp, "MoneyGram") {
+		t.Errorf("the in-flight repayment must be named as MoneyGram: %q", resp)
+	}
+	if !strings.Contains(resp, "in progress") {
+		t.Errorf("the borrower must be told it is in progress, not offered a rail: %q", resp)
+	}
+}
+
+// The paybill screen shows the amount and shortcode, and the same details go
+// out by SMS since the session ends before the borrower can act on them.
+func TestRepay_PaybillTextsTheDetails(t *testing.T) {
+	svc := &repayLoanSvc{
+		loans:  []any{loanRow("l1", "LN-1", "disbursed")},
+		quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor, AmountLocalCents: 645000, LocalCurrency: "KES"}},
+	}
+	h := newRepayHarness(t, svc, "247247")
+	ln := &paybillNotifier{}
+	h.loanNotifier = ln
+
+	session := repaySession()
+	if _, err := h.handleRepayLoan(context.Background(), session, ""); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if _, err := h.handleRepayRail(context.Background(), session, "2"); err != nil {
+		t.Fatalf("rail: %v", err)
+	}
+	resp, _ := h.handleRepayMobile(context.Background(), session, "1")
+
+	// The full first line pins amount and paybill to their own slots — a
+	// substring check passes even when the two are swapped.
+	if !strings.Contains(resp, "Pay KES 6450.00 to PayBill 247247.") {
+		t.Errorf("the screen must lead with amount and paybill in order: %q", resp)
+	}
+	if !strings.Contains(resp, "LN-1") {
+		t.Errorf("the screen must carry the reference: %q", resp)
+	}
+	if !strings.HasPrefix(resp, "END ") {
+		t.Errorf("the paybill screen ends the session: %q", resp)
+	}
+	if len(ln.sent) != 1 {
+		t.Fatalf("expected one paybill SMS, got %d", len(ln.sent))
+	}
+	n := ln.sent[0]
+	if n.PaybillNumber != "247247" || n.LoanReference != "LN-1" || n.DisplayAmount != 6450.00 || n.DisplayCurrency != "KES" {
+		t.Errorf("SMS must carry the same details: %+v", n)
 	}
 }

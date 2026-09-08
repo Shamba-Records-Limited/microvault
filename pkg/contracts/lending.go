@@ -56,6 +56,11 @@ type LoanNotifier interface {
 	// InteractiveURL.
 	NotifyRepaymentMoreInfo(ctx context.Context, n LoanNotification) error
 
+	// NotifyRepaymentPaybill sends the paybill instructions for a mobile-money
+	// repayment: shortcode, account reference, and amount. Read from
+	// PaybillNumber, LoanReference, and DisplayAmount/DisplayCurrency.
+	NotifyRepaymentPaybill(ctx context.Context, n LoanNotification) error
+
 	// NotifyRepaymentInitiated carries the MoneyGram interactive URL for a
 	// borrower-initiated cash repayment. The USSD session ends before the
 	// borrower can act on it, so this SMS is the only way the link reaches
@@ -179,6 +184,10 @@ type LoanNotification struct {
 	// has somewhere to go. Unlike InteractiveURL it stays valid after the
 	// withdrawal settles.
 	CashPickupInfoURL string
+
+	// PaybillNumber is the M-Pesa collection shortcode the borrower pays under.
+	// Only set on the paybill-instructions notification.
+	PaybillNumber string
 
 	// RepaymentExpiresAt is when an opened cash deposit lapses. Only set on
 	// the repayment notifications; nil elsewhere.

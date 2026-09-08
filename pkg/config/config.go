@@ -249,6 +249,14 @@ type PaymentsConfig struct {
 	// ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH; unset is off.
 	EnableProviderRelaySwitch bool
 
+	// RoundAnchorAmounts gates cent-rounding of mobile-money cash-out
+	// principals (YellowCard and other non-MoneyGram rails). MoneyGram cash-out
+	// and cash-in always round to whole cents regardless of this flag. Off (the
+	// default) carries full 7-stroop precision on the non-MoneyGram rails; on
+	// rounds their cash-out principals before they are stored, borrowed, or
+	// sent on-chain. From ROUND_ANCHOR_AMOUNTS; unset is off.
+	RoundAnchorAmounts bool
+
 	// LoanReferencePrefix is the 2-character namespace prefix on generated loan
 	// references, defaulting to loanref.DefaultPrefix. From
 	// LOAN_REFERENCE_PREFIX. The check character is derived over the prefix, so
@@ -292,13 +300,6 @@ type MobileConfig struct {
 	// USSDDialString is what a user dials to reach this deployment, stored
 	// complete with prefix and terminator.
 	USSDDialString string
-
-	// RepayPaybill is the mobile-money paybill number shown on the USSD repay
-	// screen. From REPAY_PAYBILL. Builder-injected and environment-specific:
-	// it names the builder's own merchant account, so the platform ships no
-	// default. Blank hides the mobile-money option rather than printing a
-	// number nobody can pay into.
-	RepayPaybill string
 }
 
 type AuthConfig struct {
@@ -406,6 +407,13 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	mpesaPromptAmount, err := envPositiveInt("MPESA_PROMPT_AMOUNT_KES")
+	if err != nil {
+		return nil, err
+	}
+	if mpesaPromptAmount > 0 && serverEnvironment == "production" {
+		return nil, fmt.Errorf("MPESA_PROMPT_AMOUNT_KES is a sandbox testing override and must never be set in production")
+	}
 
 	loanRefPrefix := loanref.DefaultPrefix
 	if v := os.Getenv("LOAN_REFERENCE_PREFIX"); v != "" {
@@ -413,6 +421,11 @@ func New() (*Config, error) {
 	}
 
 	enableRelaySwitch, err := envBool("ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH")
+	if err != nil {
+		return nil, err
+	}
+
+	roundAnchor, err := envBool("ROUND_ANCHOR_AMOUNTS")
 	if err != nil {
 		return nil, err
 	}
@@ -664,6 +677,7 @@ func New() (*Config, error) {
 		Payments: PaymentsConfig{
 			EntryFXBufferPct:          entryFXBuffer,
 			EnableProviderRelaySwitch: enableRelaySwitch,
+			RoundAnchorAmounts:        roundAnchor,
 			LoanReferencePrefix:       loanRefPrefix,
 			Mpesa: MpesaConfig{
 				ConsumerKey:           mpesaConsumerKey,
@@ -679,6 +693,7 @@ func New() (*Config, error) {
 				STKPollInterval:       firstNonZeroDuration(mpesaSTKPollInterval, 5*time.Second),
 				STKMaxAttempts:        firstNonZeroInt(mpesaSTKMaxAttempts, 3),
 				ReferencePrefix:       loanRefPrefix,
+				PromptAmountKES:       mpesaPromptAmount,
 			},
 			YellowCard: YellowCardConfig{
 				PublicKey:    ycPublicKey,
@@ -733,7 +748,6 @@ func New() (*Config, error) {
 			},
 			SessionTimeout: ussdSessionTimeout,
 			USSDDialString: ussdDialString,
-			RepayPaybill:   os.Getenv("REPAY_PAYBILL"),
 		},
 		Auth: AuthConfig{
 			JWTSecret:           jwtSecret,
@@ -957,7 +971,9 @@ type MpesaConfig struct {
 	InitiatorPassword string
 
 	// CallbackBaseURL is the public base the result and validation URLs are
-	// built from. Through the OutRay tunnel on testnet; an owned domain later.
+	// built from — the bare host, with no path prefix; the /api/v1 segment is
+	// added where the URL is built. Through the OutRay tunnel on testnet; an
+	// owned domain later.
 	CallbackBaseURL string
 
 	// CallbackSlug is the unguessable path segment the callback URLs hang off.
@@ -981,6 +997,14 @@ type MpesaConfig struct {
 	// against. It must equal PaymentsConfig.LoanReferencePrefix, and it is
 	// loaded from the same LOAN_REFERENCE_PREFIX variable.
 	ReferencePrefix string
+
+	// PromptAmountKES overrides the STK prompt amount with a fixed whole-KES
+	// figure instead of the quoted payoff. Daraja's sandbox has no simulator,
+	// so on a sandbox deployment a real handset must be charged a real
+	// (tiny) amount to exercise the rail. From MPESA_PROMPT_AMOUNT_KES;
+	// zero means use the quoted payoff. Setting it in production is a boot
+	// error.
+	PromptAmountKES int
 }
 
 func firstNonZeroDuration(v, fallback time.Duration) time.Duration {

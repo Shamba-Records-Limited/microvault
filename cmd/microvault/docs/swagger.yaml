@@ -291,6 +291,217 @@ paths:
       summary: Verify Challenge
       tags:
       - Authentication
+  /api/v1/callbacks/daraja/{slug}/{kind}/result:
+    post:
+      consumes:
+      - application/json
+      description: Record the result of an asynchronous Daraja query
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Query family
+        enum:
+        - status
+        - balance
+        - reversal
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Result delivery
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ResultEnvelope'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Recorded
+          schema:
+            type: string
+        "400":
+          description: Undecodable result
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to record the observation
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Record an async query result
+      tags:
+      - Daraja
+  /api/v1/callbacks/daraja/{slug}/{kind}/timeout:
+    post:
+      consumes:
+      - application/json
+      description: Record a queue-timeout delivery as unknown for the poller to resolve
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Query family
+        enum:
+        - status
+        - balance
+        - reversal
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Timeout delivery
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ResultEnvelope'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Recorded
+          schema:
+            type: string
+        "400":
+          description: Undecodable result
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to record the observation
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Record an async queue timeout
+      tags:
+      - Daraja
+  /api/v1/callbacks/daraja/{slug}/c2b/confirmation:
+    post:
+      consumes:
+      - application/json
+      description: Record a settled C2B payment as an observation for the poller to
+        confirm
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Confirmation notification
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.C2BNotificationWire'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Recorded
+          schema:
+            type: string
+        "400":
+          description: Undecodable confirmation
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to record the observation
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Record a C2B confirmation
+      tags:
+      - Daraja
+  /api/v1/callbacks/daraja/{slug}/c2b/validation:
+    post:
+      consumes:
+      - application/json
+      description: Decide whether to accept an incoming C2B payment. Any answer other
+        than ResultCode 0 rejects it.
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Validation notification
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.C2BNotificationWire'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Accept/reject decision
+          schema:
+            $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResponse'
+        "400":
+          description: Undecodable notification
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Validate a C2B payment
+      tags:
+      - Daraja
+  /api/v1/callbacks/daraja/{slug}/stk/result:
+    post:
+      consumes:
+      - application/json
+      description: M-Pesa Express payment callback
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Express result delivery
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackEnvelope'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Recorded or dropped
+          schema:
+            type: string
+        "400":
+          description: Undecodable callback
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to record the observation
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Record an STK push result
+      tags:
+      - Daraja
   /api/v1/mobile/sms/{provider}/delivery:
     post:
       consumes:
@@ -421,215 +632,4 @@ paths:
       summary: Process YellowCard Payment Webhook
       tags:
       - Webhooks
-  /callbacks/daraja/{slug}/{kind}/result:
-    post:
-      consumes:
-      - application/json
-      description: Record the result of an asynchronous Daraja query
-      parameters:
-      - description: Callback slug
-        in: path
-        name: slug
-        required: true
-        type: string
-      - description: Query family
-        enum:
-        - status
-        - balance
-        - reversal
-        in: path
-        name: kind
-        required: true
-        type: string
-      - description: Result delivery
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ResultEnvelope'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Recorded
-          schema:
-            type: string
-        "400":
-          description: Undecodable result
-          schema:
-            $ref: '#/definitions/fiber.Error'
-        "403":
-          description: Source not permitted
-          schema:
-            $ref: '#/definitions/fiber.Error'
-        "500":
-          description: Failed to record the observation
-          schema:
-            $ref: '#/definitions/fiber.Error'
-      summary: Record an async query result
-      tags:
-      - Daraja
-  /callbacks/daraja/{slug}/{kind}/timeout:
-    post:
-      consumes:
-      - application/json
-      description: Record a queue-timeout delivery as unknown for the poller to resolve
-      parameters:
-      - description: Callback slug
-        in: path
-        name: slug
-        required: true
-        type: string
-      - description: Query family
-        enum:
-        - status
-        - balance
-        - reversal
-        in: path
-        name: kind
-        required: true
-        type: string
-      - description: Timeout delivery
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ResultEnvelope'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Recorded
-          schema:
-            type: string
-        "400":
-          description: Undecodable result
-          schema:
-            $ref: '#/definitions/fiber.Error'
-        "403":
-          description: Source not permitted
-          schema:
-            $ref: '#/definitions/fiber.Error'
-        "500":
-          description: Failed to record the observation
-          schema:
-            $ref: '#/definitions/fiber.Error'
-      summary: Record an async queue timeout
-      tags:
-      - Daraja
-  /callbacks/daraja/{slug}/c2b/confirmation:
-    post:
-      consumes:
-      - application/json
-      description: Record a settled C2B payment as an observation for the poller to
-        confirm
-      parameters:
-      - description: Callback slug
-        in: path
-        name: slug
-        required: true
-        type: string
-      - description: Confirmation notification
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.C2BNotificationWire'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Recorded
-          schema:
-            type: string
-        "400":
-          description: Undecodable confirmation
-          schema:
-            $ref: '#/definitions/fiber.Error'
-        "403":
-          description: Source not permitted
-          schema:
-            $ref: '#/definitions/fiber.Error'
-        "500":
-          description: Failed to record the observation
-          schema:
-            $ref: '#/definitions/fiber.Error'
-      summary: Record a C2B confirmation
-      tags:
-      - Daraja
-  /callbacks/daraja/{slug}/c2b/validation:
-    post:
-      consumes:
-      - application/json
-      description: Decide whether to accept an incoming C2B payment. Any answer other
-        than ResultCode 0 rejects it.
-      parameters:
-      - description: Callback slug
-        in: path
-        name: slug
-        required: true
-        type: string
-      - description: Validation notification
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.C2BNotificationWire'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Accept/reject decision
-          schema:
-            $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResponse'
-        "400":
-          description: Undecodable notification
-          schema:
-            $ref: '#/definitions/fiber.Error'
-        "403":
-          description: Source not permitted
-          schema:
-            $ref: '#/definitions/fiber.Error'
-      summary: Validate a C2B payment
-      tags:
-      - Daraja
-  /callbacks/daraja/{slug}/stk/result:
-    post:
-      consumes:
-      - application/json
-      description: M-Pesa Express payment callback
-      parameters:
-      - description: Callback slug
-        in: path
-        name: slug
-        required: true
-        type: string
-      - description: Express result delivery
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackEnvelope'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Recorded or dropped
-          schema:
-            type: string
-        "400":
-          description: Undecodable callback
-          schema:
-            $ref: '#/definitions/fiber.Error'
-        "403":
-          description: Source not permitted
-          schema:
-            $ref: '#/definitions/fiber.Error'
-        "500":
-          description: Failed to record the observation
-          schema:
-            $ref: '#/definitions/fiber.Error'
-      summary: Record an STK push result
-      tags:
-      - Daraja
 swagger: "2.0"

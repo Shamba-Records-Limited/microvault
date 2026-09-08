@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
@@ -219,6 +220,10 @@ func main() {
 
 	// Initialize USSD handler with real services
 	// Note: loanService and disbursementService are nil - will be implemented later
+	repayPaybill := ""
+	if cfg.Payments.Mpesa.CollectionShortcode > 0 {
+		repayPaybill = strconv.FormatUint(uint64(cfg.Payments.Mpesa.CollectionShortcode), 10)
+	}
 	handler := ussd.NewUSSDHandler(ussd.HandlerDeps{
 		SessionManager:  sessionMgr,
 		MenuRegistry:    menuRegistry,
@@ -226,7 +231,7 @@ func main() {
 		PINService:      pinService,
 		AccountNotifier: accountNotifier,
 		LoanNotifier:    loanNotifier,
-		RepayPaybill:    cfg.Mobile.RepayPaybill,
+		RepayPaybill:    repayPaybill,
 	})
 	ussdService := ussd.NewUSSDService(handler)
 

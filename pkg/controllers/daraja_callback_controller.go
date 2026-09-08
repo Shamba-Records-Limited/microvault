@@ -95,7 +95,7 @@ func cidrMatch(ip, cidr string) bool {
 // @Failure 400 {object} fiber.Error "Undecodable callback"
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Failure 500 {object} fiber.Error "Failed to record the observation"
-// @Router /callbacks/daraja/{slug}/stk/result [post]
+// @Router /api/v1/callbacks/daraja/{slug}/stk/result [post]
 func (ctrl *DarajaCallbackController) STKCallback(c *fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
@@ -148,7 +148,7 @@ func (ctrl *DarajaCallbackController) STKCallback(c *fiber.Ctx) error {
 // @Success 200 {object} mpesa.ValidationResponse "Accept/reject decision"
 // @Failure 400 {object} fiber.Error "Undecodable notification"
 // @Failure 403 {object} fiber.Error "Source not permitted"
-// @Router /callbacks/daraja/{slug}/c2b/validation [post]
+// @Router /api/v1/callbacks/daraja/{slug}/c2b/validation [post]
 func (ctrl *DarajaCallbackController) C2BValidation(c *fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
@@ -196,7 +196,7 @@ func (ctrl *DarajaCallbackController) C2BValidation(c *fiber.Ctx) error {
 // @Failure 400 {object} fiber.Error "Undecodable confirmation"
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Failure 500 {object} fiber.Error "Failed to record the observation"
-// @Router /callbacks/daraja/{slug}/c2b/confirmation [post]
+// @Router /api/v1/callbacks/daraja/{slug}/c2b/confirmation [post]
 func (ctrl *DarajaCallbackController) C2BConfirmation(c *fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
@@ -242,7 +242,7 @@ func (ctrl *DarajaCallbackController) C2BConfirmation(c *fiber.Ctx) error {
 // @Failure 400 {object} fiber.Error "Undecodable result"
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Failure 500 {object} fiber.Error "Failed to record the observation"
-// @Router /callbacks/daraja/{slug}/{kind}/result [post]
+// @Router /api/v1/callbacks/daraja/{slug}/{kind}/result [post]
 func (ctrl *DarajaCallbackController) AsyncResult(c *fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
@@ -265,7 +265,7 @@ func (ctrl *DarajaCallbackController) AsyncResult(c *fiber.Ctx) error {
 // @Failure 400 {object} fiber.Error "Undecodable result"
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Failure 500 {object} fiber.Error "Failed to record the observation"
-// @Router /callbacks/daraja/{slug}/{kind}/timeout [post]
+// @Router /api/v1/callbacks/daraja/{slug}/{kind}/timeout [post]
 func (ctrl *DarajaCallbackController) AsyncTimeout(c *fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err

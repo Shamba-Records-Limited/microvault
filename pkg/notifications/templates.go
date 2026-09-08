@@ -53,6 +53,10 @@ type LoanTemplates struct {
 	// RepaymentMoreInfo carries MoneyGram's transaction page, sent when no
 	// reference has been issued. Read from InteractiveURL.
 	RepaymentMoreInfo LoanMessage
+	// RepaymentPaybill carries the M-Pesa paybill instructions for a
+	// mobile-money repayment. Read from PaybillNumber, LoanReference, and
+	// DisplayAmount/DisplayCurrency.
+	RepaymentPaybill LoanMessage
 	// RepaymentWindowExpiring warns that an opened deposit is about to lapse.
 	// Use [ExpiresInText] for the remaining time.
 	RepaymentWindowExpiring LoanMessage
@@ -188,6 +192,10 @@ func DefaultLoanTemplates() *LoanTemplates {
 			return fmt.Sprintf("To finish repaying loan %s, open this for your MoneyGram payment details:\n%s",
 				n.LoanReference, n.InteractiveURL)
 		},
+		RepaymentPaybill: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Pay %s %.2f to PayBill %s.\nAccount: %s",
+				n.DisplayCurrency, n.DisplayAmount, n.PaybillNumber, n.LoanReference)
+		},
 		RepaymentWindowExpiring: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Your repayment for loan %s expires in %s. Pay at a MoneyGram agent before then:\n%s",
 				n.LoanReference, ExpiresInText(n), n.InteractiveURL)
@@ -281,6 +289,10 @@ func swahiliLoanTemplates() *LoanTemplates {
 			return fmt.Sprintf("Kumaliza kulipa mkopo %s, fungua hii kupata maelezo ya malipo ya MoneyGram:\n%s",
 				n.LoanReference, n.InteractiveURL)
 		},
+		RepaymentPaybill: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Lipa %s %.2f kwa PayBill %s.\nAkaunti: %s",
+				n.DisplayCurrency, n.DisplayAmount, n.PaybillNumber, n.LoanReference)
+		},
 		RepaymentWindowExpiring: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Malipo yako ya mkopo %s yataisha baada ya %s. Lipa kwa wakala wa MoneyGram kabla ya hapo:\n%s",
 				n.LoanReference, ExpiresInText(n), n.InteractiveURL)
@@ -373,6 +385,10 @@ func frenchLoanTemplates() *LoanTemplates {
 		RepaymentMoreInfo: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Pour finir de rembourser le pret %s, ouvrez ceci pour vos details de paiement MoneyGram:\n%s",
 				n.LoanReference, n.InteractiveURL)
+		},
+		RepaymentPaybill: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Payez %s %.2f au PayBill %s.\nCompte: %s",
+				n.DisplayCurrency, n.DisplayAmount, n.PaybillNumber, n.LoanReference)
 		},
 		RepaymentWindowExpiring: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Votre remboursement du pret %s expire dans %s. Payez chez un agent MoneyGram avant:\n%s",
