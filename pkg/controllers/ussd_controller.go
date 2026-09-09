@@ -19,7 +19,7 @@ func NewUSSDController(ussdService *ussd.USSDService) *USSDController {
 // HandleCallback handles incoming USSD callback requests from any registered provider.
 // @Description Handle USSD callback requests from the USSD gateway. The provider is specified in the URL path.
 // @Summary USSD Callback Handler
-// @Tags USSD
+// @Tags Mobile
 // @Accept application/x-www-form-urlencoded
 // @Produce plain
 // @Param provider path string true "USSD provider name (e.g. africastalking)"
