@@ -156,6 +156,34 @@ const (
 	// CodeDuplicateRequest is an idempotency key already seen.
 	CodeDuplicateRequest = "duplicate_request"
 
+	// CodeUnsupportedOperation is a caller reaching a capability through an
+	// entry point that does not serve it — a programming error at the call
+	// site, not a runtime condition, so it is never retryable.
+	CodeUnsupportedOperation = "unsupported_operation"
+
+	// CodeSubscriberLocked is a provider refusing to start because the party
+	// already has a transaction in flight — Daraja's "Unable to lock subscriber,
+	// a transaction is already in process for the current subscriber". Distinct
+	// from CodeDuplicateRequest: a duplicate is the same request sent twice and
+	// must not be retried, a lock is a different request queued behind one and
+	// may be retried after a wait.
+	CodeSubscriberLocked = "subscriber_locked"
+
+	// CodeRateLimited is a provider throttling us — Daraja's spike-arrest and
+	// quota codes. Distinct from a generic non-2xx because it is transient and
+	// retryable after a backoff, and worth alerting on separately so a sustained
+	// throttle is visible rather than buried in a generic error dashboard.
+	CodeRateLimited = "rate_limited"
+
+	// CodeSubscriptionUnavailable is a provider API we have not been onboarded
+	// to — Daraja's 403.001, returned when a product exists but our account
+	// carries no subscription to it. Distinct from CodeMerchantNotPermitted,
+	// which is a capability the account lacks; this is a commercial agreement
+	// that has not been made, and it never resolves by retrying. It warrants
+	// its own code because the fix is a call to the provider, and it should be
+	// caught at configuration, not discovered at runtime.
+	CodeSubscriptionUnavailable = "subscription_unavailable"
+
 	// CodeInsufficientLiquidity is the vault unable to fund a borrow.
 	CodeInsufficientLiquidity = "insufficient_liquidity"
 
@@ -180,6 +208,11 @@ const (
 
 	// CodeDepositInitFailed is the anchor refusing to open a cash deposit.
 	CodeDepositInitFailed = "deposit_init_failed"
+
+	// CodeRepaymentInFlight is a second repayment started while one is already
+	// moving — e.g. an STK prompt pushed at a loan whose prompt has not
+	// resolved yet.
+	CodeRepaymentInFlight = "repayment_in_flight"
 
 	// CodeQuoteFailed is a payoff that could not be computed — vault index or
 	// FX unavailable. The quote hard-fails rather than serving a stale figure.

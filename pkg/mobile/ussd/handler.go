@@ -111,11 +111,13 @@ type HandlerDeps struct {
 	LoanNotifier    contracts.LoanNotifier
 
 	// RepayPaybill is the mobile-money paybill number shown on the repay
-	// screen. Builder-injected, because it names the builder's own merchant
-	// account and varies by environment — the same reasoning as the USSD dial
-	// string. Blank hides the mobile-money option entirely rather than
-	// printing a number nobody can pay into.
+	// screens — the configured M-Pesa collection shortcode. Blank hides the
+	// mobile-money option entirely.
 	RepayPaybill string
+
+	// MpesaPrompter enables the STK prompt rail when the loan service
+	// satisfies RepaymentPrompter.
+	MpesaPrompter bool
 }
 
 // NewUSSDHandler builds the handler.
@@ -128,7 +130,7 @@ func NewUSSDHandler(deps HandlerDeps) *USSDHandler {
 	if loanNotifier == nil {
 		loanNotifier = &notifications.NoOpLoanNotifier{}
 	}
-	return &USSDHandler{
+	h := &USSDHandler{
 		sessionManager:  deps.SessionManager,
 		menuRegistry:    deps.MenuRegistry,
 		userService:     deps.UserService,
@@ -138,7 +140,12 @@ func NewUSSDHandler(deps HandlerDeps) *USSDHandler {
 		accountNotifier: accountNotifier,
 		loanNotifier:    loanNotifier,
 		repayPaybill:    deps.RepayPaybill,
+		mpesaPromptOn:   deps.MpesaPrompter,
 	}
+	if deps.MpesaPrompter {
+		h.mpesaPrompter, _ = deps.LoanService.(RepaymentPrompter)
+	}
+	return h
 }
 
 // HandleRequest handles a USSD request
@@ -304,6 +311,8 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 		return h.handleRepayLoan(ctx, session, input)
 	case "repay_rail":
 		return h.handleRepayRail(ctx, session, input)
+	case "repay_mobile":
+		return h.handleRepayMobile(ctx, session, input)
 
 	default:
 		return h.showMainMenu(session)
@@ -1259,6 +1268,8 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, _ s
 	// Carried across the turn so the confirmation screen quotes the same
 	// figure the borrower just saw, without re-running the FX cascade.
 	session.Data["repay_display_amount"] = chosen.DisplayAmount
+	session.Data["repay_mpesa_status"] = chosen.RepaymentStatus
+	session.Data["repay_provider"] = chosen.RepaymentProvider
 	session.CurrentMenu = "repay_rail"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", sessionSaveErr(session, err)
@@ -1269,10 +1280,12 @@ func (h *USSDHandler) handleRepayLoan(ctx context.Context, session *Session, _ s
 
 // repayLoanChoice is the loan the repay screens act on.
 type repayLoanChoice struct {
-	ID            string
-	Reference     string
-	PayoffStroops int64
-	DisplayAmount string
+	ID                string
+	Reference         string
+	PayoffStroops     int64
+	DisplayAmount     string
+	RepaymentStatus   string
+	RepaymentProvider string
 }
 
 // cashRailEligible reports whether this payoff sits inside MoneyGram's cash-in
@@ -1307,6 +1320,12 @@ func (h *USSDHandler) newestRepayableLoan(ctx context.Context, session *Session)
 		if ref, ok := loanMap["loan_reference"].(*string); ok && ref != nil {
 			choice.Reference = *ref
 		}
+		if rs, ok := loanMap["repayment_status"].(string); ok {
+			choice.RepaymentStatus = rs
+		}
+		if rp, ok := loanMap["repayment_provider"].(string); ok {
+			choice.RepaymentProvider = rp
+		}
 		if choice.ID != "" {
 			// The quote hard-fails rather than serving a stale figure, so a
 			// loan with no quote is still offered — with the amount blanked and
@@ -1324,32 +1343,121 @@ func (h *USSDHandler) newestRepayableLoan(ctx context.Context, session *Session)
 	return repayLoanChoice{}, false, nil
 }
 
+// repayRail is one selectable line of the repay rail menu, numbered by
+// position so the choice dispatch always matches what was rendered.
+type repayRail struct {
+	key   string
+	label string
+}
+
+// repayRails lists the rails this loan can use, in display order. An open
+// repayment — any provider, initiated or funds received — blocks every rail:
+// a second payment against the same loan is a double payment we cannot
+// reverse, so the borrower waits for the open one to settle or lapse. There
+// is no cancel; the open rail releases on its own window.
+func (h *USSDHandler) repayRails(session *Session, chosen repayLoanChoice) []repayRail {
+	if anyRepaymentOpen(session) {
+		return nil
+	}
+	var rails []repayRail
+	if chosen.cashRailEligible() {
+		rails = append(rails, repayRail{key: "cash", label: "repay_rail_cash"})
+	}
+	if h.repayPaybill != "" {
+		rails = append(rails, repayRail{key: "mobile", label: "repay_rail_mobile"})
+	}
+	return rails
+}
+
+// anyRepaymentOpen reports whether a repayment is in flight on any rail.
+// funds_received counts: the money has landed but the loan is not yet settled,
+// so another payment could still double it up.
+func anyRepaymentOpen(session *Session) bool {
+	switch stringFromSession(session, "repay_mpesa_status") {
+	case "initiated", "funds_received":
+		return true
+	}
+	return false
+}
+
+// mobileRepayRails lists the mobile-money options for this loan, in display
+// order: the prompt first (it is the one-tap path), the passive paybill
+// always. An open repayment — any provider — empties the list: the open rail
+// must settle or lapse before another is offered.
+func (h *USSDHandler) mobileRepayRails(session *Session) []repayRail {
+	if anyRepaymentOpen(session) {
+		return nil
+	}
+	var rails []repayRail
+	if h.mpesaPrompter != nil {
+		rails = append(rails, repayRail{key: "mpesa", label: "repay_rail_mpesa"})
+	}
+	rails = append(rails, repayRail{key: "paybill", label: "repay_mobile_paybill"})
+	return rails
+}
+
 // showRepayRailMenu offers the ways this particular loan can be repaid.
 //
 // The menu is conditional rather than fixed: MoneyGram's 15 USDC floor is a
 // hard limit on their side, so a small loan simply cannot use the cash rail
 // and offering it would only produce a rejection at the counter.
 func (h *USSDHandler) showRepayRailMenu(session *Session, chosen repayLoanChoice) (string, error) {
+	// An open repayment blocks every rail — say so and end, rather than render
+	// an empty menu. The open rail releases on its own window.
+	if anyRepaymentOpen(session) {
+		if stringFromSession(session, "repay_provider") == "moneygram" {
+			return h.formatResponse(session.Language, "END",
+				Format(session.Language, "repay_mg_inflight", chosen.DisplayAmount)), nil
+		}
+		return h.formatResponse(session.Language, "END",
+			Format(session.Language, "repay_open_inflight", chosen.DisplayAmount)), nil
+	}
+
 	var body strings.Builder
 	body.WriteString(Format(session.Language, "repay_rail_header", chosen.Reference, chosen.DisplayAmount))
 
-	if chosen.cashRailEligible() {
-		body.WriteString("\n")
-		body.WriteString(GetLocalizedMessage(session.Language, "repay_rail_cash"))
+	rails := h.repayRails(session, chosen)
+	for i, rail := range rails {
+		fmt.Fprintf(&body, "\n%d. %s", i+1, GetLocalizedMessage(session.Language, rail.label))
 	}
-	if h.repayPaybill != "" {
-		body.WriteString("\n")
-		body.WriteString(GetLocalizedMessage(session.Language, "repay_rail_mobile"))
-	}
-
-	// Neither rail available: say so plainly rather than showing an empty menu.
-	if !chosen.cashRailEligible() && h.repayPaybill == "" {
+	if len(rails) == 0 {
 		return h.formatResponse(session.Language, "END", "repay_no_rail"), nil
 	}
 	return h.conNavText(session, body.String()), nil
 }
 
-// handleRepayRail acts on the borrower's choice of repayment rail.
+// showRepayMobileMenu lists the mobile-money options. An open repayment
+// empties the list and shows only the in-flight notice, so the borrower sees
+// the state of the open rail with no way to start a second.
+func (h *USSDHandler) showRepayMobileMenu(session *Session, chosen repayLoanChoice) (string, error) {
+	if anyRepaymentOpen(session) {
+		status := stringFromSession(session, "repay_mpesa_status")
+		switch {
+		case stringFromSession(session, "repay_provider") == "moneygram":
+			return h.formatResponse(session.Language, "END",
+				Format(session.Language, "repay_mg_inflight", chosen.DisplayAmount)), nil
+		case status == "funds_received":
+			return h.formatResponse(session.Language, "END",
+				Format(session.Language, "repay_mpesa_received", chosen.DisplayAmount)), nil
+		default:
+			return h.formatResponse(session.Language, "END",
+				Format(session.Language, "repay_mpesa_inflight", chosen.DisplayAmount)), nil
+		}
+	}
+
+	var body strings.Builder
+	body.WriteString(Format(session.Language, "repay_mobile_header", chosen.DisplayAmount))
+
+	rails := h.mobileRepayRails(session)
+	for i, rail := range rails {
+		fmt.Fprintf(&body, "\n%d. %s", i+1, GetLocalizedMessage(session.Language, rail.label))
+	}
+	return h.conNavText(session, body.String()), nil
+}
+
+// handleRepayRail acts on the borrower's choice of repayment rail. The number
+// maps back to the rail by position, so renumbering a rail never desyncs the
+// dispatch from the screen.
 func (h *USSDHandler) handleRepayRail(ctx context.Context, session *Session, input string) (string, error) {
 	chosen := repayLoanChoice{
 		ID:            stringFromSession(session, "repay_loan_id"),
@@ -1361,20 +1469,72 @@ func (h *USSDHandler) handleRepayRail(ctx context.Context, session *Session, inp
 		return h.formatError(session.Language, "session_expired"), nil
 	}
 
-	switch strings.TrimSpace(input) {
-	case "1":
-		if chosen.cashRailEligible() {
-			return h.startCashRepayment(ctx, session, chosen)
+	rails := h.repayRails(session, chosen)
+	i, err := strconv.Atoi(strings.TrimSpace(input))
+	if err != nil || i < 1 || i > len(rails) {
+		return h.conNavText(session, GetLocalizedMessage(session.Language, "invalid_option")), nil
+	}
+	switch rails[i-1].key {
+	case "cash":
+		return h.startCashRepayment(ctx, session, chosen)
+	case "mobile":
+		session.CurrentMenu = "repay_mobile"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", sessionSaveErr(session, err)
 		}
-		// Outside MoneyGram's corridor the cash option was never rendered, so
-		// "1" is the paybill.
-		return h.showPaybill(session, chosen)
-	case "2":
-		if chosen.cashRailEligible() {
-			return h.showPaybill(session, chosen)
-		}
+		return h.showRepayMobileMenu(session, chosen)
 	}
 	return h.conNavText(session, GetLocalizedMessage(session.Language, "invalid_option")), nil
+}
+
+// handleRepayMobile acts on the mobile-money sub-menu choice.
+func (h *USSDHandler) handleRepayMobile(ctx context.Context, session *Session, input string) (string, error) {
+	chosen := repayLoanChoice{
+		ID:            stringFromSession(session, "repay_loan_id"),
+		Reference:     stringFromSession(session, "repay_loan_ref"),
+		PayoffStroops: int64FromSession(session, "repay_payoff_stroops"),
+		DisplayAmount: stringFromSession(session, "repay_display_amount"),
+	}
+	if chosen.ID == "" {
+		return h.formatError(session.Language, "session_expired"), nil
+	}
+
+	rails := h.mobileRepayRails(session)
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return h.showRepayMobileMenu(session, chosen)
+	}
+	i, err := strconv.Atoi(input)
+	if err != nil || i < 1 || i > len(rails) {
+		return h.conNavText(session, GetLocalizedMessage(session.Language, "invalid_option")), nil
+	}
+	switch rails[i-1].key {
+	case "mpesa":
+		return h.startMpesaRepayment(ctx, session, chosen)
+	case "paybill":
+		return h.showPaybill(session, chosen)
+	}
+	return h.conNavText(session, GetLocalizedMessage(session.Language, "invalid_option")), nil
+}
+
+// startMpesaRepayment pushes an STK prompt for the payoff. Acceptance puts
+// the loan in flight; the session records the status so the menu shows it if
+// the borrower comes straight back.
+func (h *USSDHandler) startMpesaRepayment(ctx context.Context, session *Session, chosen repayLoanChoice) (string, error) {
+	if h.mpesaPrompter == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+	if err := h.mpesaPrompter.PromptRepayment(ctx, chosen.ID, session.PhoneNumber); err != nil {
+		log.Printf("mpesa prompt refused for loan %s: %v", chosen.ID, err)
+		return h.formatError(session.Language, "error"), nil
+	}
+	session.Data["repay_mpesa_status"] = "initiated"
+	session.Data["repay_provider"] = "mpesa"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", sessionSaveErr(session, err)
+	}
+	return h.formatResponse(session.Language, "END",
+		Format(session.Language, "repay_mpesa_sent", chosen.DisplayAmount)), nil
 }
 
 // startCashRepayment locks the payoff and opens a MoneyGram cash deposit.
@@ -1390,21 +1550,70 @@ func (h *USSDHandler) startCashRepayment(ctx context.Context, session *Session, 
 		return h.formatError(session.Language, "error"), nil
 	}
 
+	// Mark the in-flight repayment as MoneyGram's so a borrower who re-enters
+	// the menu before the poller stamps the provider sees the cash route, not
+	// a phantom M-Pesa prompt.
+	session.Data["repay_mpesa_status"] = "initiated"
+	session.Data["repay_provider"] = "moneygram"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", sessionSaveErr(session, err)
+	}
+
 	// The amount comes from the quote already on screen, not from the
 	// initiation, so this renders without waiting on MoneyGram.
 	return h.formatResponse(session.Language, "END",
 		Format(session.Language, "repay_cash_sent", chosen.DisplayAmount)), nil
 }
 
-// showPaybill renders the mobile-money details. No payment is initiated: the
-// borrower pays from their own mobile-money menu, and the loan reference is
-// what attributes it.
+// showPaybill renders the mobile-money payment details and texts them to the
+// borrower, since the session ends before they can type the numbers into the
+// M-Pesa menu. No payment is initiated: the borrower pays from their own
+// mobile-money menu, and the loan reference is what attributes it.
 func (h *USSDHandler) showPaybill(session *Session, chosen repayLoanChoice) (string, error) {
 	if h.repayPaybill == "" {
 		return h.formatResponse(session.Language, "END", "repay_no_rail"), nil
 	}
+
+	// DisplayAmount is a pre-rendered "KES 1234.56" string, so the SMS parses
+	// it back into the fields the template formats. Parsing what we just
+	// rendered is ugly but keeps the notification contract numeric.
+	h.sendPaybillSMS(session, chosen)
+
 	return h.formatResponse(session.Language, "END",
-		Format(session.Language, "repay_paybill", h.repayPaybill, chosen.Reference)), nil
+		Format(session.Language, "repay_paybill", chosen.DisplayAmount, h.repayPaybill, chosen.Reference)), nil
+}
+
+// sendPaybillSMS texts the paybill instructions. Best effort: the USSD screen
+// already carries the same details, so a failed send is logged, not reported.
+func (h *USSDHandler) sendPaybillSMS(session *Session, chosen repayLoanChoice) {
+	amount, currency := parseDisplayAmount(chosen.DisplayAmount)
+	err := h.loanNotifier.NotifyRepaymentPaybill(context.Background(), contracts.LoanNotification{
+		LoanID:          chosen.ID,
+		LoanReference:   chosen.Reference,
+		PhoneNumber:     session.PhoneNumber,
+		PaybillNumber:   h.repayPaybill,
+		DisplayAmount:   amount,
+		DisplayCurrency: currency,
+	})
+	if err != nil {
+		log.Printf("paybill SMS failed for loan %s: %v", chosen.ID, err)
+	}
+}
+
+// parseDisplayAmount splits a rendered "KES 1,234.56" figure back into its
+// parts for the notification fields. A figure it cannot read degrades to
+// zero-values — the SMS then prints 0.00, which is bad copy but never wrong
+// about where the money goes.
+func parseDisplayAmount(s string) (float64, string) {
+	parts := strings.Fields(s)
+	if len(parts) != 2 {
+		return 0, ""
+	}
+	amount, err := strconv.ParseFloat(strings.ReplaceAll(parts[1], ",", ""), 64)
+	if err != nil {
+		return 0, parts[0]
+	}
+	return amount, parts[0]
 }
 
 // formatOwed renders what the borrower owes, in their own currency.

@@ -224,7 +224,7 @@ func (r *accountRepository) Update(ctx context.Context, account *models.Account)
 // UpdateChainStatus sets only the on-chain lifecycle state. Kept separate from
 // Update so a background reconciler can record what it observed on the network
 // without racing the row's other columns.
-func (r *accountRepository) UpdateChainStatus(ctx context.Context, id string, chainStatus string) error {
+func (r *accountRepository) UpdateChainStatus(ctx context.Context, id, chainStatus string) error {
 	result := r.db.WithContext(ctx).
 		Model(&models.Account{}).
 		Where("id = ? AND deleted_at IS NULL", id).

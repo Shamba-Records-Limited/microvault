@@ -8,9 +8,13 @@ import (
 
 type Repositories struct {
 	// Core repositories
-	User        UserRepository
-	Account     AccountRepository
-	Transaction TransactionRepository
+	User            UserRepository
+	Account         AccountRepository
+	Transaction     TransactionRepository
+	Mpesa           MpesaTransactionRepository
+	MpesaValidation MpesaNumberValidationRepository
+	MpesaPullCursor MpesaPullCursorRepository
+	MpesaBalance    MpesaBalanceRepository
 }
 
 func NewRepositories(db *gorm.DB) (*Repositories, error) {
@@ -33,10 +37,34 @@ func NewRepositories(db *gorm.DB) (*Repositories, error) {
 		return nil, err
 	}
 
+	mpesa, err := NewMpesaTransactionRepository(db)
+	if err != nil {
+		return nil, err
+	}
+
+	mpesaValidation, err := NewMpesaNumberValidationRepository(db)
+	if err != nil {
+		return nil, err
+	}
+
+	mpesaPullCursor, err := NewMpesaPullCursorRepository(db)
+	if err != nil {
+		return nil, err
+	}
+
+	mpesaBalance, err := NewMpesaBalanceRepository(db)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Repositories{
 		// Core repositories
-		Transaction: transaction,
-		User:        user,
-		Account:     account,
+		Transaction:     transaction,
+		User:            user,
+		Account:         account,
+		Mpesa:           mpesa,
+		MpesaValidation: mpesaValidation,
+		MpesaPullCursor: mpesaPullCursor,
+		MpesaBalance:    mpesaBalance,
 	}, nil
 }

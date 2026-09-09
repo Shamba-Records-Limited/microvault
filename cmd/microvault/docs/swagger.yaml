@@ -33,6 +33,140 @@ definitions:
       message:
         type: string
     type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.C2BNotificationWire:
+    properties:
+      BillRefNumber:
+        type: string
+      BusinessShortCode:
+        type: string
+      FirstName:
+        type: string
+      InvoiceNumber:
+        type: string
+      LastName:
+        type: string
+      MSISDN:
+        type: string
+      MiddleName:
+        type: string
+      OrgAccountBalance:
+        type: string
+      ThirdPartyTransID:
+        type: string
+      TransAmount:
+        type: string
+      TransID:
+        type: string
+      TransTime:
+        type: string
+      TransactionType:
+        type: string
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackBody:
+    properties:
+      stkCallback:
+        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackResult'
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackEnvelope:
+    properties:
+      Body:
+        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackBody'
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataHolder:
+    properties:
+      Item:
+        items:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataItem'
+        type: array
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataItem:
+    properties:
+      Name:
+        type: string
+      Value:
+        items:
+          type: integer
+        type: array
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackResult:
+    properties:
+      CallbackMetadata:
+        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataHolder'
+      CheckoutRequestID:
+        type: string
+      MerchantRequestID:
+        type: string
+      ResultCode:
+        type: integer
+      ResultDesc:
+        type: string
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.RawResult:
+    properties:
+      ConversationID:
+        type: string
+      OriginatorConversationID:
+        type: string
+      ReferenceData:
+        properties:
+          ReferenceItem:
+            items:
+              type: integer
+            type: array
+        type: object
+      ResultCode:
+        items:
+          type: integer
+        type: array
+      ResultDesc:
+        type: string
+      ResultParameters:
+        properties:
+          ResultParameter:
+            items:
+              type: integer
+            type: array
+        type: object
+      ResultType:
+        type: integer
+      TransactionID:
+        type: string
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ResultEnvelope:
+    properties:
+      Result:
+        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.RawResult'
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResponse:
+    properties:
+      ResultCode:
+        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResultCode'
+      ResultDesc:
+        type: string
+      ThirdPartyTransID:
+        description: |-
+          ThirdPartyTransID is echoed back on the matching confirmation, which is
+          the only way to correlate the two callbacks.
+        type: string
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResultCode:
+    enum:
+    - "0"
+    - C2B00011
+    - C2B00012
+    - C2B00013
+    - C2B00014
+    - C2B00015
+    - C2B00016
+    type: string
+    x-enum-varnames:
+    - ValidationAccepted
+    - ValidationInvalidMSISDN
+    - ValidationInvalidAccountNumber
+    - ValidationInvalidAmount
+    - ValidationInvalidKYC
+    - ValidationInvalidShortcode
+    - ValidationOtherError
   github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.SettlementInfo:
     properties:
       cryptoAmount:
@@ -157,6 +291,217 @@ paths:
       summary: Verify Challenge
       tags:
       - Authentication
+  /api/v1/callbacks/daraja/{slug}/{kind}/result:
+    post:
+      consumes:
+      - application/json
+      description: Record the result of an asynchronous Daraja query
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Query family
+        enum:
+        - status
+        - balance
+        - reversal
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Result delivery
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ResultEnvelope'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Recorded
+          schema:
+            type: string
+        "400":
+          description: Undecodable result
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to record the observation
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Record an async query result
+      tags:
+      - Daraja
+  /api/v1/callbacks/daraja/{slug}/{kind}/timeout:
+    post:
+      consumes:
+      - application/json
+      description: Record a queue-timeout delivery as unknown for the poller to resolve
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Query family
+        enum:
+        - status
+        - balance
+        - reversal
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Timeout delivery
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ResultEnvelope'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Recorded
+          schema:
+            type: string
+        "400":
+          description: Undecodable result
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to record the observation
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Record an async queue timeout
+      tags:
+      - Daraja
+  /api/v1/callbacks/daraja/{slug}/c2b/confirmation:
+    post:
+      consumes:
+      - application/json
+      description: Record a settled C2B payment as an observation for the poller to
+        confirm
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Confirmation notification
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.C2BNotificationWire'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Recorded
+          schema:
+            type: string
+        "400":
+          description: Undecodable confirmation
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to record the observation
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Record a C2B confirmation
+      tags:
+      - Daraja
+  /api/v1/callbacks/daraja/{slug}/c2b/validation:
+    post:
+      consumes:
+      - application/json
+      description: Decide whether to accept an incoming C2B payment. Any answer other
+        than ResultCode 0 rejects it.
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Validation notification
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.C2BNotificationWire'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Accept/reject decision
+          schema:
+            $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResponse'
+        "400":
+          description: Undecodable notification
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Validate a C2B payment
+      tags:
+      - Daraja
+  /api/v1/callbacks/daraja/{slug}/stk/result:
+    post:
+      consumes:
+      - application/json
+      description: M-Pesa Express payment callback
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Express result delivery
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackEnvelope'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Recorded or dropped
+          schema:
+            type: string
+        "400":
+          description: Undecodable callback
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to record the observation
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Record an STK push result
+      tags:
+      - Daraja
   /api/v1/mobile/sms/{provider}/delivery:
     post:
       consumes:

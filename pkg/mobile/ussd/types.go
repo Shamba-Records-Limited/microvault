@@ -80,6 +80,8 @@ type USSDHandler struct {
 	rateService     RateService
 	pinService      PINService
 	repayPaybill    string
+	mpesaPrompter   RepaymentPrompter
+	mpesaPromptOn   bool
 	accountNotifier contracts.AccountNotifier
 	loanNotifier    contracts.LoanNotifier
 }
@@ -208,6 +210,17 @@ type LoanService interface {
 	// on the outcome, which is what makes returning early honest rather than a
 	// shortcut. An error here means the request was refused outright.
 	InitiateRepayment(ctx context.Context, loanID, phoneNumber string) error
+}
+
+// RepaymentPrompter is the capability of pushing a payment prompt at the
+// borrower's handset — M-Pesa Express today. A LoanService may satisfy it;
+// the repay rail offers the prompt only when the wired service does and the
+// builder enables it.
+type RepaymentPrompter interface {
+	// PromptRepayment pushes a prompt at the borrower's handset for the full
+	// payoff. It returns once the prompt is accepted for delivery, not when
+	// it is paid; an error means the push was refused outright.
+	PromptRepayment(ctx context.Context, loanID, phoneNumber string) error
 }
 
 // MoneyGram's production on-ramp bounds, in stroops.

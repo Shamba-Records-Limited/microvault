@@ -382,7 +382,9 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 	// Use the crypto amount from YC response if available, otherwise use request amount.
 	amountStroops := p.req.AmountStroops
 	if resp.SettlementInfo.CryptoAmount > 0 {
-		amountStroops = int64(resp.SettlementInfo.CryptoAmount * 10_000_000)
+		// Round-half-up; exact for any ≤7dp float, and the value is always
+		// positive here.
+		amountStroops = int64(resp.SettlementInfo.CryptoAmount*1e7 + 0.5)
 	}
 	if amountStroops <= 0 {
 		a.logger.Error("cannot determine USDC amount to send",
