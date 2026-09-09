@@ -135,7 +135,7 @@ func (c *Client) sendEnvelopeA(ctx context.Context, op, path string, req B2CRequ
 		"Remarks":                  req.Remarks,
 		"QueueTimeOutURL":          req.URLs.QueueTimeOutURL,
 		"ResultURL":                req.URLs.ResultURL,
-		// Safaricom's spelling, preserved on the wire.
+		//nolint:misspell // Safaricom's spelling, preserved on the wire.
 		"Occassion": req.Occasion,
 	}
 	return call[AsyncAck](ctx, c, errb, http.MethodPost, path, body)

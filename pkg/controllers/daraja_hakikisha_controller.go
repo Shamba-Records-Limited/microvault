@@ -51,7 +51,7 @@ type hakikishaResolver struct {
 	repo repository.MpesaTransactionRepository
 }
 
-func (r hakikishaResolver) ResolveAccount(accountNumber string) (string, bool, error) {
+func (r hakikishaResolver) ResolveAccount(accountNumber string) (accountName string, found bool, err error) {
 	// Hakikisha sits in front of a customer holding a handset; bounded well
 	// inside whatever timeout Safaricom applies, matching the discipline
 	// C2BValidation already uses for the same reason.

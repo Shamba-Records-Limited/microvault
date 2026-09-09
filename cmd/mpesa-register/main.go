@@ -75,14 +75,13 @@ func registerC2B(cfg *config.Config, args []string) {
 
 	client := newClient(cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	resp, err := client.RegisterURL(ctx, mpesa.RegisterURLRequest{
 		Shortcode:       mp.CollectionShortcode,
 		ResponseType:    mpesa.ResponseTypeCompleted,
 		ValidationURL:   validationURL,
 		ConfirmationURL: confirmationURL,
 	})
+	cancel()
 	if err != nil {
 		log.Fatalf("C2B registration failed: %v", err)
 	}
@@ -113,13 +112,12 @@ func registerPull(cfg *config.Config, args []string) {
 
 	client := newClient(cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	resp, err := client.PullRegister(ctx, mpesa.PullRegisterRequest{
 		Shortcode:       mp.CollectionShortcode,
 		NominatedNumber: *nominated,
 		CallbackURL:     callbackURL,
 	})
+	cancel()
 	if err != nil {
 		log.Fatalf("Pull registration failed: %v", err)
 	}
