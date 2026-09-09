@@ -26,6 +26,10 @@ const (
 	// CollectionMethodPrompt is an M-Pesa Express STK prompt pushed to the
 	// payer's handset.
 	CollectionMethodPrompt CollectionMethod = "prompt"
+
+	// CollectionMethodCash is a MoneyGram cash deposit: the borrower completes
+	// KYC in an interactive webview and pays cash at an agent.
+	CollectionMethodCash CollectionMethod = "cash"
 )
 
 // Collector is the single mandatory capability: open a collection against a
@@ -73,6 +77,11 @@ type PayerVerifier interface {
 type Request struct {
 	LoanID      string
 	AmountMinor int64
+
+	// Payer is the payer's phone number. Optional for rails that never reach
+	// the payer directly (M-Pesa's passive paybill); required by rails that
+	// do (MoneyGram sends the KYC webview link by SMS).
+	Payer string
 
 	// CollectionMethod is consulted by the registry when the caller does not
 	// pin a provider via Options.
