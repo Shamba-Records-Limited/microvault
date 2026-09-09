@@ -32,13 +32,19 @@ type DarajaCallbackController struct {
 	resolveLoan LoanReferenceResolver
 	now         func() time.Time
 
-	// balances, the floors and logger are set by EnableBalanceTracking.
+	// logger is always set (defaults in the constructor) so a 403 from
+	// allowedCIDR — the one rejection this controller makes with no other
+	// trace — always leaves a reason and the IP it saw in the logs, instead
+	// of a bare status code an operator has to guess at.
+	logger *slog.Logger
+
+	// balances, the floors and balanceLogger are set by EnableBalanceTracking.
 	// balances nil (the default) leaves a balance result recorded generically
 	// like every other async result, just not parsed.
 	balances             repository.MpesaBalanceRepository
 	collectionFloorKES   int64
 	disbursementFloorKES int64
-	logger               *slog.Logger
+	balanceLogger        *slog.Logger
 }
 
 // LoanReferenceResolver resolves a loan reference to a loan ID, or "" when the
@@ -54,6 +60,7 @@ func NewDarajaCallbackController(repo repository.MpesaTransactionRepository, cfg
 		serverEnv:   serverEnv,
 		resolveLoan: resolve,
 		now:         time.Now,
+		logger:      slog.Default().With("component", "daraja_callback"),
 	}
 }
 
@@ -68,17 +75,22 @@ func (ctrl *DarajaCallbackController) EnableBalanceTracking(balances repository.
 	if logger == nil {
 		logger = slog.Default()
 	}
-	ctrl.logger = logger.With("component", "daraja_balance_tracking")
+	ctrl.balanceLogger = logger.With("component", "daraja_balance_tracking")
 }
 
 // allowedCIDR checks the source address against the configured egress ranges.
 // An empty list is log-only — safaricom egress is a configuration detail we do
 // not fail on in development, but must fail on in production.
 func (ctrl *DarajaCallbackController) allowedCIDR(c *fiber.Ctx) error {
+	if ctrl.logger == nil {
+		ctrl.logger = slog.Default()
+	}
 	if len(ctrl.config.CallbackAllowedCIDRs) == 0 {
 		if ctrl.serverEnv == "production" {
 			// Fail closed: a production callback with no allowlist configured is
 			// a misconfiguration, not a permissive default.
+			ctrl.logger.Warn("rejecting daraja callback: no CIDR allowlist configured in production",
+				"path", c.Path())
 			return fiber.NewError(fiber.StatusForbidden, "callback allowlist not configured")
 		}
 		return nil
@@ -89,6 +101,13 @@ func (ctrl *DarajaCallbackController) allowedCIDR(c *fiber.Ctx) error {
 			return nil
 		}
 	}
+	// The one piece of information that actually resolves this class of
+	// incident: what IP the app saw. If TrustedProxyCIDRs or the tunnel's
+	// X-Forwarded-For handling is wrong, this is the tunnel's own address,
+	// not Safaricom's — indistinguishable from a real mismatch without it.
+	ctrl.logger.Warn("rejecting daraja callback: source not in the allowlist",
+		"path", c.Path(), "client_ip", clientIP, "x_forwarded_for", c.Get(fiber.HeaderXForwardedFor),
+		"allowed_cidrs", ctrl.config.CallbackAllowedCIDRs)
 	return fiber.NewError(fiber.StatusForbidden, "source not permitted")
 }
 
@@ -338,7 +357,7 @@ func (ctrl *DarajaCallbackController) recordBalances(ctx context.Context, callba
 	}
 	shortcode, err := ctrl.balances.ResolveQuery(ctx, callback.Result.OriginatorConversationID)
 	if err != nil {
-		ctrl.logger.Warn("could not resolve which shortcode this balance result belongs to",
+		ctrl.balanceLogger.Warn("could not resolve which shortcode this balance result belongs to",
 			"originator_conversation_id", callback.Result.OriginatorConversationID, "error", err)
 		return
 	}
@@ -349,12 +368,12 @@ func (ctrl *DarajaCallbackController) recordBalances(ctx context.Context, callba
 
 	for _, b := range balances {
 		if err := ctrl.balances.RecordBalance(ctx, shortcode, b.Name, b.Currency, b.Available, ctrl.now()); err != nil {
-			ctrl.logger.Warn("could not record account balance",
+			ctrl.balanceLogger.Warn("could not record account balance",
 				"shortcode", shortcode, "account", b.Name, "error", err)
 			continue
 		}
 		if floor > 0 && b.Available < floor {
-			ctrl.logger.Warn("mpesa account balance below configured floor",
+			ctrl.balanceLogger.Warn("mpesa account balance below configured floor",
 				"shortcode", shortcode, "account", b.Name, "available", b.Available, "floor", floor)
 		}
 	}

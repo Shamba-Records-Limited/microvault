@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -84,7 +85,8 @@ func callbackController(repo *fakeMpesaRepo, serverEnv string, cidrs []string) *
 		resolveLoan: func(ctx context.Context, reference string) (string, error) {
 			return repo.resolved, repo.resolveErr
 		},
-		now: func() time.Time { return time.Unix(1700000000, 0) },
+		now:    func() time.Time { return time.Unix(1700000000, 0) },
+		logger: slog.Default(),
 	}
 }
 
