@@ -66,6 +66,10 @@ func (f *fakeMpesaRepo) UpdateFields(ctx context.Context, tx *models.MpesaTransa
 	return nil
 }
 
+func (f *fakeMpesaRepo) UpsertFromPull(ctx context.Context, tx *models.MpesaTransaction) error {
+	return nil
+}
+
 func callbackController(repo *fakeMpesaRepo, serverEnv string, cidrs []string) *DarajaCallbackController {
 	cfg := config.MpesaConfig{
 		CallbackSlug:         "testslug",

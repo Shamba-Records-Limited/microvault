@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/strkey"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/loanref"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/mpesa"
 )
 
 // Config holds all configuration for the application, composed of sub-configs.
@@ -78,6 +79,17 @@ type ServerConfig struct {
 	// PublicBaseURL is the externally-reachable origin used to build SMS
 	// short-links (e.g. https://microvault.outray.app). No trailing slash.
 	PublicBaseURL string
+
+	// TrustedProxyCIDRs are the ingress hops whose X-Forwarded-For may be
+	// believed. Both binaries sit behind the same tunnel, so both read the
+	// same list.
+	//
+	// This is what makes the Daraja callback allowlist mean anything. Reading
+	// the header without it lets anyone who can reach the port name their own
+	// source address; leaving it empty makes c.IP() the tunnel's address, so
+	// the allowlist matches the tunnel rather than Safaricom. Neither is a
+	// half-measure of the other — the pair is the control.
+	TrustedProxyCIDRs []string
 }
 
 // ShortenerConfig configures the optional dub link shortener used for
@@ -415,6 +427,31 @@ func New() (*Config, error) {
 		return nil, fmt.Errorf("MPESA_PROMPT_AMOUNT_KES is a sandbox testing override and must never be set in production")
 	}
 
+	mpesaSettlementMode := os.Getenv("MPESA_SETTLEMENT_MODE")
+	if mpesaSettlementMode == "" {
+		mpesaSettlementMode = MpesaSettlementOTC
+	}
+	mpesaNumberValidationPolicy := mpesa.ValidationPolicy(os.Getenv("MPESA_NUMBER_VALIDATION_POLICY"))
+	if mpesaNumberValidationPolicy == "" {
+		mpesaNumberValidationPolicy = mpesa.ValidationDisabled
+	}
+	mpesaPullSweepInterval, err := envSeconds("MPESA_PULL_SWEEP_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	mpesaBalancePollInterval, err := envSeconds("MPESA_BALANCE_POLL_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	mpesaCollectionFloor, err := envPositiveInt("MPESA_COLLECTION_BALANCE_FLOOR_KES")
+	if err != nil {
+		return nil, err
+	}
+	mpesaDisbursementFloor, err := envPositiveInt("MPESA_DISBURSEMENT_BALANCE_FLOOR_KES")
+	if err != nil {
+		return nil, err
+	}
+
 	loanRefPrefix := loanref.DefaultPrefix
 	if v := os.Getenv("LOAN_REFERENCE_PREFIX"); v != "" {
 		loanRefPrefix = v
@@ -650,6 +687,7 @@ func New() (*Config, error) {
 			CoreServerPort:    coreServerPort,
 			CreditServerPort:  creditServerPort,
 			PublicBaseURL:     strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"),
+			TrustedProxyCIDRs: splitEnv("TRUSTED_PROXY_CIDRS", ","),
 		},
 		Shortener: ShortenerConfig{
 			APIKey:             os.Getenv("DUB_API_KEY"),
@@ -694,6 +732,19 @@ func New() (*Config, error) {
 				STKMaxAttempts:        firstNonZeroInt(mpesaSTKMaxAttempts, 3),
 				ReferencePrefix:       loanRefPrefix,
 				PromptAmountKES:       mpesaPromptAmount,
+
+				SettlementMode:         mpesaSettlementMode,
+				NumberValidationPolicy: mpesaNumberValidationPolicy,
+
+				PullSweepInterval:   firstNonZeroDuration(mpesaPullSweepInterval, 10*time.Minute),
+				BalancePollInterval: firstNonZeroDuration(mpesaBalancePollInterval, time.Hour),
+
+				CollectionBalanceFloorKES:   mpesaCollectionFloor,
+				DisbursementBalanceFloorKES: mpesaDisbursementFloor,
+
+				HakikishaUsername:   os.Getenv("MPESA_HAKIKISHA_USERNAME"),
+				HakikishaPassword:   os.Getenv("MPESA_HAKIKISHA_PASSWORD"),
+				HakikishaSigningKey: os.Getenv("MPESA_HAKIKISHA_SIGNING_KEY"),
 			},
 			YellowCard: YellowCardConfig{
 				PublicKey:    ycPublicKey,
@@ -948,6 +999,93 @@ func validateUSDCIssuerAlignment(moneygramIssuer, stellarIssuer string) error {
 	return nil
 }
 
+// The settlement modes MPESA_SETTLEMENT_MODE accepts.
+const (
+	// MpesaSettlementOTC converts the KES float at a desk and deposits the
+	// USDC to treasury by hand. cmd/mpesa-settle writes the vault leg.
+	MpesaSettlementOTC = "otc"
+
+	// MpesaSettlementProviderSweep would B2B the float to an on-ramp's own
+	// paybill. Not implemented; naming it is not the same as offering it.
+	MpesaSettlementProviderSweep = "provider_sweep"
+)
+
+// Validate checks the M-Pesa settings, requiring in production what may be
+// absent in development.
+//
+// The split is deliberate and mirrors the callback controller's own allowlist
+// rule: a sandbox deployment runs with half of this unset and should boot, but
+// a production one missing a callback slug or an egress allowlist is a
+// misconfiguration that would silently accept forged callbacks.
+func (c *MpesaConfig) Validate(serverEnv string) error {
+	// Empty means "unset", which New() resolves to the documented default.
+	// Validate agrees with it rather than rejecting a config that New() would
+	// happily have produced.
+	if c.SettlementMode != "" && c.SettlementMode != MpesaSettlementOTC && c.SettlementMode != MpesaSettlementProviderSweep {
+		return fmt.Errorf("MPESA_SETTLEMENT_MODE must be %q or %q, got %q",
+			MpesaSettlementOTC, MpesaSettlementProviderSweep, c.SettlementMode)
+	}
+	// Not a production-only check. Selecting an unbuilt settlement mode is
+	// wrong everywhere, and failing only in production would let it pass
+	// review on a sandbox deploy.
+	if c.SettlementMode == MpesaSettlementProviderSweep {
+		return fmt.Errorf("MPESA_SETTLEMENT_MODE %q is not implemented; the KES float is settled by the OTC desk via cmd/mpesa-settle",
+			MpesaSettlementProviderSweep)
+	}
+
+	switch c.NumberValidationPolicy {
+	case "", mpesa.ValidationDisabled, mpesa.ValidationAdvisory, mpesa.ValidationEnforcing:
+	default:
+		return fmt.Errorf("MPESA_NUMBER_VALIDATION_POLICY must be one of %q, %q or %q, got %q",
+			mpesa.ValidationDisabled, mpesa.ValidationAdvisory, mpesa.ValidationEnforcing, c.NumberValidationPolicy)
+	}
+
+	// The callback base is checked whenever it is set, in every environment:
+	// a URL Daraja will reject is worth catching at boot rather than at the
+	// first registration call.
+	if c.CallbackBaseURL != "" {
+		if err := mpesa.AssertCallbackURL(c.CallbackBaseURL); err != nil {
+			return fmt.Errorf("MPESA_CALLBACK_BASE_URL is not usable as a Daraja callback: %w", err)
+		}
+		// AssertCallbackURL allows http:// because Daraja's blocklist does not
+		// forbid it. Safaricom posts real payment notifications here, so we do.
+		if !strings.HasPrefix(c.CallbackBaseURL, "https://") {
+			return fmt.Errorf("MPESA_CALLBACK_BASE_URL must be https")
+		}
+	}
+
+	if serverEnv != "production" {
+		return nil
+	}
+
+	missing := []string{}
+	if c.Passkey == "" {
+		missing = append(missing, "MPESA_PASSKEY")
+	}
+	if c.InitiatorName == "" {
+		missing = append(missing, "MPESA_INITIATOR_NAME")
+	}
+	if c.InitiatorPassword == "" {
+		missing = append(missing, "MPESA_INITIATOR_PASSWORD")
+	}
+	if c.CallbackSlug == "" {
+		missing = append(missing, "MPESA_CALLBACK_SLUG")
+	}
+	if len(c.CallbackAllowedCIDRs) == 0 {
+		missing = append(missing, "MPESA_CALLBACK_ALLOWED_CIDRS")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("mpesa config missing required values: %s", strings.Join(missing, ", "))
+	}
+
+	// Shortcodes are five to seven digits. A zero here means the environment
+	// variable was absent or unparseable, which ParseUint swallowed.
+	if c.CollectionShortcode < 10000 || c.CollectionShortcode > 9999999 {
+		return fmt.Errorf("MPESA_COLLECTION_SHORTCODE must be a 5-7 digit shortcode, got %d", c.CollectionShortcode)
+	}
+	return nil
+}
+
 // MpesaConfig holds the Safaricom Daraja integration settings. Builder-injected:
 // the platform ships no production shortcode, and the callback path must not be
 // guessable.
@@ -1005,6 +1143,46 @@ type MpesaConfig struct {
 	// zero means use the quoted payoff. Setting it in production is a boot
 	// error.
 	PromptAmountKES int
+
+	// SettlementMode decides how KES collected on the paybill becomes USDC.
+	//
+	// "otc" is the deployed model: the float is converted at a desk and
+	// deposited to treasury by hand, and cmd/mpesa-settle writes the vault leg
+	// once it lands. "provider_sweep" — B2B-sweeping the float to an on-ramp's
+	// own paybill — is named here because the choice is real, but it is not
+	// built, so it is rejected at boot rather than silently behaving as "otc".
+	SettlementMode string
+
+	// NumberValidationPolicy decides whether an STK payer's MSISDN is checked
+	// against their national ID. Advisory records the verdict and blocks
+	// nobody; enforcing is accepted here but not yet acted on.
+	NumberValidationPolicy mpesa.ValidationPolicy
+
+	// PullSweepInterval is how often the Pull reconciler walks the settled
+	// window. Daraja keeps 48 hours, so anything well inside that is safe.
+	PullSweepInterval time.Duration
+
+	// BalancePollInterval is how often the shortcode balances are asked for.
+	// An ops signal, not a latency-sensitive one.
+	BalancePollInterval time.Duration
+
+	// CollectionBalanceFloorKES and DisbursementBalanceFloorKES are the
+	// whole-KES levels below which a parsed balance is alerted on. Optional;
+	// zero disables the alert for that shortcode.
+	CollectionBalanceFloorKES   int
+	DisbursementBalanceFloorKES int
+
+	// HakikishaUsername and HakikishaPassword are the client-credentials pair
+	// Safaricom authenticates with to ask us to name an account. Plaintext
+	// from the environment, as InitiatorPassword and ConsumerSecret already
+	// are.
+	HakikishaUsername string
+	HakikishaPassword string
+
+	// HakikishaSigningKey signs the short-lived token that endpoint issues. It
+	// is deliberately not the admin JWT key: the two token families share no
+	// claim shape and must not be interchangeable.
+	HakikishaSigningKey string
 }
 
 func firstNonZeroDuration(v, fallback time.Duration) time.Duration {

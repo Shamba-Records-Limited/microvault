@@ -13,7 +13,7 @@ import (
 // the integration is configured (a non-empty callback slug). Unauthenticated
 // by design — Daraja signs nothing, and the slug plus the source-IP allowlist
 // are the controls.
-func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussdController *controllers.USSDController, webhookController *controllers.WebhookController, smsCallbackController *controllers.SMSCallbackController, darajaController *controllers.DarajaCallbackController) {
+func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussdController *controllers.USSDController, webhookController *controllers.WebhookController, smsCallbackController *controllers.SMSCallbackController, darajaController *controllers.DarajaCallbackController, hakikishaController *controllers.DarajaHakikishaController) {
 	// Create routes group.
 	route := a.Group("/api/v1")
 
@@ -36,5 +36,11 @@ func PublicRoutes(a *fiber.App, authController *controllers.AuthController, ussd
 	// IP allowlist are the controls. Daraja signs nothing.
 	if darajaController != nil {
 		darajaController.Register(route)
+	}
+
+	// Hakikisha inverts the direction: Safaricom authenticates to us. Same
+	// nil-when-unconfigured guard as darajaController.
+	if hakikishaController != nil {
+		hakikishaController.Register(route)
 	}
 }

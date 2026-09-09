@@ -1,16 +1,12 @@
-// Package mpesapoller resolves M-Pesa observations.
+// Package mpesapoller holds the core-side M-Pesa tickers.
 //
-// A callback is never the end of a payment — it is an observation. Daraja signs
-// nothing, so only an independent check moves one from "recorded" to
-// "confirmed". That check is an STK query here, so a callback is nothing more
-// than the thing that puts the receipt on the queue.
+// Both walk mpesa_transactions on a wall-clock cadence rather than off a
+// next_poll_at column, because neither is driven by a per-row schedule: the
+// Pull sweep reconciles a time window, and the balance poll asks about a
+// shortcode. Cadence in a column serves a queue of rows; these have none.
 //
-// Cadence lives in the next_poll_at column, not in a ticker. A prompt spends
-// most of its life doing nothing; driving the query off wall-clock intervals
-// would ask Daraja for a pending prompt on every tick. In-memory timers are
-// lost on restart; the column is not.
-//
-// The runner only decides when to ask; the column decides which come back.
-// mpesa_transactions covers inbound notifications plainly — one file, one
-// driver, one FetchFunc.
+// Confirming an STK observation is deliberately not here. That row is confirmed
+// by the loan poller in the credit module, which knows which loan the checkout
+// belongs to and can therefore attribute the receipt; a core-side confirmer
+// sees only the checkout ID and would settle the row with no loan at all.
 package mpesapoller

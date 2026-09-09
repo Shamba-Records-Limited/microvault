@@ -69,6 +69,13 @@ type MpesaTransactionRepository interface {
 	// UpdateFields sets the mutable fields a Pull reconciler fills in —
 	// unmasked MSISDN, loan attribution, confirmed status.
 	UpdateFields(ctx context.Context, tx *models.MpesaTransaction) error
+
+	// UpsertFromPull records tx if Pull is the first thing to see it — the
+	// callback was lost — or updates the mutable fields on the existing row
+	// when it was already recorded from a callback. This is the entry point
+	// the Pull reconciler uses instead of choosing between Record and
+	// UpdateFields itself.
+	UpsertFromPull(ctx context.Context, tx *models.MpesaTransaction) error
 }
 
 type mpesaTransactionRepository struct {
@@ -222,5 +229,24 @@ func (r *mpesaTransactionRepository) UpdateFields(ctx context.Context, tx *model
 	if result.Error != nil {
 		return ErrFailedToRecord
 	}
+	if result.RowsAffected == 0 {
+		return ErrMpesaNotFound
+	}
 	return nil
+}
+
+// UpsertFromPull records tx as new, falling back to updating the mutable
+// fields on the existing row when Record reports a conflict. This is what
+// makes Pull catch payments whose confirmation callback was lost — those have
+// no existing row, so Record succeeds; a row already recorded from a
+// callback falls through to UpdateFields.
+func (r *mpesaTransactionRepository) UpsertFromPull(ctx context.Context, tx *models.MpesaTransaction) error {
+	err := r.Record(ctx, tx)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, ErrMpesaConflict) {
+		return err
+	}
+	return r.UpdateFields(ctx, tx)
 }

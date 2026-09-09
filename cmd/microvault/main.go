@@ -53,6 +53,13 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
+	// Core does not construct a Daraja client, but it does receive Daraja's
+	// callbacks, so the slug and the egress allowlist have to be right here
+	// too — an unvalidated core is where a forged confirmation would land.
+	if err := cfg.Payments.Mpesa.Validate(cfg.Server.ServerEnvironment); err != nil {
+		log.Fatalf("M-Pesa config invalid: %v", err)
+	}
+
 	// ---- Initialize Validation Service ----
 	// Initialize validation service used universally across controllers
 	validationService := validation.NewValidatorService()
@@ -246,8 +253,14 @@ func main() {
 	ussdController := controllers.NewUSSDController(ussdService)
 
 	// ---- Initialize Application ----
-	// Create a new fiber app
-	app := fiber.New()
+	// Create a new fiber app. The proxy header is read only from a trusted
+	// hop: without the trusted-proxy check, any client reaching the port could
+	// set X-Forwarded-For and choose the address the Daraja allowlist sees.
+	app := fiber.New(fiber.Config{
+		ProxyHeader:             fiber.HeaderXForwardedFor,
+		EnableTrustedProxyCheck: true,
+		TrustedProxies:          cfg.Server.TrustedProxyCIDRs,
+	})
 
 	// Initialize health checker middleware
 	healthCheck := health.NewChecker(stellarClient, "core", "core")
@@ -289,9 +302,24 @@ func main() {
 		}
 		darajaController = controllers.NewDarajaCallbackController(
 			repos.Mpesa, cfg.Payments.Mpesa, cfg.Server.ServerEnvironment, resolveLoan)
+		darajaController.EnableBalanceTracking(
+			repos.MpesaBalance,
+			int64(cfg.Payments.Mpesa.CollectionBalanceFloorKES),
+			int64(cfg.Payments.Mpesa.DisbursementBalanceFloorKES),
+			nil,
+		)
 	}
 
-	routes.PublicRoutes(app, authController, ussdController, webhookController, smsCallbackController, darajaController) // Register public routes
+	// Hakikisha is registered only once its OAuth credentials are configured
+	// — the paperwork (a signed reciprocal agreement) precedes the code path
+	// being reachable at all.
+	var hakikishaController *controllers.DarajaHakikishaController
+	if cfg.Payments.Mpesa.HakikishaUsername != "" && cfg.Payments.Mpesa.HakikishaPassword != "" && cfg.Payments.Mpesa.HakikishaSigningKey != "" {
+		hakikishaController = controllers.NewDarajaHakikishaController(
+			repos.Mpesa, cfg.Payments.Mpesa, cfg.Server.ServerEnvironment)
+	}
+
+	routes.PublicRoutes(app, authController, ussdController, webhookController, smsCallbackController, darajaController, hakikishaController) // Register public routes
 
 	// Create a channel to listen for OS signals
 	sigChan := make(chan os.Signal, 1)

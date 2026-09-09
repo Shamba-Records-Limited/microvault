@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"time"
 
@@ -30,6 +31,14 @@ type DarajaCallbackController struct {
 	serverEnv   string
 	resolveLoan LoanReferenceResolver
 	now         func() time.Time
+
+	// balances, the floors and logger are set by EnableBalanceTracking.
+	// balances nil (the default) leaves a balance result recorded generically
+	// like every other async result, just not parsed.
+	balances             repository.MpesaBalanceRepository
+	collectionFloorKES   int64
+	disbursementFloorKES int64
+	logger               *slog.Logger
 }
 
 // LoanReferenceResolver resolves a loan reference to a loan ID, or "" when the
@@ -46,6 +55,20 @@ func NewDarajaCallbackController(repo repository.MpesaTransactionRepository, cfg
 		resolveLoan: resolve,
 		now:         time.Now,
 	}
+}
+
+// EnableBalanceTracking wires persistence and floor alerts for the Account
+// Balance async result. Optional and additive — call it after construction
+// when a BalancePoller is running; without it the constructor's behaviour is
+// unchanged.
+func (ctrl *DarajaCallbackController) EnableBalanceTracking(balances repository.MpesaBalanceRepository, collectionFloorKES, disbursementFloorKES int64, logger *slog.Logger) {
+	ctrl.balances = balances
+	ctrl.collectionFloorKES = collectionFloorKES
+	ctrl.disbursementFloorKES = disbursementFloorKES
+	if logger == nil {
+		logger = slog.Default()
+	}
+	ctrl.logger = logger.With("component", "daraja_balance_tracking")
 }
 
 // allowedCIDR checks the source address against the configured egress ranges.
@@ -296,7 +319,45 @@ func (ctrl *DarajaCallbackController) async(c *fiber.Ctx, kind mpesa.CallbackKin
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, "could not record the observation")
 	}
+
+	if ctrl.balances != nil && kind == mpesa.CallbackResult && c.Params("kind") == "balance" {
+		ctrl.recordBalances(c.UserContext(), callback)
+	}
+
 	return c.SendStatus(fiber.StatusOK)
+}
+
+// recordBalances persists the parsed balance figures and logs an alert when
+// one falls below its configured floor. Best-effort throughout: this is an
+// ops signal riding on the same route as the confirm-before-credit path, not
+// part of it, so nothing here can change the 200 already decided above.
+func (ctrl *DarajaCallbackController) recordBalances(ctx context.Context, callback *mpesa.Callback) {
+	balances, ok := callback.Result.Parameters.Balances("AccountBalance")
+	if !ok {
+		return
+	}
+	shortcode, err := ctrl.balances.ResolveQuery(ctx, callback.Result.OriginatorConversationID)
+	if err != nil {
+		ctrl.logger.Warn("could not resolve which shortcode this balance result belongs to",
+			"originator_conversation_id", callback.Result.OriginatorConversationID, "error", err)
+		return
+	}
+	floor := ctrl.collectionFloorKES
+	if shortcode == ctrl.config.DisbursementShortcode {
+		floor = ctrl.disbursementFloorKES
+	}
+
+	for _, b := range balances {
+		if err := ctrl.balances.RecordBalance(ctx, shortcode, b.Name, b.Currency, b.Available, ctrl.now()); err != nil {
+			ctrl.logger.Warn("could not record account balance",
+				"shortcode", shortcode, "account", b.Name, "error", err)
+			continue
+		}
+		if floor > 0 && b.Available < floor {
+			ctrl.logger.Warn("mpesa account balance below configured floor",
+				"shortcode", shortcode, "account", b.Name, "available", b.Available, "floor", floor)
+		}
+	}
 }
 
 func ptrTime(t time.Time) *time.Time { return new(t) }
