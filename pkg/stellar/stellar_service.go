@@ -132,6 +132,10 @@ func (s *service) IsUserLocked(ctx context.Context, userAddress string) (bool, e
 	return s.sorobanService.IsUserLocked(ctx, userAddress)
 }
 
+func (s *service) IsAllowed(ctx context.Context, userAddress string) (bool, error) {
+	return s.sorobanService.IsAllowed(ctx, userAddress)
+}
+
 func (s *service) GetLockPeriod(ctx context.Context) (uint64, error) {
 	return s.sorobanService.GetLockPeriod(ctx)
 }

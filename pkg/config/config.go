@@ -153,6 +153,10 @@ type StellarConfig struct {
 	// on-chain. 0 (the default) leaves the sequence untouched. From
 	// ACCOUNT_INDEX_BASE.
 	AccountIndexBase int64
+
+	// VaultWatchInterval is how often the vault watcher polls for new
+	// contract events. From VAULT_WATCH_INTERVAL, default 5 minutes.
+	VaultWatchInterval time.Duration
 }
 
 // NewRpcClient creates a new instance of Stellar RPC Client to connect with Stellar's RPC Server
@@ -504,6 +508,14 @@ func New() (*Config, error) {
 		return nil, err
 	}
 
+	// How often the vault watcher walks new Soroban events looking for a
+	// deposit/transfer that reached the ledger despite the on-chain allowlist —
+	// a canary confirming enforcement actually works, not a real-time gate.
+	vaultWatchInterval, err := envSeconds("VAULT_WATCH_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+
 	// Create a map of required variables to check
 	required := map[string]string{
 		"SERVER_ENVIRONMENT":        serverEnvironment,
@@ -711,6 +723,7 @@ func New() (*Config, error) {
 			USDCIssuer:              usdcIssuer,
 			ContractID:              contractID,
 			AccountIndexBase:        accountIndexBase,
+			VaultWatchInterval:      firstNonZeroDuration(vaultWatchInterval, 5*time.Minute),
 		},
 		Payments: PaymentsConfig{
 			EntryFXBufferPct:          entryFXBuffer,
