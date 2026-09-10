@@ -1,5 +1,7 @@
 FROM node:24-alpine AS builder
 RUN apk add --no-cache python3 make g++ linux-headers eudev-dev
+RUN npm install -g npm@12.0.2
+RUN npm config set allow-remote all
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
