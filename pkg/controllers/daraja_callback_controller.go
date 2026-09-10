@@ -111,18 +111,25 @@ func (ctrl *DarajaCallbackController) allowedCIDR(c *fiber.Ctx) error {
 	return fiber.NewError(fiber.StatusForbidden, "source not permitted")
 }
 
-// cidrMatch reports whether ip is within cidr.
+// cidrMatch reports whether ip is within cidr. cidr may be a range
+// ("196.201.212.0/24") or a bare address ("196.201.212.69") — Safaricom's
+// published egress list mixes both, and a bare address has no "/" for
+// netip.ParsePrefix to find, so it is matched as an exact address instead.
 func cidrMatch(ip, cidr string) bool {
-	prefix, err := netip.ParsePrefix(cidr)
-	if err != nil {
-		return false
-	}
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return false
 	}
 	addr = addr.Unmap()
-	return prefix.Contains(addr)
+
+	if prefix, err := netip.ParsePrefix(cidr); err == nil {
+		return prefix.Contains(addr)
+	}
+	bare, err := netip.ParseAddr(cidr)
+	if err != nil {
+		return false
+	}
+	return addr == bare.Unmap()
 }
 
 // STKCallback receives the M-Pesa Express result.
