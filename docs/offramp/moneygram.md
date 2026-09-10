@@ -118,18 +118,25 @@ A few things worth calling out:
 When the poller sees `pending_user_transfer_start`, it sends the loan's
 principal, in stroops, from the treasury to MG's anchor account.
 
-**Amounts must be whole USDC cents.** MG's cash-out methods reconcile at 2
-decimal places, but USDC on Stellar has 7 (stroops). Sending the raw
-7-decimal FX conversion (e.g. `23.430178` when MG expects `23.43`) leaves the
-withdrawal stuck. MG's expected amount never matches what arrived. So every
-cash-out principal is rounded to a whole cent (round-half-up) at loan-request
-time, *before* it's stored, borrowed, or sent, keeping the stored principal,
-the vault borrow, the on-chain send, and MG's expected amount identical. The
+**Amounts must be whole USDC cents.** MG's cash-out and cash-in methods
+reconcile at 2 decimal places, but USDC on Stellar has 7 (stroops). Sending
+the raw 7-decimal figure (e.g. `23.430178` when MG expects `23.43`) leaves the
+transaction stuck — MG's expected amount never matches what arrived. So both
+the cash-out principal (at loan-request time, before it's stored, borrowed, or
+sent) and the cash-in payoff (at repayment initiation, before the quote is
+frozen) are **always** rounded to a whole cent (round-half-up), keeping the
+stored amount, the on-chain send, and MG's expected amount identical. The
 on-chain transfer also renders the amount without trailing zeros (`23.43`, not
 `23.4300000`) so automated string checks on MG's side don't flag it.
 
-> See the loan adapter's `roundToCentStroops` (credit module) and
-> `SendUSDC` in [`pkg/stellar/classic/classic.go`](../../pkg/stellar/classic/classic.go).
+MoneyGram rounding is unconditional — it does not depend on
+`ROUND_ANCHOR_AMOUNTS`. That flag (off by default) governs only the
+mobile-money cash-out rail: with it on, YellowCard-style principals round to
+whole cents too; with it off they carry full 7-stroop precision. The SEP-24
+payload `amount` fields stay 2-decimal either way.
+
+> See `RoundToCentStroops` in [`pkg/utils/money.go`](../../pkg/utils/money.go)
+> and `SendUSDC` in [`pkg/stellar/classic/classic.go`](../../pkg/stellar/classic/classic.go).
 
 ---
 

@@ -105,6 +105,10 @@ func (s *SMSLoanNotifier) NotifyRepaymentMoreInfo(ctx context.Context, n contrac
 	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentMoreInfo(n))
 }
 
+func (s *SMSLoanNotifier) NotifyRepaymentPaybill(ctx context.Context, n contracts.LoanNotification) error {
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentPaybill(n))
+}
+
 func (s *SMSLoanNotifier) NotifyRepaymentInitiated(ctx context.Context, n contracts.LoanNotification) error {
 	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentInitiated(n))
 }
@@ -197,6 +201,9 @@ func (*NoOpLoanNotifier) NotifyRepaymentReference(context.Context, contracts.Loa
 	return nil
 }
 func (*NoOpLoanNotifier) NotifyRepaymentMoreInfo(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+func (*NoOpLoanNotifier) NotifyRepaymentPaybill(context.Context, contracts.LoanNotification) error {
 	return nil
 }
 func (*NoOpLoanNotifier) NotifyRepaymentInitiated(context.Context, contracts.LoanNotification) error {

@@ -157,7 +157,7 @@ func (r *transactionRepository) GetByLoanIDAndType(ctx context.Context, loanID, 
 		Where("loan_id = ? AND tx_type = ?", loanID, txType).
 		First(&tx)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // documented contract: none maps to ErrTransactionNotFound at the service layer
 	}
 	if result.Error != nil {
 		log.Printf("GetByLoanIDAndType: database error: %v", result.Error)

@@ -2,6 +2,8 @@ package utils
 
 import (
 	"fmt"
+	"math/big"
+	"strings"
 
 	"github.com/govalues/decimal"
 	"github.com/govalues/money"
@@ -292,4 +294,48 @@ func IsZero(amount int64) bool {
 func ValidateCurrency(currencyCode string) bool {
 	_, err := money.ParseCurr(currencyCode)
 	return err == nil
+}
+
+// CentStroops is one USDC cent in stroops. Cash-out anchors (MoneyGram,
+// mobile-money partners) quote and reconcile amounts at 2 decimal places, so
+// it is the quantum anchor-bound amounts round to when cent-rounding is on.
+const CentStroops int64 = 100_000
+
+// RoundToCentStroops rounds a stroop amount to the nearest whole USDC cent
+// (round-half-up), using integer math only. A positive sub-cent amount never
+// rounds down to zero.
+func RoundToCentStroops(stroops int64) int64 {
+	if stroops <= 0 {
+		return stroops
+	}
+	rounded := (stroops + CentStroops/2) / CentStroops * CentStroops
+	if rounded == 0 {
+		return CentStroops
+	}
+	return rounded
+}
+
+// stroopsPerUnit is 10^7, the stroops in one USDC.
+var stroopsPerUnit = big.NewInt(10_000_000)
+
+// ParseDecimalStroops parses a decimal amount string into stroops. Exact:
+// rational math, no floats. Beyond-7dp residue truncates toward zero rather
+// than erroring (stellar-SDK semantics without the hard error). An empty
+// string is 0 — the anchor convention for "no amount". Negative, unparseable,
+// and int64-overflowing values return ok=false.
+func ParseDecimalStroops(s string) (stroops int64, ok bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, true
+	}
+	v, valid := new(big.Rat).SetString(s)
+	if !valid || v.Sign() < 0 {
+		return 0, false
+	}
+	v.Mul(v, new(big.Rat).SetInt(stroopsPerUnit))
+	q := new(big.Int).Quo(v.Num(), v.Denom())
+	if !q.IsInt64() {
+		return 0, false
+	}
+	return q.Int64(), true
 }

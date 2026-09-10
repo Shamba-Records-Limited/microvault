@@ -2,6 +2,7 @@ package mgpoller
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 
@@ -75,19 +76,29 @@ type Runner[T any] struct {
 	fetcher   Fetcher[T]
 	driver    Driver[T]
 	logger    *slog.Logger
+	db        *sql.DB
 }
 
-// RunnerDeps are the collaborators and settings a Runner needs. Logger is
-// optional; everything else is required.
+// RunnerDeps are the collaborators and settings a Runner needs. Logger and DB
+// are optional; everything else is required.
 type RunnerDeps[T any] struct {
 	// Direction names the runner in its logs, which is what tells two runners
-	// in the same process apart.
+	// in the same process apart. It also doubles as the advisory-lock key
+	// when DB is set, so it must stay unique across every runner sharing that
+	// database — which every runner in this package already needs regardless.
 	Direction string
 	Interval  time.Duration
 	MaxBatch  int
 	Fetcher   Fetcher[T]
 	Driver    Driver[T]
 	Logger    *slog.Logger
+
+	// DB gates each tick on a Postgres advisory lock keyed by Direction, so a
+	// second replica of the same runner skips its work instead of racing the
+	// first. Nil (the default) runs unguarded, which is correct today — see
+	// poll's doc comment — and is what every existing runner construction
+	// site keeps doing unless it opts in.
+	DB *sql.DB
 }
 
 // NewRunner pairs a fetcher and a driver on one cadence.
@@ -106,6 +117,7 @@ func NewRunner[T any](deps RunnerDeps[T]) *Runner[T] {
 		fetcher:   fetcher,
 		driver:    driver,
 		logger:    logger.With(pkgErrors.AttrDirection, direction),
+		db:        deps.DB,
 	}
 }
 
@@ -131,8 +143,45 @@ func (r *Runner[T]) Start(ctx context.Context) {
 	}
 }
 
-// poll runs a single cycle: fetch a batch and drive each record in it.
+// poll runs a single cycle, gated on the advisory lock when r.db is set.
+//
+// No multi-replica deployment exists today — every runner in this package
+// runs as a goroutine inside a single process. This is prophylactic: pinning
+// to one replica has already been the documented rule, and a session-scoped
+// pg_try_advisory_lock through a pooled connection would be worse than no
+// lock at all (a tick can land on a different pooled connection each time,
+// so it never truly serializes, or it leaks a lock nothing releases). The
+// transaction-scoped form auto-releases at commit or rollback and needs no
+// connection pinning, so it costs nothing to have ready before it's needed.
 func (r *Runner[T]) poll(ctx context.Context) {
+	if r.db == nil {
+		r.runOnce(ctx)
+		return
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		r.logger.Error("could not open advisory-lock transaction", "error", err)
+		return
+	}
+	// Nothing here is meant to be committed — this transaction exists only to
+	// scope the lock's lifetime to runOnce, so it is always rolled back.
+	defer func() { _ = tx.Rollback() }()
+
+	var acquired bool
+	if err := tx.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock(hashtext($1))", r.direction).Scan(&acquired); err != nil {
+		r.logger.Error("advisory lock check failed", "error", err)
+		return
+	}
+	if !acquired {
+		r.logger.Debug("skipping tick, another replica holds the lock")
+		return
+	}
+	r.runOnce(ctx)
+}
+
+// runOnce fetches a batch and drives each record in it.
+func (r *Runner[T]) runOnce(ctx context.Context) {
 	recs, err := r.fetcher.Fetch(ctx, r.maxBatch)
 	if err != nil {
 		r.logger.Error("failed to fetch active loans", "error", err)

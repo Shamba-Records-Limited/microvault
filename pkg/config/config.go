@@ -12,6 +12,9 @@ import (
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/loanref"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/mpesa"
 )
 
 // Config holds all configuration for the application, composed of sub-configs.
@@ -76,6 +79,17 @@ type ServerConfig struct {
 	// PublicBaseURL is the externally-reachable origin used to build SMS
 	// short-links (e.g. https://microvault.outray.app). No trailing slash.
 	PublicBaseURL string
+
+	// TrustedProxyCIDRs are the ingress hops whose X-Forwarded-For may be
+	// believed. Both binaries sit behind the same tunnel, so both read the
+	// same list.
+	//
+	// This is what makes the Daraja callback allowlist mean anything. Reading
+	// the header without it lets anyone who can reach the port name their own
+	// source address; leaving it empty makes c.IP() the tunnel's address, so
+	// the allowlist matches the tunnel rather than Safaricom. Neither is a
+	// half-measure of the other — the pair is the control.
+	TrustedProxyCIDRs []string
 }
 
 // ShortenerConfig configures the optional dub link shortener used for
@@ -230,6 +244,7 @@ type PaymentsConfig struct {
 	YellowCard YellowCardConfig
 	Fonbnk     FonbnkConfig
 	MoneyGram  MoneyGramConfig
+	Mpesa      MpesaConfig
 
 	// EntryFXBufferPct is the flat safety margin the loan adapter applies when
 	// it re-quotes the entry rate from a provider's own Quoter, as a fraction
@@ -245,6 +260,21 @@ type PaymentsConfig struct {
 	// YellowCard, the default provider. From
 	// ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH; unset is off.
 	EnableProviderRelaySwitch bool
+
+	// RoundAnchorAmounts gates cent-rounding of mobile-money cash-out
+	// principals (YellowCard and other non-MoneyGram rails). MoneyGram cash-out
+	// and cash-in always round to whole cents regardless of this flag. Off (the
+	// default) carries full 7-stroop precision on the non-MoneyGram rails; on
+	// rounds their cash-out principals before they are stored, borrowed, or
+	// sent on-chain. From ROUND_ANCHOR_AMOUNTS; unset is off.
+	RoundAnchorAmounts bool
+
+	// LoanReferencePrefix is the 2-character namespace prefix on generated loan
+	// references, defaulting to loanref.DefaultPrefix. From
+	// LOAN_REFERENCE_PREFIX. The check character is derived over the prefix, so
+	// every component that validates or generates a reference must read the
+	// same configured value.
+	LoanReferencePrefix string
 }
 
 // AfricasTalkingConfig holds all SMS/USSD-related configuration for Africa's Talking
@@ -282,13 +312,6 @@ type MobileConfig struct {
 	// USSDDialString is what a user dials to reach this deployment, stored
 	// complete with prefix and terminator.
 	USSDDialString string
-
-	// RepayPaybill is the mobile-money paybill number shown on the USSD repay
-	// screen. From REPAY_PAYBILL. Builder-injected and environment-specific:
-	// it names the builder's own merchant account, so the platform ships no
-	// default. Blank hides the mobile-money option rather than printing a
-	// number nobody can pay into.
-	RepayPaybill string
 }
 
 type AuthConfig struct {
@@ -378,7 +401,68 @@ func New() (*Config, error) {
 		return nil, err
 	}
 
+	mpesaConsumerKey := os.Getenv("MPESA_CONSUMER_KEY")
+	mpesaConsumerSecret := os.Getenv("MPESA_CONSUMER_SECRET")
+	mpesaCollectionShortcode, _ := strconv.ParseUint(os.Getenv("MPESA_COLLECTION_SHORTCODE"), 10, 64)
+	mpesaDisbursementShortcode, _ := strconv.ParseUint(os.Getenv("MPESA_DISBURSEMENT_SHORTCODE"), 10, 64)
+	mpesaPasskey := os.Getenv("MPESA_PASSKEY")
+	mpesaInitiatorName := os.Getenv("MPESA_INITIATOR_NAME")
+	mpesaInitiatorPassword := os.Getenv("MPESA_INITIATOR_PASSWORD")
+	mpesaCallbackBaseURL := os.Getenv("MPESA_CALLBACK_BASE_URL")
+	mpesaCallbackSlug := os.Getenv("MPESA_CALLBACK_SLUG")
+	mpesaAllowedCIDRs := splitEnv("MPESA_CALLBACK_ALLOWED_CIDRS", ",")
+	mpesaSTKPollInterval, err := envSeconds("MPESA_STK_POLL_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	mpesaSTKMaxAttempts, err := envPositiveInt("MPESA_STK_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+	mpesaPromptAmount, err := envPositiveInt("MPESA_PROMPT_AMOUNT_KES")
+	if err != nil {
+		return nil, err
+	}
+	if mpesaPromptAmount > 0 && serverEnvironment == "production" {
+		return nil, fmt.Errorf("MPESA_PROMPT_AMOUNT_KES is a sandbox testing override and must never be set in production")
+	}
+
+	mpesaSettlementMode := os.Getenv("MPESA_SETTLEMENT_MODE")
+	if mpesaSettlementMode == "" {
+		mpesaSettlementMode = MpesaSettlementOTC
+	}
+	mpesaNumberValidationPolicy := mpesa.ValidationPolicy(os.Getenv("MPESA_NUMBER_VALIDATION_POLICY"))
+	if mpesaNumberValidationPolicy == "" {
+		mpesaNumberValidationPolicy = mpesa.ValidationDisabled
+	}
+	mpesaPullSweepInterval, err := envSeconds("MPESA_PULL_SWEEP_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	mpesaBalancePollInterval, err := envSeconds("MPESA_BALANCE_POLL_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	mpesaCollectionFloor, err := envPositiveInt("MPESA_COLLECTION_BALANCE_FLOOR_KES")
+	if err != nil {
+		return nil, err
+	}
+	mpesaDisbursementFloor, err := envPositiveInt("MPESA_DISBURSEMENT_BALANCE_FLOOR_KES")
+	if err != nil {
+		return nil, err
+	}
+
+	loanRefPrefix := loanref.DefaultPrefix
+	if v := os.Getenv("LOAN_REFERENCE_PREFIX"); v != "" {
+		loanRefPrefix = v
+	}
+
 	enableRelaySwitch, err := envBool("ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH")
+	if err != nil {
+		return nil, err
+	}
+
+	roundAnchor, err := envBool("ROUND_ANCHOR_AMOUNTS")
 	if err != nil {
 		return nil, err
 	}
@@ -541,6 +625,10 @@ func New() (*Config, error) {
 		return nil, err
 	}
 
+	if err := loanref.ValidatePrefix(loanRefPrefix); err != nil {
+		return nil, fmt.Errorf("LOAN_REFERENCE_PREFIX: %w", err)
+	}
+
 	if treasurySecretKey != "" {
 		_, err := keypair.ParseFull(treasurySecretKey)
 		if err != nil {
@@ -599,6 +687,7 @@ func New() (*Config, error) {
 			CoreServerPort:    coreServerPort,
 			CreditServerPort:  creditServerPort,
 			PublicBaseURL:     strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"),
+			TrustedProxyCIDRs: splitEnv("TRUSTED_PROXY_CIDRS", ","),
 		},
 		Shortener: ShortenerConfig{
 			APIKey:             os.Getenv("DUB_API_KEY"),
@@ -626,6 +715,37 @@ func New() (*Config, error) {
 		Payments: PaymentsConfig{
 			EntryFXBufferPct:          entryFXBuffer,
 			EnableProviderRelaySwitch: enableRelaySwitch,
+			RoundAnchorAmounts:        roundAnchor,
+			LoanReferencePrefix:       loanRefPrefix,
+			Mpesa: MpesaConfig{
+				ConsumerKey:           mpesaConsumerKey,
+				ConsumerSecret:        mpesaConsumerSecret,
+				CollectionShortcode:   uint(mpesaCollectionShortcode),
+				DisbursementShortcode: uint(mpesaDisbursementShortcode),
+				Passkey:               mpesaPasskey,
+				InitiatorName:         mpesaInitiatorName,
+				InitiatorPassword:     mpesaInitiatorPassword,
+				CallbackBaseURL:       mpesaCallbackBaseURL,
+				CallbackSlug:          mpesaCallbackSlug,
+				CallbackAllowedCIDRs:  mpesaAllowedCIDRs,
+				STKPollInterval:       firstNonZeroDuration(mpesaSTKPollInterval, 5*time.Second),
+				STKMaxAttempts:        firstNonZeroInt(mpesaSTKMaxAttempts, 3),
+				ReferencePrefix:       loanRefPrefix,
+				PromptAmountKES:       mpesaPromptAmount,
+
+				SettlementMode:         mpesaSettlementMode,
+				NumberValidationPolicy: mpesaNumberValidationPolicy,
+
+				PullSweepInterval:   firstNonZeroDuration(mpesaPullSweepInterval, 10*time.Minute),
+				BalancePollInterval: firstNonZeroDuration(mpesaBalancePollInterval, time.Hour),
+
+				CollectionBalanceFloorKES:   mpesaCollectionFloor,
+				DisbursementBalanceFloorKES: mpesaDisbursementFloor,
+
+				HakikishaUsername:   os.Getenv("MPESA_HAKIKISHA_USERNAME"),
+				HakikishaPassword:   os.Getenv("MPESA_HAKIKISHA_PASSWORD"),
+				HakikishaSigningKey: os.Getenv("MPESA_HAKIKISHA_SIGNING_KEY"),
+			},
 			YellowCard: YellowCardConfig{
 				PublicKey:    ycPublicKey,
 				SecretKey:    ycSecretKey,
@@ -679,7 +799,6 @@ func New() (*Config, error) {
 			},
 			SessionTimeout: ussdSessionTimeout,
 			USSDDialString: ussdDialString,
-			RepayPaybill:   os.Getenv("REPAY_PAYBILL"),
 		},
 		Auth: AuthConfig{
 			JWTSecret:           jwtSecret,
@@ -737,6 +856,22 @@ func envPositiveInt(key string) (int, error) {
 		return 0, fmt.Errorf("error parsing %s: expected a positive integer, got %q", key, raw)
 	}
 	return n, nil
+}
+
+// splitEnv splits a comma-separated list, trimming blanks.
+func splitEnv(key, sep string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, sep)
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // envNonNegativeInt64 reads a bare non-negative integer, zero when unset.
@@ -862,4 +997,204 @@ func validateUSDCIssuerAlignment(moneygramIssuer, stellarIssuer string) error {
 			moneygramIssuer, stellarIssuer)
 	}
 	return nil
+}
+
+// MpesaConfig holds the Safaricom Daraja integration settings. Builder-injected:
+// the platform ships no production shortcode, and the callback path must not be
+// guessable.
+type MpesaConfig struct {
+	// ConsumerKey and ConsumerSecret sign the access-token mint.
+	ConsumerKey    string
+	ConsumerSecret string
+
+	// CollectionShortcode receives C2B and M-Pesa Express payments.
+	CollectionShortcode uint
+
+	// DisbursementShortcode funds payouts and is the PartyA of balance and
+	// reversal queries against the payout side.
+	DisbursementShortcode uint
+
+	// Passkey signs the M-Pesa Express password.
+	Passkey string
+
+	// InitiatorName and InitiatorPassword are the M-PESA API operator.
+	InitiatorName     string
+	InitiatorPassword string
+
+	// CallbackBaseURL is the public base the result and validation URLs are
+	// built from — the bare host, with no path prefix; the /api/v1 segment is
+	// added where the URL is built. Through the OutRay tunnel on testnet; an
+	// owned domain later.
+	CallbackBaseURL string
+
+	// CallbackSlug is the unguessable path segment the callback URLs hang off.
+	// Daraja signs nothing, so an attacker who learns the path can post forged
+	// confirmations; the slug is the only thing making that path non-obvious.
+	CallbackSlug string
+
+	// CallbackAllowedCIDRs is the Safaricom egress range, enforced on the
+	// callback group in production. Log-only when empty.
+	CallbackAllowedCIDRs []string
+
+	// STKPollInterval bounds how often the poller asks Daraja about a pending
+	// prompt.
+	STKPollInterval time.Duration
+
+	// STKMaxAttempts is how many poll rounds a pending prompt gets before a
+	// human is told, not how long the borrower has.
+	STKMaxAttempts int
+
+	// ReferencePrefix is the loan-reference namespace the C2B validator checks
+	// against. It must equal PaymentsConfig.LoanReferencePrefix, and it is
+	// loaded from the same LOAN_REFERENCE_PREFIX variable.
+	ReferencePrefix string
+
+	// PromptAmountKES overrides the STK prompt amount with a fixed whole-KES
+	// figure instead of the quoted payoff. Daraja's sandbox has no simulator,
+	// so on a sandbox deployment a real handset must be charged a real
+	// (tiny) amount to exercise the rail. From MPESA_PROMPT_AMOUNT_KES;
+	// zero means use the quoted payoff. Setting it in production is a boot
+	// error.
+	PromptAmountKES int
+
+	// SettlementMode decides how KES collected on the paybill becomes USDC.
+	//
+	// "otc" is the deployed model: the float is converted at a desk and
+	// deposited to treasury by hand, and cmd/mpesa-settle writes the vault leg
+	// once it lands. "provider_sweep" — B2B-sweeping the float to an on-ramp's
+	// own paybill — is named here because the choice is real, but it is not
+	// built, so it is rejected at boot rather than silently behaving as "otc".
+	SettlementMode string
+
+	// NumberValidationPolicy decides whether an STK payer's MSISDN is checked
+	// against their national ID. Advisory records the verdict and blocks
+	// nobody; enforcing is accepted here but not yet acted on.
+	NumberValidationPolicy mpesa.ValidationPolicy
+
+	// PullSweepInterval is how often the Pull reconciler walks the settled
+	// window. Daraja keeps 48 hours, so anything well inside that is safe.
+	PullSweepInterval time.Duration
+
+	// BalancePollInterval is how often the shortcode balances are asked for.
+	// An ops signal, not a latency-sensitive one.
+	BalancePollInterval time.Duration
+
+	// CollectionBalanceFloorKES and DisbursementBalanceFloorKES are the
+	// whole-KES levels below which a parsed balance is alerted on. Optional;
+	// zero disables the alert for that shortcode.
+	CollectionBalanceFloorKES   int
+	DisbursementBalanceFloorKES int
+
+	// HakikishaUsername and HakikishaPassword are the client-credentials pair
+	// Safaricom authenticates with to ask us to name an account. Plaintext
+	// from the environment, as InitiatorPassword and ConsumerSecret already
+	// are.
+	HakikishaUsername string
+	HakikishaPassword string
+
+	// HakikishaSigningKey signs the short-lived token that endpoint issues. It
+	// is deliberately not the admin JWT key: the two token families share no
+	// claim shape and must not be interchangeable.
+	HakikishaSigningKey string
+}
+
+// The settlement modes MPESA_SETTLEMENT_MODE accepts.
+const (
+	// MpesaSettlementOTC converts the KES float at a desk and deposits the
+	// USDC to treasury by hand. cmd/mpesa-settle writes the vault leg.
+	MpesaSettlementOTC = "otc"
+
+	// MpesaSettlementProviderSweep would B2B the float to an on-ramp's own
+	// paybill. Not implemented; naming it is not the same as offering it.
+	MpesaSettlementProviderSweep = "provider_sweep"
+)
+
+// Validate checks the M-Pesa settings, requiring in production what may be
+// absent in development.
+//
+// The split is deliberate and mirrors the callback controller's own allowlist
+// rule: a sandbox deployment runs with half of this unset and should boot, but
+// a production one missing a callback slug or an egress allowlist is a
+// misconfiguration that would silently accept forged callbacks.
+func (c *MpesaConfig) Validate(serverEnv string) error {
+	// Empty means "unset", which New() resolves to the documented default.
+	// Validate agrees with it rather than rejecting a config that New() would
+	// happily have produced.
+	if c.SettlementMode != "" && c.SettlementMode != MpesaSettlementOTC && c.SettlementMode != MpesaSettlementProviderSweep {
+		return fmt.Errorf("MPESA_SETTLEMENT_MODE must be %q or %q, got %q",
+			MpesaSettlementOTC, MpesaSettlementProviderSweep, c.SettlementMode)
+	}
+	// Not a production-only check. Selecting an unbuilt settlement mode is
+	// wrong everywhere, and failing only in production would let it pass
+	// review on a sandbox deploy.
+	if c.SettlementMode == MpesaSettlementProviderSweep {
+		return fmt.Errorf("MPESA_SETTLEMENT_MODE %q is not implemented; the KES float is settled by the OTC desk via cmd/mpesa-settle",
+			MpesaSettlementProviderSweep)
+	}
+
+	switch c.NumberValidationPolicy {
+	case "", mpesa.ValidationDisabled, mpesa.ValidationAdvisory, mpesa.ValidationEnforcing:
+	default:
+		return fmt.Errorf("MPESA_NUMBER_VALIDATION_POLICY must be one of %q, %q or %q, got %q",
+			mpesa.ValidationDisabled, mpesa.ValidationAdvisory, mpesa.ValidationEnforcing, c.NumberValidationPolicy)
+	}
+
+	// The callback base is checked whenever it is set, in every environment:
+	// a URL Daraja will reject is worth catching at boot rather than at the
+	// first registration call.
+	if c.CallbackBaseURL != "" {
+		if err := mpesa.AssertCallbackURL(c.CallbackBaseURL); err != nil {
+			return fmt.Errorf("MPESA_CALLBACK_BASE_URL is not usable as a Daraja callback: %w", err)
+		}
+		// AssertCallbackURL allows http:// because Daraja's blocklist does not
+		// forbid it. Safaricom posts real payment notifications here, so we do.
+		if !strings.HasPrefix(c.CallbackBaseURL, "https://") {
+			return fmt.Errorf("MPESA_CALLBACK_BASE_URL must be https")
+		}
+	}
+
+	if serverEnv != "production" {
+		return nil
+	}
+
+	missing := []string{}
+	if c.Passkey == "" {
+		missing = append(missing, "MPESA_PASSKEY")
+	}
+	if c.InitiatorName == "" {
+		missing = append(missing, "MPESA_INITIATOR_NAME")
+	}
+	if c.InitiatorPassword == "" {
+		missing = append(missing, "MPESA_INITIATOR_PASSWORD")
+	}
+	if c.CallbackSlug == "" {
+		missing = append(missing, "MPESA_CALLBACK_SLUG")
+	}
+	if len(c.CallbackAllowedCIDRs) == 0 {
+		missing = append(missing, "MPESA_CALLBACK_ALLOWED_CIDRS")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("mpesa config missing required values: %s", strings.Join(missing, ", "))
+	}
+
+	// Shortcodes are five to seven digits. A zero here means the environment
+	// variable was absent or unparseable, which ParseUint swallowed.
+	if c.CollectionShortcode < 10000 || c.CollectionShortcode > 9999999 {
+		return fmt.Errorf("MPESA_COLLECTION_SHORTCODE must be a 5-7 digit shortcode, got %d", c.CollectionShortcode)
+	}
+	return nil
+}
+
+func firstNonZeroDuration(v, fallback time.Duration) time.Duration {
+	if v == 0 {
+		return fallback
+	}
+	return v
+}
+
+func firstNonZeroInt(v, fallback int) int {
+	if v == 0 {
+		return fallback
+	}
+	return v
 }

@@ -1,6 +1,9 @@
 package moneygram
 
-import "github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
+import (
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/cashin"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
+)
 
 // Options carries MoneyGram-specific extras attached to offramp.Request.
 // Required for cash-pickup off-ramps — the adapter rejects requests without
@@ -56,3 +59,13 @@ type CashPickupPayload struct {
 
 // ProviderID identifies this payload's provider.
 func (CashPickupPayload) ProviderID() offramp.ProviderID { return offramp.ProviderMoneyGram }
+
+// RepaymentPayload is the cashin.Result/Status Provider value for a borrower
+// repayment. MGTxID is empty on the Collect response — the SEP-24 deposit is
+// opened asynchronously — and populated once Status is read after it lands.
+type RepaymentPayload struct {
+	MGTxID string
+}
+
+// ProviderID identifies this payload's provider.
+func (RepaymentPayload) ProviderID() cashin.ProviderID { return cashin.ProviderMoneyGram }

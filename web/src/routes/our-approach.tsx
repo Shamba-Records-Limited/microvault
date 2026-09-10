@@ -8,6 +8,7 @@ import atLogo from "@/assets/at.png";
 import yellowCardLogo from "@/assets/yellowcard-logo.avif";
 import moneygramLogo from "@/assets/moneygram-logo.jpg";
 import fonbnkLogo from "@/assets/logo_fonbnk_green.webp";
+import mpesaLogo from "@/assets/Mpesa-Logo.png";
 
 const stats = [
   { value: "2.5B", label: "Africa's population by 2050" },
@@ -299,6 +300,29 @@ export default function UseCasePage() {
               Fiat on/off-ramp bridging mobile money and airtime to stablecoins,
               broadening how farmers receive disbursements and make repayments
               across Africa.
+            </p>
+          </a>
+
+          <a
+            href="https://www.safaricom.co.ke/personal/m-pesa"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group block border border-border/80 rounded-xl p-5 hover:bg-muted/10 transition-all duration-300"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <img
+                src={mpesaLogo}
+                alt="M-Pesa"
+                loading="lazy"
+                className="h-9 object-contain"
+              />
+              <ArrowSquareOut className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <h3 className="font-semibold text-sm text-foreground mb-1">M-Pesa</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Kenya&apos;s leading mobile money provider, letting farmers
+              disburse and repay loans instantly via STK Push and paybill from
+              any mobile phone.
             </p>
           </a>
         </div>
