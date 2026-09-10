@@ -2122,3 +2122,304 @@ fn test_upgrade_function_exists() {
     assert_eq!(client.total_assets(), 0);
     assert!(!client.paused());
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Compliance Allowlist
+// ─────────────────────────────────────────────────────────────────────
+
+/// Sets `role` as the compliance role and switches enforcement on.
+fn enable_allowlist(client: &MicrovaultContractClient, role: &Address) {
+    client.set_compliance_role(role);
+    client.set_allowlist_enforced(&true);
+}
+
+#[test]
+fn test_allowlist_off_by_default() {
+    // The upgrade must not gate anything until enforcement is switched on;
+    // this is what lets the other tests in this file deposit freely, and what
+    // keeps existing depositors working between the upgrade and the backfill.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    assert!(!client.allowlist_enforced());
+    assert!(client.compliance_role().is_none());
+    assert!(!client.is_allowed(&user));
+
+    let shares = client.deposit(&1_000_000i128, &user, &user, &user);
+    assert!(shares > 0);
+
+    let recipient = Address::generate(&env);
+    let share_client = token::Client::new(&env, &client.address);
+    share_client.transfer(&user, &recipient, &(shares / 2));
+    assert_eq!(share_client.balance(&recipient), shares / 2);
+}
+
+#[test]
+fn test_set_compliance_role() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
+
+    let role = Address::generate(&env);
+    client.set_compliance_role(&role);
+    assert_eq!(client.compliance_role(), Some(role.clone()));
+
+    // Rotation replaces the previous holder.
+    let new_role = Address::generate(&env);
+    client.set_compliance_role(&new_role);
+    assert_eq!(client.compliance_role(), Some(new_role));
+}
+
+#[test]
+fn test_allow_depositor_before_role_set() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
+
+    let caller = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let result = client.try_allow_depositor(&caller, &depositor);
+    assert_eq!(result, Err(Ok(MicrovaultError::ComplianceRoleNotSet)));
+}
+
+#[test]
+fn test_allow_depositor_requires_compliance_role() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
+
+    let role = Address::generate(&env);
+    client.set_compliance_role(&role);
+
+    let attacker = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let result = client.try_allow_depositor(&attacker, &depositor);
+    assert_eq!(result, Err(Ok(MicrovaultError::Unauthorized)));
+    assert!(!client.is_allowed(&depositor));
+}
+
+#[test]
+fn test_disallow_depositor_requires_compliance_role() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
+
+    let role = Address::generate(&env);
+    client.set_compliance_role(&role);
+
+    let depositor = Address::generate(&env);
+    client.allow_depositor(&role, &depositor);
+    assert!(client.is_allowed(&depositor));
+
+    let attacker = Address::generate(&env);
+    let result = client.try_disallow_depositor(&attacker, &depositor);
+    assert_eq!(result, Err(Ok(MicrovaultError::Unauthorized)));
+    assert!(client.is_allowed(&depositor));
+}
+
+#[test]
+fn test_is_allowed_independent_of_enforcement() {
+    // Membership is recorded whether or not it is currently being enforced —
+    // this is what makes the backfill-then-enable rollout possible.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian) =
+        setup_vault(&env);
+
+    let role = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    client.set_compliance_role(&role);
+    client.allow_depositor(&role, &depositor);
+
+    assert!(!client.allowlist_enforced());
+    assert!(client.is_allowed(&depositor));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_deposit_blocked_when_from_not_allowed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let role = Address::generate(&env);
+    enable_allowlist(&client, &role);
+
+    client.deposit(&1_000_000i128, &user, &user, &user);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_deposit_blocked_when_receiver_not_allowed() {
+    // `from` is allowlisted but `receiver` is not: unscreened shares must not
+    // be mintable by a screened payer.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let role = Address::generate(&env);
+    enable_allowlist(&client, &role);
+    client.allow_depositor(&role, &user);
+
+    let receiver = Address::generate(&env);
+    client.deposit(&1_000_000i128, &receiver, &user, &user);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_mint_blocked_when_not_allowed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let role = Address::generate(&env);
+    enable_allowlist(&client, &role);
+
+    client.mint(&1_000_000i128, &user, &user, &user);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #113)")]
+fn test_transfer_blocked_when_recipient_not_allowed() {
+    // Routed through `AllowList::transfer`, so the error is OZ's
+    // `FungibleTokenError::UserNotAllowed` (#113), not `AddressNotAllowed`
+    // (#14). Both mean "not allowlisted"; the deposit path raises the latter.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let role = Address::generate(&env);
+    enable_allowlist(&client, &role);
+    client.allow_depositor(&role, &user);
+
+    let shares = client.deposit(&1_000_000i128, &user, &user, &user);
+
+    let recipient = Address::generate(&env);
+    let share_client = token::Client::new(&env, &client.address);
+    share_client.transfer(&user, &recipient, &shares);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #113)")]
+fn test_transfer_from_blocked_when_recipient_not_allowed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let role = Address::generate(&env);
+    enable_allowlist(&client, &role);
+    client.allow_depositor(&role, &user);
+
+    let shares = client.deposit(&1_000_000i128, &user, &user, &user);
+
+    // The spender need not be allowlisted; the recipient must be.
+    let spender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let share_client = token::Client::new(&env, &client.address);
+    share_client.approve(&user, &spender, &shares, &1000);
+    share_client.transfer_from(&spender, &user, &recipient, &shares);
+}
+
+#[test]
+fn test_transfer_allowed_between_allowlisted_parties() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let role = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    enable_allowlist(&client, &role);
+    client.allow_depositor(&role, &user);
+    client.allow_depositor(&role, &recipient);
+
+    let shares = client.deposit(&1_000_000i128, &user, &user, &user);
+
+    let share_client = token::Client::new(&env, &client.address);
+    share_client.transfer(&user, &recipient, &(shares / 2));
+    assert_eq!(share_client.balance(&recipient), shares / 2);
+}
+
+#[test]
+fn test_revocation_blocks_deposits_but_not_redemption() {
+    // The full lifecycle: allow, deposit, revoke. Revocation must stop new
+    // money and share mobility without touching the existing position or
+    // trapping it — see the design doc's §17 Q5.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let role = Address::generate(&env);
+    enable_allowlist(&client, &role);
+    client.allow_depositor(&role, &user);
+
+    let shares = client.deposit(&1_000_000i128, &user, &user, &user);
+    assert!(shares > 0);
+
+    client.disallow_depositor(&role, &user);
+    assert!(!client.is_allowed(&user));
+
+    // Existing balance is untouched by revocation.
+    let share_client = token::Client::new(&env, &client.address);
+    assert_eq!(share_client.balance(&user), shares);
+
+    // Further deposits are refused.
+    let deposit_result = client.try_deposit(&1_000_000i128, &user, &user, &user);
+    assert!(deposit_result.is_err());
+
+    // Transfers are refused.
+    let recipient = Address::generate(&env);
+    let transfer_result = share_client.try_transfer(&user, &recipient, &shares);
+    assert!(transfer_result.is_err());
+
+    // Redemption still works: revocation stops new exposure, it does not
+    // freeze the position.
+    let assets_before = token_client.balance(&user);
+    client.redeem(&shares, &user, &user, &user);
+    assert!(token_client.balance(&user) > assets_before);
+    assert_eq!(share_client.balance(&user), 0);
+}
+
+#[test]
+fn test_disabling_enforcement_restores_open_access() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset_address, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let role = Address::generate(&env);
+    enable_allowlist(&client, &role);
+    assert!(client
+        .try_deposit(&1_000_000i128, &user, &user, &user)
+        .is_err());
+
+    client.set_allowlist_enforced(&false);
+    assert!(!client.allowlist_enforced());
+    assert!(client.deposit(&1_000_000i128, &user, &user, &user) > 0);
+}
