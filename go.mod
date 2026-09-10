@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/alicebob/miniredis/v2 v2.38.0
+	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/dubinc/dub-go v0.23.19
 	github.com/go-playground/validator/v10 v10.30.4
 	github.com/gofiber/fiber/v2 v2.52.15
