@@ -16,6 +16,7 @@ type Repositories struct {
 	MpesaPullCursor  MpesaPullCursorRepository
 	MpesaBalance     MpesaBalanceRepository
 	VaultWatchCursor VaultWatchCursorRepository
+	Counterparty     CounterpartyRepository
 }
 
 func NewRepositories(db *gorm.DB) (*Repositories, error) {
@@ -63,6 +64,11 @@ func NewRepositories(db *gorm.DB) (*Repositories, error) {
 		return nil, err
 	}
 
+	counterparty, err := NewCounterpartyRepository(db)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Repositories{
 		// Core repositories
 		Transaction:      transaction,
@@ -73,5 +79,6 @@ func NewRepositories(db *gorm.DB) (*Repositories, error) {
 		MpesaPullCursor:  mpesaPullCursor,
 		MpesaBalance:     mpesaBalance,
 		VaultWatchCursor: vaultWatchCursor,
+		Counterparty:     counterparty,
 	}, nil
 }

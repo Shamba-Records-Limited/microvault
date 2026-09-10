@@ -66,15 +66,42 @@ type Service interface {
 	SetMaxDeposit(ctx context.Context, limit int64) error
 	SetMaxWithdraw(ctx context.Context, limit int64) error
 	SetLockPeriod(ctx context.Context, periodSeconds uint64) error
+
+	// Compliance Operations — see compliance.go. These sign with the
+	// compliance role key, not the admin key, per the source design doc
+	// §9's "keeps the freeze key away from the configuration key". A
+	// Service constructed without WithComplianceRole errors clearly on
+	// these rather than falling back to another key.
+	AllowDepositor(ctx context.Context, address string) error
+	DisallowDepositor(ctx context.Context, address string) error
+	// WithComplianceRole sets the signing key for AllowDepositor/
+	// DisallowDepositor and returns the same Service, so a caller that
+	// doesn't need compliance calls (most of them — five existing
+	// construction sites at the time this was added) never has to pass an
+	// unused key through the constructor.
+	//
+	// Not safe to call concurrently with any other use of this Service —
+	// it mutates the underlying struct in place with no locking, matching
+	// every other field here (adminPrivateKey, treasuryPrivateKey) being
+	// set once at construction and never touched again. Call it exactly
+	// once, immediately after construction, before starting any goroutine
+	// or handler that might use the Service.
+	WithComplianceRole(privateKey string) Service
 }
 
 type service struct {
-	rpcClient          RPCClient
-	networkPassphrase  string
-	treasuryPrivateKey string
-	adminPrivateKey    string
-	contractID         string
-	logger             *slog.Logger
+	rpcClient                RPCClient
+	networkPassphrase        string
+	treasuryPrivateKey       string
+	adminPrivateKey          string
+	complianceRolePrivateKey string
+	contractID               string
+	logger                   *slog.Logger
+}
+
+func (s *service) WithComplianceRole(privateKey string) Service {
+	s.complianceRolePrivateKey = privateKey
+	return s
 }
 
 // NewService creates a new Soroban service

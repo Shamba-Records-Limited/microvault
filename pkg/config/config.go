@@ -19,14 +19,15 @@ import (
 
 // Config holds all configuration for the application, composed of sub-configs.
 type Config struct {
-	Postgres  PostgresConfig
-	Redis     RedisConfig
-	Server    ServerConfig
-	Stellar   StellarConfig
-	Payments  PaymentsConfig
-	Mobile    MobileConfig
-	Auth      AuthConfig
-	Shortener ShortenerConfig
+	Postgres   PostgresConfig
+	Redis      RedisConfig
+	Server     ServerConfig
+	Stellar    StellarConfig
+	Payments   PaymentsConfig
+	Mobile     MobileConfig
+	Auth       AuthConfig
+	Shortener  ShortenerConfig
+	Compliance ComplianceConfig
 }
 
 // PostgresConfig holds all database-related configuration.
@@ -185,6 +186,40 @@ type FonbnkConfig struct {
 	ClientID     string
 	ClientSecret string
 	BaseURL      string
+}
+
+// ComplianceConfig holds the Elliptic AML client's configuration. Empty
+// values are valid at boot — matching every other provider's pattern here —
+// so screening simply fails until real credentials are set, per the source
+// design doc §15's "Elliptic is down" degradation.
+type ComplianceConfig struct {
+	EllipticAPIKey    string
+	EllipticAPISecret string
+	// EllipticBaseURL overrides the client's default; empty uses it.
+	EllipticBaseURL string
+	// ScreeningValidity is how long a screening stays current before the
+	// address counts as expired. Empty/zero uses the service's own default
+	// (90 days, source design doc §17 Q9's estimate).
+	ScreeningValidity time.Duration
+
+	// ComplianceRoleSecretKey signs allow_depositor/disallow_depositor —
+	// deliberately a distinct key from AdminSecretKey/TreasurySecretKey, per
+	// the source design doc §9: "keeps the freeze key away from the
+	// configuration key." Held by the credit backend's on-chain writer
+	// worker only, never by cmd/admin — see pkg/services/compliance's
+	// OnchainWriter doc comment.
+	ComplianceRoleSecretKey string
+
+	// OnchainWriterInterval is how often the on-chain writer worker polls
+	// for approvals/revocations still waiting on a chain write. Empty/zero
+	// uses a 1-minute default — this is the fast path (source design doc
+	// §17 Q4: revocation cannot wait), so it ticks far more often than the
+	// rescreening sweep.
+	OnchainWriterInterval time.Duration
+
+	// RescreenSweepInterval is how often the rescreening sweep looks for
+	// lapsed approvals. Empty/zero uses a 1-hour default.
+	RescreenSweepInterval time.Duration
 }
 
 // MoneyGramConfig holds all MoneyGram-related configuration.
@@ -675,6 +710,31 @@ func New() (*Config, error) {
 		}
 	}
 
+	ellipticAPIKey := os.Getenv("ELLIPTIC_API_KEY")
+	ellipticAPISecret := os.Getenv("ELLIPTIC_API_SECRET")
+	ellipticBaseURL := os.Getenv("ELLIPTIC_BASE_URL")
+	screeningValidity, err := envSeconds("COMPLIANCE_SCREENING_VALIDITY")
+	if err != nil {
+		return nil, err
+	}
+	complianceRoleSecretKey := os.Getenv("COMPLIANCE_ROLE_SECRET_KEY")
+	if complianceRoleSecretKey != "" {
+		if _, err := keypair.ParseFull(complianceRoleSecretKey); err != nil {
+			return nil, fmt.Errorf("invalid compliance role secret key: %w", err)
+		}
+		if complianceRoleSecretKey == adminSecretKey || complianceRoleSecretKey == treasurySecretKey {
+			return nil, fmt.Errorf("COMPLIANCE_ROLE_SECRET_KEY must differ from ADMIN_SECRET_KEY and TREASURY_SECRET_KEY")
+		}
+	}
+	onchainWriterInterval, err := envSeconds("COMPLIANCE_ONCHAIN_WRITER_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	rescreenSweepInterval, err := envSeconds("COMPLIANCE_RESCREEN_SWEEP_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+
 	// Return the populated config struct
 	return &Config{
 		Postgres: PostgresConfig{
@@ -819,6 +879,15 @@ func New() (*Config, error) {
 			JWTRefreshWindow:    time.Hour * 1,
 			ChallengeExpiration: time.Hour * 5,
 			PINLockoutDuration:  parsePINLockout(),
+		},
+		Compliance: ComplianceConfig{
+			EllipticAPIKey:          ellipticAPIKey,
+			EllipticAPISecret:       ellipticAPISecret,
+			EllipticBaseURL:         ellipticBaseURL,
+			ScreeningValidity:       screeningValidity,
+			ComplianceRoleSecretKey: complianceRoleSecretKey,
+			OnchainWriterInterval:   firstNonZeroDuration(onchainWriterInterval, time.Minute),
+			RescreenSweepInterval:   firstNonZeroDuration(rescreenSweepInterval, time.Hour),
 		},
 	}, nil
 }

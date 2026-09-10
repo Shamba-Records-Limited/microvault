@@ -190,6 +190,23 @@ func (s *service) SetLockPeriod(ctx context.Context, periodSeconds uint64) error
 	return s.sorobanService.SetLockPeriod(ctx, periodSeconds)
 }
 
+// Soroban compliance method delegation
+func (s *service) AllowDepositor(ctx context.Context, address string) error {
+	return s.sorobanService.AllowDepositor(ctx, address)
+}
+
+func (s *service) DisallowDepositor(ctx context.Context, address string) error {
+	return s.sorobanService.DisallowDepositor(ctx, address)
+}
+
+// WithComplianceRole returns soroban.Service, not the composed
+// stellar.Service — the embedded interface's method keeps its original
+// signature. Callers that only need compliance calls should generally hold
+// a soroban.Service directly rather than going through this facade.
+func (s *service) WithComplianceRole(privateKey string) soroban.Service {
+	return s.sorobanService.WithComplianceRole(privateKey)
+}
+
 // NewService creates a new Stellar service with both classic and Soroban support
 func NewService(
 	rpcClient *rpcclient.Client,
