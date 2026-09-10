@@ -117,7 +117,7 @@ const html = `<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <a class="portal-login" href="https://portal.microvault.shambarecords.com" target="_blank" rel="noopener">Portal Login</a>
+  <a class="portal-login" href="https://portal.microvault.shambarecords.com/login" target="_blank" rel="noopener">Portal Login</a>
   <div id="redoc-container"></div>
   <script src="https://cdn.redocly.com/redoc/v2.5.3/bundles/redoc.standalone.js" integrity="sha384-xiEssMQFSpSfLbzRZCGfxxIM5QDb2DTrU6vyoZdp2sV1L6pmOMy6MpTtUoLbpC96" crossorigin="anonymous"></script>
   <script>

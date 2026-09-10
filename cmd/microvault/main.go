@@ -36,7 +36,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/platform/database"
 )
 
-// @title microvault API
+// @title Microvault API
 // @version 1.0
 // @description A headless SEP-56 tokenized vault engine for microlending built on the stellar network.
 // @termsOfService http://swagger.io/terms/

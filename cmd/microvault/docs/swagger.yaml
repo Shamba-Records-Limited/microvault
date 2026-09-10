@@ -101,6 +101,32 @@ definitions:
       ResultDesc:
         type: string
     type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.HakikishaRequest:
+    properties:
+      accountNumber:
+        description: |-
+          AccountNumber is the reference the payer typed on their handset, so it
+          arrives exactly as they typed it.
+        type: string
+      shortCode:
+        type: string
+      timestamp:
+        description: Timestamp arrives as either a string or a number.
+        type: integer
+      transactionId:
+        type: string
+    type: object
+  github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.HakikishaResponse:
+    properties:
+      accountName:
+        type: string
+      accountNumber:
+        type: string
+      responseCode:
+        type: string
+      responseDesc:
+        type: string
+    type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.RawResult:
     properties:
       ConversationID:
@@ -463,6 +489,83 @@ paths:
       summary: Validate a C2B payment
       tags:
       - Daraja
+  /api/v1/callbacks/daraja/{slug}/hakikisha/oauth/token:
+    post:
+      description: Issue a bearer token for the Hakikisha resolve endpoint
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Must be client_credentials
+        in: query
+        name: grant_type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: access_token, expires_in
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: errorCode, errorMessage
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Hakikisha OAuth token
+      tags:
+      - Daraja
+  /api/v1/callbacks/daraja/{slug}/hakikisha/resolve:
+    post:
+      consumes:
+      - application/json
+      description: Resolve an account number to a display name for the payer's confirmation
+        screen
+      parameters:
+      - description: Callback slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Resolve request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.HakikishaRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Found or not-found answer
+          schema:
+            $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.HakikishaResponse'
+        "401":
+          description: errorCode, errorMessage
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Source not permitted
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "422":
+          description: Undecodable request
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Hakikisha account resolve
+      tags:
+      - Daraja
   /api/v1/callbacks/daraja/{slug}/stk/result:
     post:
       consumes:
@@ -592,7 +695,7 @@ paths:
             type: string
       summary: USSD Callback Handler
       tags:
-      - USSD
+      - Mobile
   /api/v1/webhooks/yellowcard:
     post:
       consumes:

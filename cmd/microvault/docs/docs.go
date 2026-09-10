@@ -222,6 +222,120 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/callbacks/daraja/{slug}/hakikisha/oauth/token": {
+            "post": {
+                "description": "Issue a bearer token for the Hakikisha resolve endpoint",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Daraja"
+                ],
+                "summary": "Hakikisha OAuth token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Callback slug",
+                        "name": "slug",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Must be client_credentials",
+                        "name": "grant_type",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "access_token, expires_in",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "errorCode, errorMessage",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Source not permitted",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/callbacks/daraja/{slug}/hakikisha/resolve": {
+            "post": {
+                "description": "Resolve an account number to a display name for the payer's confirmation screen",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Daraja"
+                ],
+                "summary": "Hakikisha account resolve",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Callback slug",
+                        "name": "slug",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Resolve request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.HakikishaRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Found or not-found answer",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.HakikishaResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "errorCode, errorMessage",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Source not permitted",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    },
+                    "422": {
+                        "description": "Undecodable request",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/callbacks/daraja/{slug}/stk/result": {
             "post": {
                 "description": "M-Pesa Express payment callback",
@@ -496,7 +610,7 @@ const docTemplate = `{
                     "text/plain"
                 ],
                 "tags": [
-                    "USSD"
+                    "Mobile"
                 ],
                 "summary": "USSD Callback Handler",
                 "parameters": [
@@ -770,6 +884,42 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "ResultDesc": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.HakikishaRequest": {
+            "type": "object",
+            "properties": {
+                "accountNumber": {
+                    "description": "AccountNumber is the reference the payer typed on their handset, so it\narrives exactly as they typed it.",
+                    "type": "string"
+                },
+                "shortCode": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "description": "Timestamp arrives as either a string or a number.",
+                    "type": "integer"
+                },
+                "transactionId": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.HakikishaResponse": {
+            "type": "object",
+            "properties": {
+                "accountName": {
+                    "type": "string"
+                },
+                "accountNumber": {
+                    "type": "string"
+                },
+                "responseCode": {
+                    "type": "string"
+                },
+                "responseDesc": {
                     "type": "string"
                 }
             }
