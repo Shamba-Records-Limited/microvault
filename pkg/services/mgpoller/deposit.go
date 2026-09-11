@@ -139,6 +139,10 @@ type RepaymentNotifier interface {
 	NotifyRepaymentReceived(loanID string) error
 	NotifyRepaymentReminder(loanID string) error
 	NotifyRepaymentExpired(loanID string) error
+
+	// NotifyLoanRepaid confirms the treasury-to-vault leg confirmed and the
+	// loan is closed — sent once, right after MarkSettled records it.
+	NotifyLoanRepaid(loanID string) error
 }
 
 // DepositDriver drives the borrower repayment cash-in state machine.
@@ -460,6 +464,10 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 		"borrower", rec.BorrowerAddress,
 		"amount_stroops", rec.PayoffStroops,
 		"vault_tx_hash", hash)
+
+	d.notify("repaid", rec, func(n RepaymentNotifier) error {
+		return n.NotifyLoanRepaid(rec.LoanID)
+	})
 }
 
 // checkDepositShortfall compares what MoneyGram credited against the quote.

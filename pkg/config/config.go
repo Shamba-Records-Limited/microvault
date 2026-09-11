@@ -482,6 +482,10 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	mpesaPaybillSweepInterval, err := envSeconds("MPESA_PAYBILL_SWEEP_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
 	mpesaCollectionFloor, err := envPositiveInt("MPESA_COLLECTION_BALANCE_FLOOR_KES")
 	if err != nil {
 		return nil, err
@@ -809,8 +813,9 @@ func New() (*Config, error) {
 				SettlementMode:         mpesaSettlementMode,
 				NumberValidationPolicy: mpesaNumberValidationPolicy,
 
-				PullSweepInterval:   firstNonZeroDuration(mpesaPullSweepInterval, 10*time.Minute),
-				BalancePollInterval: firstNonZeroDuration(mpesaBalancePollInterval, time.Hour),
+				PullSweepInterval:    firstNonZeroDuration(mpesaPullSweepInterval, 10*time.Minute),
+				BalancePollInterval:  firstNonZeroDuration(mpesaBalancePollInterval, time.Hour),
+				PaybillSweepInterval: firstNonZeroDuration(mpesaPaybillSweepInterval, time.Minute),
 
 				CollectionBalanceFloorKES:   mpesaCollectionFloor,
 				DisbursementBalanceFloorKES: mpesaDisbursementFloor,
@@ -1160,6 +1165,12 @@ type MpesaConfig struct {
 	// BalancePollInterval is how often the shortcode balances are asked for.
 	// An ops signal, not a latency-sensitive one.
 	BalancePollInterval time.Duration
+
+	// PaybillSweepInterval is how often the paybill repayment sweep converts
+	// newly-confirmed mpesa_transactions rows into repayment progress. Short
+	// by default — a borrower who just paid should not wait long to see it
+	// reflected, matching the on-chain writer's own "fast path" reasoning.
+	PaybillSweepInterval time.Duration
 
 	// CollectionBalanceFloorKES and DisbursementBalanceFloorKES are the
 	// whole-KES levels below which a parsed balance is alerted on. Optional;
