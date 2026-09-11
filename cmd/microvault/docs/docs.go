@@ -1053,7 +1053,7 @@ const docTemplate = `{
                     }
                 },
                 "ResultType": {
-                    "description": "ResultType is reserved by Daraja; currently always 0.",
+                    "description": "ResultType is part of Daraja's envelope; this package does not\ninterpret it, only ResultCode.",
                     "type": "integer",
                     "example": 0
                 },

@@ -90,7 +90,8 @@ type ResultEnvelope struct {
 // held raw because Daraja sends it as a number on some endpoints and a string
 // on others.
 type RawResult struct {
-	// ResultType is reserved by Daraja; currently always 0.
+	// ResultType is part of Daraja's envelope; this package does not
+	// interpret it, only ResultCode.
 	ResultType FlexibleInt64 `json:"ResultType" example:"0"`
 	// ResultCode is 0/"0" on success; non-zero (numeric or, for reversals, "R000001"/"R000002") on failure.
 	ResultCode json.RawMessage `json:"ResultCode" example:"0"`

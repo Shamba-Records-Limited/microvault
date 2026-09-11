@@ -255,7 +255,9 @@ definitions:
             type: array
         type: object
       ResultType:
-        description: ResultType is reserved by Daraja; currently always 0.
+        description: |-
+          ResultType is part of Daraja's envelope; this package does not
+          interpret it, only ResultCode.
         example: 0
         type: integer
       TransactionID:
