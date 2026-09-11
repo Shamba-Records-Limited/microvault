@@ -18,6 +18,31 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 )
 
+func TestCidrMatch(t *testing.T) {
+	cases := []struct {
+		name string
+		ip   string
+		cidr string
+		want bool
+	}{
+		{"bare ipv4 exact match", "196.201.212.69", "196.201.212.69", true},
+		{"bare ipv4 mismatch", "196.201.212.70", "196.201.212.69", false},
+		{"ipv4 range match", "196.201.212.69", "196.201.212.0/24", true},
+		{"ipv4 range mismatch", "196.201.213.69", "196.201.212.0/24", false},
+		{"loopback with prefix", "127.0.0.1", "127.0.0.1/32", true},
+		{"bare ipv6 exact match", "::1", "::1", true},
+		{"invalid cidr entry", "196.201.212.69", "not-an-ip", false},
+		{"invalid client ip", "not-an-ip", "196.201.212.69", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cidrMatch(tc.ip, tc.cidr); got != tc.want {
+				t.Errorf("cidrMatch(%q, %q) = %v, want %v", tc.ip, tc.cidr, got, tc.want)
+			}
+		})
+	}
+}
+
 type fakeMpesaRepo struct {
 	recorded   []*models.MpesaTransaction
 	recordErr  error
@@ -69,6 +94,18 @@ func (f *fakeMpesaRepo) UpdateFields(ctx context.Context, tx *models.MpesaTransa
 
 func (f *fakeMpesaRepo) UpsertFromPull(ctx context.Context, tx *models.MpesaTransaction) error {
 	return nil
+}
+
+func (f *fakeMpesaRepo) ListUnappliedConfirmed(ctx context.Context, limit int) ([]*models.MpesaTransaction, error) {
+	return nil, nil
+}
+
+func (f *fakeMpesaRepo) SetAppliedStroops(ctx context.Context, id string, stroops int64) error {
+	return nil
+}
+
+func (f *fakeMpesaRepo) SumAppliedStroopsByLoan(ctx context.Context, loanID string) (int64, error) {
+	return 0, nil
 }
 
 func callbackController(repo *fakeMpesaRepo, serverEnv string, cidrs []string) *DarajaCallbackController {

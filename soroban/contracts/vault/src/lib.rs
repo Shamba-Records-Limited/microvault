@@ -8,7 +8,8 @@
 //! Built on the OpenZeppelin Stellar Contracts library:
 //! <https://docs.openzeppelin.com/stellar-contracts>
 //!
-//! # Author
+//! # Authors
+//!
 //!
 //! Samuel Mugane <smugane@shambarecords.com>
 //! Peter Wesley <peter.wesley@shambarecords.com>
@@ -24,7 +25,7 @@ use stellar_contract_utils::math::wad::{Wad, WAD_SCALE};
 use stellar_contract_utils::pausable::{self as pausable_mod, Pausable};
 use stellar_macros::{only_owner, when_not_paused};
 use stellar_tokens::{
-    fungible::{Base, FungibleToken},
+    fungible::{allowlist::AllowList, Base, FungibleToken},
     vault::{FungibleVault, Vault},
 };
 
@@ -43,6 +44,8 @@ pub enum MicrovaultError {
     RepayExceedsDebt = 11,
     SharesLocked = 12,
     ExceedsMaxRedeem = 13,
+    AddressNotAllowed = 14,
+    ComplianceRoleNotSet = 15,
 }
 
 /// Emitted when the treasury address is changed.
@@ -157,6 +160,25 @@ pub struct UserLockUpdated {
     pub unlock_time: u64,
 }
 
+/// Emitted when the compliance role address is changed.
+///
+/// `old_role` is `None` on the first assignment, which is the normal case for a
+/// vault upgraded from a WASM that predates the allowlist.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComplianceRoleUpdated {
+    pub old_role: Option<Address>,
+    pub new_role: Address,
+}
+
+/// Emitted when allowlist enforcement is switched on or off.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllowlistEnforcementUpdated {
+    pub old_enforced: bool,
+    pub new_enforced: bool,
+}
+
 #[soroban_sdk::contracttype]
 pub enum DataKey {
     Treasury,
@@ -168,6 +190,8 @@ pub enum DataKey {
     LockPeriod,
     UserUnlockTime(Address),
     BorrowIndex, // Cumulative debt index
+    ComplianceRole,
+    AllowlistEnforced,
 }
 
 /// Default maximum deposit limit (1M USDC with 7 decimals).
@@ -556,6 +580,119 @@ impl MicrovaultContract {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // Compliance Allowlist
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Returns the compliance role address, if set.
+    pub fn compliance_role(e: &Env) -> Option<Address> {
+        e.storage().instance().get(&DataKey::ComplianceRole)
+    }
+
+    /// Returns `true` if allowlist enforcement is switched on.
+    ///
+    /// Defaults to `false` so that an upgrade from a pre-allowlist WASM does not
+    /// lock out existing depositors before they have been backfilled onto the
+    /// list. Switch on with [`Self::set_allowlist_enforced`] once the backfill
+    /// is complete.
+    pub fn allowlist_enforced(e: &Env) -> bool {
+        e.storage()
+            .instance()
+            .get(&DataKey::AllowlistEnforced)
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` if `address` is on the allowlist.
+    ///
+    /// Independent of [`Self::allowlist_enforced`] — this reports list
+    /// membership, not whether membership is currently being enforced.
+    pub fn is_allowed(e: &Env, address: Address) -> bool {
+        AllowList::allowed(e, &address)
+    }
+
+    /// Add `address` to the allowlist. Compliance role only.
+    ///
+    /// Deliberately not `#[only_owner]`. Like the guardian's `pause`, this is a
+    /// fast path that takes effect the moment the compliance key signs, with no
+    /// timelock delay — a sanctions hit cannot wait days.
+    pub fn allow_depositor(
+        e: &Env,
+        caller: Address,
+        address: Address,
+    ) -> Result<(), MicrovaultError> {
+        Self::require_compliance_role(e, &caller)?;
+        AllowList::allow_user(e, &address);
+        Ok(())
+    }
+
+    /// Remove `address` from the allowlist. Compliance role only.
+    ///
+    /// Blocks further deposits, mints and share transfers involving `address`.
+    /// It does not touch existing balances and does not block `withdraw` or
+    /// `redeem`; see the source design doc's §17 Q5 on configurable freezing.
+    pub fn disallow_depositor(
+        e: &Env,
+        caller: Address,
+        address: Address,
+    ) -> Result<(), MicrovaultError> {
+        Self::require_compliance_role(e, &caller)?;
+        AllowList::disallow_user(e, &address);
+        Ok(())
+    }
+
+    /// Set the compliance role address. Owner only (timelocked).
+    ///
+    /// Rotating the compliance key is a rare, deliberate action, so unlike the
+    /// allowlist mutations themselves it goes through the owner's timelock.
+    #[only_owner]
+    pub fn set_compliance_role(e: &Env, new_role: Address) {
+        let old_role: Option<Address> = e.storage().instance().get(&DataKey::ComplianceRole);
+        e.storage()
+            .instance()
+            .set(&DataKey::ComplianceRole, &new_role);
+        ComplianceRoleUpdated { old_role, new_role }.publish(e);
+    }
+
+    /// Switch allowlist enforcement on or off. Owner only (timelocked).
+    ///
+    /// Sequencing this after the depositor backfill is what keeps an upgrade
+    /// from locking out addresses that already hold shares.
+    #[only_owner]
+    pub fn set_allowlist_enforced(e: &Env, enforced: bool) {
+        let old_enforced = Self::allowlist_enforced(e);
+        e.storage()
+            .instance()
+            .set(&DataKey::AllowlistEnforced, &enforced);
+        AllowlistEnforcementUpdated {
+            old_enforced,
+            new_enforced: enforced,
+        }
+        .publish(e);
+    }
+
+    /// Require `caller` to be the configured compliance role, with its auth.
+    fn require_compliance_role(e: &Env, caller: &Address) -> Result<(), MicrovaultError> {
+        caller.require_auth();
+
+        let role: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::ComplianceRole)
+            .ok_or(MicrovaultError::ComplianceRoleNotSet)?;
+        if *caller != role {
+            return Err(MicrovaultError::Unauthorized);
+        }
+        Ok(())
+    }
+
+    /// Panic with [`MicrovaultError::AddressNotAllowed`] if `address` is not on
+    /// the allowlist. No-op while enforcement is switched off.
+    fn require_allowed(e: &Env, address: &Address) {
+        if Self::allowlist_enforced(e) && !AllowList::allowed(e, address) {
+            panic_with_error!(e, MicrovaultError::AddressNotAllowed);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // Emergency Functions
     // ─────────────────────────────────────────────────────────────────────
 
@@ -880,27 +1017,47 @@ impl FungibleToken for MicrovaultContract {
     /// default `Base::transfer` would move balances freely, letting a depositor
     /// bypass the lock by transferring shares to a clean address and redeeming
     /// there.
+    ///
+    /// While allowlist enforcement is on, the transfer is routed through
+    /// `AllowList::transfer`, which requires both `from` and `to` to be allowed
+    /// and panics `FungibleTokenError::UserNotAllowed` (#113) otherwise. The
+    /// lock check stays here because `AllowList` has no concept of it.
     fn transfer(e: &Env, from: Address, to: MuxedAddress, amount: i128) {
         if MicrovaultContract::is_locked(e, from.clone()) {
             panic_with_error!(e, MicrovaultError::SharesLocked);
         }
-        Base::transfer(e, &from, &to, amount);
+        if MicrovaultContract::allowlist_enforced(e) {
+            AllowList::transfer(e, &from, &to, amount);
+        } else {
+            Base::transfer(e, &from, &to, amount);
+        }
     }
 
-    /// Same lock enforcement as `transfer`, applied to the spender-authorized
-    /// path. The lock is on the `from` (owner) balance, not the spender.
+    /// Same lock and allowlist enforcement as `transfer`, applied to the
+    /// spender-authorized path. The lock is on the `from` (owner) balance, and
+    /// `AllowList` checks `from` and `to` — neither constrains the spender.
     fn transfer_from(e: &Env, spender: Address, from: Address, to: Address, amount: i128) {
         if MicrovaultContract::is_locked(e, from.clone()) {
             panic_with_error!(e, MicrovaultError::SharesLocked);
         }
-        Base::transfer_from(e, &spender, &from, &to, amount);
+        if MicrovaultContract::allowlist_enforced(e) {
+            AllowList::transfer_from(e, &spender, &from, &to, amount);
+        } else {
+            Base::transfer_from(e, &spender, &from, &to, amount);
+        }
     }
 }
 
 #[contractimpl]
 impl FungibleVault for MicrovaultContract {
+    /// Both `from` (debited) and `receiver` (credited with shares) must be
+    /// allowlisted while enforcement is on. Constraining one side only would
+    /// let unscreened money buy shares for a screened party, or the reverse.
     #[when_not_paused]
     fn deposit(e: &Env, assets: i128, receiver: Address, from: Address, operator: Address) -> i128 {
+        MicrovaultContract::require_allowed(e, &from);
+        MicrovaultContract::require_allowed(e, &receiver);
+
         let max_deposit: i128 = e
             .storage()
             .instance()
@@ -916,8 +1073,12 @@ impl FungibleVault for MicrovaultContract {
         new_shares
     }
 
+    /// Same two-sided allowlist gate as `deposit`.
     #[when_not_paused]
     fn mint(e: &Env, shares: i128, receiver: Address, from: Address, operator: Address) -> i128 {
+        MicrovaultContract::require_allowed(e, &from);
+        MicrovaultContract::require_allowed(e, &receiver);
+
         let existing_shares = Base::balance(e, &receiver);
         let assets_used = Vault::mint(e, shares, receiver.clone(), from, operator);
         MicrovaultContract::update_lock_time(e, &receiver, existing_shares, shares);

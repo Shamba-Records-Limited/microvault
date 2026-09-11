@@ -283,33 +283,43 @@ func (e ExpressCallback) Succeeded() bool { return e.ResultCode == 0 }
 // delivery. Exported so the receiving route can name it in its OpenAPI
 // definition.
 type ExpressCallbackEnvelope struct {
+	// Body wraps the stkCallback object; Safaricom always nests it one level deep.
 	Body ExpressCallbackBody `json:"Body"`
 }
 
 // ExpressCallbackBody wraps the stkCallback object.
 type ExpressCallbackBody struct {
+	// STKCallback is the actual result payload for one STK push.
 	STKCallback ExpressCallbackResult `json:"stkCallback"`
 }
 
 // ExpressCallbackResult is the outcome of one STK push as it arrives on the
 // wire. CallbackMetadata is absent unless the customer paid.
 type ExpressCallbackResult struct {
-	MerchantRequestID string                         `json:"MerchantRequestID"`
-	CheckoutRequestID string                         `json:"CheckoutRequestID"`
-	ResultCode        FlexibleInt64                  `json:"ResultCode"`
-	ResultDesc        string                         `json:"ResultDesc"`
-	CallbackMetadata  *ExpressCallbackMetadataHolder `json:"CallbackMetadata"`
+	// MerchantRequestID is the ID Safaricom assigned when the STK push was initiated.
+	MerchantRequestID string `json:"MerchantRequestID" example:"29115-34620561-1"`
+	// CheckoutRequestID is the ID this codebase used to originate the push and correlate the result.
+	CheckoutRequestID string `json:"CheckoutRequestID" example:"ws_CO_191220191020363925"`
+	// ResultCode is 0 on success; any other value maps through ExpressOutcomeFor to decide retryability.
+	ResultCode FlexibleInt64 `json:"ResultCode" example:"0"`
+	// ResultDesc is Safaricom's human-readable outcome description.
+	ResultDesc string `json:"ResultDesc" example:"The service request is processed successfully."`
+	// CallbackMetadata carries the payment receipt details; nil when the customer did not pay.
+	CallbackMetadata *ExpressCallbackMetadataHolder `json:"CallbackMetadata"`
 }
 
 // ExpressCallbackMetadataHolder carries the receipt entries on success.
 type ExpressCallbackMetadataHolder struct {
+	// Item is the list of name/value receipt fields (Amount, MpesaReceiptNumber, TransactionDate, PhoneNumber, ...).
 	Item []ExpressCallbackMetadataItem `json:"Item"`
 }
 
 // ExpressCallbackMetadataItem is one CallbackMetadata entry. Value is held raw
 // because its JSON type depends on Name.
 type ExpressCallbackMetadataItem struct {
-	Name  string          `json:"Name"`
+	// Name identifies which receipt field this is, e.g. "Amount", "MpesaReceiptNumber".
+	Name string `json:"Name" example:"MpesaReceiptNumber"`
+	// Value is the field's raw JSON value; its type (string vs number) depends on Name.
 	Value json.RawMessage `json:"Value"`
 }
 
@@ -401,13 +411,26 @@ var expressOutcomes = map[int64]ExpressOutcome{
 
 // ExpressOutcomeFor reports what a result code means. An undocumented code —
 // including the sentinel -1 used for an unparseable or unrecognised one — is
-// treated as operational and not retryable, so an unknown failure is neither
-// blamed on the borrower nor retried blindly.
+// treated as operational, so an unknown failure is never blamed on the
+// borrower's PIN or balance.
+//
+// It is also given the same bounded retry budget as a documented transient
+// code (Retryable: true — see MpesaSTKLoanDriver.retryOrExpire's
+// STKMaxAttempts, not unlimited retries here), rather than the zero chances
+// an unconditional false would give it. "Undocumented" is not evidence of
+// "permanent": Daraja's own documented codes list is known incomplete (the
+// community scrape backing this table doesn't cover the login-gated pages —
+// see the daraja-docs-mirror vault doc), and a code observed against
+// sandbox (e.g. 4999, see yellowcard-offramp-webhook-race-2026-09-10.md §3)
+// may simply be one Safaricom hasn't published here yet, not a hard
+// rejection. The cost of retrying a genuinely permanent unknown code a few
+// extra times is small and bounded; the cost of giving a transient one zero
+// chances is a borrower whose STK repayment expires for no real reason.
 func ExpressOutcomeFor(resultCode int64) ExpressOutcome {
 	if outcome, ok := expressOutcomes[resultCode]; ok {
 		return outcome
 	}
-	return ExpressOutcome{Operational: true, Message: "We could not process the payment. Please try again later."}
+	return ExpressOutcome{Operational: true, Retryable: true, Message: "We could not process the payment. Please try again later."}
 }
 
 // Words Daraja rejects anywhere in a callback URL. The obvious route for this

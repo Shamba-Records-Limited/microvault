@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	_ "github.com/joho/godotenv/autoload"
@@ -57,9 +56,8 @@ func registerC2B(cfg *config.Config, args []string) {
 	_ = flags.Parse(args)
 
 	mp := cfg.Payments.Mpesa
-	base := callbackBase(mp)
-	validationURL := base + "/c2b/validation"
-	confirmationURL := base + "/c2b/confirmation"
+	validationURL := mp.DarajaCallbackURL("c2b/validation")
+	confirmationURL := mp.DarajaCallbackURL("c2b/confirmation")
 
 	fmt.Println("C2B URL registration")
 	fmt.Printf("  environment:   %s\n", cfg.Server.ServerEnvironment)
@@ -97,7 +95,7 @@ func registerPull(cfg *config.Config, args []string) {
 	_ = flags.Parse(args)
 
 	mp := cfg.Payments.Mpesa
-	callbackURL := callbackBase(mp) + "/pull/result"
+	callbackURL := mp.DarajaCallbackURL("pull/result")
 
 	fmt.Println("Pull API registration")
 	fmt.Printf("  environment:      %s\n", cfg.Server.ServerEnvironment)
@@ -129,13 +127,6 @@ func registerPull(cfg *config.Config, args []string) {
 	}
 	fmt.Printf("\nRegistered. ResponseStatus=%s ResponseDescription=%s\n",
 		resp.ResponseStatus, resp.ResponseDescription)
-}
-
-// callbackBase builds the group the callback routes hang off, matching
-// DarajaCallbackController.Register. The configured base is the bare host, so
-// the /api/v1 segment is added here.
-func callbackBase(mp config.MpesaConfig) string {
-	return strings.TrimRight(mp.CallbackBaseURL, "/") + "/api/v1/callbacks/daraja/" + mp.CallbackSlug
 }
 
 func newClient(cfg *config.Config) *mpesa.Client {

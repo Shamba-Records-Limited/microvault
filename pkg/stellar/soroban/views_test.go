@@ -375,6 +375,79 @@ func TestIsUserLocked(t *testing.T) {
 	}
 }
 
+func TestComplianceRole(t *testing.T) {
+	keys := stellartesting.NewTestKeys()
+
+	tests := []struct {
+		name      string
+		setupMock func(*stellartesting.MockRPCClient)
+		want      string
+	}{
+		{
+			name: "role is set",
+			setupMock: func(m *stellartesting.MockRPCClient) {
+				m.SimulateTransactionFunc = func(ctx context.Context, req protocol.SimulateTransactionRequest) (protocol.SimulateTransactionResponse, error) {
+					return stellartesting.NewSimulationResponse().
+						WithAddressResult(keys.UserPublic).
+						Build(), nil
+				}
+			},
+			want: keys.UserPublic,
+		},
+		{
+			name: "role is unset",
+			setupMock: func(m *stellartesting.MockRPCClient) {
+				m.SimulateTransactionFunc = func(ctx context.Context, req protocol.SimulateTransactionRequest) (protocol.SimulateTransactionResponse, error) {
+					return stellartesting.NewSimulationResponse().
+						WithVoidResult().
+						Build(), nil
+				}
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := stellartesting.NewMockRPCClient()
+			tt.setupMock(mockClient)
+
+			svc := newTestService(mockClient)
+			result, err := svc.ComplianceRole(context.Background())
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, result)
+		})
+	}
+}
+
+func TestAllowlistEnforced(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: "enforced", want: true},
+		{name: "not enforced", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := stellartesting.NewMockRPCClient()
+			mockClient.SimulateTransactionFunc = func(ctx context.Context, req protocol.SimulateTransactionRequest) (protocol.SimulateTransactionResponse, error) {
+				return stellartesting.NewSimulationResponse().
+					WithBoolResult(tt.want).
+					Build(), nil
+			}
+
+			svc := newTestService(mockClient)
+			result, err := svc.AllowlistEnforced(context.Background())
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, result)
+		})
+	}
+}
+
 func TestGetLockPeriod(t *testing.T) {
 	tests := []struct {
 		name      string

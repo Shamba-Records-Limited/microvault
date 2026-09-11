@@ -107,10 +107,6 @@ func MapContractError(code uint32) *ContractError {
 		return &ContractError{code, "ExceedsMaxWithdraw", "Withdrawal exceeds maximum limit", "microvault"}
 	case 6:
 		return &ContractError{code, "TreasuryNotSet", "Treasury not set", "microvault"}
-	case 7:
-		return &ContractError{code, "TimelockNotExpired", "Timelock not expired", "microvault"}
-	case 8:
-		return &ContractError{code, "NoPendingUpdate", "No pending update", "microvault"}
 	case 9:
 		return &ContractError{code, "ExceedsUtilizationCap", "Borrow would exceed utilization cap", "microvault"}
 	case 10:
@@ -119,6 +115,12 @@ func MapContractError(code uint32) *ContractError {
 		return &ContractError{code, "RepayExceedsDebt", "Repay amount exceeds debt", "microvault"}
 	case 12:
 		return &ContractError{code, "SharesLocked", "Shares are locked and cannot be withdrawn", "microvault"}
+	case 13:
+		return &ContractError{code, "ExceedsMaxRedeem", "Redeem exceeds maximum limit", "microvault"}
+	case 14:
+		return &ContractError{code, "AddressNotAllowed", "Address is not on the compliance allowlist", "microvault"}
+	case 15:
+		return &ContractError{code, "ComplianceRoleNotSet", "Compliance role has not been configured", "microvault"}
 
 	// FungibleTokenError (100-114)
 	case 100:

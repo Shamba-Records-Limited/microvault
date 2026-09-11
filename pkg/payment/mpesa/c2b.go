@@ -198,19 +198,32 @@ type C2BNotification struct {
 // payload. Exported so the receiving routes can name it in their OpenAPI
 // definitions.
 type C2BNotificationWire struct {
-	TransactionType   string `json:"TransactionType"`
-	TransID           string `json:"TransID"`
-	TransTime         string `json:"TransTime"`
-	TransAmount       string `json:"TransAmount"`
-	BusinessShortCode string `json:"BusinessShortCode"`
-	BillRefNumber     string `json:"BillRefNumber"`
-	InvoiceNumber     string `json:"InvoiceNumber"`
-	OrgAccountBalance string `json:"OrgAccountBalance"`
+	// TransactionType is Safaricom's transaction type, e.g. "Pay Bill" or "Buy Goods".
+	TransactionType string `json:"TransactionType" example:"Pay Bill"`
+	// TransID is Safaricom's unique receipt number for this payment.
+	TransID string `json:"TransID" example:"OEI2AK4Q16"`
+	// TransTime is the payment timestamp as YYYYMMDDHHmmss.
+	TransTime string `json:"TransTime" example:"20260911120000"`
+	// TransAmount is the payment amount in KES, as a decimal string.
+	TransAmount string `json:"TransAmount" example:"500.00"`
+	// BusinessShortCode is the paybill/till the payment was made to.
+	BusinessShortCode string `json:"BusinessShortCode" example:"174379"`
+	// BillRefNumber is the account reference the payer typed, exactly as entered.
+	BillRefNumber string `json:"BillRefNumber" example:"MV7K3QA9"`
+	// InvoiceNumber is an optional invoice reference; usually empty for C2B.
+	InvoiceNumber string `json:"InvoiceNumber"`
+	// OrgAccountBalance is the shortcode's balance after this transaction, as a decimal string.
+	OrgAccountBalance string `json:"OrgAccountBalance" example:"150000.00"`
+	// ThirdPartyTransID is echoed back from our validation response, present only on the confirmation callback.
 	ThirdPartyTransID string `json:"ThirdPartyTransID"`
-	MSISDN            string `json:"MSISDN"`
-	FirstName         string `json:"FirstName"`
-	MiddleName        string `json:"MiddleName"`
-	LastName          string `json:"LastName"`
+	// MSISDN is the payer's phone number.
+	MSISDN string `json:"MSISDN" example:"254712345678"`
+	// FirstName is the payer's first name as held by Safaricom.
+	FirstName string `json:"FirstName"`
+	// MiddleName is the payer's middle name as held by Safaricom.
+	MiddleName string `json:"MiddleName"`
+	// LastName is the payer's last name as held by Safaricom.
+	LastName string `json:"LastName"`
 }
 
 // ParseC2BNotification decodes a validation or confirmation payload.
@@ -272,8 +285,10 @@ const (
 
 // ValidationResponse is the body we return to a validation request.
 type ValidationResponse struct {
-	ResultCode ValidationResultCode `json:"ResultCode"`
-	ResultDesc string               `json:"ResultDesc"`
+	// ResultCode is ValidationAccepted (0) to accept the payment, non-zero to reject it.
+	ResultCode ValidationResultCode `json:"ResultCode" example:"0"`
+	// ResultDesc is a short human-readable reason, echoed back to Safaricom.
+	ResultDesc string `json:"ResultDesc" example:"Accepted"`
 
 	// ThirdPartyTransID is echoed back on the matching confirmation, which is
 	// the only way to correlate the two callbacks.

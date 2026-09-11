@@ -139,6 +139,10 @@ type RepaymentNotifier interface {
 	NotifyRepaymentReceived(loanID string) error
 	NotifyRepaymentReminder(loanID string) error
 	NotifyRepaymentExpired(loanID string) error
+
+	// NotifyLoanRepaid confirms the treasury-to-vault leg confirmed and the
+	// loan is closed — sent once, right after MarkSettled records it.
+	NotifyLoanRepaid(loanID string) error
 }
 
 // DepositDriver drives the borrower repayment cash-in state machine.
@@ -339,14 +343,14 @@ func (d *DepositDriver) handleIncomplete(ctx context.Context, rec RepaymentRecor
 	}
 
 	if d.shouldRemind(rec, tx, now) {
-		// Marker first: a failed send must not be retried every tick.
-		if err := d.recorder.MarkReminderSent(ctx, rec.LoanID); err != nil {
-			d.logger.Error("failed to mark repayment reminder sent, not sending",
-				"loan_id", rec.LoanID, "error", err)
-		} else {
-			d.notify("reminder", rec, func(n RepaymentNotifier) error {
-				return n.NotifyRepaymentReminder(rec.LoanID)
-			})
+		sent := d.notify("reminder", rec, func(n RepaymentNotifier) error {
+			return n.NotifyRepaymentReminder(rec.LoanID)
+		})
+		if sent {
+			if err := d.recorder.MarkReminderSent(ctx, rec.LoanID); err != nil {
+				d.logger.Error("sent repayment reminder but could not record it, may resend next tick",
+					"loan_id", rec.LoanID, "error", err)
+			}
 		}
 	}
 
@@ -460,6 +464,10 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 		"borrower", rec.BorrowerAddress,
 		"amount_stroops", rec.PayoffStroops,
 		"vault_tx_hash", hash)
+
+	d.notify("repaid", rec, func(n RepaymentNotifier) error {
+		return n.NotifyLoanRepaid(rec.LoanID)
+	})
 }
 
 // checkDepositShortfall compares what MoneyGram credited against the quote.
@@ -551,47 +559,39 @@ func (d *DepositDriver) sendPayInstructionsOnce(ctx context.Context, rec Repayme
 		return
 	}
 
-	// Marker first: a failing SMS provider must not be retried every tick for
-	// the rest of the window.
-	if err := d.recorder.MarkReferenceSent(ctx, rec.LoanID); err != nil {
-		d.logger.Error("failed to mark deposit instructions sent, not sending",
-			"loan_id", rec.LoanID, "error", err)
-		return
-	}
-
+	kind, send := "more_info", func(n RepaymentNotifier) error { return n.NotifyRepaymentMoreInfo(rec.LoanID) }
 	if reference != "" {
-		d.logger.Info("sending deposit reference",
-			"loan_id", rec.LoanID, "reference", reference)
-		d.notifyPayInstructions("reference", rec, func(n RepaymentNotifier) error {
-			return n.NotifyRepaymentReference(rec.LoanID, reference)
-		})
+		kind = "reference"
+		send = func(n RepaymentNotifier) error { return n.NotifyRepaymentReference(rec.LoanID, reference) }
+	}
+	d.logger.Info("sending deposit pay instructions", "kind", kind, "loan_id", rec.LoanID)
+
+	if !d.notifyPayInstructions(kind, rec, send) {
 		return
 	}
-
-	d.logger.Info("sending deposit transaction page, no reference issued",
-		"loan_id", rec.LoanID, "status", tx.Status)
-	d.notifyPayInstructions("more_info", rec, func(n RepaymentNotifier) error {
-		return n.NotifyRepaymentMoreInfo(rec.LoanID)
-	})
+	if err := d.recorder.MarkReferenceSent(ctx, rec.LoanID); err != nil {
+		d.logger.Error("sent deposit instructions but could not record it, may resend next tick",
+			"loan_id", rec.LoanID, "error", err)
+	}
 }
 
 // notifyPayInstructions sends the message the borrower cannot pay without.
 // The marker is already spent, so a failure alerts rather than logs.
-func (d *DepositDriver) notifyPayInstructions(kind string, rec RepaymentRecord, send func(RepaymentNotifier) error) {
+func (d *DepositDriver) notifyPayInstructions(kind string, rec RepaymentRecord, send func(RepaymentNotifier) error) bool {
 	if d.notifier == nil {
 		d.logger.Error("no repayment notifier configured, borrower cannot be told how to pay",
 			"kind", kind, "loan_id", rec.LoanID)
 		d.alertOps("Repayment instructions not delivered",
-			fmt.Sprintf("Loan %s: no notifier is wired, so the borrower was never told how to pay. The send marker is spent; clear repayment_reference_sent to retry.", rec.LoanID))
-		return
+			fmt.Sprintf("Loan %s: no notifier is wired.", rec.LoanID))
+		return false
 	}
 
 	if err := send(d.notifier); err != nil {
-		d.logger.Error("CRITICAL: borrower was not told how to pay",
+		d.logger.Error("borrower was not told how to pay, will retry next tick",
 			"kind", kind, "loan_id", rec.LoanID, "error", err)
-		d.alertOps("Repayment instructions not delivered",
-			fmt.Sprintf("Loan %s: the %s message failed and will not be retried — the send marker is already spent. Clear repayment_reference_sent to resend. Error: %v", rec.LoanID, kind, err))
+		return false
 	}
+	return true
 }
 
 // expireRepayment releases the quote lock after the window elapsed.
@@ -636,16 +636,18 @@ func (d *DepositDriver) reschedule(ctx context.Context, rec RepaymentRecord, in 
 }
 
 // notify sends one borrower message, tolerating a nil notifier.
-func (d *DepositDriver) notify(kind string, rec RepaymentRecord, send func(RepaymentNotifier) error) {
+func (d *DepositDriver) notify(kind string, rec RepaymentRecord, send func(RepaymentNotifier) error) bool {
 	if d.notifier == nil {
 		d.logger.Warn("no repayment notifier configured, message not sent",
 			"kind", kind, "loan_id", rec.LoanID)
-		return
+		return false
 	}
 	if err := send(d.notifier); err != nil {
 		d.logger.Warn("failed to send repayment notification",
 			"kind", kind, "loan_id", rec.LoanID, "error", err)
+		return false
 	}
+	return true
 }
 
 func (d *DepositDriver) alertOps(subject, message string) {

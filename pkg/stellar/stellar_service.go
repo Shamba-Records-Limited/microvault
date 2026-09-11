@@ -132,6 +132,18 @@ func (s *service) IsUserLocked(ctx context.Context, userAddress string) (bool, e
 	return s.sorobanService.IsUserLocked(ctx, userAddress)
 }
 
+func (s *service) IsAllowed(ctx context.Context, userAddress string) (bool, error) {
+	return s.sorobanService.IsAllowed(ctx, userAddress)
+}
+
+func (s *service) ComplianceRole(ctx context.Context) (string, error) {
+	return s.sorobanService.ComplianceRole(ctx)
+}
+
+func (s *service) AllowlistEnforced(ctx context.Context) (bool, error) {
+	return s.sorobanService.AllowlistEnforced(ctx)
+}
+
 func (s *service) GetLockPeriod(ctx context.Context) (uint64, error) {
 	return s.sorobanService.GetLockPeriod(ctx)
 }
@@ -184,6 +196,23 @@ func (s *service) SetMaxWithdraw(ctx context.Context, limit int64) error {
 
 func (s *service) SetLockPeriod(ctx context.Context, periodSeconds uint64) error {
 	return s.sorobanService.SetLockPeriod(ctx, periodSeconds)
+}
+
+// Soroban compliance method delegation
+func (s *service) AllowDepositor(ctx context.Context, address string) error {
+	return s.sorobanService.AllowDepositor(ctx, address)
+}
+
+func (s *service) DisallowDepositor(ctx context.Context, address string) error {
+	return s.sorobanService.DisallowDepositor(ctx, address)
+}
+
+// WithComplianceRole returns soroban.Service, not the composed
+// stellar.Service — the embedded interface's method keeps its original
+// signature. Callers that only need compliance calls should generally hold
+// a soroban.Service directly rather than going through this facade.
+func (s *service) WithComplianceRole(privateKey string) soroban.Service {
+	return s.sorobanService.WithComplianceRole(privateKey)
 }
 
 // NewService creates a new Stellar service with both classic and Soroban support
