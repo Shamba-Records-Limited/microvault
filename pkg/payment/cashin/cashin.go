@@ -95,11 +95,17 @@ type Request struct {
 // PromptRequest carries the inputs to push a payment request to the payer's
 // handset.
 type PromptRequest struct {
-	LoanID           string
-	Payer            string
-	AmountKES        int64
-	AccountReference string
-	CallbackURL      string
+	LoanID    string
+	Payer     string
+	AmountKES int64
+	// AmountUSDCStroops is the same payoff AmountKES was converted from, in
+	// the currency actually owed to the vault. A Prompter that locks a quote
+	// (see MpesaCollectionAdapter.Prompt) records this alongside the prompt
+	// so later settlement compares against the figure that was actually
+	// quoted, not a value re-derived after interest has kept accruing.
+	AmountUSDCStroops int64
+	AccountReference  string
+	CallbackURL       string
 }
 
 // ProviderRef identifies an in-flight transaction enough to look it up.

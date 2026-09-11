@@ -216,15 +216,24 @@ type Destination struct {
 //
 // Format: {stellar_address}_{memo} — use ParseStellarWalletAddress() to split.
 type SettlementInfo struct {
-	WalletAddress   string  `json:"walletAddress,omitempty"`
-	CryptoCurrency  string  `json:"cryptoCurrency"`
-	CryptoNetwork   string  `json:"cryptoNetwork"`
-	CryptoAmount    float64 `json:"cryptoAmount,omitempty"`
-	CryptoUSDRate   float64 `json:"cryptoUSDRate,omitempty"`
+	// WalletAddress is the crypto address funds were sent to or received from.
+	WalletAddress string `json:"walletAddress,omitempty"`
+	// CryptoCurrency is the settlement asset, e.g. "USDC".
+	CryptoCurrency string `json:"cryptoCurrency" example:"USDC"`
+	// CryptoNetwork is the chain the settlement moved on, e.g. "STELLAR".
+	CryptoNetwork string `json:"cryptoNetwork" example:"STELLAR"`
+	// CryptoAmount is the settled amount in CryptoCurrency units.
+	CryptoAmount float64 `json:"cryptoAmount,omitempty" example:"50.00"`
+	// CryptoUSDRate is the crypto-to-USD exchange rate applied.
+	CryptoUSDRate float64 `json:"cryptoUSDRate,omitempty"`
+	// CryptoLocalRate is the crypto-to-local-currency exchange rate applied.
 	CryptoLocalRate float64 `json:"cryptoLocalRate,omitempty"`
-	WalletTag       string  `json:"walletTag,omitempty"`
-	LnInvoice       string  `json:"lnInvoice,omitempty"`
-	ExpiresAt       string  `json:"expiresAt,omitempty"`
+	// WalletTag is an optional memo/tag for chains that require one.
+	WalletTag string `json:"walletTag,omitempty"`
+	// LnInvoice is the Lightning invoice, present only for Lightning settlements.
+	LnInvoice string `json:"lnInvoice,omitempty"`
+	// ExpiresAt is when this settlement quote/address expires, if applicable.
+	ExpiresAt string `json:"expiresAt,omitempty"`
 }
 
 // PaymentRequest represents a disbursement request to the YellowCard API.
@@ -316,15 +325,24 @@ type PaymentDetails struct {
 
 // WebhookEvent represents an incoming webhook payload from YellowCard.
 type WebhookEvent struct {
-	PaymentID      string          `json:"id"`
-	SequenceID     string          `json:"sequenceId"`
-	Status         string          `json:"status"`
-	APIKey         string          `json:"apiKey"`
-	Event          string          `json:"event"`
+	// PaymentID is YellowCard's own identifier for the payment.
+	PaymentID string `json:"id" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	// SequenceID is the idempotency key we supplied when creating the payment; used to look up the local loan/transaction.
+	SequenceID string `json:"sequenceId" example:"01a08b63-9e3f-746d-a5d9-34263f9990b9"`
+	// Status is YellowCard's payment status at the time of this event (e.g. created, pending_settlement, processing, complete, failed).
+	Status string `json:"status" example:"complete"`
+	// APIKey is the YellowCard API key the payment was created under.
+	APIKey string `json:"apiKey"`
+	// Event names the webhook event type, e.g. PAYMENT.CREATED, PAYMENT.COMPLETE.
+	Event string `json:"event" example:"PAYMENT.COMPLETE"`
+	// SettlementInfo carries on-chain settlement details once available; never nil after unmarshalling, check its fields for presence.
 	SettlementInfo *SettlementInfo `json:"settlementInfo,omitempty"`
-	ErrorCode      string          `json:"errorCode,omitempty"`
-	SessionID      string          `json:"sessionId,omitempty"`
-	ExecutedAt     int64           `json:"executedAt"`
+	// ErrorCode is set when Status indicates a failure.
+	ErrorCode string `json:"errorCode,omitempty"`
+	// SessionID is YellowCard's session identifier for this payment attempt.
+	SessionID string `json:"sessionId,omitempty"`
+	// ExecutedAt is the Unix timestamp (seconds) at which this event occurred.
+	ExecutedAt int64 `json:"executedAt" example:"1735689600"`
 }
 
 // UnmarshalJSON ensures SettlementInfo is always a non-nil pointer after

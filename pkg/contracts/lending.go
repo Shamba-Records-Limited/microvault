@@ -28,6 +28,11 @@ type LoanNotifier interface {
 	// loan without implying a push disbursement is on the way. A subsequent
 	// NotifyLoanCashPickupInitiated carries the MoneyGram interactive URL.
 	NotifyLoanCashPickupApproved(ctx context.Context, n LoanNotification) error
+	// NotifyLoanRepaid confirms the treasury-to-vault leg confirmed and the
+	// loan is closed. Distinct from NotifyRepaymentReceived, which fires
+	// earlier — once cash reached the treasury but before the vault leg is
+	// known to have settled.
+	NotifyLoanRepaid(ctx context.Context, n LoanNotification) error
 	NotifyRepaymentReceived(ctx context.Context, n LoanNotification) error
 	NotifyRepaymentReminder(ctx context.Context, n LoanNotification) error
 

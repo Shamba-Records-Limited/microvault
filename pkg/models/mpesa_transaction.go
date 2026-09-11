@@ -66,6 +66,12 @@ type MpesaTransaction struct {
 
 	AmountKes int64 `json:"amount_kes" gorm:"column:amount_kes;not null"` // minor units
 
+	// AppliedStroops is set once, the first time this row is converted to
+	// USDC and credited toward LoanID's repayment progress — nil means not
+	// yet applied. See the migration's comment for why this lives on the
+	// row rather than a running total elsewhere.
+	AppliedStroops *int64 `json:"applied_stroops,omitempty" gorm:"column:applied_stroops"`
+
 	// MsidnMasked comes from a C2B callback; MsidnFull comes from the Pull
 	// reconciler. Full is nullable PII; never log it.
 	MsidnMasked string  `json:"msisdn_masked,omitempty" gorm:"column:msisdn_masked"`

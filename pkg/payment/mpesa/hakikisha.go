@@ -19,14 +19,16 @@ import (
 type HakikishaRequest struct {
 	// AccountNumber is the reference the payer typed on their handset, so it
 	// arrives exactly as they typed it.
-	AccountNumber string `json:"accountNumber"`
+	AccountNumber string `json:"accountNumber" example:"MV7K3QA9"`
 
-	ShortCode string `json:"shortCode"`
+	// ShortCode is the M-Pesa paybill/till the payer is sending to.
+	ShortCode string `json:"shortCode" example:"174379"`
 
 	// Timestamp arrives as either a string or a number.
-	Timestamp FlexibleInt64 `json:"timestamp"`
+	Timestamp FlexibleInt64 `json:"timestamp" example:"20260911120000"`
 
-	TransactionID string `json:"transactionId"`
+	// TransactionID is Safaricom's identifier for this validation request.
+	TransactionID string `json:"transactionId" example:"OEI2AK4Q16"`
 }
 
 // HakikishaResponse is what we answer.
@@ -37,10 +39,14 @@ type HakikishaRequest struct {
 // identifies the obligation without identifying the person — "Microvault Loan
 // MV7K3QA9" — tells the payer what they need and nobody else anything.
 type HakikishaResponse struct {
-	AccountName   string `json:"accountName"`
-	AccountNumber string `json:"accountNumber"`
-	ResponseCode  string `json:"responseCode"`
-	ResponseDesc  string `json:"responseDesc"`
+	// AccountName is shown to the payer on their handset; must identify the obligation, never the borrower. Empty when not found.
+	AccountName string `json:"accountName" example:"Microvault Loan MV7K3QA9"`
+	// AccountNumber echoes back the reference that was resolved.
+	AccountNumber string `json:"accountNumber" example:"MV7K3QA9"`
+	// ResponseCode is HakikishaFound ("0") or HakikishaNotFound ("1").
+	ResponseCode string `json:"responseCode" example:"0"`
+	// ResponseDesc is a short human-readable status, e.g. "Success" or "Account not found".
+	ResponseDesc string `json:"responseDesc" example:"Success"`
 }
 
 // Hakikisha response codes.

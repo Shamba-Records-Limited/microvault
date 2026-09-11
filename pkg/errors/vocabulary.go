@@ -65,6 +65,11 @@ const (
 	// DomainPaymentRelay covers per-transaction routing between ramp
 	// providers, and the margin guard on it.
 	DomainPaymentRelay = "payment-relay"
+
+	// DomainCompliance covers the vault allowlist and its watcher — kept
+	// separate from DomainStellarVault so an on-call engineer can filter
+	// compliance failures without matching on message text.
+	DomainCompliance = "compliance"
 )
 
 // Codes are machine-readable failure identifiers, passed to oops.Code. They are

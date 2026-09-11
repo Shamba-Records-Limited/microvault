@@ -8,10 +8,14 @@ import (
 
 // Response represents the response format
 type Response struct {
-	Status  string `json:"status"`
-	Code    int    `json:"code"`
-	Data    any    `json:"data"`
-	Message string `json:"message"`
+	// Status is "success" or "error", derived from Code.
+	Status string `json:"status" example:"success"`
+	// Code is the HTTP status code of the response.
+	Code int `json:"code" example:"200"`
+	// Data is the handler's payload on success, or {"error": ...} on failure.
+	Data any `json:"data"`
+	// Message is a human-readable summary of the status code.
+	Message string `json:"message" example:"Request processed successfully"`
 }
 
 // FormatResponse middleware formats the response to a standard format.

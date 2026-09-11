@@ -96,6 +96,18 @@ func (f *fakeMpesaRepo) UpsertFromPull(ctx context.Context, tx *models.MpesaTran
 	return nil
 }
 
+func (f *fakeMpesaRepo) ListUnappliedConfirmed(ctx context.Context, limit int) ([]*models.MpesaTransaction, error) {
+	return nil, nil
+}
+
+func (f *fakeMpesaRepo) SetAppliedStroops(ctx context.Context, id string, stroops int64) error {
+	return nil
+}
+
+func (f *fakeMpesaRepo) SumAppliedStroopsByLoan(ctx context.Context, loanID string) (int64, error) {
+	return 0, nil
+}
+
 func callbackController(repo *fakeMpesaRepo, serverEnv string, cidrs []string) *DarajaCallbackController {
 	cfg := config.MpesaConfig{
 		CallbackSlug:         "testslug",

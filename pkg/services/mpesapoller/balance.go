@@ -25,17 +25,28 @@ type BalancePoller struct {
 	queries               repository.MpesaBalanceRepository
 	collectionShortcode   uint
 	disbursementShortcode uint
+	urls                  mpesa.AsyncURLs
 	interval              time.Duration
 	logger                *slog.Logger
 }
 
 // BalancePollerDeps are the collaborators BalancePoller needs; all required
 // except Logger and DisbursementShortcode (zero skips that query).
+//
+// ResultURL/QueueTimeOutURL are required — AccountBalanceRequest.URLs
+// rejects an empty AsyncURLs (pkg/payment/mpesa/async.go's validate), so an
+// unset pair here fails every tick, not just the first. Routes already
+// exist server-side at DarajaCallbackController.Register's "/balance/result"
+// and "/balance/timeout" — build these with
+// cfg.Payments.Mpesa.DarajaCallbackURL("balance/result") /
+// ("balance/timeout").
 type BalancePollerDeps struct {
 	Client                balanceQuerier
 	Queries               repository.MpesaBalanceRepository
 	CollectionShortcode   uint
 	DisbursementShortcode uint
+	ResultURL             string
+	QueueTimeOutURL       string
 	Interval              time.Duration
 	Logger                *slog.Logger
 }
@@ -51,6 +62,7 @@ func NewBalancePoller(deps BalancePollerDeps) *BalancePoller {
 		queries:               deps.Queries,
 		collectionShortcode:   deps.CollectionShortcode,
 		disbursementShortcode: deps.DisbursementShortcode,
+		urls:                  mpesa.AsyncURLs{ResultURL: deps.ResultURL, QueueTimeOutURL: deps.QueueTimeOutURL},
 		interval:              deps.Interval,
 		logger:                logger.With("component", "mpesa_balance_poller"),
 	}
@@ -86,7 +98,7 @@ func (p *BalancePoller) query(ctx context.Context, shortcode uint) {
 	if shortcode == 0 {
 		return
 	}
-	ack, err := p.client.AccountBalance(ctx, mpesa.AccountBalanceRequest{PartyA: shortcode})
+	ack, err := p.client.AccountBalance(ctx, mpesa.AccountBalanceRequest{PartyA: shortcode, URLs: p.urls})
 	if err != nil {
 		p.logger.Error("account balance request failed", "shortcode", shortcode, "error", err)
 		return

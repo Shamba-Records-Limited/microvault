@@ -174,6 +174,7 @@ type fakeRepaymentNotifier struct {
 	expired    []string
 	references []string
 	moreInfo   []string
+	repaid     []string
 }
 
 func (n *fakeRepaymentNotifier) NotifyRepaymentReference(loanID, reference string) error {
@@ -211,6 +212,13 @@ func (n *fakeRepaymentNotifier) NotifyRepaymentExpired(loanID string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.expired = append(n.expired, loanID)
+	return nil
+}
+
+func (n *fakeRepaymentNotifier) NotifyLoanRepaid(loanID string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.repaid = append(n.repaid, loanID)
 	return nil
 }
 

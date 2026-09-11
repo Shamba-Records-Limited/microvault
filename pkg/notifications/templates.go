@@ -30,7 +30,12 @@ type LoanTemplates struct {
 	// MoneyGram interactive URL follows once the off-ramp is initiated (see
 	// CashPickupInitiated).
 	CashPickupApproved LoanMessage
-	RepaymentReceived  LoanMessage
+	// Repaid confirms the treasury-to-vault leg confirmed and the loan is
+	// closed — the terminal notification, sent once, distinct from
+	// RepaymentReceived which fires earlier (cash on the treasury, vault leg
+	// not yet confirmed).
+	Repaid            LoanMessage
+	RepaymentReceived LoanMessage
 	// RepaymentOverdue, RepaymentSoon and RepaymentUpcoming are selected by
 	// [SMSLoanNotifier.NotifyRepaymentReminder] from the days remaining; use
 	// [DaysUntilDue] to render that count.
@@ -159,6 +164,10 @@ func DefaultLoanTemplates() *LoanTemplates {
 				"You will receive a verification link shortly to complete pickup at a MoneyGram agent.",
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 		},
+		Repaid: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Your loan %s has been fully repaid (%s %.2f). Thank you!",
+				n.LoanReference, n.DisplayCurrency, n.DisplayAmount)
+		},
 		RepaymentReceived: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Payment of %s %.2f received for loan %s. Remaining balance: %s %.2f. Thank you!",
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference, n.DisplayCurrency, n.RemainingBalance)
@@ -256,6 +265,10 @@ func swahiliLoanTemplates() *LoanTemplates {
 				"Utapokea kiungo cha uthibitisho hivi karibuni kukamilisha uchukuaji kwa wakala wa MoneyGram.",
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 		},
+		Repaid: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Mkopo wako %s umelipwa kikamilifu (%s %.2f). Asante!",
+				n.LoanReference, n.DisplayCurrency, n.DisplayAmount)
+		},
 		RepaymentReceived: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Malipo ya %s %.2f yamepokelewa kwa mkopo %s. Salio lililobaki: %s %.2f. Asante!",
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference, n.DisplayCurrency, n.RemainingBalance)
@@ -352,6 +365,10 @@ func frenchLoanTemplates() *LoanTemplates {
 			return fmt.Sprintf("Félicitations! Votre pret à retrait en espèces de %s %.2f a été approuvé (Réf: %s). "+
 				"Vous recevrez bientot un lien de vérification pour compléter le retrait chez un agent MoneyGram.",
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
+		},
+		Repaid: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Votre pret %s a ete integralement rembourse (%s %.2f). Merci!",
+				n.LoanReference, n.DisplayCurrency, n.DisplayAmount)
 		},
 		RepaymentReceived: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Paiement de %s %.2f recu pour le pret %s. Solde restant: %s %.2f. Merci!",

@@ -157,6 +157,24 @@ func (s *service) IsUserLocked(ctx context.Context, userAddress string) (bool, e
 	return scValToBool(result)
 }
 
+// IsAllowed checks whether userAddress is on the vault's compliance
+// allowlist. Independent of whether enforcement is currently switched on —
+// see the contract's own doc comment on allowlist_enforced.
+func (s *service) IsAllowed(ctx context.Context, userAddress string) (bool, error) {
+	const fnName = "is_allowed"
+
+	args, err := userViewArgs(fnName, userAddress)
+	if err != nil {
+		return false, err
+	}
+
+	result, err := s.callView(ctx, fnName, args)
+	if err != nil {
+		return false, err
+	}
+	return scValToBool(result)
+}
+
 // GetLockPeriod returns the lock period in seconds
 func (s *service) GetLockPeriod(ctx context.Context) (uint64, error) {
 	result, err := s.callView(ctx, "get_lock_period", nil)

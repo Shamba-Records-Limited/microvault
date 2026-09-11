@@ -89,6 +89,10 @@ func (s *SMSLoanNotifier) NotifyLoanCashPickupApproved(ctx context.Context, n co
 	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).CashPickupApproved(n))
 }
 
+func (s *SMSLoanNotifier) NotifyLoanRepaid(ctx context.Context, n contracts.LoanNotification) error {
+	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Repaid(n))
+}
+
 func (s *SMSLoanNotifier) NotifyRepaymentReceived(ctx context.Context, n contracts.LoanNotification) error {
 	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentReceived(n))
 }
@@ -183,6 +187,10 @@ func (*NoOpLoanNotifier) NotifyLoanOffRampFailed(context.Context, contracts.Loan
 }
 
 func (*NoOpLoanNotifier) NotifyLoanCashPickupApproved(context.Context, contracts.LoanNotification) error {
+	return nil
+}
+
+func (*NoOpLoanNotifier) NotifyLoanRepaid(context.Context, contracts.LoanNotification) error {
 	return nil
 }
 

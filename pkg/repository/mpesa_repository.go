@@ -76,6 +76,24 @@ type MpesaTransactionRepository interface {
 	// the Pull reconciler uses instead of choosing between Record and
 	// UpdateFields itself.
 	UpsertFromPull(ctx context.Context, tx *models.MpesaTransaction) error
+
+	// ListUnappliedConfirmed returns confirmed, loan-attributed observations
+	// not yet converted toward a loan's repayment progress — the paybill
+	// sweep's queue. Order is oldest first so a backlog drains in payment
+	// order rather than newest-first.
+	ListUnappliedConfirmed(ctx context.Context, limit int) ([]*models.MpesaTransaction, error)
+
+	// SetAppliedStroops records the converted figure for one observation.
+	// Idempotent to call twice with the same value; the sweep never calls it
+	// a second time for a row that already has one, since ListUnappliedConfirmed
+	// would no longer return it.
+	SetAppliedStroops(ctx context.Context, id string, stroops int64) error
+
+	// SumAppliedStroopsByLoan totals every observation already converted for
+	// a loan — the authoritative "how much has this loan received toward its
+	// payoff so far" figure. Safe to call repeatedly; it is a pure aggregate,
+	// never a running total that could drift from the rows it is summing.
+	SumAppliedStroopsByLoan(ctx context.Context, loanID string) (int64, error)
 }
 
 type mpesaTransactionRepository struct {
@@ -249,4 +267,54 @@ func (r *mpesaTransactionRepository) UpsertFromPull(ctx context.Context, tx *mod
 		return err
 	}
 	return r.UpdateFields(ctx, tx)
+}
+
+// ListUnappliedConfirmed returns the paybill sweep's queue.
+func (r *mpesaTransactionRepository) ListUnappliedConfirmed(ctx context.Context, limit int) ([]*models.MpesaTransaction, error) {
+	var txs []*models.MpesaTransaction
+	result := r.db.WithContext(ctx).
+		Where("confirmed = true AND loan_id IS NOT NULL AND applied_stroops IS NULL AND source IN (?, ?)",
+			string(models.MpesaSourceC2BConfirmation), string(models.MpesaSourcePull)).
+		Order("trans_time ASC").
+		Limit(limit).
+		Find(&txs)
+	if result.Error != nil {
+		log.Printf("MpesaTransactionRepository.ListUnappliedConfirmed: database error: %v", result.Error)
+		return nil, ErrFailedToRecord
+	}
+	return txs, nil
+}
+
+// SetAppliedStroops records the converted figure for one observation.
+func (r *mpesaTransactionRepository) SetAppliedStroops(ctx context.Context, id string, stroops int64) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.MpesaTransaction{}).
+		Where("id = ?", id).
+		Update("applied_stroops", stroops)
+	if result.Error != nil {
+		return ErrFailedToRecord
+	}
+	if result.RowsAffected == 0 {
+		return ErrMpesaNotFound
+	}
+	return nil
+}
+
+// SumAppliedStroopsByLoan totals every observation already converted for a
+// loan. COALESCE guards the zero-rows case, where SUM would otherwise
+// scan as NULL and Go's zero-valued int64 would read as "loan has an
+// aggregate of zero" — which happens to be correct here, but only because
+// of the COALESCE, not by accident.
+func (r *mpesaTransactionRepository) SumAppliedStroopsByLoan(ctx context.Context, loanID string) (int64, error) {
+	var total int64
+	result := r.db.WithContext(ctx).
+		Model(&models.MpesaTransaction{}).
+		Where("loan_id = ? AND applied_stroops IS NOT NULL", loanID).
+		Select("COALESCE(SUM(applied_stroops), 0)").
+		Scan(&total)
+	if result.Error != nil {
+		log.Printf("MpesaTransactionRepository.SumAppliedStroopsByLoan: database error: %v", result.Error)
+		return 0, ErrFailedToRecord
+	}
+	return total, nil
 }
