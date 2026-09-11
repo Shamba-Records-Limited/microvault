@@ -3,17 +3,30 @@ definitions:
   controllers.ChallengeResponse:
     properties:
       challenge_id:
+        description: ChallengeID identifies this challenge; echo it back in VerifyRequest.
+        example: 01h2xcejqtf2nbrexx3vqjhazz
         type: string
       expires_at:
+        description: ExpiresAt is the Unix timestamp (seconds) after which this challenge
+          is no longer valid.
+        example: 1735689600
         type: integer
       transaction:
+        description: Transaction is the base64 Stellar transaction envelope (XDR)
+          to sign, unsubmitted.
+        example: AAAAAgAAAAC...
         type: string
     type: object
   controllers.VerifyRequest:
     properties:
       challenge_id:
+        description: ChallengeID is the ID returned by GET /auth/challenge.
+        example: 01h2xcejqtf2nbrexx3vqjhazz
         type: string
       signed_transaction:
+        description: SignedTransaction is the challenge transaction XDR, signed by
+          the account's Stellar keypair.
+        example: AAAAAgAAAAC...
         type: string
     required:
     - challenge_id
@@ -22,8 +35,13 @@ definitions:
   controllers.VerifyResponse:
     properties:
       expires_at:
+        description: ExpiresAt is the Unix timestamp (seconds) at which Token expires.
+        example: 1735689600
         type: integer
       token:
+        description: Token is the issued JWT, sent as a Bearer token on subsequent
+          requests.
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
         type: string
     type: object
   fiber.Error:
@@ -36,45 +54,78 @@ definitions:
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.C2BNotificationWire:
     properties:
       BillRefNumber:
+        description: BillRefNumber is the account reference the payer typed, exactly
+          as entered.
+        example: MV7K3QA9
         type: string
       BusinessShortCode:
+        description: BusinessShortCode is the paybill/till the payment was made to.
+        example: "174379"
         type: string
       FirstName:
+        description: FirstName is the payer's first name as held by Safaricom.
         type: string
       InvoiceNumber:
+        description: InvoiceNumber is an optional invoice reference; usually empty
+          for C2B.
         type: string
       LastName:
+        description: LastName is the payer's last name as held by Safaricom.
         type: string
       MSISDN:
+        description: MSISDN is the payer's phone number.
+        example: "254712345678"
         type: string
       MiddleName:
+        description: MiddleName is the payer's middle name as held by Safaricom.
         type: string
       OrgAccountBalance:
+        description: OrgAccountBalance is the shortcode's balance after this transaction,
+          as a decimal string.
+        example: "150000.00"
         type: string
       ThirdPartyTransID:
+        description: ThirdPartyTransID is echoed back from our validation response,
+          present only on the confirmation callback.
         type: string
       TransAmount:
+        description: TransAmount is the payment amount in KES, as a decimal string.
+        example: "500.00"
         type: string
       TransID:
+        description: TransID is Safaricom's unique receipt number for this payment.
+        example: OEI2AK4Q16
         type: string
       TransTime:
+        description: TransTime is the payment timestamp as YYYYMMDDHHmmss.
+        example: "20260911120000"
         type: string
       TransactionType:
+        description: TransactionType is Safaricom's transaction type, e.g. "Pay Bill"
+          or "Buy Goods".
+        example: Pay Bill
         type: string
     type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackBody:
     properties:
       stkCallback:
-        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackResult'
+        allOf:
+        - $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackResult'
+        description: STKCallback is the actual result payload for one STK push.
     type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackEnvelope:
     properties:
       Body:
-        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackBody'
+        allOf:
+        - $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackBody'
+        description: Body wraps the stkCallback object; Safaricom always nests it
+          one level deep.
     type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataHolder:
     properties:
       Item:
+        description: Item is the list of name/value receipt fields (Amount, MpesaReceiptNumber,
+          TransactionDate, PhoneNumber, ...).
         items:
           $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataItem'
         type: array
@@ -82,8 +133,12 @@ definitions:
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataItem:
     properties:
       Name:
+        description: Name identifies which receipt field this is, e.g. "Amount", "MpesaReceiptNumber".
+        example: MpesaReceiptNumber
         type: string
       Value:
+        description: Value is the field's raw JSON value; its type (string vs number)
+          depends on Name.
         items:
           type: integer
         type: array
@@ -91,14 +146,28 @@ definitions:
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackResult:
     properties:
       CallbackMetadata:
-        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataHolder'
+        allOf:
+        - $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataHolder'
+        description: CallbackMetadata carries the payment receipt details; nil when
+          the customer did not pay.
       CheckoutRequestID:
+        description: CheckoutRequestID is the ID this codebase used to originate the
+          push and correlate the result.
+        example: ws_CO_191220191020363925
         type: string
       MerchantRequestID:
+        description: MerchantRequestID is the ID Safaricom assigned when the STK push
+          was initiated.
+        example: 29115-34620561-1
         type: string
       ResultCode:
+        description: ResultCode is 0 on success; any other value maps through ExpressOutcomeFor
+          to decide retryability.
+        example: 0
         type: integer
       ResultDesc:
+        description: ResultDesc is Safaricom's human-readable outcome description.
+        example: The service request is processed successfully.
         type: string
     type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.HakikishaRequest:
@@ -107,33 +176,56 @@ definitions:
         description: |-
           AccountNumber is the reference the payer typed on their handset, so it
           arrives exactly as they typed it.
+        example: MV7K3QA9
         type: string
       shortCode:
+        description: ShortCode is the M-Pesa paybill/till the payer is sending to.
+        example: "174379"
         type: string
       timestamp:
         description: Timestamp arrives as either a string or a number.
+        example: 20260911120000
         type: integer
       transactionId:
+        description: TransactionID is Safaricom's identifier for this validation request.
+        example: OEI2AK4Q16
         type: string
     type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.HakikishaResponse:
     properties:
       accountName:
+        description: AccountName is shown to the payer on their handset; must identify
+          the obligation, never the borrower. Empty when not found.
+        example: Microvault Loan MV7K3QA9
         type: string
       accountNumber:
+        description: AccountNumber echoes back the reference that was resolved.
+        example: MV7K3QA9
         type: string
       responseCode:
+        description: ResponseCode is HakikishaFound ("0") or HakikishaNotFound ("1").
+        example: "0"
         type: string
       responseDesc:
+        description: ResponseDesc is a short human-readable status, e.g. "Success"
+          or "Account not found".
+        example: Success
         type: string
     type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.RawResult:
     properties:
       ConversationID:
+        description: ConversationID is Daraja's own ID for this conversation.
+        example: AG_20260911_1234567890
         type: string
       OriginatorConversationID:
+        description: OriginatorConversationID is the ID this codebase generated when
+          initiating the request.
+        example: 29112-34801843-1
         type: string
       ReferenceData:
+        description: ReferenceData holds endpoint-specific reference items alongside
+          ResultParameters; same raw array-or-object ambiguity.
         properties:
           ReferenceItem:
             items:
@@ -141,12 +233,21 @@ definitions:
             type: array
         type: object
       ResultCode:
+        description: ResultCode is 0/"0" on success; non-zero (numeric or, for reversals,
+          "R000001"/"R000002") on failure.
+        example:
+        - 0
         items:
           type: integer
         type: array
       ResultDesc:
+        description: ResultDesc is Daraja's human-readable outcome description.
+        example: The service request has been accepted successfully.
         type: string
       ResultParameters:
+        description: ResultParameters holds the endpoint-specific key/value payload
+          (e.g. balances, receipt details) as a raw array or object; shape depends
+          on the endpoint, decoded by decodeParameters.
         properties:
           ResultParameter:
             items:
@@ -154,20 +255,34 @@ definitions:
             type: array
         type: object
       ResultType:
+        description: ResultType is reserved by Daraja; currently always 0.
+        example: 0
         type: integer
       TransactionID:
+        description: TransactionID is Safaricom's receipt number for the underlying
+          transaction, when one exists.
+        example: OEI2AK4Q16
         type: string
     type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ResultEnvelope:
     properties:
       Result:
-        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.RawResult'
+        allOf:
+        - $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.RawResult'
+        description: Result is the outcome payload; always nested one level under
+          "Result" by Daraja.
     type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResponse:
     properties:
       ResultCode:
-        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResultCode'
+        allOf:
+        - $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResultCode'
+        description: ResultCode is ValidationAccepted (0) to accept the payment, non-zero
+          to reject it.
+        example: "0"
       ResultDesc:
+        description: ResultDesc is a short human-readable reason, echoed back to Safaricom.
+        example: Accepted
         type: string
       ThirdPartyTransID:
         description: |-
@@ -196,53 +311,96 @@ definitions:
   github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.SettlementInfo:
     properties:
       cryptoAmount:
+        description: CryptoAmount is the settled amount in CryptoCurrency units.
+        example: 50
         type: number
       cryptoCurrency:
+        description: CryptoCurrency is the settlement asset, e.g. "USDC".
+        example: USDC
         type: string
       cryptoLocalRate:
+        description: CryptoLocalRate is the crypto-to-local-currency exchange rate
+          applied.
         type: number
       cryptoNetwork:
+        description: CryptoNetwork is the chain the settlement moved on, e.g. "STELLAR".
+        example: STELLAR
         type: string
       cryptoUSDRate:
+        description: CryptoUSDRate is the crypto-to-USD exchange rate applied.
         type: number
       expiresAt:
+        description: ExpiresAt is when this settlement quote/address expires, if applicable.
         type: string
       lnInvoice:
+        description: LnInvoice is the Lightning invoice, present only for Lightning
+          settlements.
         type: string
       walletAddress:
+        description: WalletAddress is the crypto address funds were sent to or received
+          from.
         type: string
       walletTag:
+        description: WalletTag is an optional memo/tag for chains that require one.
         type: string
     type: object
   github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.WebhookEvent:
     properties:
       apiKey:
+        description: APIKey is the YellowCard API key the payment was created under.
         type: string
       errorCode:
+        description: ErrorCode is set when Status indicates a failure.
         type: string
       event:
+        description: Event names the webhook event type, e.g. PAYMENT.CREATED, PAYMENT.COMPLETE.
+        example: PAYMENT.COMPLETE
         type: string
       executedAt:
+        description: ExecutedAt is the Unix timestamp (seconds) at which this event
+          occurred.
+        example: 1735689600
         type: integer
       id:
+        description: PaymentID is YellowCard's own identifier for the payment.
+        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
         type: string
       sequenceId:
+        description: SequenceID is the idempotency key we supplied when creating the
+          payment; used to look up the local loan/transaction.
+        example: 01a08b63-9e3f-746d-a5d9-34263f9990b9
         type: string
       sessionId:
+        description: SessionID is YellowCard's session identifier for this payment
+          attempt.
         type: string
       settlementInfo:
-        $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.SettlementInfo'
+        allOf:
+        - $ref: '#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.SettlementInfo'
+        description: SettlementInfo carries on-chain settlement details once available;
+          never nil after unmarshalling, check its fields for presence.
       status:
+        description: Status is YellowCard's payment status at the time of this event
+          (e.g. created, pending_settlement, processing, complete, failed).
+        example: complete
         type: string
     type: object
   middleware.Response:
     properties:
       code:
+        description: Code is the HTTP status code of the response.
+        example: 200
         type: integer
-      data: {}
+      data:
+        description: 'Data is the handler''s payload on success, or {"error": ...}
+          on failure.'
       message:
+        description: Message is a human-readable summary of the status code.
+        example: Request processed successfully
         type: string
       status:
+        description: Status is "success" or "error", derived from Code.
+        example: success
         type: string
     type: object
 host: localhost:8080

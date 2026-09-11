@@ -283,33 +283,43 @@ func (e ExpressCallback) Succeeded() bool { return e.ResultCode == 0 }
 // delivery. Exported so the receiving route can name it in its OpenAPI
 // definition.
 type ExpressCallbackEnvelope struct {
+	// Body wraps the stkCallback object; Safaricom always nests it one level deep.
 	Body ExpressCallbackBody `json:"Body"`
 }
 
 // ExpressCallbackBody wraps the stkCallback object.
 type ExpressCallbackBody struct {
+	// STKCallback is the actual result payload for one STK push.
 	STKCallback ExpressCallbackResult `json:"stkCallback"`
 }
 
 // ExpressCallbackResult is the outcome of one STK push as it arrives on the
 // wire. CallbackMetadata is absent unless the customer paid.
 type ExpressCallbackResult struct {
-	MerchantRequestID string                         `json:"MerchantRequestID"`
-	CheckoutRequestID string                         `json:"CheckoutRequestID"`
-	ResultCode        FlexibleInt64                  `json:"ResultCode"`
-	ResultDesc        string                         `json:"ResultDesc"`
-	CallbackMetadata  *ExpressCallbackMetadataHolder `json:"CallbackMetadata"`
+	// MerchantRequestID is the ID Safaricom assigned when the STK push was initiated.
+	MerchantRequestID string `json:"MerchantRequestID" example:"29115-34620561-1"`
+	// CheckoutRequestID is the ID this codebase used to originate the push and correlate the result.
+	CheckoutRequestID string `json:"CheckoutRequestID" example:"ws_CO_191220191020363925"`
+	// ResultCode is 0 on success; any other value maps through ExpressOutcomeFor to decide retryability.
+	ResultCode FlexibleInt64 `json:"ResultCode" example:"0"`
+	// ResultDesc is Safaricom's human-readable outcome description.
+	ResultDesc string `json:"ResultDesc" example:"The service request is processed successfully."`
+	// CallbackMetadata carries the payment receipt details; nil when the customer did not pay.
+	CallbackMetadata *ExpressCallbackMetadataHolder `json:"CallbackMetadata"`
 }
 
 // ExpressCallbackMetadataHolder carries the receipt entries on success.
 type ExpressCallbackMetadataHolder struct {
+	// Item is the list of name/value receipt fields (Amount, MpesaReceiptNumber, TransactionDate, PhoneNumber, ...).
 	Item []ExpressCallbackMetadataItem `json:"Item"`
 }
 
 // ExpressCallbackMetadataItem is one CallbackMetadata entry. Value is held raw
 // because its JSON type depends on Name.
 type ExpressCallbackMetadataItem struct {
-	Name  string          `json:"Name"`
+	// Name identifies which receipt field this is, e.g. "Amount", "MpesaReceiptNumber".
+	Name string `json:"Name" example:"MpesaReceiptNumber"`
+	// Value is the field's raw JSON value; its type (string vs number) depends on Name.
 	Value json.RawMessage `json:"Value"`
 }
 

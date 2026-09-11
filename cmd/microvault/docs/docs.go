@@ -736,13 +736,19 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "challenge_id": {
-                    "type": "string"
+                    "description": "ChallengeID identifies this challenge; echo it back in VerifyRequest.",
+                    "type": "string",
+                    "example": "01h2xcejqtf2nbrexx3vqjhazz"
                 },
                 "expires_at": {
-                    "type": "integer"
+                    "description": "ExpiresAt is the Unix timestamp (seconds) after which this challenge is no longer valid.",
+                    "type": "integer",
+                    "example": 1735689600
                 },
                 "transaction": {
-                    "type": "string"
+                    "description": "Transaction is the base64 Stellar transaction envelope (XDR) to sign, unsubmitted.",
+                    "type": "string",
+                    "example": "AAAAAgAAAAC..."
                 }
             }
         },
@@ -754,10 +760,14 @@ const docTemplate = `{
             ],
             "properties": {
                 "challenge_id": {
-                    "type": "string"
+                    "description": "ChallengeID is the ID returned by GET /auth/challenge.",
+                    "type": "string",
+                    "example": "01h2xcejqtf2nbrexx3vqjhazz"
                 },
                 "signed_transaction": {
-                    "type": "string"
+                    "description": "SignedTransaction is the challenge transaction XDR, signed by the account's Stellar keypair.",
+                    "type": "string",
+                    "example": "AAAAAgAAAAC..."
                 }
             }
         },
@@ -765,10 +775,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "expires_at": {
-                    "type": "integer"
+                    "description": "ExpiresAt is the Unix timestamp (seconds) at which Token expires.",
+                    "type": "integer",
+                    "example": 1735689600
                 },
                 "token": {
-                    "type": "string"
+                    "description": "Token is the issued JWT, sent as a Bearer token on subsequent requests.",
+                    "type": "string",
+                    "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                 }
             }
         },
@@ -787,43 +801,64 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "BillRefNumber": {
-                    "type": "string"
+                    "description": "BillRefNumber is the account reference the payer typed, exactly as entered.",
+                    "type": "string",
+                    "example": "MV7K3QA9"
                 },
                 "BusinessShortCode": {
-                    "type": "string"
+                    "description": "BusinessShortCode is the paybill/till the payment was made to.",
+                    "type": "string",
+                    "example": "174379"
                 },
                 "FirstName": {
+                    "description": "FirstName is the payer's first name as held by Safaricom.",
                     "type": "string"
                 },
                 "InvoiceNumber": {
+                    "description": "InvoiceNumber is an optional invoice reference; usually empty for C2B.",
                     "type": "string"
                 },
                 "LastName": {
+                    "description": "LastName is the payer's last name as held by Safaricom.",
                     "type": "string"
                 },
                 "MSISDN": {
-                    "type": "string"
+                    "description": "MSISDN is the payer's phone number.",
+                    "type": "string",
+                    "example": "254712345678"
                 },
                 "MiddleName": {
+                    "description": "MiddleName is the payer's middle name as held by Safaricom.",
                     "type": "string"
                 },
                 "OrgAccountBalance": {
-                    "type": "string"
+                    "description": "OrgAccountBalance is the shortcode's balance after this transaction, as a decimal string.",
+                    "type": "string",
+                    "example": "150000.00"
                 },
                 "ThirdPartyTransID": {
+                    "description": "ThirdPartyTransID is echoed back from our validation response, present only on the confirmation callback.",
                     "type": "string"
                 },
                 "TransAmount": {
-                    "type": "string"
+                    "description": "TransAmount is the payment amount in KES, as a decimal string.",
+                    "type": "string",
+                    "example": "500.00"
                 },
                 "TransID": {
-                    "type": "string"
+                    "description": "TransID is Safaricom's unique receipt number for this payment.",
+                    "type": "string",
+                    "example": "OEI2AK4Q16"
                 },
                 "TransTime": {
-                    "type": "string"
+                    "description": "TransTime is the payment timestamp as YYYYMMDDHHmmss.",
+                    "type": "string",
+                    "example": "20260911120000"
                 },
                 "TransactionType": {
-                    "type": "string"
+                    "description": "TransactionType is Safaricom's transaction type, e.g. \"Pay Bill\" or \"Buy Goods\".",
+                    "type": "string",
+                    "example": "Pay Bill"
                 }
             }
         },
@@ -831,7 +866,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "stkCallback": {
-                    "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackResult"
+                    "description": "STKCallback is the actual result payload for one STK push.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackResult"
+                        }
+                    ]
                 }
             }
         },
@@ -839,7 +879,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "Body": {
-                    "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackBody"
+                    "description": "Body wraps the stkCallback object; Safaricom always nests it one level deep.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackBody"
+                        }
+                    ]
                 }
             }
         },
@@ -847,6 +892,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "Item": {
+                    "description": "Item is the list of name/value receipt fields (Amount, MpesaReceiptNumber, TransactionDate, PhoneNumber, ...).",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataItem"
@@ -858,9 +904,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "Name": {
-                    "type": "string"
+                    "description": "Name identifies which receipt field this is, e.g. \"Amount\", \"MpesaReceiptNumber\".",
+                    "type": "string",
+                    "example": "MpesaReceiptNumber"
                 },
                 "Value": {
+                    "description": "Value is the field's raw JSON value; its type (string vs number) depends on Name.",
                     "type": "array",
                     "items": {
                         "type": "integer"
@@ -872,19 +921,32 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "CallbackMetadata": {
-                    "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataHolder"
+                    "description": "CallbackMetadata carries the payment receipt details; nil when the customer did not pay.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ExpressCallbackMetadataHolder"
+                        }
+                    ]
                 },
                 "CheckoutRequestID": {
-                    "type": "string"
+                    "description": "CheckoutRequestID is the ID this codebase used to originate the push and correlate the result.",
+                    "type": "string",
+                    "example": "ws_CO_191220191020363925"
                 },
                 "MerchantRequestID": {
-                    "type": "string"
+                    "description": "MerchantRequestID is the ID Safaricom assigned when the STK push was initiated.",
+                    "type": "string",
+                    "example": "29115-34620561-1"
                 },
                 "ResultCode": {
-                    "type": "integer"
+                    "description": "ResultCode is 0 on success; any other value maps through ExpressOutcomeFor to decide retryability.",
+                    "type": "integer",
+                    "example": 0
                 },
                 "ResultDesc": {
-                    "type": "string"
+                    "description": "ResultDesc is Safaricom's human-readable outcome description.",
+                    "type": "string",
+                    "example": "The service request is processed successfully."
                 }
             }
         },
@@ -893,17 +955,23 @@ const docTemplate = `{
             "properties": {
                 "accountNumber": {
                     "description": "AccountNumber is the reference the payer typed on their handset, so it\narrives exactly as they typed it.",
-                    "type": "string"
+                    "type": "string",
+                    "example": "MV7K3QA9"
                 },
                 "shortCode": {
-                    "type": "string"
+                    "description": "ShortCode is the M-Pesa paybill/till the payer is sending to.",
+                    "type": "string",
+                    "example": "174379"
                 },
                 "timestamp": {
                     "description": "Timestamp arrives as either a string or a number.",
-                    "type": "integer"
+                    "type": "integer",
+                    "example": 20260911120000
                 },
                 "transactionId": {
-                    "type": "string"
+                    "description": "TransactionID is Safaricom's identifier for this validation request.",
+                    "type": "string",
+                    "example": "OEI2AK4Q16"
                 }
             }
         },
@@ -911,16 +979,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "accountName": {
-                    "type": "string"
+                    "description": "AccountName is shown to the payer on their handset; must identify the obligation, never the borrower. Empty when not found.",
+                    "type": "string",
+                    "example": "Microvault Loan MV7K3QA9"
                 },
                 "accountNumber": {
-                    "type": "string"
+                    "description": "AccountNumber echoes back the reference that was resolved.",
+                    "type": "string",
+                    "example": "MV7K3QA9"
                 },
                 "responseCode": {
-                    "type": "string"
+                    "description": "ResponseCode is HakikishaFound (\"0\") or HakikishaNotFound (\"1\").",
+                    "type": "string",
+                    "example": "0"
                 },
                 "responseDesc": {
-                    "type": "string"
+                    "description": "ResponseDesc is a short human-readable status, e.g. \"Success\" or \"Account not found\".",
+                    "type": "string",
+                    "example": "Success"
                 }
             }
         },
@@ -928,12 +1004,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "ConversationID": {
-                    "type": "string"
+                    "description": "ConversationID is Daraja's own ID for this conversation.",
+                    "type": "string",
+                    "example": "AG_20260911_1234567890"
                 },
                 "OriginatorConversationID": {
-                    "type": "string"
+                    "description": "OriginatorConversationID is the ID this codebase generated when initiating the request.",
+                    "type": "string",
+                    "example": "29112-34801843-1"
                 },
                 "ReferenceData": {
+                    "description": "ReferenceData holds endpoint-specific reference items alongside ResultParameters; same raw array-or-object ambiguity.",
                     "type": "object",
                     "properties": {
                         "ReferenceItem": {
@@ -945,15 +1026,22 @@ const docTemplate = `{
                     }
                 },
                 "ResultCode": {
+                    "description": "ResultCode is 0/\"0\" on success; non-zero (numeric or, for reversals, \"R000001\"/\"R000002\") on failure.",
                     "type": "array",
                     "items": {
                         "type": "integer"
-                    }
+                    },
+                    "example": [
+                        0
+                    ]
                 },
                 "ResultDesc": {
-                    "type": "string"
+                    "description": "ResultDesc is Daraja's human-readable outcome description.",
+                    "type": "string",
+                    "example": "The service request has been accepted successfully."
                 },
                 "ResultParameters": {
+                    "description": "ResultParameters holds the endpoint-specific key/value payload (e.g. balances, receipt details) as a raw array or object; shape depends on the endpoint, decoded by decodeParameters.",
                     "type": "object",
                     "properties": {
                         "ResultParameter": {
@@ -965,10 +1053,14 @@ const docTemplate = `{
                     }
                 },
                 "ResultType": {
-                    "type": "integer"
+                    "description": "ResultType is reserved by Daraja; currently always 0.",
+                    "type": "integer",
+                    "example": 0
                 },
                 "TransactionID": {
-                    "type": "string"
+                    "description": "TransactionID is Safaricom's receipt number for the underlying transaction, when one exists.",
+                    "type": "string",
+                    "example": "OEI2AK4Q16"
                 }
             }
         },
@@ -976,7 +1068,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "Result": {
-                    "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.RawResult"
+                    "description": "Result is the outcome payload; always nested one level under \"Result\" by Daraja.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.RawResult"
+                        }
+                    ]
                 }
             }
         },
@@ -984,10 +1081,18 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "ResultCode": {
-                    "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResultCode"
+                    "description": "ResultCode is ValidationAccepted (0) to accept the payment, non-zero to reject it.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_mpesa.ValidationResultCode"
+                        }
+                    ],
+                    "example": "0"
                 },
                 "ResultDesc": {
-                    "type": "string"
+                    "description": "ResultDesc is a short human-readable reason, echoed back to Safaricom.",
+                    "type": "string",
+                    "example": "Accepted"
                 },
                 "ThirdPartyTransID": {
                     "description": "ThirdPartyTransID is echoed back on the matching confirmation, which is\nthe only way to correlate the two callbacks.",
@@ -1020,30 +1125,42 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "cryptoAmount": {
-                    "type": "number"
+                    "description": "CryptoAmount is the settled amount in CryptoCurrency units.",
+                    "type": "number",
+                    "example": 50
                 },
                 "cryptoCurrency": {
-                    "type": "string"
+                    "description": "CryptoCurrency is the settlement asset, e.g. \"USDC\".",
+                    "type": "string",
+                    "example": "USDC"
                 },
                 "cryptoLocalRate": {
+                    "description": "CryptoLocalRate is the crypto-to-local-currency exchange rate applied.",
                     "type": "number"
                 },
                 "cryptoNetwork": {
-                    "type": "string"
+                    "description": "CryptoNetwork is the chain the settlement moved on, e.g. \"STELLAR\".",
+                    "type": "string",
+                    "example": "STELLAR"
                 },
                 "cryptoUSDRate": {
+                    "description": "CryptoUSDRate is the crypto-to-USD exchange rate applied.",
                     "type": "number"
                 },
                 "expiresAt": {
+                    "description": "ExpiresAt is when this settlement quote/address expires, if applicable.",
                     "type": "string"
                 },
                 "lnInvoice": {
+                    "description": "LnInvoice is the Lightning invoice, present only for Lightning settlements.",
                     "type": "string"
                 },
                 "walletAddress": {
+                    "description": "WalletAddress is the crypto address funds were sent to or received from.",
                     "type": "string"
                 },
                 "walletTag": {
+                    "description": "WalletTag is an optional memo/tag for chains that require one.",
                     "type": "string"
                 }
             }
@@ -1052,31 +1169,49 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "apiKey": {
+                    "description": "APIKey is the YellowCard API key the payment was created under.",
                     "type": "string"
                 },
                 "errorCode": {
+                    "description": "ErrorCode is set when Status indicates a failure.",
                     "type": "string"
                 },
                 "event": {
-                    "type": "string"
+                    "description": "Event names the webhook event type, e.g. PAYMENT.CREATED, PAYMENT.COMPLETE.",
+                    "type": "string",
+                    "example": "PAYMENT.COMPLETE"
                 },
                 "executedAt": {
-                    "type": "integer"
+                    "description": "ExecutedAt is the Unix timestamp (seconds) at which this event occurred.",
+                    "type": "integer",
+                    "example": 1735689600
                 },
                 "id": {
-                    "type": "string"
+                    "description": "PaymentID is YellowCard's own identifier for the payment.",
+                    "type": "string",
+                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                 },
                 "sequenceId": {
-                    "type": "string"
+                    "description": "SequenceID is the idempotency key we supplied when creating the payment; used to look up the local loan/transaction.",
+                    "type": "string",
+                    "example": "01a08b63-9e3f-746d-a5d9-34263f9990b9"
                 },
                 "sessionId": {
+                    "description": "SessionID is YellowCard's session identifier for this payment attempt.",
                     "type": "string"
                 },
                 "settlementInfo": {
-                    "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.SettlementInfo"
+                    "description": "SettlementInfo carries on-chain settlement details once available; never nil after unmarshalling, check its fields for presence.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_yellowcard.SettlementInfo"
+                        }
+                    ]
                 },
                 "status": {
-                    "type": "string"
+                    "description": "Status is YellowCard's payment status at the time of this event (e.g. created, pending_settlement, processing, complete, failed).",
+                    "type": "string",
+                    "example": "complete"
                 }
             }
         },
@@ -1084,14 +1219,22 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "integer"
+                    "description": "Code is the HTTP status code of the response.",
+                    "type": "integer",
+                    "example": 200
                 },
-                "data": {},
+                "data": {
+                    "description": "Data is the handler's payload on success, or {\"error\": ...} on failure."
+                },
                 "message": {
-                    "type": "string"
+                    "description": "Message is a human-readable summary of the status code.",
+                    "type": "string",
+                    "example": "Request processed successfully"
                 },
                 "status": {
-                    "type": "string"
+                    "description": "Status is \"success\" or \"error\", derived from Code.",
+                    "type": "string",
+                    "example": "success"
                 }
             }
         }

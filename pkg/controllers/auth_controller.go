@@ -29,9 +29,12 @@ func NewAuthController(challengeService auth.ChallengeService, jwtService *auth.
 
 // ChallengeResponse represents the authentication challenge response.
 type ChallengeResponse struct {
-	ChallengeID string `json:"challenge_id"`
-	Transaction string `json:"transaction"`
-	ExpiresAt   int64  `json:"expires_at"`
+	// ChallengeID identifies this challenge; echo it back in VerifyRequest.
+	ChallengeID string `json:"challenge_id" example:"01h2xcejqtf2nbrexx3vqjhazz"`
+	// Transaction is the base64 Stellar transaction envelope (XDR) to sign, unsubmitted.
+	Transaction string `json:"transaction" example:"AAAAAgAAAAC..."`
+	// ExpiresAt is the Unix timestamp (seconds) after which this challenge is no longer valid.
+	ExpiresAt int64 `json:"expires_at" example:"1735689600"`
 }
 
 // GetChallenge generates a new authentication challenge.
@@ -63,14 +66,18 @@ func (ctrl *AuthController) GetChallenge(c *fiber.Ctx) error {
 
 // VerifyRequest represents the challenge verification request body.
 type VerifyRequest struct {
-	ChallengeID       string `json:"challenge_id" validate:"required,base64url"`
-	SignedTransaction string `json:"signed_transaction" validate:"required,stellar_xdr"`
+	// ChallengeID is the ID returned by GET /auth/challenge.
+	ChallengeID string `json:"challenge_id" validate:"required,base64url" example:"01h2xcejqtf2nbrexx3vqjhazz"`
+	// SignedTransaction is the challenge transaction XDR, signed by the account's Stellar keypair.
+	SignedTransaction string `json:"signed_transaction" validate:"required,stellar_xdr" example:"AAAAAgAAAAC..."`
 }
 
 // VerifyResponse represents the challenge verification response.
 type VerifyResponse struct {
-	Token     string `json:"token"`
-	ExpiresAt int64  `json:"expires_at"`
+	// Token is the issued JWT, sent as a Bearer token on subsequent requests.
+	Token string `json:"token" example:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."`
+	// ExpiresAt is the Unix timestamp (seconds) at which Token expires.
+	ExpiresAt int64 `json:"expires_at" example:"1735689600"`
 }
 
 // VerifyChallenge verifies a signed challenge and returns a JWT token.

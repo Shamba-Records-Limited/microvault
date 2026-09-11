@@ -82,6 +82,7 @@ func (r Result) ResultCodeInt() (int64, bool) {
 // a ResultURL or QueueTimeOutURL. Exported so the receiving routes can name it
 // in their OpenAPI definitions.
 type ResultEnvelope struct {
+	// Result is the outcome payload; always nested one level under "Result" by Daraja.
 	Result RawResult `json:"Result"`
 }
 
@@ -89,17 +90,25 @@ type ResultEnvelope struct {
 // held raw because Daraja sends it as a number on some endpoints and a string
 // on others.
 type RawResult struct {
-	ResultType               FlexibleInt64   `json:"ResultType"`
-	ResultCode               json.RawMessage `json:"ResultCode"`
-	ResultDesc               string          `json:"ResultDesc"`
-	OriginatorConversationID string          `json:"OriginatorConversationID"`
-	ConversationID           string          `json:"ConversationID"`
-	TransactionID            string          `json:"TransactionID"`
+	// ResultType is reserved by Daraja; currently always 0.
+	ResultType FlexibleInt64 `json:"ResultType" example:"0"`
+	// ResultCode is 0/"0" on success; non-zero (numeric or, for reversals, "R000001"/"R000002") on failure.
+	ResultCode json.RawMessage `json:"ResultCode" example:"0"`
+	// ResultDesc is Daraja's human-readable outcome description.
+	ResultDesc string `json:"ResultDesc" example:"The service request has been accepted successfully."`
+	// OriginatorConversationID is the ID this codebase generated when initiating the request.
+	OriginatorConversationID string `json:"OriginatorConversationID" example:"29112-34801843-1"`
+	// ConversationID is Daraja's own ID for this conversation.
+	ConversationID string `json:"ConversationID" example:"AG_20260911_1234567890"`
+	// TransactionID is Safaricom's receipt number for the underlying transaction, when one exists.
+	TransactionID string `json:"TransactionID" example:"OEI2AK4Q16"`
 
+	// ResultParameters holds the endpoint-specific key/value payload (e.g. balances, receipt details) as a raw array or object; shape depends on the endpoint, decoded by decodeParameters.
 	ResultParameters *struct {
 		ResultParameter json.RawMessage `json:"ResultParameter"`
 	} `json:"ResultParameters"`
 
+	// ReferenceData holds endpoint-specific reference items alongside ResultParameters; same raw array-or-object ambiguity.
 	ReferenceData *struct {
 		ReferenceItem json.RawMessage `json:"ReferenceItem"`
 	} `json:"ReferenceData"`
