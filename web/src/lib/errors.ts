@@ -83,6 +83,24 @@ const CONTRACT_ERRORS: Record<number, ContractError> = {
     message: "Your shares are currently locked and cannot be withdrawn",
     source: "microvault",
   },
+  13: {
+    code: 13,
+    name: "ExceedsMaxRedeem",
+    message: "Redeem exceeds the maximum allowed amount",
+    source: "microvault",
+  },
+  14: {
+    code: 14,
+    name: "AddressNotAllowed",
+    message: "This address is not authorized to deposit or receive shares",
+    source: "microvault",
+  },
+  15: {
+    code: 15,
+    name: "ComplianceRoleNotSet",
+    message: "Compliance has not been configured for this vault yet",
+    source: "microvault",
+  },
 
   // FungibleTokenError (100-114)
   100: {
@@ -113,6 +131,12 @@ const CONTRACT_ERRORS: Record<number, ContractError> = {
     code: 104,
     name: "MathOverflow",
     message: "Arithmetic overflow during token calculation",
+    source: "FungibleToken",
+  },
+  113: {
+    code: 113,
+    name: "UserNotAllowed",
+    message: "This address is not authorized to send or receive shares",
     source: "FungibleToken",
   },
 

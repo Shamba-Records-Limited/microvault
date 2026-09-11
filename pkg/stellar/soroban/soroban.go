@@ -49,6 +49,12 @@ type Service interface {
 	GetBorrowIndex(ctx context.Context) (int64, error)
 	IsUserLocked(ctx context.Context, userAddress string) (bool, error)
 	IsAllowed(ctx context.Context, userAddress string) (bool, error)
+	// ComplianceRole returns the address authorized to call
+	// AllowDepositor/DisallowDepositor, or "" if the vault has none set.
+	ComplianceRole(ctx context.Context) (string, error)
+	// AllowlistEnforced reports whether the vault currently blocks
+	// deposits/mints/transfers involving an unallowlisted address.
+	AllowlistEnforced(ctx context.Context) (bool, error)
 	GetLockPeriod(ctx context.Context) (uint64, error)
 	GetRemainingLockTime(ctx context.Context, userAddress string) (uint64, error)
 	IsPaused(ctx context.Context) (bool, error)

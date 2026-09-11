@@ -136,6 +136,14 @@ func (s *service) IsAllowed(ctx context.Context, userAddress string) (bool, erro
 	return s.sorobanService.IsAllowed(ctx, userAddress)
 }
 
+func (s *service) ComplianceRole(ctx context.Context) (string, error) {
+	return s.sorobanService.ComplianceRole(ctx)
+}
+
+func (s *service) AllowlistEnforced(ctx context.Context) (bool, error) {
+	return s.sorobanService.AllowlistEnforced(ctx)
+}
+
 func (s *service) GetLockPeriod(ctx context.Context) (uint64, error) {
 	return s.sorobanService.GetLockPeriod(ctx)
 }

@@ -88,6 +88,12 @@ func (b *SimulationResponseBuilder) WithAddressResult(address string) *Simulatio
 	return b.withScValResult(scVal)
 }
 
+// WithVoidResult adds a void result to the simulation — what an Option<T>
+// contract return decodes to for None.
+func (b *SimulationResponseBuilder) WithVoidResult() *SimulationResponseBuilder {
+	return b.withScValResult(xdr.ScVal{Type: xdr.ScValTypeScvVoid})
+}
+
 // WithTransactionData adds mock transaction data for submission
 func (b *SimulationResponseBuilder) WithTransactionData() *SimulationResponseBuilder {
 	// Create minimal valid SorobanTransactionData

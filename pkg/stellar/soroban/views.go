@@ -175,6 +175,29 @@ func (s *service) IsAllowed(ctx context.Context, userAddress string) (bool, erro
 	return scValToBool(result)
 }
 
+// ComplianceRole returns the vault's compliance_role, or "" if unset —
+// compliance_role returns Option<Address>, so a void result is None, not
+// an error.
+func (s *service) ComplianceRole(ctx context.Context) (string, error) {
+	result, err := s.callView(ctx, "compliance_role", nil)
+	if err != nil {
+		return "", err
+	}
+	if result.Type == xdr.ScValTypeScvVoid {
+		return "", nil
+	}
+	return scValToAddress(result)
+}
+
+// AllowlistEnforced reports the vault's allowlist_enforced flag.
+func (s *service) AllowlistEnforced(ctx context.Context) (bool, error) {
+	result, err := s.callView(ctx, "allowlist_enforced", nil)
+	if err != nil {
+		return false, err
+	}
+	return scValToBool(result)
+}
+
 // GetLockPeriod returns the lock period in seconds
 func (s *service) GetLockPeriod(ctx context.Context) (uint64, error) {
 	result, err := s.callView(ctx, "get_lock_period", nil)
