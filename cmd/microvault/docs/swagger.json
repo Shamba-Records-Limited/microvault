@@ -2,7 +2,7 @@
     "swagger": "2.0",
     "info": {
         "description": "A headless SEP-56 tokenized vault engine for microlending built on the stellar network.",
-        "title": "microvault API",
+        "title": "Microvault API",
         "termsOfService": "http://swagger.io/terms/",
         "contact": {
             "name": "API Support",

@@ -1180,6 +1180,15 @@ type MpesaConfig struct {
 	HakikishaSigningKey string
 }
 
+// DarajaCallbackURL builds one callback URL under this config's registered
+// slug — the same shape DarajaCallbackController.Register mounts routes at
+// (pkg/controllers/daraja_callback_controller.go) and cmd/mpesa-register
+// used privately before this was exported. suffix is the route's own path,
+// e.g. "balance/result" or "reversal/timeout" — no leading slash.
+func (c MpesaConfig) DarajaCallbackURL(suffix string) string {
+	return strings.TrimRight(c.CallbackBaseURL, "/") + "/api/v1/callbacks/daraja/" + c.CallbackSlug + "/" + suffix
+}
+
 // The settlement modes MPESA_SETTLEMENT_MODE accepts.
 const (
 	// MpesaSettlementOTC converts the KES float at a desk and deposits the

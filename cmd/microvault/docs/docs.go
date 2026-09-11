@@ -1104,7 +1104,7 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "localhost:8080",
 	BasePath:         "/",
 	Schemes:          []string{},
-	Title:            "microvault API",
+	Title:            "Microvault API",
 	Description:      "A headless SEP-56 tokenized vault engine for microlending built on the stellar network.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
