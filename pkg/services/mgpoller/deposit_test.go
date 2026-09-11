@@ -472,7 +472,10 @@ func TestDeposit_Incomplete_EarlyInWindow_NoReminder(t *testing.T) {
 // The marker is written first so a failing SMS is not retried every tick. If
 // the marker itself fails, nothing is sent — better a missed reminder than an
 // unbounded SMS loop.
-func TestDeposit_Incomplete_ReminderMarkerFails_DoesNotSend(t *testing.T) {
+// The reminder is sent even when the marker write afterward fails — sending
+// is what matters to the borrower, and an unrecorded send just means the
+// next tick may resend it, not that it silently never went out.
+func TestDeposit_Incomplete_ReminderMarkerWriteFails_StillSends(t *testing.T) {
 	h := newTestDepositDriver(t)
 	h.recorder.reminderErr = errors.New("db down")
 	rec := depositRec(h)
@@ -482,7 +485,8 @@ func TestDeposit_Incomplete_ReminderMarkerFails_DoesNotSend(t *testing.T) {
 
 	h.driver.poll(context.Background())
 
-	assert.Empty(t, h.notifier.reminder)
+	assert.Equal(t, []string{"loan-1"}, h.notifier.reminder)
+	assert.Empty(t, h.recorder.remindersSent, "the marker write failed, so nothing was recorded")
 }
 
 // ============================================================================
@@ -789,10 +793,9 @@ func TestDeposit_ReferenceWinsOverTheTransactionPage(t *testing.T) {
 	assert.Empty(t, h.notifier.moreInfo)
 }
 
-// The marker is spent before the send, so a failed send is terminal: no later
-// tick retries and the borrower is never told how to pay. That must page
-// someone rather than leave a warning in a log.
-func TestDeposit_FailedPayInstructionsAlertsOps(t *testing.T) {
+// The marker is only written after a successful send, so a failed send just
+// retries next tick — no ops alert needed for something that self-heals.
+func TestDeposit_FailedPayInstructionsRetriesWithoutAlerting(t *testing.T) {
 	h := newTestDepositDriver(t)
 	h.notifier.err = errors.New("loan has no phone number to notify")
 	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusPendingUserTransferStart,
@@ -801,10 +804,22 @@ func TestDeposit_FailedPayInstructionsAlertsOps(t *testing.T) {
 
 	h.driver.poll(context.Background())
 
-	require.NotEmpty(t, h.alerts.bodies, "a borrower who cannot pay is not a warning-level event")
+	assert.Empty(t, h.alerts.bodies, "a send failure that will retry is not an ops-level event")
+	assert.Empty(t, h.recorder.referencesSent, "no marker until the send actually succeeds")
+}
+
+// An unwired notifier is not self-healing, so it does page ops.
+func TestDeposit_NoNotifierAlertsOps(t *testing.T) {
+	h := newTestDepositDriver(t)
+	h.driver.notifier = nil
+	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusPendingUserTransferStart,
+		`,"more_info_url":"https://extramps.moneygram.com/transaction-status?transaction_id=4a93bfcf"`))
+	h.fetcher.recs = []RepaymentRecord{depositRec(h)}
+
+	h.driver.poll(context.Background())
+
+	require.NotEmpty(t, h.alerts.bodies)
 	assert.Contains(t, h.alerts.bodies[0], "loan-1")
-	assert.Contains(t, h.alerts.bodies[0], "repayment_reference_sent",
-		"the alert must say how to recover, since nothing retries on its own")
 }
 
 // Neither artifact issued yet. Sending an empty code, or copy trailing off
