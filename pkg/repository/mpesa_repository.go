@@ -273,7 +273,8 @@ func (r *mpesaTransactionRepository) UpsertFromPull(ctx context.Context, tx *mod
 func (r *mpesaTransactionRepository) ListUnappliedConfirmed(ctx context.Context, limit int) ([]*models.MpesaTransaction, error) {
 	var txs []*models.MpesaTransaction
 	result := r.db.WithContext(ctx).
-		Where("confirmed = true AND loan_id IS NOT NULL AND applied_stroops IS NULL").
+		Where("confirmed = true AND loan_id IS NOT NULL AND applied_stroops IS NULL AND source IN (?, ?)",
+			string(models.MpesaSourceC2BConfirmation), string(models.MpesaSourcePull)).
 		Order("trans_time ASC").
 		Limit(limit).
 		Find(&txs)

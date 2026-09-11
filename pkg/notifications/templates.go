@@ -165,7 +165,7 @@ func DefaultLoanTemplates() *LoanTemplates {
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 		},
 		Repaid: func(n contracts.LoanNotification) string {
-			return fmt.Sprintf("Your loan %s has been fully repaid (%s %.2f). Thank you for banking with Microvault!",
+			return fmt.Sprintf("Your loan %s has been fully repaid (%s %.2f). Thank you!",
 				n.LoanReference, n.DisplayCurrency, n.DisplayAmount)
 		},
 		RepaymentReceived: func(n contracts.LoanNotification) string {
@@ -266,7 +266,7 @@ func swahiliLoanTemplates() *LoanTemplates {
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 		},
 		Repaid: func(n contracts.LoanNotification) string {
-			return fmt.Sprintf("Mkopo wako %s umelipwa kikamilifu (%s %.2f). Asante kwa kutumia Microvault!",
+			return fmt.Sprintf("Mkopo wako %s umelipwa kikamilifu (%s %.2f). Asante!",
 				n.LoanReference, n.DisplayCurrency, n.DisplayAmount)
 		},
 		RepaymentReceived: func(n contracts.LoanNotification) string {
@@ -367,7 +367,7 @@ func frenchLoanTemplates() *LoanTemplates {
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 		},
 		Repaid: func(n contracts.LoanNotification) string {
-			return fmt.Sprintf("Votre pret %s a ete integralement rembourse (%s %.2f). Merci d'avoir choisi Microvault!",
+			return fmt.Sprintf("Votre pret %s a ete integralement rembourse (%s %.2f). Merci!",
 				n.LoanReference, n.DisplayCurrency, n.DisplayAmount)
 		},
 		RepaymentReceived: func(n contracts.LoanNotification) string {
