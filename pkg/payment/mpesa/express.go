@@ -401,13 +401,26 @@ var expressOutcomes = map[int64]ExpressOutcome{
 
 // ExpressOutcomeFor reports what a result code means. An undocumented code —
 // including the sentinel -1 used for an unparseable or unrecognised one — is
-// treated as operational and not retryable, so an unknown failure is neither
-// blamed on the borrower nor retried blindly.
+// treated as operational, so an unknown failure is never blamed on the
+// borrower's PIN or balance.
+//
+// It is also given the same bounded retry budget as a documented transient
+// code (Retryable: true — see MpesaSTKLoanDriver.retryOrExpire's
+// STKMaxAttempts, not unlimited retries here), rather than the zero chances
+// an unconditional false would give it. "Undocumented" is not evidence of
+// "permanent": Daraja's own documented codes list is known incomplete (the
+// community scrape backing this table doesn't cover the login-gated pages —
+// see the daraja-docs-mirror vault doc), and a code observed against
+// sandbox (e.g. 4999, see yellowcard-offramp-webhook-race-2026-09-10.md §3)
+// may simply be one Safaricom hasn't published here yet, not a hard
+// rejection. The cost of retrying a genuinely permanent unknown code a few
+// extra times is small and bounded; the cost of giving a transient one zero
+// chances is a borrower whose STK repayment expires for no real reason.
 func ExpressOutcomeFor(resultCode int64) ExpressOutcome {
 	if outcome, ok := expressOutcomes[resultCode]; ok {
 		return outcome
 	}
-	return ExpressOutcome{Operational: true, Message: "We could not process the payment. Please try again later."}
+	return ExpressOutcome{Operational: true, Retryable: true, Message: "We could not process the payment. Please try again later."}
 }
 
 // Words Daraja rejects anywhere in a callback URL. The obvious route for this

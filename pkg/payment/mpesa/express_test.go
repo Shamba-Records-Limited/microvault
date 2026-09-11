@@ -240,10 +240,12 @@ func TestExpressOutcomeFor(t *testing.T) {
 		}
 	}
 
-	// An undocumented code must not be blamed on the borrower, and must not be
-	// retried blindly.
+	// An undocumented code must not be blamed on the borrower, but it does
+	// get the same bounded retry budget a documented transient code would —
+	// "undocumented" isn't evidence the failure is permanent. See
+	// ExpressOutcomeFor's doc comment.
 	unknown := ExpressOutcomeFor(999999)
-	if unknown.Retryable || !unknown.Operational {
+	if !unknown.Retryable || !unknown.Operational {
 		t.Errorf("unknown code = %+v", unknown)
 	}
 }
