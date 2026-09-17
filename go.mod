@@ -19,14 +19,14 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/samber/lo v1.53.0
-	github.com/samber/oops v1.23.1
+	github.com/samber/oops v1.23.2
 	github.com/stellar/go-stellar-sdk v0.7.3
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/swag v1.16.6
 	github.com/tyler-smith/go-bip32 v1.0.0
 	golang.org/x/crypto v0.57.0
 	gorm.io/datatypes v1.2.7
-	gorm.io/driver/postgres v1.6.2
+	gorm.io/driver/postgres v1.6.3
 	gorm.io/gorm v1.31.2
 )
 
