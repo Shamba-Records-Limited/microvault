@@ -1,18 +1,26 @@
 package airtel
 
-import "time"
+import (
+	"time"
 
-// The types here are the provider-specific extras the cash-in contract will
-// carry. They are plain structs: the ProviderID methods that satisfy
-// cashin.ProviderOptions and cashin.ProviderPayload return a type from a
-// package this one deliberately does not import yet, and are added in the
-// task that crosses that boundary.
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/cashin"
+)
+
+// The types here are the provider-specific extras the cash-in contract
+// carries. Each satisfies the ProviderOptions or ProviderPayload marker.
 
 // Options carries Airtel-specific extras for a collection request.
+//
+// Naming this provider in a request is how the Airtel rail is reached: the
+// registry's method aliases point at M-Pesa, because a borrower picks their
+// network from the repay menu rather than having it guessed from their
+// number.
 type Options struct {
 	// Reference is shown to the payer. Defaults to the loan reference.
 	Reference string
 }
+
+func (Options) ProviderID() cashin.ProviderID { return cashin.ProviderAirtel }
 
 // PromptPayload is what an accepted USSD push returns.
 //
@@ -25,6 +33,8 @@ type PromptPayload struct {
 	ResponseCode  string
 	PromptedKES   int64
 }
+
+func (PromptPayload) ProviderID() cashin.ProviderID { return cashin.ProviderAirtel }
 
 // CollectionPayload is what a settled collection produces.
 type CollectionPayload struct {
@@ -45,11 +55,15 @@ type CollectionPayload struct {
 	HashVerified bool
 }
 
+func (CollectionPayload) ProviderID() cashin.ProviderID { return cashin.ProviderAirtel }
+
 // RefundPayload is what a refund result carries.
 type RefundPayload struct {
 	AirtelMoneyID string
 	Status        TransactionStatus
 }
+
+func (RefundPayload) ProviderID() cashin.ProviderID { return cashin.ProviderAirtel }
 
 // SettlementPayload is one entry from the reconciliation sweep.
 type SettlementPayload struct {
@@ -61,3 +75,14 @@ type SettlementPayload struct {
 	ServiceType     SummaryServiceType
 	SettledAt       time.Time
 }
+
+func (SettlementPayload) ProviderID() cashin.ProviderID { return cashin.ProviderAirtel }
+
+// Compile-time satisfaction of the contract markers.
+var (
+	_ cashin.ProviderOptions = Options{}
+	_ cashin.ProviderPayload = PromptPayload{}
+	_ cashin.ProviderPayload = CollectionPayload{}
+	_ cashin.ProviderPayload = RefundPayload{}
+	_ cashin.ProviderPayload = SettlementPayload{}
+)
