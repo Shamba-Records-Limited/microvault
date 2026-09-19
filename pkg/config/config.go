@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/strkey"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/loanref"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/airtel"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/mpesa"
 )
 
@@ -284,6 +285,7 @@ type PaymentsConfig struct {
 	Fonbnk     FonbnkConfig
 	MoneyGram  MoneyGramConfig
 	Mpesa      MpesaConfig
+	Airtel     AirtelConfig
 
 	// EntryFXBufferPct is the flat safety margin the loan adapter applies when
 	// it re-quotes the entry rate from a provider's own Quoter, as a fraction
@@ -493,6 +495,38 @@ func New() (*Config, error) {
 	mpesaDisbursementFloor, err := envPositiveInt("MPESA_DISBURSEMENT_BALANCE_FLOOR_KES")
 	if err != nil {
 		return nil, err
+	}
+
+	airtelEnquiryDelay, err := envSeconds("AIRTEL_ENQUIRY_DELAY")
+	if err != nil {
+		return nil, err
+	}
+	airtelPollInterval, err := envSeconds("AIRTEL_POLL_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	airtelMaxAttempts, err := envPositiveInt("AIRTEL_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+	airtelSummarySweepInterval, err := envSeconds("AIRTEL_SUMMARY_SWEEP_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+	airtelPromptAmount, err := envPositiveInt("AIRTEL_PROMPT_AMOUNT_KES")
+	if err != nil {
+		return nil, err
+	}
+	if airtelPromptAmount > 0 && serverEnvironment == "production" {
+		return nil, fmt.Errorf("AIRTEL_PROMPT_AMOUNT_KES is a staging testing override and must never be set in production")
+	}
+	airtelEnvironment := airtel.Environment(os.Getenv("AIRTEL_ENVIRONMENT"))
+	if airtelEnvironment == "" {
+		airtelEnvironment = airtel.EnvironmentStaging
+	}
+	airtelSettlementMode := os.Getenv("AIRTEL_SETTLEMENT_MODE")
+	if airtelSettlementMode == "" {
+		airtelSettlementMode = AirtelSettlementOTC
 	}
 
 	loanRefPrefix := loanref.DefaultPrefix
@@ -823,6 +857,25 @@ func New() (*Config, error) {
 				HakikishaUsername:   os.Getenv("MPESA_HAKIKISHA_USERNAME"),
 				HakikishaPassword:   os.Getenv("MPESA_HAKIKISHA_PASSWORD"),
 				HakikishaSigningKey: os.Getenv("MPESA_HAKIKISHA_SIGNING_KEY"),
+			},
+			Airtel: AirtelConfig{
+				ClientID:             os.Getenv("AIRTEL_CLIENT_ID"),
+				ClientSecret:         os.Getenv("AIRTEL_CLIENT_SECRET"),
+				Environment:          airtelEnvironment,
+				Country:              os.Getenv("AIRTEL_COUNTRY"),
+				Currency:             os.Getenv("AIRTEL_CURRENCY"),
+				SigningEnabled:       os.Getenv("AIRTEL_SIGNING_ENABLED") == "true",
+				CallbackHMACKey:      os.Getenv("AIRTEL_CALLBACK_HMAC_KEY"),
+				CallbackBaseURL:      os.Getenv("AIRTEL_CALLBACK_BASE_URL"),
+				CallbackSlug:         os.Getenv("AIRTEL_CALLBACK_SLUG"),
+				CallbackAllowedCIDRs: splitEnv("AIRTEL_CALLBACK_ALLOWED_CIDRS", ","),
+				EnquiryDelay:         firstNonZeroDuration(airtelEnquiryDelay, EnquiryDelayFloor),
+				PollInterval:         firstNonZeroDuration(airtelPollInterval, time.Minute),
+				MaxAttempts:          firstNonZeroInt(airtelMaxAttempts, 5),
+				SummarySweepInterval: firstNonZeroDuration(airtelSummarySweepInterval, 10*time.Minute),
+				ReferencePrefix:      loanRefPrefix,
+				PromptAmountKES:      airtelPromptAmount,
+				SettlementMode:       airtelSettlementMode,
 			},
 			YellowCard: YellowCardConfig{
 				PublicKey:    ycPublicKey,
@@ -1283,6 +1336,172 @@ func (c *MpesaConfig) Validate(serverEnv string) error {
 	// variable was absent or unparseable, which ParseUint swallowed.
 	if c.CollectionShortcode < 10000 || c.CollectionShortcode > 9999999 {
 		return fmt.Errorf("MPESA_COLLECTION_SHORTCODE must be a 5-7 digit shortcode, got %d", c.CollectionShortcode)
+	}
+	return nil
+}
+
+// AirtelConfig carries the Airtel Money (Kenya) cash-in settings.
+//
+// It is a sibling of MpesaConfig rather than a generalisation of it. The two
+// rails disagree about token lifetime, MSISDN format, callback authenticity
+// and what a receipt is, and a shared struct would have to carry the union of
+// both vocabularies with half of it inapplicable at any moment.
+type AirtelConfig struct {
+	// ClientID and ClientSecret are the consumer key and secret from the
+	// application's Keys section, issued per environment. A non-empty
+	// ClientID is the gate every Airtel code path is wired behind.
+	ClientID     string
+	ClientSecret string
+
+	// Environment selects the Airtel deployment: staging or production.
+	Environment airtel.Environment
+
+	// Country and Currency populate the X-Country and X-Currency headers.
+	Country  string
+	Currency string
+
+	// SigningEnabled turns on Collection v2 message signing. It must match
+	// the per-application toggle under Airtel's Settings, Security: signing
+	// a payload the gateway does not expect fails exactly as loudly as not
+	// signing one it does.
+	SigningEnabled bool
+
+	// CallbackHMACKey is the private key from Application Settings, used to
+	// recompute a callback's hash. Empty disables verification, which is
+	// only correct when callback authentication is off at Airtel's end.
+	CallbackHMACKey string
+
+	// CallbackBaseURL is the public base the callback URL is built from —
+	// the bare host, with no path prefix.
+	CallbackBaseURL string
+
+	// CallbackSlug is the unguessable path segment the callback URL hangs
+	// off. Unlike Daraja, Airtel can sign its callbacks, but the signature is
+	// optional and configured at their end, so the slug remains a control
+	// rather than a nicety.
+	CallbackSlug string
+
+	// CallbackAllowedCIDRs is Airtel's egress range, enforced on the callback
+	// group in production. Log-only when empty.
+	//
+	// Airtel does not publish this list. Until their support supplies it,
+	// production is blocked on it in the same way Daraja's is.
+	CallbackAllowedCIDRs []string
+
+	// EnquiryDelay is the wait after a payment before the first enquiry.
+	// Airtel documents three minutes; see EnquiryDelayFloor.
+	EnquiryDelay time.Duration
+
+	// PollInterval is how often an unresolved observation is re-enquired
+	// after the first attempt.
+	PollInterval time.Duration
+
+	// MaxAttempts is how many enquiry rounds an unresolved observation gets
+	// before a human is told, not how long the payer has.
+	MaxAttempts int
+
+	// SummarySweepInterval is how often the Transactions Summary reconciler
+	// walks the settled window.
+	SummarySweepInterval time.Duration
+
+	// ReferencePrefix is the loan-reference namespace, loaded from the same
+	// LOAN_REFERENCE_PREFIX variable as the M-Pesa rail.
+	ReferencePrefix string
+
+	// PromptAmountKES overrides the USSD push amount with a fixed whole-KES
+	// figure instead of the quoted payoff, for exercising the rail against a
+	// real handset on staging. Zero means use the quoted payoff. Setting it
+	// in production is a boot error.
+	PromptAmountKES int
+
+	// SettlementMode decides how KES collected in the Airtel merchant wallet
+	// becomes USDC. Only "otc" is built, matching the M-Pesa rail.
+	SettlementMode string
+}
+
+// EnquiryDelayFloor is the wait Airtel documents between a Collection payment
+// and the first enquiry about it.
+const EnquiryDelayFloor = 3 * time.Minute
+
+// The settlement modes AIRTEL_SETTLEMENT_MODE accepts.
+const (
+	// AirtelSettlementOTC converts the KES float at a desk and deposits the
+	// USDC to treasury by hand, as the M-Pesa rail does.
+	AirtelSettlementOTC = "otc"
+
+	// AirtelSettlementDisbursement would sweep the float with Airtel's own
+	// Disbursement product. Not implemented; naming it is not offering it.
+	AirtelSettlementDisbursement = "disbursement"
+)
+
+// AirtelCallbackURL builds the callback URL under this config's slug — the
+// same shape AirtelCallbackController.Register mounts its route at.
+func (c AirtelConfig) AirtelCallbackURL() string {
+	return strings.TrimRight(c.CallbackBaseURL, "/") + "/api/v1/callbacks/airtel/" + c.CallbackSlug + "/collection"
+}
+
+// Enabled reports whether the Airtel rail is configured at all. Every Airtel
+// code path is wired behind it.
+func (c AirtelConfig) Enabled() bool { return c.ClientID != "" && c.ClientSecret != "" }
+
+// Validate checks the Airtel settings, requiring in production what may be
+// absent in development.
+func (c *AirtelConfig) Validate(serverEnv string) error {
+	if c.Environment != "" && !c.Environment.Valid() {
+		return fmt.Errorf("AIRTEL_ENVIRONMENT must be %q or %q, got %q",
+			airtel.EnvironmentStaging, airtel.EnvironmentProduction, c.Environment)
+	}
+
+	if c.SettlementMode != "" && c.SettlementMode != AirtelSettlementOTC && c.SettlementMode != AirtelSettlementDisbursement {
+		return fmt.Errorf("AIRTEL_SETTLEMENT_MODE must be %q or %q, got %q",
+			AirtelSettlementOTC, AirtelSettlementDisbursement, c.SettlementMode)
+	}
+	// Not a production-only check. Selecting an unbuilt settlement mode is
+	// wrong everywhere, and failing only in production would let it pass
+	// review on a staging deploy.
+	if c.SettlementMode == AirtelSettlementDisbursement {
+		return fmt.Errorf("AIRTEL_SETTLEMENT_MODE %q is not implemented; the KES float is settled by the OTC desk",
+			AirtelSettlementDisbursement)
+	}
+
+	if c.CallbackBaseURL != "" && !strings.HasPrefix(c.CallbackBaseURL, "https://") {
+		return fmt.Errorf("AIRTEL_CALLBACK_BASE_URL must be https")
+	}
+
+	// Enquiring sooner than Airtel's documented floor is allowed outside
+	// production, where a three-minute wait makes the rail untestable by
+	// hand. In production it is a misconfiguration: the early answer is
+	// uninformative and every round costs a call.
+	if c.EnquiryDelay > 0 && c.EnquiryDelay < EnquiryDelayFloor && serverEnv == "production" {
+		return fmt.Errorf("AIRTEL_ENQUIRY_DELAY must be at least %s in production; Airtel documents that floor", EnquiryDelayFloor)
+	}
+
+	if serverEnv != "production" {
+		return nil
+	}
+
+	// Everything below is production-only and applies only once the rail is
+	// configured at all. An unconfigured rail is not a misconfigured one.
+	if !c.Enabled() {
+		return nil
+	}
+
+	missing := []string{}
+	if c.CallbackSlug == "" {
+		missing = append(missing, "AIRTEL_CALLBACK_SLUG")
+	}
+	if c.CallbackBaseURL == "" {
+		missing = append(missing, "AIRTEL_CALLBACK_BASE_URL")
+	}
+	if len(c.CallbackAllowedCIDRs) == 0 {
+		missing = append(missing, "AIRTEL_CALLBACK_ALLOWED_CIDRS")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("airtel config missing required values: %s", strings.Join(missing, ", "))
+	}
+
+	if c.Environment != airtel.EnvironmentProduction {
+		return fmt.Errorf("AIRTEL_ENVIRONMENT must be %q on a production deployment", airtel.EnvironmentProduction)
 	}
 	return nil
 }

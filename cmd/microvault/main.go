@@ -56,6 +56,10 @@ func main() {
 	// Core does not construct a Daraja client, but it does receive Daraja's
 	// callbacks, so the slug and the egress allowlist have to be right here
 	// too — an unvalidated core is where a forged confirmation would land.
+	if err := cfg.Payments.Airtel.Validate(cfg.Server.ServerEnvironment); err != nil {
+		log.Fatalf("Airtel configuration is invalid: %v", err)
+	}
+
 	if err := cfg.Payments.Mpesa.Validate(cfg.Server.ServerEnvironment); err != nil {
 		log.Fatalf("M-Pesa config invalid: %v", err)
 	}
@@ -319,7 +323,16 @@ func main() {
 			repos.Mpesa, cfg.Payments.Mpesa, cfg.Server.ServerEnvironment)
 	}
 
-	routes.PublicRoutes(app, authController, ussdController, webhookController, smsCallbackController, darajaController, hakikishaController) // Register public routes
+	// Airtel callbacks are registered on the same terms as Daraja's: only
+	// when the rail is configured, and unauthenticated at the router — the
+	// controller does its own hash verification and CIDR check.
+	var airtelController *controllers.AirtelCallbackController
+	if cfg.Payments.Airtel.CallbackSlug != "" {
+		airtelController = controllers.NewAirtelCallbackController(
+			repos.Airtel, cfg.Payments.Airtel, cfg.Server.ServerEnvironment)
+	}
+
+	routes.PublicRoutes(app, authController, ussdController, webhookController, smsCallbackController, darajaController, hakikishaController, airtelController) // Register public routes
 
 	// Create a channel to listen for OS signals
 	sigChan := make(chan os.Signal, 1)
