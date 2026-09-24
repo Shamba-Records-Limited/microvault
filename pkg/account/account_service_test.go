@@ -34,12 +34,14 @@ func (f *acctRepo) GetByPublicKey(context.Context, string) (*models.Account, err
 
 func (f *acctRepo) GetNextAccountIndex(context.Context, string) (int, error) { return 0, nil }
 
-func (f *acctRepo) GetNextAccountIndexWithTx(context.Context, *gorm.DB) (int, error) { return 0, nil }
-func (f *acctRepo) EnsureAccountIndexFloor(context.Context, int64) error             { return nil }
-func (f *acctRepo) Update(context.Context, *models.Account) error                    { return nil }
-func (f *acctRepo) UpdateChainStatus(context.Context, string, string) error          { return nil }
-func (f *acctRepo) Restore(context.Context, string) error                            { return nil }
-func (f *acctRepo) Delete(context.Context, string) error                             { return nil }
+func (f *acctRepo) GetNextAccountIndexWithTx(context.Context, *gorm.DB) (int, error)  { return 0, nil }
+func (f *acctRepo) EnsureAccountIndexFloor(context.Context, int64) error              { return nil }
+func (f *acctRepo) MaxAccountIndex(context.Context) (int64, error)                    { return -1, nil }
+func (f *acctRepo) EnsureAccountIndexIntegrity(context.Context, int64) (int64, error) { return 0, nil }
+func (f *acctRepo) Update(context.Context, *models.Account) error                     { return nil }
+func (f *acctRepo) UpdateChainStatus(context.Context, string, string) error           { return nil }
+func (f *acctRepo) Restore(context.Context, string) error                             { return nil }
+func (f *acctRepo) Delete(context.Context, string) error                              { return nil }
 
 type usrRepo struct {
 	byID    *models.User

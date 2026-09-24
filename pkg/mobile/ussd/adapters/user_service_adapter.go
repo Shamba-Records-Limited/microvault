@@ -66,8 +66,10 @@ type UserServiceAdapter struct {
 	networkMapper  *ussd.NetworkMapper
 	logger         *slog.Logger
 	alerts         AlertService
-	db             *gorm.DB
-	walletConfig   WalletConfig
+	// sleep is the retry backoff, injectable so tests do not wait it out.
+	sleep        func(time.Duration)
+	db           *gorm.DB
+	walletConfig WalletConfig
 }
 
 // NewUserServiceAdapter creates a new user service adapter. logger and alerts
@@ -307,6 +309,27 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(userID, accountID strin
 
 	address := req.ChildKeypair.Address()
 
+	// A newly derived address that already exists on-chain means the index was
+	// handed out twice, so this user's keypair is another user's. Creation
+	// cannot fix that — the existing account set its master key to weight 0 and
+	// can no longer sign for itself — and treating it as success would hand the
+	// borrower an account they do not control. Stop before submitting.
+	if exists, existsErr := a.stellarService.AccountExists(ctx, address); existsErr != nil {
+		a.logger.Warn("could not check whether the derived account already exists",
+			"user_id", userID, "account_id", accountID, "address", address, "error", existsErr)
+	} else if exists {
+		a.setChainStatus(ctx, accountID, models.ChainStatusFailed)
+		a.logger.Error("derivation index reused — derived account already exists on-chain",
+			"user_id", userID, "account_id", accountID, "address", address,
+			"error_code", pkgErrors.CodeDerivationIndexReused)
+		a.alertOps("Stellar derivation index reused",
+			fmt.Sprintf("User %s account %s derived %s, which already exists on-chain. "+
+				"account_index_seq has been rewound: two users now derive one keypair. "+
+				"Do not retry — re-arm STELLAR_ACCOUNT_INDEX_BASE above the on-chain "+
+				"high-water mark and re-issue this account.", userID, accountID, address))
+		return
+	}
+
 	const attempts = 3
 	var err error
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -319,7 +342,17 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(userID, accountID strin
 		a.logger.Warn("sponsored account creation attempt failed",
 			"user_id", userID, "account_id", accountID, "address", address,
 			"attempt", attempt, "attempts", attempts, "error", err)
-		time.Sleep(time.Duration(attempt) * 2 * time.Second)
+
+		// Bad signatures and failed operations are properties of the
+		// transaction, not the network: the next attempt builds the same one.
+		if errors.Is(err, stellar.ErrTransactionRejectedPermanent) {
+			a.logger.Error("rejection is permanent — abandoning retries",
+				"user_id", userID, "account_id", accountID, "address", address, "error", err)
+			break
+		}
+		if attempt < attempts {
+			a.backoff(time.Duration(attempt) * 2 * time.Second)
+		}
 	}
 
 	// Marked before alerting: the durable record is what a reconciler reads,
@@ -331,6 +364,15 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(userID, accountID strin
 		fmt.Sprintf("User %s account %s (%s) has no on-chain account after %d attempts: %v. "+
 			"chain_status=failed; lending is blocked until it is healed.",
 			userID, accountID, address, attempts, err))
+}
+
+// backoff waits between creation attempts. Nil means the real clock.
+func (a *UserServiceAdapter) backoff(d time.Duration) {
+	if a.sleep != nil {
+		a.sleep(d)
+		return
+	}
+	time.Sleep(d)
 }
 
 // setChainStatus persists an observed on-chain state. Uses its own context so

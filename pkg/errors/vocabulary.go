@@ -161,6 +161,17 @@ const (
 	// CodeDuplicateRequest is an idempotency key already seen.
 	CodeDuplicateRequest = "duplicate_request"
 
+	// CodeTransactionRejected is stellar-core refusing to admit a transaction
+	// at submission, before consensus. The transaction never reaches a ledger,
+	// so there is nothing to look up by hash; the decoded result codes on the
+	// error are the only record of why.
+	CodeTransactionRejected = "transaction_rejected"
+
+	// CodeDerivationIndexReused is a BIP44 account index handed out twice: the
+	// derived address already exists on-chain. Two users would share one key,
+	// so it is a containment failure, never a retryable condition.
+	CodeDerivationIndexReused = "derivation_index_reused"
+
 	// CodeUnsupportedOperation is a caller reaching a capability through an
 	// entry point that does not serve it — a programming error at the call
 	// site, not a runtime condition, so it is never retryable.

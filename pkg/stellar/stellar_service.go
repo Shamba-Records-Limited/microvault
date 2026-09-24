@@ -44,6 +44,7 @@ var (
 	ErrFailedToValidateTrustline     = types.ErrFailedToValidateTrustline
 	ErrMissingTrustline              = types.ErrMissingTrustline
 	ErrTransactionRejected           = types.ErrTransactionRejected
+	ErrTransactionRejectedPermanent  = types.ErrTransactionRejectedPermanent
 	ErrStellarCoreOverloaded         = types.ErrStellarCoreOverloaded
 	ErrTransactionFailed             = types.ErrTransactionFailed
 	ErrTransactionNotSuccessful      = types.ErrTransactionNotSuccessful
