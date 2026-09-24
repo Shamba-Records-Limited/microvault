@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/samber/oops"
 	"github.com/stretchr/testify/assert"
@@ -218,4 +219,110 @@ func TestDeriveChildKeypair_IsDeterministic(t *testing.T) {
 
 	assert.Equal(t, first.Address(), second.Address(),
 		"same seed and index must reproduce the same account across processes")
+}
+
+// fakeAlertService records ops alerts so a test can assert one was raised.
+type fakeAlertService struct {
+	subjects []string
+}
+
+func (f *fakeAlertService) AlertOps(subject, _ string) error {
+	f.subjects = append(f.subjects, subject)
+	return nil
+}
+
+// scriptedStellarService returns a queued error per CreateSponsoredAccount
+// call, so a test can pin how many attempts a given rejection is worth.
+type scriptedStellarService struct {
+	stellar.Service
+	exists    bool
+	existsErr error
+	errs      []error
+	calls     int
+}
+
+func (f *scriptedStellarService) AccountExists(_ context.Context, _ string) (bool, error) {
+	return f.exists, f.existsErr
+}
+
+func (f *scriptedStellarService) CreateSponsoredAccount(_ context.Context, _ stellar.CreateAccountRequest) error {
+	f.calls++
+	if f.calls <= len(f.errs) {
+		return f.errs[f.calls-1]
+	}
+	return nil
+}
+
+func newAsyncTestAdapter(t *testing.T, stellarSvc stellar.Service) (*UserServiceAdapter, *fakeAccountService, *fakeAlertService) {
+	t.Helper()
+	acctSvc := &fakeAccountService{}
+	alerts := &fakeAlertService{}
+	a := newDerivationTestAdapter(t)
+	a.stellarService = stellarSvc
+	a.accountService = acctSvc
+	a.alerts = alerts
+	a.sleep = func(time.Duration) {}
+	return a, acctSvc, alerts
+}
+
+func testCreateAccountReq(t *testing.T, a *UserServiceAdapter) stellar.CreateAccountRequest {
+	t.Helper()
+	kp, err := a.deriveChildKeypair(7)
+	require.NoError(t, err)
+	return stellar.CreateAccountRequest{ChildKeypair: kp}
+}
+
+// The staging incident: account_index_seq was rewound, so a new user derived an
+// address created six weeks earlier. Submitting is futile — the existing
+// account's master key sits at weight 0 — and pretending it succeeded would
+// hand the borrower a key another user held.
+func TestCreateSponsoredAccountAsync_ReusedIndexDoesNotSubmit(t *testing.T) {
+	svc := &scriptedStellarService{exists: true}
+	a, acctSvc, alerts := newAsyncTestAdapter(t, svc)
+
+	a.createSponsoredAccountAsync("user-1", "acct-1", testCreateAccountReq(t, a))
+
+	assert.Zero(t, svc.calls, "must not submit a creation for an address that already exists")
+	assert.Equal(t, []string{models.ChainStatusFailed}, acctSvc.chainWrites)
+	require.Len(t, alerts.subjects, 1)
+	assert.Contains(t, alerts.subjects[0], "index reused")
+}
+
+// A permanent rejection is a property of the transaction, so the second and
+// third attempts would build the same doomed envelope.
+func TestCreateSponsoredAccountAsync_PermanentRejectionStopsAfterOneAttempt(t *testing.T) {
+	rejected := oops.Wrap(stellar.ErrTransactionRejectedPermanent)
+	svc := &scriptedStellarService{errs: []error{rejected, rejected, rejected}}
+	a, acctSvc, alerts := newAsyncTestAdapter(t, svc)
+
+	a.createSponsoredAccountAsync("user-1", "acct-1", testCreateAccountReq(t, a))
+
+	assert.Equal(t, 1, svc.calls, "a permanent rejection must not be retried")
+	assert.Equal(t, []string{models.ChainStatusFailed}, acctSvc.chainWrites)
+	assert.Len(t, alerts.subjects, 1)
+}
+
+// A transient rejection must still exhaust its retries, or a busy network
+// becomes a failed registration.
+func TestCreateSponsoredAccountAsync_TransientRejectionRetries(t *testing.T) {
+	transient := oops.Wrap(stellar.ErrStellarCoreOverloaded)
+	svc := &scriptedStellarService{errs: []error{transient, transient}}
+	a, acctSvc, _ := newAsyncTestAdapter(t, svc)
+
+	a.createSponsoredAccountAsync("user-1", "acct-1", testCreateAccountReq(t, a))
+
+	assert.Equal(t, 3, svc.calls, "the third attempt should have succeeded")
+	assert.Equal(t, []string{models.ChainStatusConfirmed}, acctSvc.chainWrites)
+}
+
+// A failed existence check must not block creation: the check is a guard
+// against index reuse, not a precondition for having an account at all.
+func TestCreateSponsoredAccountAsync_ExistenceCheckFailureStillCreates(t *testing.T) {
+	svc := &scriptedStellarService{existsErr: errors.New("rpc down")}
+	a, acctSvc, _ := newAsyncTestAdapter(t, svc)
+
+	a.createSponsoredAccountAsync("user-1", "acct-1", testCreateAccountReq(t, a))
+
+	assert.Equal(t, 1, svc.calls)
+	assert.Equal(t, []string{models.ChainStatusConfirmed}, acctSvc.chainWrites)
 }

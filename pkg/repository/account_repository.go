@@ -39,6 +39,13 @@ type AccountRepository interface {
 	// EnsureAccountIndexFloor advances account_index_seq so the next handed-out
 	// index is >= floor. No-op when the sequence is already at or past floor.
 	EnsureAccountIndexFloor(ctx context.Context, floor int64) error
+	// MaxAccountIndex is the highest derivation index ever recorded, counting
+	// soft-deleted rows. Returns -1 when the table holds none.
+	MaxAccountIndex(ctx context.Context) (int64, error)
+	// EnsureAccountIndexIntegrity floors the sequence above both the recorded
+	// high-water mark and the operator-supplied base, returning the index the
+	// next allocation will hand out.
+	EnsureAccountIndexIntegrity(ctx context.Context, base int64) (int64, error)
 
 	// Update operations
 	Update(ctx context.Context, account *models.Account) error
@@ -198,6 +205,66 @@ func (r *accountRepository) EnsureAccountIndexFloor(ctx context.Context, floor i
 		return ErrFailedToGetNextIndex
 	}
 	return nil
+}
+
+// MaxAccountIndex implements the interface — see its contract.
+//
+// Unscoped is deliberate: deleting the row does not delete the Stellar account
+// the index derives, so a soft-deleted index is still spent forever.
+func (r *accountRepository) MaxAccountIndex(ctx context.Context) (int64, error) {
+	var highest *int64
+	if err := r.db.WithContext(ctx).
+		Unscoped().
+		Model(&models.Account{}).
+		Select("MAX(account_index)").
+		Scan(&highest).Error; err != nil {
+		log.Printf("MaxAccountIndex: database error: %v", err)
+		return 0, ErrFailedToGetNextIndex
+	}
+	if highest == nil {
+		return -1, nil
+	}
+	return *highest, nil
+}
+
+// EnsureAccountIndexIntegrity implements the interface — see its contract.
+//
+// A sequence sitting below an index the table has already issued means it was
+// rewound out from under us — a restored dump, a recreated database, a manual
+// setval. Handing that index out again derives a keypair whose Stellar account
+// already exists and is no longer self-signable, so the floor is re-armed from
+// whichever evidence is higher: the rows we can still see, or the base the
+// operator supplies for the rows we cannot.
+func (r *accountRepository) EnsureAccountIndexIntegrity(ctx context.Context, base int64) (int64, error) {
+	highWater, err := r.MaxAccountIndex(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	if floor := max(base, highWater+1); floor > 0 {
+		if err := r.EnsureAccountIndexFloor(ctx, floor); err != nil {
+			return 0, err
+		}
+	}
+
+	// Report what the sequence will actually hand out, not the floor we asked
+	// for: when it was already ahead the two differ, and the boot log that
+	// reads this is the only place the real position is ever printed.
+	return r.peekAccountIndex(ctx)
+}
+
+// peekAccountIndex is the index the next nextval would return, without
+// consuming one. An untouched sequence returns last_value itself; a used one
+// has already handed that out.
+func (r *accountRepository) peekAccountIndex(ctx context.Context) (int64, error) {
+	var next int64
+	sql := `SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END
+		FROM account_index_seq`
+	if err := r.db.WithContext(ctx).Raw(sql).Scan(&next).Error; err != nil {
+		log.Printf("peekAccountIndex: database error: %v", err)
+		return 0, ErrFailedToGetNextIndex
+	}
+	return next, nil
 }
 
 // --- Update Operations ---

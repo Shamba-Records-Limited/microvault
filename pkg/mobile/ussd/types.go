@@ -82,6 +82,8 @@ type USSDHandler struct {
 	repayPaybill    string
 	mpesaPrompter   RepaymentPrompter
 	mpesaPromptOn   bool
+	carrierPrompter CarrierRepaymentPrompter
+	airtelPromptOn  bool
 	accountNotifier contracts.AccountNotifier
 	loanNotifier    contracts.LoanNotifier
 }
@@ -221,6 +223,18 @@ type RepaymentPrompter interface {
 	// payoff. It returns once the prompt is accepted for delivery, not when
 	// it is paid; an error means the push was refused outright.
 	PromptRepayment(ctx context.Context, loanID, phoneNumber string) error
+}
+
+// CarrierRepaymentPrompter is the capability of pushing a prompt on a named
+// rail. The borrower chooses their network from the repay menu rather than
+// having it inferred from their MSISDN: prefix tables go stale silently as
+// the regulator reallocates ranges, and a prompt pushed at the wrong network
+// is a support call.
+type CarrierRepaymentPrompter interface {
+	// PromptRepaymentVia pushes a prompt for the full payoff on the named
+	// cash-in provider. The provider id is the registry's own ("mpesa",
+	// "airtel"); an unregistered one is an error, never a silent fallback.
+	PromptRepaymentVia(ctx context.Context, loanID, phoneNumber, providerID string) error
 }
 
 // MoneyGram's production on-ramp bounds, in stroops.

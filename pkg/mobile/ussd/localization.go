@@ -422,6 +422,11 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Mwanko wa M-PESA",
 			"fr": "Invite M-PESA",
 		},
+		"repay_rail_airtel": {
+			"en": "Airtel Money prompt",
+			"sw": "Mwanko wa Airtel Money",
+			"fr": "Invite Airtel Money",
+		},
 		"repay_mobile_header": {
 			"en": "Pay %s by mobile money. Reply with a number:",
 			"sw": "Lipa %s kwa pesa ya simu. Jibu na nambari:",
@@ -436,6 +441,11 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"en": "An M-Pesa request for %s was sent to your phone. Enter your PIN to pay.",
 			"sw": "Ombi la M-Pesa la %s limetumwa kwa simu yako. Weka PIN yako kulipa.",
 			"fr": "Une demande M-Pesa de %s a ete envoyee a votre telephone. Entrez votre PIN pour payer.",
+		},
+		"repay_airtel_sent": {
+			"en": "An Airtel Money request for %s was sent to your phone. Enter your PIN to pay.",
+			"sw": "Ombi la Airtel Money la %s limetumwa kwa simu yako. Weka PIN yako kulipa.",
+			"fr": "Une demande Airtel Money de %s a ete envoyee a votre telephone. Entrez votre PIN pour payer.",
 		},
 		"repay_mpesa_inflight": {
 			"en": "M-Pesa request in flight (%s). Wait for it or check M-Pesa messages.",

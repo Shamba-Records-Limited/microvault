@@ -205,12 +205,7 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 	// Handle different submission statuses
 	switch txResponse.Status {
 	case stellarcore.TXStatusError:
-		if txResponse.ErrorResultXDR != "" {
-			log.Printf("CreateSponsoredAccount: transaction rejected: %s", txResponse.ErrorResultXDR)
-		} else {
-			log.Printf("CreateSponsoredAccount: transaction rejected by stellar-core")
-		}
-		return types.ErrTransactionRejected
+		return rejectionError("CreateSponsoredAccount", txResponse)
 	case stellarcore.TXStatusTryAgainLater:
 		log.Printf("CreateSponsoredAccount: stellar-core is overloaded, try again later")
 		return types.ErrStellarCoreOverloaded
@@ -349,12 +344,7 @@ func (s *service) EstablishSponsoredTrustline(ctx context.Context, req types.Est
 
 	switch txResponse.Status {
 	case stellarcore.TXStatusError:
-		if txResponse.ErrorResultXDR != "" {
-			log.Printf("EstablishSponsoredTrustline: transaction rejected: %s", txResponse.ErrorResultXDR)
-		} else {
-			log.Printf("EstablishSponsoredTrustline: transaction rejected by stellar-core")
-		}
-		return types.ErrTransactionRejected
+		return rejectionError("EstablishSponsoredTrustline", txResponse)
 	case stellarcore.TXStatusTryAgainLater:
 		log.Printf("EstablishSponsoredTrustline: stellar-core is overloaded, try again later")
 		return types.ErrStellarCoreOverloaded
@@ -507,12 +497,7 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 
 	switch txResponse.Status {
 	case stellarcore.TXStatusError:
-		if txResponse.ErrorResultXDR != "" {
-			log.Printf("SponsoredPaymentTransaction: transaction rejected: %s", txResponse.ErrorResultXDR)
-		} else {
-			log.Printf("SponsoredPaymentTransaction: transaction rejected by stellar-core")
-		}
-		return nil, types.ErrTransactionRejected
+		return nil, rejectionError("SponsoredPaymentTransaction", txResponse)
 	case stellarcore.TXStatusTryAgainLater:
 		log.Printf("SponsoredPaymentTransaction: stellar-core is overloaded, try again later")
 		return nil, types.ErrStellarCoreOverloaded
@@ -701,10 +686,7 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 	// 6. Handle submission status
 	switch txResponse.Status {
 	case stellarcore.TXStatusError:
-		s.logger.Error("SendUSDC: transaction rejected",
-			slog.String("error_xdr", txResponse.ErrorResultXDR),
-		)
-		return nil, types.ErrTransactionRejected
+		return nil, rejectionError("SendUSDC", txResponse)
 	case stellarcore.TXStatusTryAgainLater:
 		return nil, types.ErrStellarCoreOverloaded
 	}

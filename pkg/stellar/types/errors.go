@@ -26,7 +26,12 @@ var (
 	ErrMissingTrustline          = errors.New("destination account does not have required trustline")
 
 	// Transaction status errors
-	ErrTransactionRejected           = errors.New("transaction rejected by stellar-core")
+	ErrTransactionRejected = errors.New("transaction rejected by stellar-core")
+	// ErrTransactionRejectedPermanent is a rejection that the same transaction
+	// will never clear: the signatures, the operations or the source account are
+	// wrong rather than the network being busy. It wraps ErrTransactionRejected,
+	// so callers testing for the general case still match.
+	ErrTransactionRejectedPermanent  = fmt.Errorf("%w: resubmission will not help", ErrTransactionRejected)
 	ErrStellarCoreOverloaded         = errors.New("stellar-core overloaded, try again later")
 	ErrTransactionFailed             = errors.New("transaction failed")
 	ErrTransactionNotSuccessful      = errors.New("transaction not successful")

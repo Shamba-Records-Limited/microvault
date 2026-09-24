@@ -56,6 +56,10 @@ func main() {
 	// Core does not construct a Daraja client, but it does receive Daraja's
 	// callbacks, so the slug and the egress allowlist have to be right here
 	// too — an unvalidated core is where a forged confirmation would land.
+	if err := cfg.Payments.Airtel.Validate(cfg.Server.ServerEnvironment); err != nil {
+		log.Fatalf("Airtel configuration is invalid: %v", err)
+	}
+
 	if err := cfg.Payments.Mpesa.Validate(cfg.Server.ServerEnvironment); err != nil {
 		log.Fatalf("M-Pesa config invalid: %v", err)
 	}
@@ -137,14 +141,21 @@ func main() {
 	}
 	log.Println("Repositories initialized successfully")
 
-	// On testnet the DB may be rebuilt while on-chain child accounts persist;
-	// floor the derivation-index sequence so fresh rows never collide with them.
-	if cfg.Stellar.AccountIndexBase > 0 {
-		if err := repos.Account.EnsureAccountIndexFloor(context.Background(), cfg.Stellar.AccountIndexBase); err != nil {
-			log.Fatalf("Failed to floor account index sequence: %v", err)
-		}
-		log.Printf("Account index sequence floored at %d", cfg.Stellar.AccountIndexBase)
+	// A derivation index handed out twice derives one keypair for two users,
+	// and the second account already exists on-chain with its master key at
+	// weight 0 — unusable and unrecoverable. The sequence guarantees this only
+	// while it moves forward, so re-arm it at every boot from the highest index
+	// the rows still record. AccountIndexBase covers what the rows cannot: a
+	// database rebuilt from scratch while the on-chain accounts persisted.
+	if cfg.Stellar.AccountIndexBase <= 0 && cfg.Server.ServerEnvironment != "development" {
+		log.Fatalf("STELLAR_ACCOUNT_INDEX_BASE must be set outside development: " +
+			"without it a rebuilt database re-derives keypairs whose Stellar accounts already exist")
 	}
+	nextIndex, err := repos.Account.EnsureAccountIndexIntegrity(context.Background(), cfg.Stellar.AccountIndexBase)
+	if err != nil {
+		log.Fatalf("Failed to floor account index sequence: %v", err)
+	}
+	log.Printf("Account index sequence floored; next allocation is %d", nextIndex)
 
 	// ---- Initialize Core Services ----
 	// User and Account services
@@ -319,7 +330,16 @@ func main() {
 			repos.Mpesa, cfg.Payments.Mpesa, cfg.Server.ServerEnvironment)
 	}
 
-	routes.PublicRoutes(app, authController, ussdController, webhookController, smsCallbackController, darajaController, hakikishaController) // Register public routes
+	// Airtel callbacks are registered on the same terms as Daraja's: only
+	// when the rail is configured, and unauthenticated at the router — the
+	// controller does its own hash verification and CIDR check.
+	var airtelController *controllers.AirtelCallbackController
+	if cfg.Payments.Airtel.CallbackSlug != "" {
+		airtelController = controllers.NewAirtelCallbackController(
+			repos.Airtel, cfg.Payments.Airtel, cfg.Server.ServerEnvironment)
+	}
+
+	routes.PublicRoutes(app, authController, ussdController, webhookController, smsCallbackController, darajaController, hakikishaController, airtelController) // Register public routes
 
 	// Create a channel to listen for OS signals
 	sigChan := make(chan os.Signal, 1)

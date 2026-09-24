@@ -171,3 +171,103 @@ func TestTransactionRepository_CRUD(t *testing.T) {
 		t.Errorf("GetByStatus = %v (err %v)", submitted, err)
 	}
 }
+
+// The staging incident that motivated EnsureAccountIndexIntegrity: the
+// sequence was rewound beneath indices the table had already issued, so the
+// next registration re-derived a keypair whose Stellar account existed.
+func TestAccountRepository_IndexIntegrityRearmsRewoundSequence(t *testing.T) {
+	u := newUser(t, "254711000009")
+	repo, err := NewAccountRepository(testDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	const spent = 5000
+	acc := &models.Account{
+		UserID: u.ID, PublicKey: "GREWOUND" + u.ID, AccountIndex: spent, Status: "active",
+	}
+	if err := repo.Create(ctx, acc); err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+
+	// Rewind the sequence the way a restored dump would.
+	if err := testDB.WithContext(ctx).
+		Exec("SELECT setval('account_index_seq', 1, true)").Error; err != nil {
+		t.Fatalf("rewind sequence: %v", err)
+	}
+
+	next, err := repo.EnsureAccountIndexIntegrity(ctx, 0)
+	if err != nil {
+		t.Fatalf("EnsureAccountIndexIntegrity: %v", err)
+	}
+	if next <= spent {
+		t.Fatalf("next allocation = %d, want > %d (the spent index)", next, spent)
+	}
+
+	issued, err := repo.GetNextAccountIndex(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetNextAccountIndex: %v", err)
+	}
+	if issued <= spent {
+		t.Errorf("re-issued a spent index: got %d, high-water mark is %d", issued, spent)
+	}
+}
+
+// A soft-deleted account still owns its on-chain Stellar account, so its index
+// must stay spent. Deleting the user was how staging masked the collision.
+func TestAccountRepository_IndexIntegrityCountsSoftDeleted(t *testing.T) {
+	u := newUser(t, "254711000010")
+	repo, err := NewAccountRepository(testDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	const spent = 6000
+	acc := &models.Account{
+		UserID: u.ID, PublicKey: "GDELETED" + u.ID, AccountIndex: spent, Status: "active",
+	}
+	if err := repo.Create(ctx, acc); err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	if err := repo.Delete(ctx, acc.ID); err != nil {
+		t.Fatalf("delete account: %v", err)
+	}
+
+	high, err := repo.MaxAccountIndex(ctx)
+	if err != nil {
+		t.Fatalf("MaxAccountIndex: %v", err)
+	}
+	if high < spent {
+		t.Fatalf("MaxAccountIndex = %d, want >= %d — a soft-deleted index was forgotten", high, spent)
+	}
+}
+
+// The operator-supplied base covers what the rows cannot: a database rebuilt
+// from scratch while the on-chain accounts persisted.
+func TestAccountRepository_IndexIntegrityHonoursBase(t *testing.T) {
+	repo, err := NewAccountRepository(testDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	const base = 90000
+	next, err := repo.EnsureAccountIndexIntegrity(ctx, base)
+	if err != nil {
+		t.Fatalf("EnsureAccountIndexIntegrity: %v", err)
+	}
+	if next < base {
+		t.Errorf("next allocation = %d, want >= base %d", next, base)
+	}
+
+	// Re-arming must never rewind a sequence that is already ahead.
+	again, err := repo.EnsureAccountIndexIntegrity(ctx, 1)
+	if err != nil {
+		t.Fatalf("EnsureAccountIndexIntegrity(1): %v", err)
+	}
+	if again < base {
+		t.Errorf("sequence rewound to %d, below the base %d it had reached", again, base)
+	}
+}
