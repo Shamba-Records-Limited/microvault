@@ -12,4 +12,10 @@
 //
 // M-Pesa implements all six. MoneyGram implements Collector and StatusReader
 // only, and migration of MoneyGram onto cashin is deliberately out of scope.
+//
+// Airtel implements Prompter, StatusReader and Reverser. Its Collect refuses:
+// Airtel Collection is push-only, with no passive equivalent of a paybill a
+// borrower can walk up and pay. Collector is the registry's one mandatory
+// capability, so the method exists and returns an unsupported-operation
+// error rather than pretending a rail that is not there.
 package cashin

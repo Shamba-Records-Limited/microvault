@@ -118,6 +118,12 @@ type HandlerDeps struct {
 	// MpesaPrompter enables the STK prompt rail when the loan service
 	// satisfies RepaymentPrompter.
 	MpesaPrompter bool
+
+	// AirtelPrompter enables the Airtel Money prompt rail when the loan
+	// service satisfies CarrierRepaymentPrompter. Separate from
+	// MpesaPrompter because the rails are enabled by separate integrations
+	// and either can be live without the other.
+	AirtelPrompter bool
 }
 
 // NewUSSDHandler builds the handler.
@@ -141,9 +147,13 @@ func NewUSSDHandler(deps HandlerDeps) *USSDHandler {
 		loanNotifier:    loanNotifier,
 		repayPaybill:    deps.RepayPaybill,
 		mpesaPromptOn:   deps.MpesaPrompter,
+		airtelPromptOn:  deps.AirtelPrompter,
 	}
 	if deps.MpesaPrompter {
 		h.mpesaPrompter, _ = deps.LoanService.(RepaymentPrompter)
+	}
+	if deps.AirtelPrompter {
+		h.carrierPrompter, _ = deps.LoanService.(CarrierRepaymentPrompter)
 	}
 	return h
 }
@@ -950,8 +960,6 @@ func (h *USSDHandler) cashPickupOutOfRange(ctx context.Context, session *Session
 	return "CON " + h.withNavHint(session, "payout_method", msg+"\n"+remaining.Render(session.Language)), true
 }
 
-// handleLoanConfirm handles loan confirmation. When PIN service is available,
-// pressing "1" routes to PIN verification before submitting the loan.
 // handleLoanConfirm accepts the PIN entered on the confirmation screen. The
 // terms and the PIN gate are one screen, so entering a correct PIN is both the
 // acceptance of the displayed terms and the authorization to borrow — there is
@@ -1392,6 +1400,9 @@ func (h *USSDHandler) mobileRepayRails(session *Session) []repayRail {
 	if h.mpesaPrompter != nil {
 		rails = append(rails, repayRail{key: "mpesa", label: "repay_rail_mpesa"})
 	}
+	if h.carrierPrompter != nil {
+		rails = append(rails, repayRail{key: "airtel", label: "repay_rail_airtel"})
+	}
 	rails = append(rails, repayRail{key: "paybill", label: "repay_mobile_paybill"})
 	return rails
 }
@@ -1511,6 +1522,8 @@ func (h *USSDHandler) handleRepayMobile(ctx context.Context, session *Session, i
 	switch rails[i-1].key {
 	case "mpesa":
 		return h.startMpesaRepayment(ctx, session, chosen)
+	case "airtel":
+		return h.startAirtelRepayment(ctx, session, chosen)
 	case "paybill":
 		return h.showPaybill(session, chosen)
 	}
@@ -1535,6 +1548,30 @@ func (h *USSDHandler) startMpesaRepayment(ctx context.Context, session *Session,
 	}
 	return h.formatResponse(session.Language, "END",
 		Format(session.Language, "repay_mpesa_sent", chosen.DisplayAmount)), nil
+}
+
+// startAirtelRepayment pushes an Airtel USSD payment request for the payoff.
+//
+// The screen says the request is on its way, not that it is paid: Airtel
+// acknowledges the push, and the enquiry poller is what decides whether the
+// money actually moved.
+func (h *USSDHandler) startAirtelRepayment(ctx context.Context, session *Session, chosen repayLoanChoice) (string, error) {
+	if h.carrierPrompter == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+	if err := h.carrierPrompter.PromptRepaymentVia(ctx, chosen.ID, session.PhoneNumber, "airtel"); err != nil {
+		log.Printf("airtel prompt refused for loan %s: %v", chosen.ID, err)
+		return h.formatError(session.Language, "error"), nil
+	}
+	// The session's in-flight key is rail-agnostic despite its name; the
+	// provider beside it is what distinguishes the rails on re-entry.
+	session.Data["repay_mpesa_status"] = "initiated"
+	session.Data["repay_provider"] = "airtel"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", sessionSaveErr(session, err)
+	}
+	return h.formatResponse(session.Language, "END",
+		Format(session.Language, "repay_airtel_sent", chosen.DisplayAmount)), nil
 }
 
 // startCashRepayment locks the payoff and opens a MoneyGram cash deposit.

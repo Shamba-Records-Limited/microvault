@@ -12,6 +12,7 @@ type ProviderID string
 const (
 	ProviderMpesa     ProviderID = "mpesa"
 	ProviderMoneyGram ProviderID = "moneygram"
+	ProviderAirtel    ProviderID = "airtel"
 )
 
 // CollectionMethod selects how the payer is reached. Empty is treated as

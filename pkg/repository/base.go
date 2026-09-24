@@ -8,15 +8,17 @@ import (
 
 type Repositories struct {
 	// Core repositories
-	User             UserRepository
-	Account          AccountRepository
-	Transaction      TransactionRepository
-	Mpesa            MpesaTransactionRepository
-	MpesaValidation  MpesaNumberValidationRepository
-	MpesaPullCursor  MpesaPullCursorRepository
-	MpesaBalance     MpesaBalanceRepository
-	VaultWatchCursor VaultWatchCursorRepository
-	Counterparty     CounterpartyRepository
+	User                UserRepository
+	Account             AccountRepository
+	Transaction         TransactionRepository
+	Mpesa               MpesaTransactionRepository
+	MpesaValidation     MpesaNumberValidationRepository
+	MpesaPullCursor     MpesaPullCursorRepository
+	MpesaBalance        MpesaBalanceRepository
+	Airtel              AirtelTransactionRepository
+	AirtelSummaryCursor AirtelSummaryCursorRepository
+	VaultWatchCursor    VaultWatchCursorRepository
+	Counterparty        CounterpartyRepository
 }
 
 func NewRepositories(db *gorm.DB) (*Repositories, error) {
@@ -59,6 +61,16 @@ func NewRepositories(db *gorm.DB) (*Repositories, error) {
 		return nil, err
 	}
 
+	airtel, err := NewAirtelTransactionRepository(db)
+	if err != nil {
+		return nil, err
+	}
+
+	airtelSummaryCursor, err := NewAirtelSummaryCursorRepository(db)
+	if err != nil {
+		return nil, err
+	}
+
 	vaultWatchCursor, err := NewVaultWatchCursorRepository(db)
 	if err != nil {
 		return nil, err
@@ -71,14 +83,16 @@ func NewRepositories(db *gorm.DB) (*Repositories, error) {
 
 	return &Repositories{
 		// Core repositories
-		Transaction:      transaction,
-		User:             user,
-		Account:          account,
-		Mpesa:            mpesa,
-		MpesaValidation:  mpesaValidation,
-		MpesaPullCursor:  mpesaPullCursor,
-		MpesaBalance:     mpesaBalance,
-		VaultWatchCursor: vaultWatchCursor,
-		Counterparty:     counterparty,
+		Transaction:         transaction,
+		User:                user,
+		Account:             account,
+		Mpesa:               mpesa,
+		MpesaValidation:     mpesaValidation,
+		MpesaPullCursor:     mpesaPullCursor,
+		MpesaBalance:        mpesaBalance,
+		Airtel:              airtel,
+		AirtelSummaryCursor: airtelSummaryCursor,
+		VaultWatchCursor:    vaultWatchCursor,
+		Counterparty:        counterparty,
 	}, nil
 }
