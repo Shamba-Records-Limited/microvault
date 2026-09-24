@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/airtel"
 )
 
@@ -189,4 +192,47 @@ func TestEnquiryDelayFloorMatchesTheClient(t *testing.T) {
 	if EnquiryDelayFloor != airtel.EnquiryFloor {
 		t.Fatalf("config floor %s does not match the client's %s", EnquiryDelayFloor, airtel.EnquiryFloor)
 	}
+}
+
+// The loader's own output, not a hand-built struct, is what boots a deploy.
+// A deployment with no AIRTEL_* variables set must pass validation in every
+// environment: the rail is merged and inert while the application waits for
+// Airtel's approval, and a boot failure for a rail nobody uses would be the
+// worst possible default.
+func TestAirtelConfig_UnsetRailBootsInEveryEnvironment(t *testing.T) {
+	for _, env := range []string{"development", "staging", "production"} {
+		t.Run(env, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("SERVER_ENVIRONMENT", env)
+
+			cfg, err := New()
+			require.NoError(t, err, "config load must not fail with no AIRTEL_* variables set")
+
+			airtelCfg := cfg.Payments.Airtel
+			require.False(t, airtelCfg.Enabled(), "the rail must report itself disabled")
+			require.NoError(t, airtelCfg.Validate(env),
+				"an unconfigured rail must not fail validation in %s", env)
+		})
+	}
+}
+
+// The loader fills defaults even when the rail is off, so the defaults
+// themselves must be valid — otherwise enabling the rail later trips a check
+// nobody touched.
+func TestAirtelConfig_LoaderDefaultsAreValid(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("SERVER_ENVIRONMENT", "development")
+
+	cfg, err := New()
+	require.NoError(t, err)
+
+	airtelCfg := cfg.Payments.Airtel
+	assert.Equal(t, airtel.EnvironmentStaging, airtelCfg.Environment)
+	assert.Equal(t, AirtelSettlementOTC, airtelCfg.SettlementMode)
+	assert.Equal(t, EnquiryDelayFloor, airtelCfg.EnquiryDelay,
+		"the default enquiry delay must be Airtel's documented floor")
+	assert.Equal(t, "KE", airtelCfg.Country)
+	assert.Equal(t, "KES", airtelCfg.Currency)
+	assert.Zero(t, airtelCfg.PromptAmountKES, "the staging override must default off")
+	assert.False(t, airtelCfg.SigningEnabled, "signing must default off; it has to match Airtel's own toggle")
 }

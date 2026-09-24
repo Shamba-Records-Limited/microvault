@@ -528,6 +528,17 @@ func New() (*Config, error) {
 	if airtelSettlementMode == "" {
 		airtelSettlementMode = AirtelSettlementOTC
 	}
+	// Defaulted here rather than left to the client. The client applies the
+	// same Kenya op-co fallback, but a config that carries "" for the country
+	// it transacts in misleads anything that reads or logs it.
+	airtelCountry := os.Getenv("AIRTEL_COUNTRY")
+	if airtelCountry == "" {
+		airtelCountry = "KE"
+	}
+	airtelCurrency := os.Getenv("AIRTEL_CURRENCY")
+	if airtelCurrency == "" {
+		airtelCurrency = "KES"
+	}
 
 	loanRefPrefix := loanref.DefaultPrefix
 	if v := os.Getenv("LOAN_REFERENCE_PREFIX"); v != "" {
@@ -862,8 +873,8 @@ func New() (*Config, error) {
 				ClientID:             os.Getenv("AIRTEL_CLIENT_ID"),
 				ClientSecret:         os.Getenv("AIRTEL_CLIENT_SECRET"),
 				Environment:          airtelEnvironment,
-				Country:              os.Getenv("AIRTEL_COUNTRY"),
-				Currency:             os.Getenv("AIRTEL_CURRENCY"),
+				Country:              airtelCountry,
+				Currency:             airtelCurrency,
 				SigningEnabled:       os.Getenv("AIRTEL_SIGNING_ENABLED") == "true",
 				CallbackHMACKey:      os.Getenv("AIRTEL_CALLBACK_HMAC_KEY"),
 				CallbackBaseURL:      os.Getenv("AIRTEL_CALLBACK_BASE_URL"),

@@ -960,8 +960,6 @@ func (h *USSDHandler) cashPickupOutOfRange(ctx context.Context, session *Session
 	return "CON " + h.withNavHint(session, "payout_method", msg+"\n"+remaining.Render(session.Language)), true
 }
 
-// handleLoanConfirm handles loan confirmation. When PIN service is available,
-// pressing "1" routes to PIN verification before submitting the loan.
 // handleLoanConfirm accepts the PIN entered on the confirmation screen. The
 // terms and the PIN gate are one screen, so entering a correct PIN is both the
 // acceptance of the displayed terms and the authorization to borrow — there is
