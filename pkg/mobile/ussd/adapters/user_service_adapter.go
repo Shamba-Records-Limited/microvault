@@ -25,10 +25,9 @@ import (
 )
 
 const (
-	// Stellar BIP44 coin type is 148
-	// BIP44 path: m/44'/148'/account_index'/0'/0'
-	purposeIndex = 44 + 0x80000000  // 44' (hardened)
-	coinIndex    = 148 + 0x80000000 // 148' (hardened) - Stellar
+	purposeIndex    = 44 + 0x80000000  // 44' (hardened)
+	coinIndex       = 148 + 0x80000000 // 148' (hardened) - Stellar
+	maxAccountIndex = 1<<31 - 1
 )
 
 // WalletConfig contains configuration for HD wallet derivation and Stellar account creation
@@ -614,38 +613,33 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 
 // deriveChildKeypair derives a child keypair using BIP44 path: m/44'/148'/accountIndex'
 func (a *UserServiceAdapter) deriveChildKeypair(accountIndex int) (*keypair.Full, error) {
-	// BIP44 path for Stellar: m/44'/148'/accountIndex'/0'/0'
-	// All indices are hardened (') for security
+	errb := userAdapterErr("derive_keypair").With(pkgErrors.AttrAccountIndex, accountIndex).Code(pkgErrors.CodeBuildFailed)
 
-	// Derive: m/44'
+	if accountIndex < 0 || accountIndex > maxAccountIndex {
+		return nil, errb.Errorf("account index out of the hardened range")
+	}
+
 	purpose, err := a.walletConfig.MasterKey.NewChildKey(purposeIndex)
 	if err != nil {
-		return nil, userAdapterErr("derive_keypair").With("bip44_level", "purpose").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not derive a BIP44 level")
+		return nil, errb.With("bip44_level", "purpose").Wrapf(err, "could not derive a BIP44 level")
 	}
 
-	// Derive: m/44'/148'
 	coinType, err := purpose.NewChildKey(coinIndex)
 	if err != nil {
-		return nil, userAdapterErr("derive_keypair").With("bip44_level", "coin_type").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not derive a BIP44 level")
+		return nil, errb.With("bip44_level", "coin_type").Wrapf(err, "could not derive a BIP44 level")
 	}
 
-	// Derive: m/44'/148'/accountIndex'
-	accountKey, err := coinType.NewChildKey(uint32(accountIndex) + 0x80000000) // hardened
+	accountKey, err := coinType.NewChildKey(uint32(accountIndex) + bip32.FirstHardenedChild)
 	if err != nil {
-		return nil, userAdapterErr("derive_keypair").With("bip44_level", "account").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not derive a BIP44 level")
+		return nil, errb.With("bip44_level", "account").Wrapf(err, "could not derive a BIP44 level")
 	}
 
-	// Get the private key bytes (32 bytes)
-	privateKeyBytes := accountKey.Key
-
-	// Convert to [32]byte array for Stellar SDK
-	var seed32 [32]byte
-	copy(seed32[:], privateKeyBytes)
-
-	// Create Stellar keypair from derived seed
-	childKP, err := keypair.FromRawSeed(seed32)
+	if len(accountKey.Key) != 32 {
+		return nil, errb.With("key_len", len(accountKey.Key)).Errorf("derived key is not 32 bytes")
+	}
+	childKP, err := keypair.FromRawSeed([32]byte(accountKey.Key))
 	if err != nil {
-		return nil, userAdapterErr("derive_keypair").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not build a Stellar keypair from the derived seed")
+		return nil, errb.Wrapf(err, "could not build a Stellar keypair from the derived seed")
 	}
 
 	return childKP, nil

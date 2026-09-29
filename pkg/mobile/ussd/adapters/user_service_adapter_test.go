@@ -3,6 +3,7 @@ package adapters
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/tyler-smith/go-bip32"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
 )
@@ -42,14 +44,17 @@ func TestDeriveChildKeypair_UsesStoredIndexVerbatim(t *testing.T) {
 	a := newDerivationTestAdapter(t)
 
 	golden := map[int]string{
+		0: "GD2DNHNHDAXVUH7SBMKJ35SPNHKTMJACZWRYO5AQ3D3L3SUKPMEIKKDM",
 		1: "GAMZZBSGUJML7J7TP3N6S7SRPECW4TIQLIMVVGOJK3VY6TXN4RQRERER",
 		5: "GBYK3N42J6ZJZ7GJWB6B3BRMVBFRD7OCBXWTDY6AVE2XIPJERE665Q4H",
 	}
 
 	for index, want := range golden {
-		kp, err := a.deriveChildKeypair(index)
-		require.NoError(t, err)
-		assert.Equal(t, want, kp.Address(), "derivation changed for index %d", index)
+		t.Run(fmt.Sprintf("index %d", index), func(t *testing.T) {
+			kp, err := a.deriveChildKeypair(index)
+			require.NoError(t, err)
+			assert.Equal(t, want, kp.Address(), "derivation changed")
+		})
 	}
 }
 
@@ -64,6 +69,36 @@ func TestDeriveChildKeypair_NoHiddenOffset(t *testing.T) {
 
 	assert.NotEqual(t, offset.Address(), first.Address(),
 		"index 1 derived what index 5 should — the +4 offset is back")
+}
+
+// A negative or >= 2^31 index wraps into the non-hardened range on the uint32
+// conversion and can collide with another index, so it must be refused.
+func TestDeriveChildKeypair_RejectsIndexOutsideHardenedRange(t *testing.T) {
+	a := newDerivationTestAdapter(t)
+
+	tests := []struct {
+		name    string
+		index   int
+		wantErr bool
+	}{
+		{name: "negative", index: -1, wantErr: true},
+		{name: "first non-hardened wrap", index: maxAccountIndex + 1, wantErr: true},
+		{name: "highest hardened", index: maxAccountIndex, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := a.deriveChildKeypair(tt.index)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			var oopsErr oops.OopsError
+			require.ErrorAs(t, err, &oopsErr)
+			assert.Equal(t, pkgErrors.CodeBuildFailed, oopsErr.Code())
+			assert.Equal(t, tt.index, oopsErr.Context()[pkgErrors.AttrAccountIndex])
+		})
+	}
 }
 
 // fakeAccountService embeds the interface so only what these tests touch needs
