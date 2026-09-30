@@ -97,14 +97,15 @@ func skipped(path string, skip []string) bool {
 	return false
 }
 
-// Tracing starts a root server span per request, named by method and route.
+// Tracing starts a root server span per request, named by method and route,
+// and records the HTTP server metrics (duration, sizes, in-flight requests)
+// labelled by method, route and status.
 // Every caller is external — partners, the USSD gateway, browsers — so inbound
 // trace headers are ignored and none are written back. Paths are skipped as in
 // AccessLog.
 func Tracing(skip ...string) fiber.Handler {
 	return otelfiber.Middleware(
 		otelfiber.WithNext(func(c *fiber.Ctx) bool { return skipped(c.Path(), skip) }),
-		otelfiber.WithoutMetrics(true),
 		otelfiber.WithPropagators(propagation.NewCompositeTextMapPropagator()),
 		otelfiber.WithSpanNameFormatter(func(c *fiber.Ctx) string { return c.Method() + " " + c.Route().Path }),
 	)

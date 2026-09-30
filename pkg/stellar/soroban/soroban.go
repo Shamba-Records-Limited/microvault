@@ -3,6 +3,9 @@ package soroban
 import (
 	"context"
 	"log/slog"
+	"time"
+
+	"go.opentelemetry.io/otel/metric"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -356,6 +359,10 @@ func (s *service) submitContractTransaction(
 	return txResp, nil
 }
 
+var invocationDuration, _ = telemetry.Meter().Float64Histogram("microvault.soroban.invocation.duration",
+	metric.WithUnit("s"),
+	metric.WithDescription("Duration of a signed Soroban contract invocation from build to confirmed result, by contract function and outcome."))
+
 // invokeSigned builds, simulates and submits one signed contract call. errb
 // supplies the caller's attributes so every failure below carries the same
 // context without each call site restating it.
@@ -369,7 +376,10 @@ func (s *service) invokeSigned(
 	ctx, span := telemetry.Tracer().Start(ctx, "soroban."+fnName,
 		trace.WithAttributes(attribute.String(pkgErrors.AttrContractFunction, fnName)))
 	defer span.End()
+	start := time.Now()
 	resp, err := s.invokeSignedTx(ctx, signerKP, fnName, args, errb)
+	invocationDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
+		attribute.String(pkgErrors.AttrContractFunction, fnName), attribute.String("outcome", telemetry.Outcome(err))))
 	if resp != nil {
 		span.SetAttributes(attribute.String(pkgErrors.AttrTxHash, resp.TransactionHash))
 	}

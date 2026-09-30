@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"go.opentelemetry.io/otel/metric"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
@@ -206,6 +210,10 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 	}
 }
 
+var payoutDrift, _ = telemetry.Meter().Int64Counter("microvault.moneygram.payout_drift",
+	metric.WithUnit("{payout}"),
+	metric.WithDescription("MoneyGram payouts whose locked amount_out deviated from the amount quoted at USSD entry beyond the alert threshold, counted once per payout."))
+
 // handlePendingUserTransferComplete is when MG has locked in the payout —
 // `amount_out`, `amount_out_asset`, and `external_transaction_id` are
 // populated. The recorder already wrote those above; here we just emit a
@@ -214,7 +222,8 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 func (p *Poller) handlePendingUserTransferComplete(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
 	// Cash is collectable. The status transition is the idempotency guard, so
 	// the SMS is not re-sent every tick. Not terminal — polling continues.
-	if rec.DisbursementStatus != statusProcessing {
+	firstSeen := rec.DisbursementStatus != statusProcessing
+	if firstSeen {
 		if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, statusProcessing); err != nil {
 			// Bail before notifying — sending an SMS we failed to record
 			// would re-send it every tick.
@@ -243,6 +252,9 @@ func (p *Poller) handlePendingUserTransferComplete(ctx context.Context, rec Loan
 	}
 	deviation := (got - rec.RequestedLocalAmount) / rec.RequestedLocalAmount
 	if deviation < -p.cfg.PayoutDriftAlertPct || deviation > p.cfg.PayoutDriftAlertPct {
+		if firstSeen {
+			payoutDrift.Add(ctx, 1)
+		}
 		p.logger.WarnContext(ctx, "PAYOUT DRIFT: MG amount_out diverges from requested",
 			"loan_id", rec.LoanID,
 			"requested", rec.RequestedLocalAmount,
