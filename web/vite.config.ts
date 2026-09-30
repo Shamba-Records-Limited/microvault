@@ -9,6 +9,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // @metamask/connect-stellar imports the kit by its npm name; reuse the JSR install.
+      "@creit.tech/stellar-wallets-kit": "@creit-tech/stellar-wallets-kit",
     },
   },
   build: {

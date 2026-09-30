@@ -104,6 +104,65 @@
                 }
             }
         },
+        "/api/v1/callbacks/airtel/{slug}/collection": {
+            "post": {
+                "description": "Record an Airtel Money collection notification as an observation for the poller to confirm",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Airtel"
+                ],
+                "summary": "Record an Airtel collection callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Callback slug",
+                        "name": "slug",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Collection status notification",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Shamba-Records-Limited_microvault_pkg_payment_airtel.Callback"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Recorded",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Undecodable callback",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Source not permitted, or the hash did not verify",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to record the observation",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/callbacks/daraja/{slug}/c2b/confirmation": {
             "post": {
                 "description": "Record a settled C2B payment as an observation for the poller to confirm",
@@ -788,6 +847,32 @@
                 },
                 "message": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_Shamba-Records-Limited_microvault_pkg_payment_airtel.Callback": {
+            "type": "object",
+            "properties": {
+                "hash": {
+                    "description": "Hash is present when callback authentication is enabled in Application\nSettings. Empty means either that it is disabled or that someone who is\nnot Airtel posted this.",
+                    "type": "string"
+                },
+                "transaction": {
+                    "type": "object",
+                    "properties": {
+                        "airtel_money_id": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "string"
+                        },
+                        "message": {
+                            "type": "string"
+                        },
+                        "status_code": {
+                            "type": "string"
+                        }
+                    }
                 }
             }
         },
