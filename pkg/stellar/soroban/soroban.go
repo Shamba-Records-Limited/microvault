@@ -4,6 +4,11 @@ import (
 	"context"
 	"log/slog"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/samber/oops"
 
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
@@ -355,6 +360,25 @@ func (s *service) submitContractTransaction(
 // supplies the caller's attributes so every failure below carries the same
 // context without each call site restating it.
 func (s *service) invokeSigned(
+	ctx context.Context,
+	signerKP *keypair.Full,
+	fnName string,
+	args []xdr.ScVal,
+	errb oops.OopsErrorBuilder,
+) (*protocol.GetTransactionResponse, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "soroban."+fnName,
+		trace.WithAttributes(attribute.String(pkgErrors.AttrContractFunction, fnName)))
+	defer span.End()
+	resp, err := s.invokeSignedTx(ctx, signerKP, fnName, args, errb)
+	if resp != nil {
+		span.SetAttributes(attribute.String(pkgErrors.AttrTxHash, resp.TransactionHash))
+	}
+	telemetry.RecordError(span, err)
+	return resp, err
+}
+
+// invokeSignedTx is invokeSigned without the span.
+func (s *service) invokeSignedTx(
 	ctx context.Context,
 	signerKP *keypair.Full,
 	fnName string,

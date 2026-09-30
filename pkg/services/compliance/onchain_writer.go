@@ -5,6 +5,10 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 )
@@ -96,21 +100,28 @@ func (w *OnchainWriter) processAllows(ctx context.Context) {
 		return
 	}
 	for _, addr := range addrs {
-		if err := w.signer.AllowDepositor(ctx, addr.Address); err != nil {
-			w.logger.ErrorContext(ctx, "allow_depositor failed, will retry next tick",
-				"address_id", addr.ID, "address", addr.Address, "error", err)
-			continue
-		}
-		// AllowList::allow_user is idempotent on the contract side, so a
-		// failure here (recording what already happened on-chain) is safe
-		// to retry — the next tick's allow_depositor call is a harmless
-		// no-op, not a double-effect. This is exactly the "database says
-		// pending, contract says approved" drift pkg/services/vaultwatch
-		// exists to catch as a second layer.
-		if err := w.repo.SetOnchainState(ctx, addr.ID, models.OnchainStateApproved); err != nil {
-			w.logger.ErrorContext(ctx, "allow_depositor succeeded on-chain but the database write failed",
-				"address_id", addr.ID, "address", addr.Address, "error", err)
-		}
+		w.allow(ctx, addr)
+	}
+}
+
+func (w *OnchainWriter) allow(ctx context.Context, addr *models.CounterpartyAddress) {
+	ctx, span := telemetry.StartRoot(ctx, "compliance.allow_depositor", attribute.String("address_id", addr.ID))
+	defer span.End()
+	if err := w.signer.AllowDepositor(ctx, addr.Address); err != nil {
+		telemetry.RecordError(span, err)
+		w.logger.ErrorContext(ctx, "allow_depositor failed, will retry next tick",
+			"address_id", addr.ID, "address", addr.Address, "error", err)
+		return
+	}
+	// AllowList::allow_user is idempotent on the contract side, so a
+	// failure here (recording what already happened on-chain) is safe
+	// to retry — the next tick's allow_depositor call is a harmless
+	// no-op, not a double-effect. This is exactly the "database says
+	// pending, contract says approved" drift pkg/services/vaultwatch
+	// exists to catch as a second layer.
+	if err := w.repo.SetOnchainState(ctx, addr.ID, models.OnchainStateApproved); err != nil {
+		w.logger.ErrorContext(ctx, "allow_depositor succeeded on-chain but the database write failed",
+			"address_id", addr.ID, "address", addr.Address, "error", err)
 	}
 }
 
@@ -124,14 +135,21 @@ func (w *OnchainWriter) processRevokes(ctx context.Context) {
 		return
 	}
 	for _, addr := range addrs {
-		if err := w.signer.DisallowDepositor(ctx, addr.Address); err != nil {
-			w.logger.ErrorContext(ctx, "disallow_depositor failed, will retry next tick",
-				"address_id", addr.ID, "address", addr.Address, "error", err)
-			continue
-		}
-		if err := w.repo.SetOnchainState(ctx, addr.ID, models.OnchainStateRevoked); err != nil {
-			w.logger.ErrorContext(ctx, "disallow_depositor succeeded on-chain but the database write failed",
-				"address_id", addr.ID, "address", addr.Address, "error", err)
-		}
+		w.revoke(ctx, addr)
+	}
+}
+
+func (w *OnchainWriter) revoke(ctx context.Context, addr *models.CounterpartyAddress) {
+	ctx, span := telemetry.StartRoot(ctx, "compliance.disallow_depositor", attribute.String("address_id", addr.ID))
+	defer span.End()
+	if err := w.signer.DisallowDepositor(ctx, addr.Address); err != nil {
+		telemetry.RecordError(span, err)
+		w.logger.ErrorContext(ctx, "disallow_depositor failed, will retry next tick",
+			"address_id", addr.ID, "address", addr.Address, "error", err)
+		return
+	}
+	if err := w.repo.SetOnchainState(ctx, addr.ID, models.OnchainStateRevoked); err != nil {
+		w.logger.ErrorContext(ctx, "disallow_depositor succeeded on-chain but the database write failed",
+			"address_id", addr.ID, "address", addr.Address, "error", err)
 	}
 }

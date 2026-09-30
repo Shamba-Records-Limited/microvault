@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/contrib/otelfiber/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 )
@@ -93,4 +95,17 @@ func skipped(path string, skip []string) bool {
 		}
 	}
 	return false
+}
+
+// Tracing starts a root server span per request, named by method and route.
+// Every caller is external — partners, the USSD gateway, browsers — so inbound
+// trace headers are ignored and none are written back. Paths are skipped as in
+// AccessLog.
+func Tracing(skip ...string) fiber.Handler {
+	return otelfiber.Middleware(
+		otelfiber.WithNext(func(c *fiber.Ctx) bool { return skipped(c.Path(), skip) }),
+		otelfiber.WithoutMetrics(true),
+		otelfiber.WithPropagators(propagation.NewCompositeTextMapPropagator()),
+		otelfiber.WithSpanNameFormatter(func(c *fiber.Ctx) string { return c.Method() + " " + c.Route().Path }),
+	)
 }

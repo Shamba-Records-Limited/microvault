@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/samber/lo"
 	"gorm.io/datatypes"
 
@@ -93,6 +95,8 @@ func (s *SummarySweeper) Start(ctx context.Context) {
 // transaction id, so seeing the same settled payment twice updates one row
 // rather than crediting twice.
 func (s *SummarySweeper) sweep(ctx context.Context) {
+	ctx, span := telemetry.StartRoot(ctx, "airtel.summary_sweep")
+	defer span.End()
 	from, err := s.cursor.Get(ctx)
 	if err != nil {
 		s.logger.WarnContext(ctx, "could not read the sweep cursor", "error", err)

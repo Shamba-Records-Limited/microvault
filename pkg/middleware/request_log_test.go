@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -10,6 +11,9 @@ import (
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
@@ -18,7 +22,7 @@ import (
 func newApp(buf *bytes.Buffer) *fiber.App {
 	logger := logging.New(buf, slog.LevelInfo)
 	app := fiber.New(fiber.Config{DisableStartupMessage: true})
-	app.Use(middleware.RequestID(), middleware.AccessLog(logger, "/health", "/static/"))
+	app.Use(middleware.RequestID(), middleware.Tracing("/health"), middleware.AccessLog(logger, "/health", "/static/"))
 	app.Get("/loans/:id", func(c *fiber.Ctx) error {
 		logger.InfoContext(c.UserContext(), "inside handler")
 		return c.SendString("ok")
@@ -146,5 +150,50 @@ func TestNotedErrorWinsOverGenericHTTPError(t *testing.T) {
 	got := lines(t, &buf)
 	if len(got) != 1 || got[0]["error"] != "redis timeout" || got[0]["status"] != float64(500) {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestAccessLogCarriesTraceIDWhenTracing(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prev); _ = tp.Shutdown(context.Background()) })
+
+	var buf bytes.Buffer
+	app := newApp(&buf)
+	_, _ = app.Test(httptest.NewRequestWithContext(t.Context(), "GET", "/loans/7", nil))
+
+	spans := rec.Ended()
+	if len(spans) != 1 || spans[0].Name() != "GET /loans/:id" {
+		t.Fatalf("spans = %d, name = %q", len(spans), spans[0].Name())
+	}
+	traceID := spans[0].SpanContext().TraceID().String()
+	for _, l := range lines(t, &buf) {
+		if l["trace_id"] != traceID {
+			t.Errorf("line %v lacks trace_id %s", l, traceID)
+		}
+	}
+}
+
+func TestTracingIgnoresInboundTraceContext(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prev); _ = tp.Shutdown(context.Background()) })
+
+	var buf bytes.Buffer
+	app := newApp(&buf)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/loans/7", nil)
+	req.Header.Set("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+	resp, _ := app.Test(req)
+
+	span := rec.Ended()[0]
+	if span.Parent().IsValid() || span.SpanContext().TraceID().String() == "0af7651916cd43dd8448eb211c80319c" {
+		t.Fatal("server span adopted a caller-supplied trace")
+	}
+	if resp.Header.Get("traceparent") != "" {
+		t.Fatal("trace context written back to the caller")
 	}
 }

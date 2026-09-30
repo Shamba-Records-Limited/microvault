@@ -6,6 +6,13 @@ import (
 	"log/slog"
 	"time"
 
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
+
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
@@ -118,8 +125,16 @@ func (p *RefundPoller) poll(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		p.checkRefund(ctx, rec)
+		p.traceRefund(ctx, rec)
 	}
+}
+
+func (p *RefundPoller) traceRefund(ctx context.Context, rec RefundPendingRecord) {
+	ctx = logging.With(ctx, slog.String(pkgErrors.AttrLoanID, rec.LoanID), slog.String(pkgErrors.AttrSequenceID, rec.SequenceID), slog.String("payment_id", rec.PaymentID))
+	ctx, span := telemetry.StartRoot(ctx, "yellowcard.refund_check",
+		attribute.String(pkgErrors.AttrLoanID, rec.LoanID), attribute.String(pkgErrors.AttrSequenceID, rec.SequenceID), attribute.String("payment_id", rec.PaymentID))
+	defer span.End()
+	p.checkRefund(ctx, rec)
 }
 
 // checkRefund checks the YC API for the current status of a single payment

@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"testing"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 )
 
@@ -108,5 +110,28 @@ func TestParseLevel(t *testing.T) {
 	}
 	if _, err := logging.ParseLevel("loud"); err == nil {
 		t.Error("ParseLevel(loud) succeeded")
+	}
+}
+
+func TestTraceIDsAppearOnlyWithAValidSpan(t *testing.T) {
+	var buf bytes.Buffer
+	logger := logging.New(&buf, slog.LevelInfo)
+
+	logger.InfoContext(context.Background(), "untraced")
+	if got := decode(t, &buf); got["trace_id"] != nil {
+		t.Fatalf("trace_id without a span: %v", got)
+	}
+
+	buf.Reset()
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    trace.TraceID{0x0a, 0x0b},
+		SpanID:     trace.SpanID{0x01},
+		TraceFlags: trace.FlagsSampled,
+	})
+	ctx := trace.ContextWithSpanContext(context.Background(), sc)
+	logger.InfoContext(ctx, "traced")
+	got := decode(t, &buf)
+	if got["trace_id"] != sc.TraceID().String() || got["span_id"] != sc.SpanID().String() {
+		t.Fatalf("got %v", got)
 	}
 }

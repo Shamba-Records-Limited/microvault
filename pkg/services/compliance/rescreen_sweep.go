@@ -5,6 +5,10 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 )
@@ -97,9 +101,16 @@ func (s *RescreenSweep) tick(ctx context.Context) {
 		return
 	}
 	for _, addr := range addrs {
-		if err := s.service.ScreenAndRecord(ctx, addr.ID); err != nil {
-			s.logger.ErrorContext(ctx, "rescreen failed, address stays expired until the next sweep",
-				"address_id", addr.ID, "error", err)
-		}
+		s.rescreen(ctx, addr.ID)
+	}
+}
+
+func (s *RescreenSweep) rescreen(ctx context.Context, addressID string) {
+	ctx, span := telemetry.StartRoot(ctx, "compliance.rescreen", attribute.String("address_id", addressID))
+	defer span.End()
+	if err := s.service.ScreenAndRecord(ctx, addressID); err != nil {
+		telemetry.RecordError(span, err)
+		s.logger.ErrorContext(ctx, "rescreen failed, address stays expired until the next sweep",
+			"address_id", addressID, "error", err)
 	}
 }

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/samber/lo"
 	"github.com/samber/oops"
 
@@ -88,10 +90,10 @@ func NewYellowcardAdapter(publicKey, secretKey, baseURL string) *YellowcardAdapt
 		base:      http.DefaultTransport,
 	}
 
-	client := &http.Client{
+	client := telemetry.Client(&http.Client{
 		Transport: signingTransport,
 		Timeout:   30 * time.Second,
-	}
+	})
 
 	return &YellowcardAdapter{
 		httpClient: client,

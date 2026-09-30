@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/mpesa"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 )
@@ -88,6 +90,8 @@ func (p *BalancePoller) Start(ctx context.Context) {
 }
 
 func (p *BalancePoller) tick(ctx context.Context) {
+	ctx, span := telemetry.StartRoot(ctx, "mpesa.balance_query")
+	defer span.End()
 	p.query(ctx, p.collectionShortcode)
 	if p.disbursementShortcode != 0 && p.disbursementShortcode != p.collectionShortcode {
 		p.query(ctx, p.disbursementShortcode)

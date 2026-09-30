@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/redis/go-redis/extra/redisotel/v9"
+
 	"github.com/redis/go-redis/v9"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
@@ -62,6 +64,10 @@ func createClient(cfg *config.RedisConfig) (*redis.Client, error) {
 	}
 
 	client := redis.NewClient(options)
+	// Command text stays out of spans: values include USSD session state.
+	if err := redisotel.InstrumentTracing(client, redisotel.WithDBStatement(false)); err != nil {
+		return nil, fmt.Errorf("failed to install redis tracing: %w", err)
+	}
 
 	// Verify connection
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)

@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/mpesa"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
@@ -82,6 +84,8 @@ func (s *PullSweeper) Start(ctx context.Context) {
 // silently skipped — Daraja's 48-hour retention gives plenty of room for a
 // few missed ticks to catch up.
 func (s *PullSweeper) sweep(ctx context.Context) {
+	ctx, span := telemetry.StartRoot(ctx, "mpesa.pull_sweep")
+	defer span.End()
 	from, err := s.cursor.Get(ctx)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "could not read the pull cursor", "error", err)

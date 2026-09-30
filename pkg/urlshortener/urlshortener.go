@@ -3,7 +3,11 @@ package urlshortener
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
+	"time"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
 
 	dubgo "github.com/dubinc/dub-go"
 	"github.com/dubinc/dub-go/models/components"
@@ -63,7 +67,7 @@ type DubOptions struct {
 
 // NewDub builds a dub-backed shortener.
 func NewDub(opts DubOptions) *Dub {
-	sdkOpts := []dubgo.SDKOption{dubgo.WithSecurity(opts.APIKey)}
+	sdkOpts := []dubgo.SDKOption{dubgo.WithSecurity(opts.APIKey), dubgo.WithClient(telemetry.Client(&http.Client{Timeout: 60 * time.Second}))}
 	if opts.BaseURL != "" {
 		sdkOpts = append(sdkOpts, dubgo.WithServerURL(opts.BaseURL))
 	}

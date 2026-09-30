@@ -3,10 +3,13 @@ package logging
 import (
 	"context"
 	"log/slog"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Handler wraps a slog.Handler and appends the attributes attached to the
-// record's context with With.
+// record's context with With, plus trace_id and span_id when the context
+// carries a valid span.
 type Handler struct {
 	inner slog.Handler
 }
@@ -23,9 +26,14 @@ func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
 
 // Handle appends the context's attributes to r and passes it to inner.
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
-	if attrs := Attrs(ctx); len(attrs) > 0 {
+	attrs := Attrs(ctx)
+	sc := trace.SpanContextFromContext(ctx)
+	if len(attrs) > 0 || sc.IsValid() {
 		r = r.Clone()
 		r.AddAttrs(attrs...)
+		if sc.IsValid() {
+			r.AddAttrs(slog.String("trace_id", sc.TraceID().String()), slog.String("span_id", sc.SpanID().String()))
+		}
 	}
 	return h.inner.Handle(ctx, r)
 }

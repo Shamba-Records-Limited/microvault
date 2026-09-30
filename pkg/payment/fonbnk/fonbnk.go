@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/samber/oops"
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
@@ -81,10 +83,10 @@ func NewFonbnkAdapter(clientID string, clientSecret string, baseURL string) *Fon
 		base:         http.DefaultTransport,
 	}
 
-	client := &http.Client{
+	client := telemetry.Client(&http.Client{
 		Transport: signingTransport,
 		Timeout:   15 * time.Second,
-	}
+	})
 
 	return &FonbnkAdapter{
 		httpClient: client,

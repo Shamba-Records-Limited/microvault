@@ -8,6 +8,9 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
 
 	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
 
@@ -50,6 +53,11 @@ import (
 // @BasePath /
 func main() {
 	logger := logging.Setup()
+
+	shutdownTracing, err := telemetry.Setup(context.Background())
+	if err != nil {
+		log.Fatalf("Failed to set up tracing: %v", err)
+	}
 
 	// Load configuration on startup
 	cfg, err := config.New()
@@ -379,6 +387,12 @@ func main() {
 		slog.Error("Cache shutdown error", slog.Any("error", err))
 	} else {
 		slog.Info("Cache connections closed successfully")
+	}
+
+	flushCtx, cancelFlush := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelFlush()
+	if err := shutdownTracing(flushCtx); err != nil {
+		slog.Error("tracing shutdown error", slog.Any("error", err))
 	}
 
 	slog.Info("Core application shutdown complete")

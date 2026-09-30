@@ -328,6 +328,7 @@ func NewPoller(deps PollerDeps) (*Poller, error) {
 		Fetcher:   FetchFunc[LoanRecord](fetcher.GetActiveMoneyGramLoans),
 		Driver:    p,
 		Logger:    p.logger,
+		LoanID:    func(r LoanRecord) string { return r.LoanID },
 	})
 	return p, nil
 }

@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
@@ -89,6 +91,8 @@ func (w *Watcher) Start(ctx context.Context) {
 // where it was, so the same window is retried next tick — matching the Pull
 // sweep's precedent in pkg/services/mpesapoller.
 func (w *Watcher) tick(ctx context.Context) {
+	ctx, span := telemetry.StartRoot(ctx, "vaultwatch.tick")
+	defer span.End()
 	from, err := w.cursor.Get(ctx)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "could not read the watch cursor", "error", err)

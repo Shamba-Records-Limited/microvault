@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/BurntSushi/toml"
 	"github.com/samber/oops"
 
@@ -55,7 +57,7 @@ func FetchTOML(ctx context.Context, httpClient *http.Client, homeDomain string) 
 		return nil, errb.Code(pkgErrors.CodeMissingAccount).Wrapf(ErrInvalidConfig, "home domain is empty")
 	}
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = telemetry.Client(http.DefaultClient)
 	}
 
 	url := "https://" + strings.TrimSuffix(homeDomain, "/") + "/.well-known/stellar.toml"
@@ -173,7 +175,7 @@ func (t *TOML) AssetIssuer(code string) string {
 // short timeout, no redirects to other hosts. Use this if you don't already
 // have an http.Client to inject.
 func DefaultTOMLClient() *http.Client {
-	return &http.Client{
+	return telemetry.Client(&http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// SEP-1 TOMLs should not redirect off-host; reject to avoid
@@ -187,5 +189,5 @@ func DefaultTOMLClient() *http.Client {
 			}
 			return nil
 		},
-	}
+	})
 }

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
@@ -44,14 +46,14 @@ func NewClient(cfg Config) *Client {
 		baseURL = defaultBaseURL
 	}
 	return &Client{
-		httpClient: &http.Client{
+		httpClient: telemetry.Client(&http.Client{
 			Timeout: 15 * time.Second,
 			Transport: &signingTransport{
 				apiKey: cfg.APIKey,
 				secret: cfg.APISecret,
 				base:   http.DefaultTransport,
 			},
-		},
+		}),
 		baseURL:    baseURL,
 		thresholds: cfg.Thresholds,
 	}

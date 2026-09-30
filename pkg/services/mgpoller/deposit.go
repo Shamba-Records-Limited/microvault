@@ -215,6 +215,7 @@ func NewDepositDriver(deps DepositDriverDeps) (*DepositDriver, error) {
 		Fetcher:   FetchFunc[RepaymentRecord](fetcher.GetDueRepayments),
 		Driver:    d,
 		Logger:    d.logger,
+		LoanID:    func(r RepaymentRecord) string { return r.LoanID },
 	})
 	return d, nil
 }

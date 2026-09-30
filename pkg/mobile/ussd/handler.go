@@ -11,6 +11,11 @@ import (
 	"time"
 	"unicode"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
@@ -160,13 +165,21 @@ func NewUSSDHandler(deps HandlerDeps) *USSDHandler {
 
 // HandleRequest handles a USSD request
 func (h *USSDHandler) HandleRequest(ctx context.Context, sessionID, phoneNumber, serviceCode, networkCode, input string) (string, error) {
+	ctx = logging.With(ctx, slog.String("session_id", sessionID))
+
 	// Get or create session
 	session, err := h.sessionManager.GetOrCreateSession(ctx, sessionID, phoneNumber, serviceCode, networkCode)
 	if err != nil {
 		return h.formatError("en", "session_expired"), nil
 	}
 
-	slog.InfoContext(ctx, "ussd session step", slog.String("session_id", sessionID), slog.String("service_code", serviceCode), slog.String("network_code", networkCode), slog.String("phone_number", phone.Redact(phoneNumber)), slog.String("current_menu", session.CurrentMenu), slog.String("input", safeInput(session.CurrentMenu, input)))
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(attribute.String("ussd.session_id", sessionID), attribute.String("ussd.menu", session.CurrentMenu))
+	if session.UserID != "" {
+		span.SetAttributes(attribute.String(pkgErrors.AttrUserID, session.UserID))
+	}
+
+	slog.InfoContext(ctx, "ussd session step", slog.String("service_code", serviceCode), slog.String("network_code", networkCode), slog.String("phone_number", phone.Redact(phoneNumber)), slog.String("current_menu", session.CurrentMenu), slog.String("input", safeInput(session.CurrentMenu, input)))
 
 	// Handle empty input (first request)
 	if input == "" {

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -164,9 +166,9 @@ type StellarConfig struct {
 // NewRpcClient creates a new instance of Stellar RPC Client to connect with Stellar's RPC Server
 func (c *StellarConfig) NewRpcClient() *rpcclient.Client {
 	// Create a HTTP client
-	httpClient := &http.Client{
+	httpClient := telemetry.Client(&http.Client{
 		Timeout: 15 * time.Second,
-	}
+	})
 
 	// Create RPC Client
 	client := rpcclient.NewClient(c.RpcURL, httpClient)

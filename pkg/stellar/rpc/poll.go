@@ -5,6 +5,11 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
@@ -34,6 +39,21 @@ func DefaultPollConfig() PollConfig {
 // PollTransaction polls for transaction completion with proper logging.
 // It returns the full GetTransactionResponse on success and any error encountered.
 func PollTransaction(
+	ctx context.Context,
+	client TransactionGetter,
+	txHash string,
+	cfg PollConfig,
+) (protocol.GetTransactionResponse, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "stellar.poll_transaction",
+		trace.WithAttributes(attribute.String("tx_hash", txHash)))
+	defer span.End()
+	resp, err := pollTransaction(ctx, client, txHash, cfg)
+	span.SetAttributes(attribute.String("stellar.tx_status", resp.Status))
+	telemetry.RecordError(span, err)
+	return resp, err
+}
+
+func pollTransaction(
 	ctx context.Context,
 	client TransactionGetter,
 	txHash string,

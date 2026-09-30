@@ -92,7 +92,7 @@ func (s *Scheduler) RegisterCronJob(cronSpec string, taskType string, payload []
 	if err != nil {
 		return err
 	}
-	slog.Info("Registered cron job: with schedule", slog.String("task_type", taskType), slog.String("cron_spec", cronSpec))
+	slog.Info("registered cron job", slog.String("task_type", taskType), slog.String("cron_spec", cronSpec))
 	return nil
 }
 

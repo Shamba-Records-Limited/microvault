@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/samber/lo"
 	"github.com/samber/oops"
 
@@ -156,7 +158,7 @@ func New(cfg Config) (*Client, error) {
 		mint:         newSingleFlight(),
 	}
 	if c.http == nil {
-		c.http = &http.Client{Timeout: 30 * time.Second}
+		c.http = telemetry.Client(&http.Client{Timeout: 30 * time.Second})
 	}
 	if c.tokens == nil {
 		c.tokens = NewMemoryTokenStore()

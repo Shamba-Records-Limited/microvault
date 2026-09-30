@@ -5,5 +5,6 @@
 // the standard library log package through it. With attaches attributes to a
 // context; Handler appends them to every record logged through a *Context
 // method with that context, so a request ID or loan ID set once at the entry
-// point reaches every line below it.
+// point reaches every line below it. When the context carries an OpenTelemetry
+// span, the record also gets its trace_id and span_id.
 package logging

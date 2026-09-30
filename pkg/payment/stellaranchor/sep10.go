@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
@@ -100,7 +102,7 @@ func NewAuthClient(cfg AuthConfig, httpClient *http.Client, logger *slog.Logger)
 		cfg.WebAuthDomain = cfg.HomeDomain
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: cfg.HTTPTimeout}
+		httpClient = telemetry.Client(&http.Client{Timeout: cfg.HTTPTimeout})
 	}
 	if logger == nil {
 		logger = slog.Default()

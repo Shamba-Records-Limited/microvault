@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
 )
 
@@ -69,10 +71,10 @@ func NewAfricasTalkingSMSAdapter(username string, apiKey string, baseUrl string,
 	}
 
 	return &AfricaTalkingSMSAdapter{
-		httpClient: &http.Client{
+		httpClient: telemetry.Client(&http.Client{
 			Timeout:   timeout,
 			Transport: transport,
-		},
+		}),
 		username: username,
 		apiKey:   apiKey,
 		baseUrl:  baseUrl,

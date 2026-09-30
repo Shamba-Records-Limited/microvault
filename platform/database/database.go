@@ -57,6 +57,10 @@ func createConnection(cfg *config.PostgresConfig) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
+	// Bind values stay out of spans: they carry phone numbers and national IDs.
+	if err := db.Use(tracingPlugin{}); err != nil {
+		return nil, fmt.Errorf("failed to install database tracing: %w", err)
+	}
 
 	// Configure connection pooling
 	sqlDB, err := db.DB()

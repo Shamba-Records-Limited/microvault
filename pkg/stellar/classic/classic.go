@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
@@ -102,6 +104,15 @@ func NewServiceWithClient(
 
 // CreateSponsoredAccount implements the classic create account operation through sponsorship.
 func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAccountRequest) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "stellar.CreateSponsoredAccount")
+	defer span.End()
+	err := s.createSponsoredAccount(ctx, req)
+	telemetry.RecordError(span, err)
+	return err
+}
+
+// createSponsoredAccount is CreateSponsoredAccount without the span.
+func (s *service) createSponsoredAccount(ctx context.Context, req types.CreateAccountRequest) error {
 	// 1. Parse sponsor keypair
 	sponsorKP := keypair.MustParseFull(s.treasurySecretKey)
 
@@ -255,6 +266,15 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 // EstablishSponsoredTrustline adds a USDC trustline to an existing child account, with the
 // treasury sponsoring the trustline's reserve.
 func (s *service) EstablishSponsoredTrustline(ctx context.Context, req types.EstablishTrustlineRequest) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "stellar.EstablishSponsoredTrustline")
+	defer span.End()
+	err := s.establishSponsoredTrustline(ctx, req)
+	telemetry.RecordError(span, err)
+	return err
+}
+
+// establishSponsoredTrustline is EstablishSponsoredTrustline without the span.
+func (s *service) establishSponsoredTrustline(ctx context.Context, req types.EstablishTrustlineRequest) error {
 	// 1. Parse sponsor keypair
 	sponsorKP := keypair.MustParseFull(s.treasurySecretKey)
 
@@ -395,6 +415,15 @@ func (s *service) EstablishSponsoredTrustline(ctx context.Context, req types.Est
 // Sourcing from a child account requires that child to already hold the asset, which means a
 // trustline established via EstablishSponsoredTrustline first — child accounts are created without one.
 func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.SponsoredPaymentTransactionRequest) (*types.SponsoredPaymentTransactionResponse, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "stellar.SponsoredPaymentTransaction")
+	defer span.End()
+	resp, err := s.sponsoredPaymentTransaction(ctx, req)
+	telemetry.RecordError(span, err)
+	return resp, err
+}
+
+// sponsoredPaymentTransaction is SponsoredPaymentTransaction without the span.
+func (s *service) sponsoredPaymentTransaction(ctx context.Context, req types.SponsoredPaymentTransactionRequest) (*types.SponsoredPaymentTransactionResponse, error) {
 	// 1. Validate request
 	destination, err := keypair.ParseAddress(req.Destination)
 	if err != nil {
@@ -587,6 +616,15 @@ func (s *service) AccountExists(ctx context.Context, address string) (bool, erro
 // SendUSDC sends USDC directly from the treasury wallet to a destination Stellar address
 // with a text memo.
 func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "stellar.SendUSDC")
+	defer span.End()
+	resp, err := s.sendUSDC(ctx, req)
+	telemetry.RecordError(span, err)
+	return resp, err
+}
+
+// sendUSDC is SendUSDC without the span.
+func (s *service) sendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error) {
 	// 1. Validate request
 	destination, err := keypair.ParseAddress(req.Destination)
 	if err != nil {

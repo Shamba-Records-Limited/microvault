@@ -6,6 +6,11 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/samber/lo"
 	"github.com/samber/oops"
 
@@ -77,6 +82,7 @@ type Runner[T any] struct {
 	driver    Driver[T]
 	logger    *slog.Logger
 	db        *sql.DB
+	loanID    func(T) string
 }
 
 // RunnerDeps are the collaborators and settings a Runner needs. Logger and DB
@@ -99,6 +105,11 @@ type RunnerDeps[T any] struct {
 	// poll's doc comment — and is what every existing runner construction
 	// site keeps doing unless it opts in.
 	DB *sql.DB
+
+	// LoanID names the loan a record belongs to. When set, each record is
+	// driven under its own root span and a context carrying loan_id, so its
+	// trace and log lines are findable by loan. Optional.
+	LoanID func(T) string
 }
 
 // NewRunner pairs a fetcher and a driver on one cadence.
@@ -118,6 +129,7 @@ func NewRunner[T any](deps RunnerDeps[T]) *Runner[T] {
 		driver:    driver,
 		logger:    logger.With(pkgErrors.AttrDirection, direction),
 		db:        deps.DB,
+		loanID:    deps.LoanID,
 	}
 }
 
@@ -196,8 +208,20 @@ func (r *Runner[T]) runOnce(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		r.driver.Drive(ctx, rec)
+		r.drive(ctx, rec)
 	}
+}
+
+func (r *Runner[T]) drive(ctx context.Context, rec T) {
+	attrs := []attribute.KeyValue{attribute.String(pkgErrors.AttrDirection, r.direction)}
+	if r.loanID != nil {
+		id := r.loanID(rec)
+		attrs = append(attrs, attribute.String(pkgErrors.AttrLoanID, id))
+		ctx = logging.With(ctx, slog.String(pkgErrors.AttrLoanID, id))
+	}
+	ctx, span := telemetry.StartRoot(ctx, r.direction+".drive", attrs...)
+	defer span.End()
+	r.driver.Drive(ctx, rec)
 }
 
 // alertOps sends an ops alert, degrading to a log line when no AlertService is

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/samber/oops"
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
@@ -84,7 +86,7 @@ func NewFXRateClient(cfg FXRateConfig, oauth *OAuthClient, httpClient *http.Clie
 			Wrapf(stellaranchor.ErrInvalidConfig, "FX rate client is missing a required dependency")
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
+		httpClient = telemetry.Client(&http.Client{Timeout: 10 * time.Second})
 	}
 	if logger == nil {
 		logger = slog.Default()

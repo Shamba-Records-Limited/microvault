@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/samber/oops"
 
 	"github.com/stellar/go-stellar-sdk/amount"
@@ -281,7 +283,7 @@ func NewAnchorClient(cfg AnchorConfig, httpClient *http.Client, logger *slog.Log
 			Code(pkgErrors.CodeMissingDependency).Wrapf(ErrInvalidConfig, "required anchor setting is missing")
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 15 * time.Second}
+		httpClient = telemetry.Client(&http.Client{Timeout: 15 * time.Second})
 	}
 	if logger == nil {
 		logger = slog.Default()

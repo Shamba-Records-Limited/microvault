@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
+
 	"github.com/samber/oops"
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
@@ -61,7 +63,7 @@ func NewOAuthClient(cfg OAuthConfig, httpClient *http.Client, logger *slog.Logge
 		cfg.SafetyMargin = 30 * time.Second
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 15 * time.Second}
+		httpClient = telemetry.Client(&http.Client{Timeout: 15 * time.Second})
 	}
 	if logger == nil {
 		logger = slog.Default()

@@ -37,6 +37,7 @@ func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.L
 
 	a.Use(
 		RequestID(),
+		Tracing("/health", "/ready"),
 		AccessLog(logger, "/health", "/ready"),
 		// Helmet
 		helmet.New(helmetConfig),
