@@ -205,15 +205,19 @@ func (*NoOpLoanNotifier) NotifyRepaymentReminder(context.Context, contracts.Loan
 func (*NoOpLoanNotifier) NotifyRepaymentFailed(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyRepaymentReference(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyRepaymentMoreInfo(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyRepaymentPaybill(context.Context, contracts.LoanNotification) error {
 	return nil
 }
+
 func (*NoOpLoanNotifier) NotifyRepaymentInitiated(context.Context, contracts.LoanNotification) error {
 	return nil
 }

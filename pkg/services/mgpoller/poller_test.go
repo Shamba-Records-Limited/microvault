@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
@@ -170,7 +171,7 @@ func (r *fakeRecorder) RecordTransactionUpdate(_ context.Context, _ string, tx *
 	return nil
 }
 
-func (r *fakeRecorder) RecordSendUSDC(_ context.Context, _ string, h string) error {
+func (r *fakeRecorder) RecordSendUSDC(_ context.Context, _, h string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sendHash = h
@@ -204,49 +205,49 @@ type amountRepay struct {
 	stroops int64
 }
 
-func (d *fakeDisbursement) UpdateDisbursementStatus(seqID, status string) error {
+func (d *fakeDisbursement) UpdateDisbursementStatus(_ context.Context, seqID, status string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.statuses = append(d.statuses, seqID+"="+status)
 	return nil
 }
 
-func (d *fakeDisbursement) NotifyDisbursementComplete(seqID string) error {
+func (d *fakeDisbursement) NotifyDisbursementComplete(_ context.Context, seqID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.completedNotified = append(d.completedNotified, seqID)
 	return nil
 }
 
-func (d *fakeDisbursement) NotifyDisbursementFailed(seqID string) error {
+func (d *fakeDisbursement) NotifyDisbursementFailed(_ context.Context, seqID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.failedNotified = append(d.failedNotified, seqID)
 	return nil
 }
 
-func (d *fakeDisbursement) NotifyCashPickupReady(seqID string) error {
+func (d *fakeDisbursement) NotifyCashPickupReady(_ context.Context, seqID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.pickupReady = append(d.pickupReady, seqID)
 	return nil
 }
 
-func (d *fakeDisbursement) RepayVault(seqID string) error {
+func (d *fakeDisbursement) RepayVault(_ context.Context, seqID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.repays = append(d.repays, seqID)
 	return nil
 }
 
-func (d *fakeDisbursement) NotifyRefundReceived(seqID string) error {
+func (d *fakeDisbursement) NotifyRefundReceived(_ context.Context, seqID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.refundNotified = append(d.refundNotified, seqID)
 	return nil
 }
 
-func (d *fakeDisbursement) RepayVaultAmount(seqID string, stroops int64) error {
+func (d *fakeDisbursement) RepayVaultAmount(_ context.Context, seqID string, stroops int64) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.repayAmountErr != nil {
@@ -1071,4 +1072,12 @@ func TestPoller_Refunded_NoRefundsObject_CeilingDisabled(t *testing.T) {
 		p.poll(context.Background())
 	}
 	assert.Empty(t, alerts.calls)
+}
+
+func (d *fakeDisbursement) RecordDisbursementCompletion(context.Context, string, contracts.CompletionFinancials) error {
+	return nil
+}
+func (d *fakeDisbursement) SetSettlementMethod(context.Context, string, string) error { return nil }
+func (d *fakeDisbursement) IsDirectSettlement(context.Context, string) (bool, error) {
+	return false, nil
 }

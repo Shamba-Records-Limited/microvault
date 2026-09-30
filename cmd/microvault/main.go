@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/Shamba-Records-Limited/microvault/pkg/controllers"
 	"github.com/Shamba-Records-Limited/microvault/pkg/health"
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
 	smsAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms/providers/africastalking"
@@ -47,6 +49,8 @@ import (
 // @host localhost:8080
 // @BasePath /
 func main() {
+	logger := logging.Setup()
+
 	// Load configuration on startup
 	cfg, err := config.New()
 	if err != nil {
@@ -67,7 +71,7 @@ func main() {
 	// ---- Initialize Validation Service ----
 	// Initialize validation service used universally across controllers
 	validationService := validation.NewValidatorService()
-	log.Println("Validation service initialized")
+	slog.Info("Validation service initialized")
 
 	// ---- Initialize Platform Services ----
 	// Load database
@@ -76,7 +80,7 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	log.Println("Database connection successful")
+	slog.Info("Database connection successful")
 
 	// Load cache
 	redisClient, err := cache.GetConnection("core", &cfg.Redis)
@@ -84,7 +88,7 @@ func main() {
 		log.Fatalf("Failed to connect to redis: %v", err)
 	}
 
-	log.Println("Redis connection successful")
+	slog.Info("Redis connection successful")
 
 	// ---- Initialize Authentication Services ----
 	// Initialize challenge store with Redis
@@ -108,13 +112,13 @@ func main() {
 	// ---- Initialize Stellar Related Services ----
 	// Initialize stellar client
 	stellarClient := cfg.Stellar.NewRpcClient()
-	log.Println("Stellar RPC Client initialized.")
+	slog.Info("Stellar RPC Client initialized")
 
 	// Close stellar client
 	defer func() {
-		log.Println("Closing Stellar client...")
+		slog.Info("Closing Stellar client")
 		if err := stellarClient.Close(); err != nil {
-			log.Printf("Error closing Stellar client: %v", err)
+			slog.Error("Error closing Stellar client", slog.Any("error", err))
 		}
 	}()
 
@@ -127,7 +131,7 @@ func main() {
 		cfg.Stellar.ContractID,
 		cfg.Stellar.USDCIssuer,
 	)
-	log.Println("Stellar service initialized")
+	slog.Info("Stellar service initialized")
 
 	// ---- Initialize Repositories ----
 	db, err := database.GetConnection("core", &cfg.Postgres)
@@ -139,7 +143,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize repositories: %v", err)
 	}
-	log.Println("Repositories initialized successfully")
+	slog.Info("Repositories initialized successfully")
 
 	// A derivation index handed out twice derives one keypair for two users,
 	// and the second account already exists on-chain with its master key at
@@ -155,13 +159,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to floor account index sequence: %v", err)
 	}
-	log.Printf("Account index sequence floored; next allocation is %d", nextIndex)
+	slog.Info("account index sequence floored", slog.Int64("next_index", nextIndex))
 
 	// ---- Initialize Core Services ----
 	// User and Account services
 	userService := user.NewService(repos.User)
 	accountService := account.NewService(repos.Account, repos.User)
-	log.Println("User and Account services initialized")
+	slog.Info("User and Account services initialized")
 
 	// ---- Initialize Mobile Providers ----
 	// Initialize USSD providers
@@ -196,7 +200,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize USSD user service adapter: %v", err)
 	}
-	log.Println("USSD user service adapter initialized")
+	slog.Info("USSD user service adapter initialized")
 
 	// Initialize SMS providers
 	AfricasTalkingSMSProvider := smsAfrica.NewAfricasTalkingSMSAdapter(
@@ -229,12 +233,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize account notifier: %v", err)
 	}
-	log.Println("Notification service initialized")
+	slog.Info("Notification service initialized")
 
 	// ---- Initialize PIN Service ----
 	pinRepo := pin.NewSecurityQuestionRepository(db)
 	pinService := pin.NewService(repos.User, pinRepo, accountNotifier, cfg.Auth.PINLockoutDuration)
-	log.Println("PIN service initialized")
+	slog.Info("PIN service initialized")
 
 	// Initialize USSD handler with real services
 	// Note: loanService and disbursementService are nil - will be implemented later
@@ -277,7 +281,7 @@ func main() {
 	healthCheck := health.NewChecker(stellarClient, "core", "core")
 
 	// Initialize middleware & pass health checker middleware
-	middleware.FiberMiddleware(app, healthCheck)
+	middleware.FiberMiddleware(app, healthCheck, logger)
 
 	// Define swagger routes
 	app.Get("/swagger/*", swagger.New(swagger.Config{
@@ -347,35 +351,35 @@ func main() {
 
 	// Run the server in a separate goroutine
 	go func() {
-		log.Printf("Starting core server on %s", cfg.Server.CoreAddr())
+		slog.Info("starting core server", slog.String("core_addr", cfg.Server.CoreAddr()))
 		if err := app.Listen(cfg.Server.CoreAddr()); err != nil {
-			log.Printf("Server Listen error: %v", err)
+			slog.Error("Server Listen error", slog.Any("error", err))
 		}
 	}()
 
 	// Block main goroutine until a signal is received
 	sig := <-sigChan
-	log.Printf("Received signal %s. Shutting down gracefully...", sig)
+	slog.Info("received signal, shutting down", slog.String("signal", sig.String()))
 
 	// Tell Fiber to shut down
 	if err := app.Shutdown(); err != nil {
-		log.Printf("Fiber shutdown error: %v", err)
+		slog.Error("Fiber shutdown error", slog.Any("error", err))
 	}
-	log.Println("Fiber server shut down.")
+	slog.Info("Fiber server shut down")
 
 	// Close database connections
 	if err := database.CloseAll(); err != nil {
-		log.Printf("Database shutdown error: %v", err)
+		slog.Error("Database shutdown error", slog.Any("error", err))
 	} else {
-		log.Println("Database connections closed successfully.")
+		slog.Info("Database connections closed successfully")
 	}
 
 	// Close cache connections
 	if err := cache.CloseAll(); err != nil {
-		log.Printf("Cache shutdown error: %v", err)
+		slog.Error("Cache shutdown error", slog.Any("error", err))
 	} else {
-		log.Println("Cache connections closed successfully.")
+		slog.Info("Cache connections closed successfully")
 	}
 
-	log.Println("Core application shutdown complete.")
+	slog.Info("Core application shutdown complete")
 }

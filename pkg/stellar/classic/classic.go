@@ -2,7 +2,6 @@ package classic
 
 import (
 	"context"
-	"log"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -165,28 +164,28 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 		},
 	)
 	if err != nil {
-		log.Println("CreateSponsoredAccount: failed to build transaction: %w", err)
+		s.logger.ErrorContext(ctx, "CreateSponsoredAccount: failed to build transaction", slog.Any("error", err))
 		return types.ErrFailedToBuildTransaction
 	}
 
 	// 5. Sign transaction with network passphrase and sponsor keypair
 	tx, err = tx.Sign(s.networkPassphrase, sponsorKP)
 	if err != nil {
-		log.Printf("CreateSponsoredAccount: failed to sign transaction with sponsor key: %v", err)
+		s.logger.ErrorContext(ctx, "CreateSponsoredAccount: failed to sign transaction with sponsor key", slog.Any("error", err))
 		return types.ErrFailedToSignWithSponsorKey
 	}
 
 	// 6. Sign with child keypair
 	tx, err = tx.Sign(s.networkPassphrase, req.ChildKeypair)
 	if err != nil {
-		log.Printf("CreateSponsoredAccount: failed to sign transaction with child key: %v", err)
+		s.logger.ErrorContext(ctx, "CreateSponsoredAccount: failed to sign transaction with child key", slog.Any("error", err))
 		return types.ErrFailedToSignTransaction
 	}
 
 	// 7. Convert transaction to XDR format
 	xdrTx, err := tx.Base64()
 	if err != nil {
-		log.Println("CreateSponsoredAccount: failed to convert transaction to XDR: %w", err)
+		s.logger.ErrorContext(ctx, "CreateSponsoredAccount: failed to convert transaction to XDR", slog.Any("error", err))
 		return types.ErrFailedToConvertTransaction
 	}
 
@@ -195,30 +194,30 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 		Transaction: xdrTx,
 	})
 	if err != nil {
-		log.Printf("CreateSponsoredAccount: failed to submit transaction: %v", err)
+		s.logger.ErrorContext(ctx, "CreateSponsoredAccount: failed to submit transaction", slog.Any("error", err))
 		return types.ErrFailedToSubmitTransaction
 	}
 
 	// 9. Check submission status
-	log.Printf("CreateSponsoredAccount: transaction submission status: %s, hash: %s", txResponse.Status, txResponse.Hash)
+	s.logger.InfoContext(ctx, "CreateSponsoredAccount: transaction submission status: hash", slog.String("status", txResponse.Status), slog.String("hash", txResponse.Hash))
 
 	// Handle different submission statuses
 	switch txResponse.Status {
 	case stellarcore.TXStatusError:
 		return rejectionError("CreateSponsoredAccount", txResponse)
 	case stellarcore.TXStatusTryAgainLater:
-		log.Printf("CreateSponsoredAccount: stellar-core is overloaded, try again later")
+		s.logger.InfoContext(ctx, "CreateSponsoredAccount: stellar-core is overloaded, try again later")
 		return types.ErrStellarCoreOverloaded
 	case stellarcore.TXStatusDuplicate:
-		log.Printf("CreateSponsoredAccount: duplicate transaction detected")
+		s.logger.InfoContext(ctx, "CreateSponsoredAccount: duplicate transaction detected")
 	case stellarcore.TXStatusPending:
-		log.Printf("CreateSponsoredAccount: transaction pending")
+		s.logger.InfoContext(ctx, "CreateSponsoredAccount: transaction pending")
 	default:
-		log.Printf("CreateSponsoredAccount: unknown submission status: %s", txResponse.Status)
+		s.logger.InfoContext(ctx, "CreateSponsoredAccount: unknown submission status", slog.String("status", txResponse.Status))
 	}
 
 	txHash := txResponse.Hash
-	s.logger.Info("transaction submitted, waiting for confirmation",
+	s.logger.InfoContext(ctx, "transaction submitted, waiting for confirmation",
 		slog.String("operation", "CreateSponsoredAccount"),
 		slog.String("tx_hash", txHash),
 	)
@@ -228,7 +227,7 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 	pollCfg.Logger = s.logger
 	txResult, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
 	if err != nil {
-		s.logger.Error("transaction failed",
+		s.logger.ErrorContext(ctx, "transaction failed",
 			slog.String("operation", "CreateSponsoredAccount"),
 			slog.String("tx_hash", txHash),
 			slog.String("error", err.Error()),
@@ -237,7 +236,7 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 	}
 
 	if txResult.Status != protocol.TransactionStatusSuccess {
-		s.logger.Error("transaction not successful",
+		s.logger.ErrorContext(ctx, "transaction not successful",
 			slog.String("operation", "CreateSponsoredAccount"),
 			slog.String("tx_hash", txHash),
 			slog.String("status", txResult.Status),
@@ -245,7 +244,7 @@ func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAc
 		return types.ErrTransactionNotSuccessful
 	}
 
-	s.logger.Info("account created successfully on Stellar",
+	s.logger.InfoContext(ctx, "account created successfully on Stellar",
 		slog.String("operation", "CreateSponsoredAccount"),
 		slog.String("account", childPublicKey),
 		slog.String("tx_hash", txHash),
@@ -305,28 +304,28 @@ func (s *service) EstablishSponsoredTrustline(ctx context.Context, req types.Est
 		},
 	)
 	if err != nil {
-		log.Printf("EstablishSponsoredTrustline: failed to build transaction: %v", err)
+		s.logger.ErrorContext(ctx, "EstablishSponsoredTrustline: failed to build transaction", slog.Any("error", err))
 		return types.ErrFailedToBuildTransaction
 	}
 
 	// 6. Sign with sponsor keypair
 	tx, err = tx.Sign(s.networkPassphrase, sponsorKP)
 	if err != nil {
-		log.Printf("EstablishSponsoredTrustline: failed to sign transaction with sponsor key: %v", err)
+		s.logger.ErrorContext(ctx, "EstablishSponsoredTrustline: failed to sign transaction with sponsor key", slog.Any("error", err))
 		return types.ErrFailedToSignWithSponsorKey
 	}
 
 	// 7. Sign with child keypair
 	tx, err = tx.Sign(s.networkPassphrase, req.ChildKeypair)
 	if err != nil {
-		log.Printf("EstablishSponsoredTrustline: failed to sign transaction with child key: %v", err)
+		s.logger.ErrorContext(ctx, "EstablishSponsoredTrustline: failed to sign transaction with child key", slog.Any("error", err))
 		return types.ErrFailedToSignTransaction
 	}
 
 	// 8. Convert transaction to XDR format
 	xdrTx, err := tx.Base64()
 	if err != nil {
-		log.Printf("EstablishSponsoredTrustline: failed to convert transaction to XDR: %v", err)
+		s.logger.ErrorContext(ctx, "EstablishSponsoredTrustline: failed to convert transaction to XDR", slog.Any("error", err))
 		return types.ErrFailedToConvertTransaction
 	}
 
@@ -335,29 +334,29 @@ func (s *service) EstablishSponsoredTrustline(ctx context.Context, req types.Est
 		Transaction: xdrTx,
 	})
 	if err != nil {
-		log.Printf("EstablishSponsoredTrustline: failed to submit transaction: %v", err)
+		s.logger.ErrorContext(ctx, "EstablishSponsoredTrustline: failed to submit transaction", slog.Any("error", err))
 		return types.ErrFailedToSubmitTransaction
 	}
 
 	// 10. Check submission status
-	log.Printf("EstablishSponsoredTrustline: transaction submission status: %s, hash: %s", txResponse.Status, txResponse.Hash)
+	s.logger.InfoContext(ctx, "EstablishSponsoredTrustline: transaction submission status: hash", slog.String("status", txResponse.Status), slog.String("hash", txResponse.Hash))
 
 	switch txResponse.Status {
 	case stellarcore.TXStatusError:
 		return rejectionError("EstablishSponsoredTrustline", txResponse)
 	case stellarcore.TXStatusTryAgainLater:
-		log.Printf("EstablishSponsoredTrustline: stellar-core is overloaded, try again later")
+		s.logger.InfoContext(ctx, "EstablishSponsoredTrustline: stellar-core is overloaded, try again later")
 		return types.ErrStellarCoreOverloaded
 	case stellarcore.TXStatusDuplicate:
-		log.Printf("EstablishSponsoredTrustline: duplicate transaction detected")
+		s.logger.InfoContext(ctx, "EstablishSponsoredTrustline: duplicate transaction detected")
 	case stellarcore.TXStatusPending:
-		log.Printf("EstablishSponsoredTrustline: transaction pending")
+		s.logger.InfoContext(ctx, "EstablishSponsoredTrustline: transaction pending")
 	default:
-		log.Printf("EstablishSponsoredTrustline: unknown submission status: %s", txResponse.Status)
+		s.logger.InfoContext(ctx, "EstablishSponsoredTrustline: unknown submission status", slog.String("status", txResponse.Status))
 	}
 
 	txHash := txResponse.Hash
-	s.logger.Info("transaction submitted, waiting for confirmation",
+	s.logger.InfoContext(ctx, "transaction submitted, waiting for confirmation",
 		slog.String("operation", "EstablishSponsoredTrustline"),
 		slog.String("tx_hash", txHash),
 	)
@@ -367,7 +366,7 @@ func (s *service) EstablishSponsoredTrustline(ctx context.Context, req types.Est
 	pollCfg.Logger = s.logger
 	txResult, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
 	if err != nil {
-		s.logger.Error("transaction failed",
+		s.logger.ErrorContext(ctx, "transaction failed",
 			slog.String("operation", "EstablishSponsoredTrustline"),
 			slog.String("tx_hash", txHash),
 			slog.String("error", err.Error()),
@@ -376,7 +375,7 @@ func (s *service) EstablishSponsoredTrustline(ctx context.Context, req types.Est
 	}
 
 	if txResult.Status != protocol.TransactionStatusSuccess {
-		s.logger.Error("transaction not successful",
+		s.logger.ErrorContext(ctx, "transaction not successful",
 			slog.String("operation", "EstablishSponsoredTrustline"),
 			slog.String("tx_hash", txHash),
 			slog.String("status", txResult.Status),
@@ -384,7 +383,7 @@ func (s *service) EstablishSponsoredTrustline(ctx context.Context, req types.Est
 		return types.ErrTransactionNotSuccessful
 	}
 
-	s.logger.Info("sponsored USDC trustline established",
+	s.logger.InfoContext(ctx, "sponsored USDC trustline established",
 		slog.String("operation", "EstablishSponsoredTrustline"),
 		slog.String("account", childPublicKey),
 		slog.String("tx_hash", txHash),
@@ -399,29 +398,29 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 	// 1. Validate request
 	destination, err := keypair.ParseAddress(req.Destination)
 	if err != nil {
-		log.Printf("SponsoredPaymentTransaction: invalid stellar address: %s", req.Destination)
+		s.logger.ErrorContext(ctx, "SponsoredPaymentTransaction: invalid stellar address", slog.String("destination", req.Destination))
 		return nil, types.ErrInvalidStellarAddress
 	}
 
 	if req.Amount <= 0 {
-		log.Printf("SponsoredPaymentTransaction: invalid transaction amount: %d", req.Amount)
+		s.logger.ErrorContext(ctx, "SponsoredPaymentTransaction: invalid transaction amount", slog.Int64("amount", req.Amount))
 		return nil, types.ErrInvalidTransactionAmount
 	}
 
 	// 2. Validate destination has asset trustline
 	destinationAccount, err := s.rpcClient.LoadAccount(ctx, destination.Address())
 	if err != nil {
-		log.Printf("SponsoredPaymentTransaction: failed to load destination account: %s", req.Destination)
+		s.logger.ErrorContext(ctx, "SponsoredPaymentTransaction: failed to load destination account", slog.String("destination", req.Destination))
 		return nil, types.ErrFailedToLoadAccount
 	}
 	result, err := hasAssetTrustline(ctx, s.rpcClient, destinationAccount.GetAccountID(), req.AssetCode, req.AssetIssuer)
 	if err != nil {
-		log.Printf("SponsoredPaymentTransaction: failed to validate %s trustline for destination: %s", req.AssetCode, req.Destination)
+		s.logger.ErrorContext(ctx, "SponsoredPaymentTransaction: failed to validate destination trustline", slog.String("asset_code", req.AssetCode), slog.String("destination", req.Destination))
 		return nil, types.ErrFailedToValidateTrustline
 	}
 
 	if !result {
-		log.Printf("SponsoredPaymentTransaction: destination account %s does not have a %s trustline", req.Destination, req.AssetCode)
+		s.logger.InfoContext(ctx, "SponsoredPaymentTransaction: destination has no trustline", slog.String("destination", req.Destination), slog.String("asset_code", req.AssetCode))
 		return nil, types.ErrMissingTrustline
 	}
 
@@ -466,21 +465,21 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 		},
 	)
 	if err != nil {
-		log.Println("SponsoredPaymentTransaction: failed to build transaction: %w", err)
+		s.logger.ErrorContext(ctx, "SponsoredPaymentTransaction: failed to build transaction", slog.Any("error", err))
 		return nil, types.ErrFailedToBuildTransaction
 	}
 
 	// 5. Sign transaction
 	tx, err = tx.Sign(s.networkPassphrase, sponsorKP)
 	if err != nil {
-		log.Printf("SponsoredPaymentTransaction: failed to sign transaction with sponsor key: %v", err)
+		s.logger.ErrorContext(ctx, "SponsoredPaymentTransaction: failed to sign transaction with sponsor key", slog.Any("error", err))
 		return nil, types.ErrFailedToSignWithSponsorKey
 	}
 
 	// 6. Convert transaction to XDR format
 	xdrTx, err := tx.Base64()
 	if err != nil {
-		log.Println("SponsoredPaymentTransaction: failed to convert transaction to XDR: %w", err)
+		s.logger.ErrorContext(ctx, "SponsoredPaymentTransaction: failed to convert transaction to XDR", slog.Any("error", err))
 		return nil, types.ErrFailedToConvertTransaction
 	}
 
@@ -489,28 +488,28 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 		Transaction: xdrTx,
 	})
 	if err != nil {
-		log.Printf("SponsoredPaymentTransaction: failed to submit transaction: %v", err)
+		s.logger.ErrorContext(ctx, "SponsoredPaymentTransaction: failed to submit transaction", slog.Any("error", err))
 		return nil, types.ErrFailedToSubmitTransaction
 	}
 
-	log.Printf("SponsoredPaymentTransaction: transaction submission status: %s, hash: %s", txResponse.Status, txResponse.Hash)
+	s.logger.InfoContext(ctx, "SponsoredPaymentTransaction: transaction submission status: hash", slog.String("status", txResponse.Status), slog.String("hash", txResponse.Hash))
 
 	switch txResponse.Status {
 	case stellarcore.TXStatusError:
 		return nil, rejectionError("SponsoredPaymentTransaction", txResponse)
 	case stellarcore.TXStatusTryAgainLater:
-		log.Printf("SponsoredPaymentTransaction: stellar-core is overloaded, try again later")
+		s.logger.InfoContext(ctx, "SponsoredPaymentTransaction: stellar-core is overloaded, try again later")
 		return nil, types.ErrStellarCoreOverloaded
 	case stellarcore.TXStatusDuplicate:
-		log.Printf("SponsoredPaymentTransaction: duplicate transaction detected")
+		s.logger.InfoContext(ctx, "SponsoredPaymentTransaction: duplicate transaction detected")
 	case stellarcore.TXStatusPending:
-		log.Printf("SponsoredPaymentTransaction: transaction pending")
+		s.logger.InfoContext(ctx, "SponsoredPaymentTransaction: transaction pending")
 	default:
-		log.Printf("SponsoredPaymentTransaction: unknown submission status: %s", txResponse.Status)
+		s.logger.InfoContext(ctx, "SponsoredPaymentTransaction: unknown submission status", slog.String("status", txResponse.Status))
 	}
 
 	txHash := txResponse.Hash
-	s.logger.Info("transaction submitted, waiting for confirmation",
+	s.logger.InfoContext(ctx, "transaction submitted, waiting for confirmation",
 		slog.String("operation", "SponsoredPaymentTransaction"),
 		slog.String("tx_hash", txHash),
 	)
@@ -519,7 +518,7 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 	pollCfg.Logger = s.logger
 	txResult, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
 	if err != nil {
-		s.logger.Error("transaction failed",
+		s.logger.ErrorContext(ctx, "transaction failed",
 			slog.String("operation", "SponsoredPaymentTransaction"),
 			slog.String("tx_hash", txHash),
 			slog.String("error", err.Error()),
@@ -528,7 +527,7 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 	}
 
 	if txResult.Status != protocol.TransactionStatusSuccess {
-		s.logger.Error("transaction not successful",
+		s.logger.ErrorContext(ctx, "transaction not successful",
 			slog.String("operation", "SponsoredPaymentTransaction"),
 			slog.String("tx_hash", txHash),
 			slog.String("status", txResult.Status),
@@ -536,7 +535,7 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 		return nil, types.ErrTransactionNotSuccessful
 	}
 
-	s.logger.Info("payment successful",
+	s.logger.InfoContext(ctx, "payment successful",
 		slog.String("operation", "SponsoredPaymentTransaction"),
 		slog.String("source", req.Source),
 		slog.String("destination", req.Destination),
@@ -555,13 +554,13 @@ func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.Spo
 func (s *service) CheckUSDCTrustline(ctx context.Context, address string) (bool, error) {
 	destination, err := keypair.ParseAddress(address)
 	if err != nil {
-		s.logger.Error("CheckUSDCTrustline: invalid address", slog.String("address", address))
+		s.logger.ErrorContext(ctx, "CheckUSDCTrustline: invalid address", slog.String("address", address))
 		return false, types.ErrInvalidStellarAddress
 	}
 
 	destinationAccount, err := s.rpcClient.LoadAccount(ctx, destination.Address())
 	if err != nil {
-		s.logger.Error("CheckUSDCTrustline: failed to load account", slog.String("address", address))
+		s.logger.ErrorContext(ctx, "CheckUSDCTrustline: failed to load account", slog.String("address", address))
 		return false, types.ErrFailedToLoadAccount
 	}
 
@@ -591,7 +590,7 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 	// 1. Validate request
 	destination, err := keypair.ParseAddress(req.Destination)
 	if err != nil {
-		s.logger.Error("SendUSDC: invalid destination address", slog.String("destination", req.Destination))
+		s.logger.ErrorContext(ctx, "SendUSDC: invalid destination address", slog.String("destination", req.Destination))
 		return nil, types.ErrInvalidStellarAddress
 	}
 
@@ -602,7 +601,7 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 	// 2. Validate destination has USDC trustline
 	destinationAccount, err := s.rpcClient.LoadAccount(ctx, destination.Address())
 	if err != nil {
-		s.logger.Error("SendUSDC: failed to load destination account", slog.String("destination", req.Destination))
+		s.logger.ErrorContext(ctx, "SendUSDC: failed to load destination account", slog.String("destination", req.Destination))
 		return nil, types.ErrFailedToLoadAccount
 	}
 
@@ -658,14 +657,14 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 
 	tx, err := txnbuild.NewTransaction(txParams)
 	if err != nil {
-		s.logger.Error("SendUSDC: failed to build transaction", slog.String("error", err.Error()))
+		s.logger.ErrorContext(ctx, "SendUSDC: failed to build transaction", slog.String("error", err.Error()))
 		return nil, types.ErrFailedToBuildTransaction
 	}
 
 	// 4. Sign with treasury key
 	tx, err = tx.Sign(s.networkPassphrase, treasuryKP)
 	if err != nil {
-		s.logger.Error("SendUSDC: failed to sign transaction", slog.String("error", err.Error()))
+		s.logger.ErrorContext(ctx, "SendUSDC: failed to sign transaction", slog.String("error", err.Error()))
 		return nil, types.ErrFailedToSignWithSponsorKey
 	}
 
@@ -679,7 +678,7 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 		Transaction: xdrTx,
 	})
 	if err != nil {
-		s.logger.Error("SendUSDC: failed to submit transaction", slog.String("error", err.Error()))
+		s.logger.ErrorContext(ctx, "SendUSDC: failed to submit transaction", slog.String("error", err.Error()))
 		return nil, types.ErrFailedToSubmitTransaction
 	}
 
@@ -692,7 +691,7 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 	}
 
 	txHash := txResponse.Hash
-	s.logger.Info("SendUSDC: transaction submitted, waiting for confirmation",
+	s.logger.InfoContext(ctx, "SendUSDC: transaction submitted, waiting for confirmation",
 		slog.String("tx_hash", txHash),
 		slog.String("destination", req.Destination),
 		slog.String("memo", req.Memo),
@@ -704,7 +703,7 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 	pollCfg.Logger = s.logger
 	txResult, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
 	if err != nil {
-		s.logger.Error("SendUSDC: transaction failed",
+		s.logger.ErrorContext(ctx, "SendUSDC: transaction failed",
 			slog.String("tx_hash", txHash),
 			slog.String("error", err.Error()),
 		)
@@ -718,14 +717,14 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 	}
 
 	if txResult.Status != protocol.TransactionStatusSuccess {
-		s.logger.Error("SendUSDC: transaction not successful",
+		s.logger.ErrorContext(ctx, "SendUSDC: transaction not successful",
 			slog.String("tx_hash", txHash),
 			slog.String("status", txResult.Status),
 		)
 		return nil, types.ErrTransactionNotSuccessful
 	}
 
-	s.logger.Info("SendUSDC: payment successful",
+	s.logger.InfoContext(ctx, "SendUSDC: payment successful",
 		slog.String("tx_hash", txHash),
 		slog.String("destination", req.Destination),
 		slog.String("memo", req.Memo),

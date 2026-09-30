@@ -9,11 +9,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 
 	_ "github.com/joho/godotenv/autoload"
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/soroban"
@@ -28,6 +30,8 @@ type ledgerGetter interface {
 const eventsPageLimit = 1000
 
 func main() {
+	logging.Setup()
+
 	confirm := flag.Bool("confirm", false, "submit allow_depositor for every address found unallowlisted")
 	flag.Parse()
 
@@ -53,7 +57,7 @@ func main() {
 	for _, addr := range addresses {
 		allowed, err := stellarSvc.IsAllowed(ctx, addr)
 		if err != nil {
-			log.Printf("warning: could not check %s: %v", addr, err)
+			slog.ErrorContext(ctx, "warning: could not check", slog.String("addr", addr), slog.Any("error", err))
 			continue
 		}
 		if !allowed {
@@ -80,7 +84,7 @@ func main() {
 	complianceSvc := stellarSvc.WithComplianceRole(cfg.Compliance.ComplianceRoleSecretKey)
 	for _, addr := range missing {
 		if err := complianceSvc.AllowDepositor(ctx, addr); err != nil {
-			log.Printf("FAILED to allow %s: %v", addr, err)
+			slog.ErrorContext(ctx, "FAILED to allow", slog.String("addr", addr), slog.Any("error", err))
 			continue
 		}
 		fmt.Printf("allowed %s\n", addr)
@@ -95,7 +99,8 @@ func main() {
 func scanDepositors(ctx context.Context, client interface {
 	rpc.EventsGetter
 	ledgerGetter
-}, contractID string) (addresses []string, oldest, latest uint32, err error) {
+}, contractID string,
+) (addresses []string, oldest, latest uint32, err error) {
 	seen := make(map[string]struct{})
 
 	filters := []protocol.EventFilter{{ContractIDs: []string{contractID}}}
@@ -135,7 +140,7 @@ func scanDepositors(ctx context.Context, client interface {
 		for _, info := range resp.Events {
 			event, err := soroban.DecodeVaultEvent(info)
 			if err != nil {
-				log.Printf("warning: could not decode event %s: %v", info.ID, err)
+				slog.WarnContext(ctx, "could not decode event", slog.String("id", info.ID), slog.Any("error", err))
 				continue
 			}
 			for _, addr := range event.Addresses {

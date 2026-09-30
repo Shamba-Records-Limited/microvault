@@ -73,13 +73,13 @@ func (p *BalancePoller) Start(ctx context.Context) {
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 
-	p.logger.Info("starting", "interval", p.interval)
+	p.logger.InfoContext(ctx, "starting", "interval", p.interval)
 	p.tick(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			p.logger.Info("shutting down")
+			p.logger.InfoContext(ctx, "shutting down")
 			return
 		case <-ticker.C:
 			p.tick(ctx)
@@ -100,14 +100,14 @@ func (p *BalancePoller) query(ctx context.Context, shortcode uint) {
 	}
 	ack, err := p.client.AccountBalance(ctx, mpesa.AccountBalanceRequest{PartyA: shortcode, URLs: p.urls})
 	if err != nil {
-		p.logger.Error("account balance request failed", "shortcode", shortcode, "error", err)
+		p.logger.ErrorContext(ctx, "account balance request failed", "shortcode", shortcode, "error", err)
 		return
 	}
 	if !ack.Accepted() {
-		p.logger.Warn("account balance request declined", "shortcode", shortcode, "response", ack.ResponseDescription)
+		p.logger.WarnContext(ctx, "account balance request declined", "shortcode", shortcode, "response", ack.ResponseDescription)
 		return
 	}
 	if err := p.queries.RecordQuery(ctx, ack.OriginatorConversationID, shortcode); err != nil {
-		p.logger.Error("could not record balance query correlation", "shortcode", shortcode, "error", err)
+		p.logger.ErrorContext(ctx, "could not record balance query correlation", "shortcode", shortcode, "error", err)
 	}
 }

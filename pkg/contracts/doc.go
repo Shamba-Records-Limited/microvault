@@ -10,6 +10,11 @@
 // retrieval. The package that originates loans implements it; handlers and jobs
 // depend only on the interface.
 //
+// DisbursementUpdater (disbursement.go) is the off-ramp settlement port — terminal
+// status transitions, borrower notifications and vault repayment for a loan
+// identified by its sequence ID. The lending module implements it; the YellowCard
+// webhook service, its refund poller and the MoneyGram poller consume it.
+//
 // LoanNotifier (lending.go) and AccountNotifier (pin.go) are the notification
 // ports. They are implemented by the notification layer, which may deliver over
 // SMS, push, or any other transport, and are consumed by the services that need

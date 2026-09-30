@@ -177,14 +177,14 @@ type fakeRepaymentNotifier struct {
 	repaid     []string
 }
 
-func (n *fakeRepaymentNotifier) NotifyRepaymentReference(loanID, reference string) error {
+func (n *fakeRepaymentNotifier) NotifyRepaymentReference(_ context.Context, loanID, reference string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.references = append(n.references, loanID+":"+reference)
 	return nil
 }
 
-func (n *fakeRepaymentNotifier) NotifyRepaymentMoreInfo(loanID string) error {
+func (n *fakeRepaymentNotifier) NotifyRepaymentMoreInfo(_ context.Context, loanID string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.err != nil {
@@ -194,28 +194,28 @@ func (n *fakeRepaymentNotifier) NotifyRepaymentMoreInfo(loanID string) error {
 	return nil
 }
 
-func (n *fakeRepaymentNotifier) NotifyRepaymentReceived(loanID string) error {
+func (n *fakeRepaymentNotifier) NotifyRepaymentReceived(_ context.Context, loanID string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.received = append(n.received, loanID)
 	return nil
 }
 
-func (n *fakeRepaymentNotifier) NotifyRepaymentReminder(loanID string) error {
+func (n *fakeRepaymentNotifier) NotifyRepaymentReminder(_ context.Context, loanID string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.reminder = append(n.reminder, loanID)
 	return nil
 }
 
-func (n *fakeRepaymentNotifier) NotifyRepaymentExpired(loanID string) error {
+func (n *fakeRepaymentNotifier) NotifyRepaymentExpired(_ context.Context, loanID string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.expired = append(n.expired, loanID)
 	return nil
 }
 
-func (n *fakeRepaymentNotifier) NotifyLoanRepaid(loanID string) error {
+func (n *fakeRepaymentNotifier) NotifyLoanRepaid(_ context.Context, loanID string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.repaid = append(n.repaid, loanID)

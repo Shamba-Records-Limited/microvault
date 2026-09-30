@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgconn"
@@ -103,7 +103,7 @@ func (r *airtelTransactionRepository) RecordCallback(ctx context.Context, tx *mo
 
 	var pgErr *pgconn.PgError
 	if !errors.As(result.Error, &pgErr) || pgErr.Code != "23505" {
-		log.Printf("AirtelTransactionRepository.RecordCallback: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.RecordCallback: database error", slog.Any("error", result.Error))
 		return ErrFailedToRecordAirtel
 	}
 	return r.updateFromCallback(ctx, tx)
@@ -132,7 +132,7 @@ func (r *airtelTransactionRepository) updateFromCallback(ctx context.Context, tx
 		Where("partner_txn_id = ? AND confirmed = false", tx.PartnerTxnID).
 		Updates(updates)
 	if result.Error != nil {
-		log.Printf("AirtelTransactionRepository.updateFromCallback: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.updateFromCallback: database error", slog.Any("error", result.Error))
 		return ErrFailedToRecordAirtel
 	}
 	// Zero rows means the row exists but is already confirmed. That is a
@@ -149,7 +149,7 @@ func (r *airtelTransactionRepository) GetByPartnerID(ctx context.Context, partne
 		return nil, ErrAirtelNotFound
 	}
 	if result.Error != nil {
-		log.Printf("AirtelTransactionRepository.GetByPartnerID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.GetByPartnerID: database error", slog.Any("error", result.Error))
 		return nil, ErrAirtelNotFound
 	}
 	return &tx, nil
@@ -163,7 +163,7 @@ func (r *airtelTransactionRepository) GetByAirtelMoneyID(ctx context.Context, ai
 		return nil, ErrAirtelNotFound
 	}
 	if result.Error != nil {
-		log.Printf("AirtelTransactionRepository.GetByAirtelMoneyID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.GetByAirtelMoneyID: database error", slog.Any("error", result.Error))
 		return nil, ErrAirtelNotFound
 	}
 	return &tx, nil
@@ -178,7 +178,7 @@ func (r *airtelTransactionRepository) DuePoll(ctx context.Context, limit int) ([
 		Limit(limit).
 		Find(&txs)
 	if result.Error != nil {
-		log.Printf("AirtelTransactionRepository.DuePoll: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.DuePoll: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToPollAirtel
 	}
 	return txs, nil
@@ -205,7 +205,7 @@ func (r *airtelTransactionRepository) Confirm(ctx context.Context, partnerTxnID 
 		Where("partner_txn_id = ?", partnerTxnID).
 		Updates(updates)
 	if result.Error != nil {
-		log.Printf("AirtelTransactionRepository.Confirm: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.Confirm: database error", slog.Any("error", result.Error))
 		return ErrFailedToRecordAirtel
 	}
 	if result.RowsAffected == 0 {
@@ -225,7 +225,7 @@ func (r *airtelTransactionRepository) UpdatePoll(ctx context.Context, partnerTxn
 			"updated_at":    time.Now(),
 		})
 	if result.Error != nil {
-		log.Printf("AirtelTransactionRepository.UpdatePoll: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.UpdatePoll: database error", slog.Any("error", result.Error))
 		return ErrFailedToPollAirtel
 	}
 	return nil
@@ -238,7 +238,7 @@ func (r *airtelTransactionRepository) StopPoll(ctx context.Context, partnerTxnID
 		Where("partner_txn_id = ?", partnerTxnID).
 		Update("next_poll_at", nil)
 	if result.Error != nil {
-		log.Printf("AirtelTransactionRepository.StopPoll: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.StopPoll: database error", slog.Any("error", result.Error))
 		return ErrFailedToPollAirtel
 	}
 	return nil
@@ -258,7 +258,7 @@ func (r *airtelTransactionRepository) UpsertFromSummary(ctx context.Context, tx 
 
 	var pgErr *pgconn.PgError
 	if !errors.As(result.Error, &pgErr) || pgErr.Code != "23505" {
-		log.Printf("AirtelTransactionRepository.UpsertFromSummary: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.UpsertFromSummary: database error", slog.Any("error", result.Error))
 		return ErrFailedToRecordAirtel
 	}
 
@@ -281,7 +281,7 @@ func (r *airtelTransactionRepository) UpsertFromSummary(ctx context.Context, tx 
 		Where("partner_txn_id = ?", tx.PartnerTxnID).
 		Updates(updates)
 	if update.Error != nil {
-		log.Printf("AirtelTransactionRepository.UpsertFromSummary: database error: %v", update.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.UpsertFromSummary: database error", slog.Any("error", update.Error))
 		return ErrFailedToRecordAirtel
 	}
 	return nil
@@ -296,7 +296,7 @@ func (r *airtelTransactionRepository) ListUnappliedConfirmed(ctx context.Context
 		Limit(limit).
 		Find(&txs)
 	if result.Error != nil {
-		log.Printf("AirtelTransactionRepository.ListUnappliedConfirmed: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.ListUnappliedConfirmed: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToRecordAirtel
 	}
 	return txs, nil
@@ -309,7 +309,7 @@ func (r *airtelTransactionRepository) SetAppliedStroops(ctx context.Context, id 
 		Where("id = ?", id).
 		Update("applied_stroops", stroops)
 	if result.Error != nil {
-		log.Printf("AirtelTransactionRepository.SetAppliedStroops: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.SetAppliedStroops: database error", slog.Any("error", result.Error))
 		return ErrFailedToRecordAirtel
 	}
 	if result.RowsAffected == 0 {
@@ -328,7 +328,7 @@ func (r *airtelTransactionRepository) SumAppliedStroopsByLoan(ctx context.Contex
 		Select("COALESCE(SUM(applied_stroops), 0)").
 		Scan(&total)
 	if result.Error != nil {
-		log.Printf("AirtelTransactionRepository.SumAppliedStroopsByLoan: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelTransactionRepository.SumAppliedStroopsByLoan: database error", slog.Any("error", result.Error))
 		return 0, ErrFailedToRecordAirtel
 	}
 	return total, nil

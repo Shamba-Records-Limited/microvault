@@ -18,10 +18,13 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/mpesa"
 )
 
 func main() {
+	logging.Setup()
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)

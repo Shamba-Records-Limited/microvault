@@ -72,13 +72,13 @@ func (s *SummarySweeper) Start(ctx context.Context) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
-	s.logger.Info("starting", "interval", s.interval)
+	s.logger.InfoContext(ctx, "starting", "interval", s.interval)
 	s.sweep(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Info("shutting down")
+			s.logger.InfoContext(ctx, "shutting down")
 			return
 		case <-ticker.C:
 			s.sweep(ctx)
@@ -95,7 +95,7 @@ func (s *SummarySweeper) Start(ctx context.Context) {
 func (s *SummarySweeper) sweep(ctx context.Context) {
 	from, err := s.cursor.Get(ctx)
 	if err != nil {
-		s.logger.Warn("could not read the sweep cursor", "error", err)
+		s.logger.WarnContext(ctx, "could not read the sweep cursor", "error", err)
 		return
 	}
 	to := s.now()
@@ -105,17 +105,17 @@ func (s *SummarySweeper) sweep(ctx context.Context) {
 
 	swept, err := s.walk(ctx, from, to)
 	if err != nil {
-		s.logger.Warn("sweep did not complete; the cursor stays put and the window will be re-walked",
+		s.logger.WarnContext(ctx, "sweep did not complete; the cursor stays put and the window will be re-walked",
 			"from", from, "to", to, "recorded", swept, "error", err)
 		return
 	}
 
 	if err := s.cursor.Advance(ctx, to); err != nil {
-		s.logger.Warn("could not advance the sweep cursor; the window will be re-walked", "error", err)
+		s.logger.WarnContext(ctx, "could not advance the sweep cursor; the window will be re-walked", "error", err)
 		return
 	}
 	if swept > 0 {
-		s.logger.Info("reconciled settled collections", "from", from, "to", to, "recorded", swept)
+		s.logger.InfoContext(ctx, "reconciled settled collections", "from", from, "to", to, "recorded", swept)
 	}
 }
 
@@ -148,7 +148,7 @@ func (s *SummarySweeper) walk(ctx context.Context, from, to time.Time) (int, err
 		}
 	}
 
-	s.logger.Warn("sweep hit the page ceiling; the cursor will not advance and the window resumes next tick",
+	s.logger.WarnContext(ctx, "sweep hit the page ceiling; the cursor will not advance and the window resumes next tick",
 		"from", from, "to", to, "max_pages", maxPages)
 	return recorded, nil
 }
@@ -160,7 +160,7 @@ func (s *SummarySweeper) record(ctx context.Context, entry airtel.SummaryTransac
 		// A formatted amount that will not parse is not zero. Recording it
 		// as zero would credit a loan nothing and mark the payment handled,
 		// which is worse than leaving it for a human.
-		s.logger.Warn("skipping a settled entry whose amount did not parse",
+		s.logger.WarnContext(ctx, "skipping a settled entry whose amount did not parse",
 			"transaction_id", entry.Transaction.ID, "amount", entry.Transaction.Amount, "error", err)
 		return nil
 	}

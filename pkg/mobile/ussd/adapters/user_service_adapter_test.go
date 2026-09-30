@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -31,7 +30,7 @@ func newDerivationTestAdapter(t *testing.T) *UserServiceAdapter {
 	require.NoError(t, err)
 	return &UserServiceAdapter{
 		walletConfig: WalletConfig{MasterKey: master},
-		logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		logger:       slog.New(slog.DiscardHandler),
 	}
 }
 
@@ -118,7 +117,7 @@ func (f *fakeAccountService) GetByPublicKey(_ context.Context, _ string) (*accou
 	return f.acct, nil
 }
 
-func (f *fakeAccountService) UpdateChainStatus(_ context.Context, _ string, chainStatus string) error {
+func (f *fakeAccountService) UpdateChainStatus(_ context.Context, _, chainStatus string) error {
 	if f.updateErr != nil {
 		return f.updateErr
 	}
@@ -315,7 +314,7 @@ func TestCreateSponsoredAccountAsync_ReusedIndexDoesNotSubmit(t *testing.T) {
 	svc := &scriptedStellarService{exists: true}
 	a, acctSvc, alerts := newAsyncTestAdapter(t, svc)
 
-	a.createSponsoredAccountAsync("user-1", "acct-1", testCreateAccountReq(t, a))
+	a.createSponsoredAccountAsync(context.Background(), "user-1", "acct-1", testCreateAccountReq(t, a))
 
 	assert.Zero(t, svc.calls, "must not submit a creation for an address that already exists")
 	assert.Equal(t, []string{models.ChainStatusFailed}, acctSvc.chainWrites)
@@ -330,7 +329,7 @@ func TestCreateSponsoredAccountAsync_PermanentRejectionStopsAfterOneAttempt(t *t
 	svc := &scriptedStellarService{errs: []error{rejected, rejected, rejected}}
 	a, acctSvc, alerts := newAsyncTestAdapter(t, svc)
 
-	a.createSponsoredAccountAsync("user-1", "acct-1", testCreateAccountReq(t, a))
+	a.createSponsoredAccountAsync(context.Background(), "user-1", "acct-1", testCreateAccountReq(t, a))
 
 	assert.Equal(t, 1, svc.calls, "a permanent rejection must not be retried")
 	assert.Equal(t, []string{models.ChainStatusFailed}, acctSvc.chainWrites)
@@ -344,7 +343,7 @@ func TestCreateSponsoredAccountAsync_TransientRejectionRetries(t *testing.T) {
 	svc := &scriptedStellarService{errs: []error{transient, transient}}
 	a, acctSvc, _ := newAsyncTestAdapter(t, svc)
 
-	a.createSponsoredAccountAsync("user-1", "acct-1", testCreateAccountReq(t, a))
+	a.createSponsoredAccountAsync(context.Background(), "user-1", "acct-1", testCreateAccountReq(t, a))
 
 	assert.Equal(t, 3, svc.calls, "the third attempt should have succeeded")
 	assert.Equal(t, []string{models.ChainStatusConfirmed}, acctSvc.chainWrites)
@@ -356,7 +355,7 @@ func TestCreateSponsoredAccountAsync_ExistenceCheckFailureStillCreates(t *testin
 	svc := &scriptedStellarService{existsErr: errors.New("rpc down")}
 	a, acctSvc, _ := newAsyncTestAdapter(t, svc)
 
-	a.createSponsoredAccountAsync("user-1", "acct-1", testCreateAccountReq(t, a))
+	a.createSponsoredAccountAsync(context.Background(), "user-1", "acct-1", testCreateAccountReq(t, a))
 
 	assert.Equal(t, 1, svc.calls)
 	assert.Equal(t, []string{models.ChainStatusConfirmed}, acctSvc.chainWrites)

@@ -1,10 +1,11 @@
 package controllers
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"log"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -55,7 +56,7 @@ func (ctrl *WebhookController) HandleYellowCardWebhook(c *fiber.Ctx) error {
 		expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
 		if !hmac.Equal([]byte(signature), []byte(expected)) {
-			log.Printf("yellowcard webhook: signature mismatch")
+			slog.ErrorContext(c.UserContext(), "yellowcard webhook: signature mismatch")
 			return fiber.NewError(fiber.StatusUnauthorized, "invalid webhook signature")
 		}
 	}
@@ -67,7 +68,7 @@ func (ctrl *WebhookController) HandleYellowCardWebhook(c *fiber.Ctx) error {
 	}
 
 	if ctrl.apiKey != "" && event.APIKey != ctrl.apiKey {
-		log.Printf("yellowcard webhook: unrecognised apiKey")
+		slog.InfoContext(c.UserContext(), "yellowcard webhook: unrecognised apiKey")
 		return fiber.NewError(fiber.StatusUnauthorized, "unrecognised apiKey")
 	}
 
@@ -77,15 +78,14 @@ func (ctrl *WebhookController) HandleYellowCardWebhook(c *fiber.Ctx) error {
 
 	// 3. Process the event asynchronously (return 200 quickly to YC).
 	if ctrl.eventHandler == nil {
-		log.Printf("yellowcard webhook: received event %s for payment %s but no event handler configured",
-			event.Event, event.PaymentID)
+		slog.InfoContext(c.UserContext(), "yellowcard webhook: no event handler configured", slog.String("event", event.Event), slog.String("payment_id", event.PaymentID))
 		return c.SendString("ok")
 	}
 
+	ctx := context.WithoutCancel(c.UserContext())
 	go func() {
-		if err := ctrl.eventHandler.ProcessYellowCardEvent(event); err != nil {
-			log.Printf("yellowcard webhook: failed to process event %s for payment %s: %v",
-				event.Event, event.PaymentID, err)
+		if err := ctrl.eventHandler.ProcessYellowCardEvent(ctx, event); err != nil {
+			slog.ErrorContext(ctx, "yellowcard webhook: failed to process event", slog.String("event", event.Event), slog.String("payment_id", event.PaymentID), slog.Any("error", err))
 		}
 	}()
 

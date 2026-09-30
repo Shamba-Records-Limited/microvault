@@ -3,9 +3,10 @@ package webhook
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 )
@@ -14,7 +15,7 @@ import (
 type RefundPendingFetcher interface {
 	// GetRefundPendingDisbursements returns (sequenceID, paymentID) pairs for all
 	// disbursements in DisbursementRefundPending status.
-	GetRefundPendingDisbursements() ([]RefundPendingRecord, error)
+	GetRefundPendingDisbursements(ctx context.Context) ([]RefundPendingRecord, error)
 }
 
 // RefundPendingRecord identifies a disbursement awaiting refund,
@@ -53,7 +54,7 @@ type RefundPoller struct {
 	ycAdapter    *yellowcard.YellowcardAdapter
 	offRamp      offramp.Provider
 	fetcher      RefundPendingFetcher
-	disbursement DisbursementUpdater
+	disbursement contracts.DisbursementUpdater
 	alerts       AlertService
 	transactions TransactionRecorder
 	config       RefundPollerConfig
@@ -64,7 +65,7 @@ func NewRefundPoller(
 	ycAdapter *yellowcard.YellowcardAdapter,
 	offRamp offramp.Provider,
 	fetcher RefundPendingFetcher,
-	disbursement DisbursementUpdater,
+	disbursement contracts.DisbursementUpdater,
 	alerts AlertService,
 	transactions TransactionRecorder,
 	config RefundPollerConfig,
@@ -86,12 +87,12 @@ func (p *RefundPoller) Start(ctx context.Context) {
 	ticker := time.NewTicker(p.config.PollInterval)
 	defer ticker.Stop()
 
-	log.Printf("refund_poller: started with interval %s", p.config.PollInterval)
+	slog.InfoContext(ctx, "refund_poller: started with interval", slog.Duration("poll_interval", p.config.PollInterval))
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("refund_poller: shutting down")
+			slog.InfoContext(ctx, "refund_poller: shutting down")
 			return
 		case <-ticker.C:
 			p.poll(ctx)
@@ -101,9 +102,9 @@ func (p *RefundPoller) Start(ctx context.Context) {
 
 // poll executes a single polling cycle.
 func (p *RefundPoller) poll(ctx context.Context) {
-	records, err := p.fetcher.GetRefundPendingDisbursements()
+	records, err := p.fetcher.GetRefundPendingDisbursements(ctx)
 	if err != nil {
-		log.Printf("refund_poller: failed to fetch pending refunds: %v", err)
+		slog.ErrorContext(ctx, "refund_poller: failed to fetch pending refunds", slog.Any("error", err))
 		return
 	}
 
@@ -111,7 +112,7 @@ func (p *RefundPoller) poll(ctx context.Context) {
 		return
 	}
 
-	log.Printf("refund_poller: checking %d pending refunds", len(records))
+	slog.InfoContext(ctx, "refund_poller: checking pending refunds", slog.Int("records", len(records)))
 
 	for _, rec := range records {
 		if ctx.Err() != nil {
@@ -126,16 +127,16 @@ func (p *RefundPoller) poll(ctx context.Context) {
 func (p *RefundPoller) checkRefund(ctx context.Context, rec RefundPendingRecord) {
 	details, err := p.ycAdapter.LookupPayment(ctx, rec.PaymentID)
 	if err != nil {
-		log.Printf("refund_poller: failed to lookup payment %s: %v", rec.PaymentID, err)
+		slog.ErrorContext(ctx, "refund_poller: failed to lookup payment", slog.String("payment_id", rec.PaymentID), slog.Any("error", err))
 		return
 	}
 
 	switch details.Status {
 	case yellowcard.StatusRefunded:
-		log.Printf("refund_poller: payment %s refunded, attempting fiat failover", rec.PaymentID)
+		slog.ErrorContext(ctx, "refund_poller: payment refunded, attempting fiat failover", slog.String("payment_id", rec.PaymentID))
 
-		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, yellowcard.DisbursementRefundReceived); err != nil {
-			log.Printf("refund_poller: failed to update status for %s: %v", rec.SequenceID, err)
+		if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, yellowcard.DisbursementRefundReceived); err != nil {
+			slog.ErrorContext(ctx, "refund_poller: failed to update status", slog.String("sequence_id", rec.SequenceID), slog.Any("error", err))
 			return
 		}
 
@@ -143,10 +144,10 @@ func (p *RefundPoller) checkRefund(ctx context.Context, rec RefundPendingRecord)
 		p.attemptFiatFailover(ctx, rec)
 
 	case yellowcard.StatusRefundFailed:
-		log.Printf("refund_poller: refund failed for payment %s", rec.PaymentID)
+		slog.ErrorContext(ctx, "refund_poller: refund failed for payment", slog.String("payment_id", rec.PaymentID))
 
-		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, yellowcard.DisbursementFailed); err != nil {
-			log.Printf("refund_poller: failed to update status for %s: %v", rec.SequenceID, err)
+		if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, yellowcard.DisbursementFailed); err != nil {
+			slog.ErrorContext(ctx, "refund_poller: failed to update status", slog.String("sequence_id", rec.SequenceID), slog.Any("error", err))
 		}
 		p.alertOps("Refund Failed",
 			fmt.Sprintf("CRITICAL: Refund failed for payment %s (seq: %s). Manual intervention required.", rec.PaymentID, rec.SequenceID))
@@ -155,8 +156,7 @@ func (p *RefundPoller) checkRefund(ctx context.Context, rec RefundPendingRecord)
 		// Still in progress — will check again next poll cycle.
 
 	default:
-		log.Printf("refund_poller: unexpected status %q for payment %s (seq: %s)",
-			details.Status, rec.PaymentID, rec.SequenceID)
+		slog.InfoContext(ctx, "refund_poller: unexpected status", slog.String("status", details.Status), slog.String("payment_id", rec.PaymentID), slog.String("sequence_id", rec.SequenceID))
 	}
 }
 
@@ -179,17 +179,17 @@ func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendin
 		},
 	})
 	if err != nil {
-		log.Printf("refund_poller: fiat failover failed for %s: %v", rec.PaymentID, err)
+		slog.ErrorContext(ctx, "refund_poller: fiat failover failed", slog.String("payment_id", rec.PaymentID), slog.Any("error", err))
 		p.alertOps("Fiat Failover Failed",
 			fmt.Sprintf("Payment %s (seq: %s) fiat failover failed: %v", rec.PaymentID, rec.SequenceID, err))
 
-		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, yellowcard.DisbursementFailed); err != nil {
-			log.Printf("refund_poller: failed to mark %s as failed: %v", rec.SequenceID, err)
+		if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, yellowcard.DisbursementFailed); err != nil {
+			slog.ErrorContext(ctx, "refund_poller: failed to mark: as failed", slog.String("sequence_id", rec.SequenceID), slog.Any("error", err))
 		}
 
 		// USDC is back in treasury after refund, all attempts exhausted — repay vault.
-		if repayErr := p.disbursement.RepayVault(rec.SequenceID); repayErr != nil {
-			log.Printf("refund_poller: failed to repay vault for %s: %v", rec.SequenceID, repayErr)
+		if repayErr := p.disbursement.RepayVault(ctx, rec.SequenceID); repayErr != nil {
+			slog.ErrorContext(ctx, "refund_poller: failed to repay vault", slog.String("sequence_id", rec.SequenceID), slog.Any("error", repayErr))
 		}
 		return
 	}
@@ -197,33 +197,32 @@ func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendin
 	// Flip settlement_method first so the eventual DisbursementComplete
 	// event sees "fiat" and triggers the vault repay (the original "direct"
 	// stamp would silently skip it).
-	if err := p.disbursement.SetSettlementMethod(rec.SequenceID, "fiat"); err != nil {
-		log.Printf("refund_poller: failed to flip settlement_method to fiat for %s: %v", rec.SequenceID, err)
+	if err := p.disbursement.SetSettlementMethod(ctx, rec.SequenceID, "fiat"); err != nil {
+		slog.ErrorContext(ctx, "refund_poller: failed to flip settlement_method to fiat", slog.String("sequence_id", rec.SequenceID), slog.Any("error", err))
 	}
 
 	fiatStatus := "fiat_submitted"
-	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, fiatStatus); err != nil {
-		log.Printf("refund_poller: failed to update fiat status for %s: %v", rec.SequenceID, err)
+	if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, fiatStatus); err != nil {
+		slog.ErrorContext(ctx, "refund_poller: failed to update fiat status", slog.String("sequence_id", rec.SequenceID), slog.Any("error", err))
 	}
 
 	// Record fiat failover transaction via recorder.
 	if p.transactions != nil {
 		if err := p.transactions.RecordFiatFailover(ctx, rec, fiatResult.RequestID); err != nil {
-			log.Printf("refund_poller: failed to record fiat failover transaction: %v", err)
+			slog.ErrorContext(ctx, "refund_poller: failed to record fiat failover transaction", slog.Any("error", err))
 		}
 	}
 
-	log.Printf("refund_poller: fiat failover initiated for %s, new request_id=%s",
-		rec.PaymentID, fiatResult.RequestID)
+	slog.ErrorContext(ctx, "refund_poller: fiat failover initiated for: new request_id", slog.String("payment_id", rec.PaymentID), slog.String("request_id", fiatResult.RequestID))
 }
 
 // alertOps sends an alert to the operations team, logging on failure.
 func (p *RefundPoller) alertOps(subject, message string) {
 	if p.alerts == nil {
-		log.Printf("refund_poller alert [%s]: %s", subject, message)
+		slog.Info("refund_poller alert", slog.String("subject", subject), slog.String("message", message))
 		return
 	}
 	if err := p.alerts.AlertOps(subject, message); err != nil {
-		log.Printf("refund_poller: failed to send ops alert [%s]: %v", subject, err)
+		slog.Error("refund_poller: failed to send ops alert", slog.String("subject", subject), slog.Any("error", err))
 	}
 }

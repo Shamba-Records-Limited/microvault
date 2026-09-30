@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -166,8 +166,7 @@ func (h *USSDHandler) HandleRequest(ctx context.Context, sessionID, phoneNumber,
 		return h.formatError("en", "session_expired"), nil
 	}
 
-	log.Printf("USSD Session - ID: %s, ServiceCode: %s, NetworkCode: %s, Phone: %s, CurrentMenu: %s, Input: %s",
-		sessionID, serviceCode, networkCode, phone.Redact(phoneNumber), session.CurrentMenu, safeInput(session.CurrentMenu, input))
+	slog.InfoContext(ctx, "ussd session step", slog.String("session_id", sessionID), slog.String("service_code", serviceCode), slog.String("network_code", networkCode), slog.String("phone_number", phone.Redact(phoneNumber)), slog.String("current_menu", session.CurrentMenu), slog.String("input", safeInput(session.CurrentMenu, input)))
 
 	// Handle empty input (first request)
 	if input == "" {
@@ -191,7 +190,7 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 		// New user — choose language first, then register in that language.
 		session.CurrentMenu = "language_select"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			log.Printf("ERROR: Failed to save session before language select: %v", err)
+			slog.ErrorContext(ctx, "ERROR: Failed to save session before language select", slog.Any("error", err))
 			return "", sessionSaveErr(session, err)
 		}
 		return h.showLanguageMenu(session)
@@ -418,7 +417,7 @@ func (h *USSDHandler) handleLanguageSelect(ctx context.Context, session *Session
 
 // handleRegistration handles user registration
 func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, input string) (string, error) {
-	log.Printf("handleRegistration called - SessionID: %s", session.SessionID)
+	slog.InfoContext(ctx, "handleRegistration called - SessionID", slog.String("session_id", session.SessionID))
 
 	// Store name (required).
 	fullName := strings.TrimSpace(input)
@@ -433,7 +432,7 @@ func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, 
 		return "", sessionSaveErr(session, err)
 	}
 
-	log.Printf("Registration - stored full_name, updated CurrentMenu to: register_national_id")
+	slog.InfoContext(ctx, "Registration - stored full_name, updated CurrentMenu to: register_national_id")
 
 	return h.conWithNav(session, "register_national_id", "reg_enter_national_id"), nil
 }
@@ -453,7 +452,7 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 	// the rest of the session on a PIN. Re-prompt (CON) so a mistyped digit can
 	// be corrected. The DB unique constraint remains the real guard.
 	if taken, err := h.userService.NationalIDExists(ctx, nationalID); err != nil {
-		log.Printf("handleRegistrationNationalID: national ID check failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+		slog.ErrorContext(ctx, "handleRegistrationNationalID: national ID check failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	} else if taken {
 		// Usually this is the same person on a new SIM (lost phone), so offer
@@ -490,7 +489,7 @@ func (h *USSDHandler) handleRecoverOffer(ctx context.Context, session *Session, 
 		nationalID, _ := session.Data["recover_national_id"].(string)
 		userID, err := h.userService.GetUserIDByNationalID(ctx, nationalID)
 		if err != nil {
-			log.Printf("handleRecoverOffer: lookup by national ID failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+			slog.ErrorContext(ctx, "handleRecoverOffer: lookup by national ID failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 			return h.formatError(session.Language, "error"), nil
 		}
 		if userID == "" {
@@ -508,7 +507,7 @@ func (h *USSDHandler) handleRecoverOffer(ctx context.Context, session *Session, 
 		}
 		qIDs, err := h.pinService.GetUserQuestionIDs(ctx, userID)
 		if err != nil {
-			log.Printf("handleRecoverOffer: GetUserQuestionIDs failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+			slog.ErrorContext(ctx, "handleRecoverOffer: GetUserQuestionIDs failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 			return h.formatError(session.Language, "error"), nil
 		}
 		if len(qIDs) < 2 {
@@ -572,7 +571,7 @@ func (h *USSDHandler) handleRecoverSimQ2(ctx context.Context, session *Session, 
 		{QuestionID: q2ID, Answer: input},
 	})
 	if err != nil {
-		log.Printf("handleRecoverSimQ2: VerifySecurityAnswers failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+		slog.ErrorContext(ctx, "handleRecoverSimQ2: VerifySecurityAnswers failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 	if !ok {
@@ -581,10 +580,10 @@ func (h *USSDHandler) handleRecoverSimQ2(ctx context.Context, session *Session, 
 	}
 
 	if err := h.userService.RebindMobileNumber(ctx, userID, session.PhoneNumber); err != nil {
-		log.Printf("handleRecoverSimQ2: rebind failed for user %s: %v", userID, err)
+		slog.ErrorContext(ctx, "handleRecoverSimQ2: rebind failed", slog.String("user_id", userID), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
-	log.Printf("account recovered onto new SIM: user=%s phone=%s", userID, phone.Redact(session.PhoneNumber))
+	slog.InfoContext(ctx, "account recovered onto new SIM", slog.String("user_id", userID), slog.String("phone_number", phone.Redact(session.PhoneNumber)))
 
 	h.clearRecoverySession(session)
 	session.UserID = userID
@@ -637,7 +636,7 @@ func elide(s string) string {
 func (h *USSDHandler) showMyDetails(ctx context.Context, session *Session, notice string) (string, error) {
 	userData, _, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
 	if err != nil {
-		log.Printf("showMyDetails: lookup failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+		slog.ErrorContext(ctx, "showMyDetails: lookup failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 	values, _ := userData.(map[string]any)
@@ -718,7 +717,7 @@ func (h *USSDHandler) handleBioEdit(ctx context.Context, session *Session, input
 	}
 
 	if err := h.userService.UpdateBio(ctx, session.UserID, bio); err != nil {
-		log.Printf("handleBioEdit: UpdateBio(%s) failed for %s: %v", key, phone.Redact(session.PhoneNumber), err)
+		slog.ErrorContext(ctx, "handleBioEdit: UpdateBio: failed", slog.String("key", key), slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -770,13 +769,13 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 
 	user, _, err := h.userService.RegisterUser(ctx, regReq)
 	if err != nil {
-		log.Printf("completeRegistration: RegisterUser failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+		slog.ErrorContext(ctx, "completeRegistration: RegisterUser failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		failNote := contracts.AccountNotification{
 			PhoneNumber: session.PhoneNumber,
 			Reason:      "Account creation failed. Please try again.",
 			Language:    session.Language,
 		}
-		h.notifyAsync(func(bg context.Context) error {
+		h.notifyAsync(ctx, func(bg context.Context) error {
 			return h.accountNotifier.NotifyRegistrationFailed(bg, failNote)
 		})
 		return h.formatError(session.Language, "error"), nil
@@ -801,7 +800,7 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 		FullName:    fullName,
 		Language:    session.Language,
 	}
-	h.notifyAsync(func(bg context.Context) error {
+	h.notifyAsync(ctx, func(bg context.Context) error {
 		return h.accountNotifier.NotifyRegistrationSuccess(bg, welcomeNote)
 	})
 
@@ -816,12 +815,12 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 // delivery must never block or delay a USSD response — a slow gateway can
 // breach the turn deadline. Uses a detached context (the request ctx is
 // cancelled the moment the handler returns).
-func (h *USSDHandler) notifyAsync(send func(ctx context.Context) error) {
+func (h *USSDHandler) notifyAsync(ctx context.Context, send func(ctx context.Context) error) {
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
 		defer cancel()
 		if err := send(ctx); err != nil {
-			log.Printf("notifyAsync: notification delivery failed: %v", err)
+			slog.ErrorContext(ctx, "notifyAsync: notification delivery failed", slog.Any("error", err))
 		}
 	}()
 }
@@ -916,7 +915,7 @@ func (h *USSDHandler) cashPickupOutOfRange(ctx context.Context, session *Session
 	currency, _ := session.Data["local_currency"].(string)
 	rate, err := h.rateService.GetExchangeRate(ctx, currency)
 	if err != nil || rate <= 0 {
-		log.Printf("cashPickupOutOfRange: exchange rate unavailable for %s: %v", currency, err)
+		slog.ErrorContext(ctx, "cashPickupOutOfRange: exchange rate unavailable", slog.String("currency", currency), slog.Any("error", err))
 		return "", false
 	}
 
@@ -978,7 +977,7 @@ func (h *USSDHandler) handleLoanConfirm(ctx context.Context, session *Session, i
 		if errors.Is(err, pinPkg.ErrAccountLocked) {
 			return h.formatLockedMessage(ctx, session), nil
 		}
-		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, phone.Redact(session.PhoneNumber), err)
+		slog.ErrorContext(ctx, "VerifyPIN system error", slog.String("current_menu", session.CurrentMenu), slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -1035,7 +1034,7 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	if h.rateService != nil {
 		rate, err := h.rateService.GetExchangeRate(ctx, localCurrency)
 		if err != nil {
-			log.Printf("submitLoan: failed to get exchange rate: %v", err)
+			slog.ErrorContext(ctx, "submitLoan: failed to get exchange rate", slog.Any("error", err))
 			return h.formatError(session.Language, "error"), nil
 		}
 		sellRate = rate
@@ -1141,11 +1140,11 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	// pipeline uses it to ensure the on-chain identity exists before lending.
 	loanReq.ChildAccountIndex = accountIndex
 	go func() {
-		// Use a detached context so the pipeline isn't cancelled when the
-		// USSD request context expires.
-		bgCtx := context.Background()
+		// Detached so the pipeline isn't cancelled when the USSD request
+		// context expires.
+		bgCtx := context.WithoutCancel(ctx)
 		if _, err := h.loanService.RequestLoan(bgCtx, loanReq); err != nil {
-			log.Printf("async loan disbursement failed: user=%s error=%v", loanReq.UserID, err)
+			slog.ErrorContext(bgCtx, "async loan disbursement failed", slog.String("user_id", loanReq.UserID), slog.Any("error", err))
 		}
 	}()
 
@@ -1183,7 +1182,7 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 	}
 
 	if err := h.loanNotifier.NotifyLoanStatement(ctx, note); err != nil {
-		log.Printf("handleMyLoans: statement SMS failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+		slog.ErrorContext(ctx, "handleMyLoans: statement SMS failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -1239,13 +1238,13 @@ func (h *USSDHandler) loanStatement(ctx context.Context, session *Session, loan 
 	}
 
 	if note.LoanID == "" || note.LoanReference == "" {
-		log.Printf("loanStatement: loan record lacks an id or reference for %s", phone.Redact(session.PhoneNumber))
+		slog.InfoContext(ctx, "loanStatement: loan record lacks an id or reference", slog.String("phone_number", phone.Redact(session.PhoneNumber)))
 		return contracts.LoanNotification{}, false
 	}
 
 	quote, err := h.loanService.GetRepaymentQuote(ctx, note.LoanID)
 	if err != nil {
-		log.Printf("loanStatement: quote failed for loan %s: %v", note.LoanReference, err)
+		slog.ErrorContext(ctx, "loanStatement: quote failed", slog.String("loan_reference", note.LoanReference), slog.Any("error", err))
 		return contracts.LoanNotification{}, false
 	}
 
@@ -1343,7 +1342,7 @@ func (h *USSDHandler) newestRepayableLoan(ctx context.Context, session *Session)
 				choice.PayoffStroops = quote.AmountUSDCStroops
 				choice.DisplayAmount = formatOwed(quote)
 			} else {
-				log.Printf("repayment quote failed for loan %s: %v", choice.ID, err)
+				slog.ErrorContext(ctx, "repayment quote failed", slog.String("loan_id", choice.ID), slog.Any("error", err))
 			}
 		}
 		return choice, true, nil
@@ -1525,7 +1524,7 @@ func (h *USSDHandler) handleRepayMobile(ctx context.Context, session *Session, i
 	case "airtel":
 		return h.startAirtelRepayment(ctx, session, chosen)
 	case "paybill":
-		return h.showPaybill(session, chosen)
+		return h.showPaybill(ctx, session, chosen)
 	}
 	return h.conNavText(session, GetLocalizedMessage(session.Language, "invalid_option")), nil
 }
@@ -1538,7 +1537,7 @@ func (h *USSDHandler) startMpesaRepayment(ctx context.Context, session *Session,
 		return h.formatError(session.Language, "error"), nil
 	}
 	if err := h.mpesaPrompter.PromptRepayment(ctx, chosen.ID, session.PhoneNumber); err != nil {
-		log.Printf("mpesa prompt refused for loan %s: %v", chosen.ID, err)
+		slog.ErrorContext(ctx, "mpesa prompt refused", slog.String("loan_id", chosen.ID), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 	session.Data["repay_mpesa_status"] = "initiated"
@@ -1560,7 +1559,7 @@ func (h *USSDHandler) startAirtelRepayment(ctx context.Context, session *Session
 		return h.formatError(session.Language, "error"), nil
 	}
 	if err := h.carrierPrompter.PromptRepaymentVia(ctx, chosen.ID, session.PhoneNumber, "airtel"); err != nil {
-		log.Printf("airtel prompt refused for loan %s: %v", chosen.ID, err)
+		slog.ErrorContext(ctx, "airtel prompt refused", slog.String("loan_id", chosen.ID), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 	// The session's in-flight key is rail-agnostic despite its name; the
@@ -1583,7 +1582,7 @@ func (h *USSDHandler) startCashRepayment(ctx context.Context, session *Session, 
 	// Returns before the deposit exists — see LoanService.InitiateRepayment.
 	// Only a refusal to start is reported here; everything after arrives by SMS.
 	if err := h.loanService.InitiateRepayment(ctx, chosen.ID, session.PhoneNumber); err != nil {
-		log.Printf("initiate repayment refused for loan %s: %v", chosen.ID, err)
+		slog.ErrorContext(ctx, "initiate repayment refused", slog.String("loan_id", chosen.ID), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -1606,7 +1605,7 @@ func (h *USSDHandler) startCashRepayment(ctx context.Context, session *Session, 
 // borrower, since the session ends before they can type the numbers into the
 // M-Pesa menu. No payment is initiated: the borrower pays from their own
 // mobile-money menu, and the loan reference is what attributes it.
-func (h *USSDHandler) showPaybill(session *Session, chosen repayLoanChoice) (string, error) {
+func (h *USSDHandler) showPaybill(ctx context.Context, session *Session, chosen repayLoanChoice) (string, error) {
 	if h.repayPaybill == "" {
 		return h.formatResponse(session.Language, "END", "repay_no_rail"), nil
 	}
@@ -1614,7 +1613,7 @@ func (h *USSDHandler) showPaybill(session *Session, chosen repayLoanChoice) (str
 	// DisplayAmount is a pre-rendered "KES 1234.56" string, so the SMS parses
 	// it back into the fields the template formats. Parsing what we just
 	// rendered is ugly but keeps the notification contract numeric.
-	h.sendPaybillSMS(session, chosen)
+	h.sendPaybillSMS(ctx, session, chosen)
 
 	return h.formatResponse(session.Language, "END",
 		Format(session.Language, "repay_paybill", chosen.DisplayAmount, h.repayPaybill, chosen.Reference)), nil
@@ -1622,9 +1621,9 @@ func (h *USSDHandler) showPaybill(session *Session, chosen repayLoanChoice) (str
 
 // sendPaybillSMS texts the paybill instructions. Best effort: the USSD screen
 // already carries the same details, so a failed send is logged, not reported.
-func (h *USSDHandler) sendPaybillSMS(session *Session, chosen repayLoanChoice) {
+func (h *USSDHandler) sendPaybillSMS(ctx context.Context, session *Session, chosen repayLoanChoice) {
 	amount, currency := parseDisplayAmount(chosen.DisplayAmount)
-	err := h.loanNotifier.NotifyRepaymentPaybill(context.Background(), contracts.LoanNotification{
+	err := h.loanNotifier.NotifyRepaymentPaybill(ctx, contracts.LoanNotification{
 		LoanID:          chosen.ID,
 		LoanReference:   chosen.Reference,
 		PhoneNumber:     session.PhoneNumber,
@@ -1633,7 +1632,7 @@ func (h *USSDHandler) sendPaybillSMS(session *Session, chosen repayLoanChoice) {
 		DisplayCurrency: currency,
 	})
 	if err != nil {
-		log.Printf("paybill SMS failed for loan %s: %v", chosen.ID, err)
+		slog.ErrorContext(ctx, "paybill SMS failed", slog.String("loan_id", chosen.ID), slog.Any("error", err))
 	}
 }
 
@@ -1846,7 +1845,7 @@ func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, in
 	// registering a new one — so set it directly rather than re-creating.
 	if setOnly, _ := session.Data["set_pin_only"].(bool); setOnly {
 		if err := h.pinService.SetPIN(ctx, session.UserID, newPIN); err != nil {
-			log.Printf("handlePINConfirm: SetPIN (self-heal) failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+			slog.ErrorContext(ctx, "handlePINConfirm: SetPIN (self-heal) failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 			return h.formatError(session.Language, "error"), nil
 		}
 		delete(session.Data, "new_pin")
@@ -1860,7 +1859,7 @@ func (h *USSDHandler) handlePINConfirm(ctx context.Context, session *Session, in
 
 	hash, err := pinPkg.HashPIN(newPIN)
 	if err != nil {
-		log.Printf("handlePINConfirm: hash PIN failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+		slog.ErrorContext(ctx, "handlePINConfirm: hash PIN failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 	delete(session.Data, "new_pin")
@@ -1947,7 +1946,7 @@ func (h *USSDHandler) handleSecurityQ2Answer(ctx context.Context, session *Sessi
 		{QuestionID: q2ID, Answer: input},
 	})
 	if err != nil {
-		log.Printf("handleSecurityQ2Answer: failed to save security questions: %v", err)
+		slog.ErrorContext(ctx, "handleSecurityQ2Answer: failed to save security questions", slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -2024,7 +2023,7 @@ func (h *USSDHandler) handlePINChangeOld(ctx context.Context, session *Session, 
 		if errors.Is(err, pinPkg.ErrAccountLocked) {
 			return h.formatLockedMessage(ctx, session), nil
 		}
-		log.Printf("VerifyPIN system error (menu=%s) for %s: %v", session.CurrentMenu, phone.Redact(session.PhoneNumber), err)
+		slog.ErrorContext(ctx, "VerifyPIN system error", slog.String("current_menu", session.CurrentMenu), slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -2079,7 +2078,7 @@ func (h *USSDHandler) handlePINChangeConfirm(ctx context.Context, session *Sessi
 
 	oldPIN, _ := session.Data["old_pin"].(string)
 	if err := h.pinService.ChangePIN(ctx, session.UserID, oldPIN, newPIN); err != nil {
-		log.Printf("handlePINChangeConfirm: ChangePIN failed: %v", err)
+		slog.ErrorContext(ctx, "handlePINChangeConfirm: ChangePIN failed", slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 
@@ -2186,7 +2185,7 @@ func (h *USSDHandler) handlePINRecoveryQ2(ctx context.Context, session *Session,
 		{QuestionID: q2ID, Answer: input},
 	})
 	if err != nil {
-		log.Printf("handlePINRecoveryQ2: VerifySecurityAnswers failed for %s: %v", phone.Redact(session.PhoneNumber), err)
+		slog.ErrorContext(ctx, "handlePINRecoveryQ2: VerifySecurityAnswers failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 	if !ok {
@@ -2235,7 +2234,7 @@ func (h *USSDHandler) handlePINRecoveryConfirm(ctx context.Context, session *Ses
 	}
 
 	if err := h.pinService.ResetPIN(ctx, session.UserID, newPIN); err != nil {
-		log.Printf("handlePINRecoveryConfirm: ResetPIN failed: %v", err)
+		slog.ErrorContext(ctx, "handlePINRecoveryConfirm: ResetPIN failed", slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 

@@ -89,7 +89,7 @@ func (ctrl *DarajaCallbackController) allowedCIDR(c *fiber.Ctx) error {
 		if ctrl.serverEnv == "production" {
 			// Fail closed: a production callback with no allowlist configured is
 			// a misconfiguration, not a permissive default.
-			ctrl.logger.Warn("rejecting daraja callback: no CIDR allowlist configured in production",
+			ctrl.logger.WarnContext(c.UserContext(), "rejecting daraja callback: no CIDR allowlist configured in production",
 				"path", c.Path())
 			return fiber.NewError(fiber.StatusForbidden, "callback allowlist not configured")
 		}
@@ -105,7 +105,7 @@ func (ctrl *DarajaCallbackController) allowedCIDR(c *fiber.Ctx) error {
 	// incident: what IP the app saw. If TrustedProxyCIDRs or the tunnel's
 	// X-Forwarded-For handling is wrong, this is the tunnel's own address,
 	// not Safaricom's — indistinguishable from a real mismatch without it.
-	ctrl.logger.Warn("rejecting daraja callback: source not in the allowlist",
+	ctrl.logger.WarnContext(c.UserContext(), "rejecting daraja callback: source not in the allowlist",
 		"path", c.Path(), "client_ip", clientIP, "x_forwarded_for", c.Get(fiber.HeaderXForwardedFor),
 		"allowed_cidrs", ctrl.config.CallbackAllowedCIDRs)
 	return fiber.NewError(fiber.StatusForbidden, "source not permitted")
@@ -364,7 +364,7 @@ func (ctrl *DarajaCallbackController) recordBalances(ctx context.Context, callba
 	}
 	shortcode, err := ctrl.balances.ResolveQuery(ctx, callback.Result.OriginatorConversationID)
 	if err != nil {
-		ctrl.balanceLogger.Warn("could not resolve which shortcode this balance result belongs to",
+		ctrl.balanceLogger.WarnContext(ctx, "could not resolve which shortcode this balance result belongs to",
 			"originator_conversation_id", callback.Result.OriginatorConversationID, "error", err)
 		return
 	}
@@ -375,12 +375,12 @@ func (ctrl *DarajaCallbackController) recordBalances(ctx context.Context, callba
 
 	for _, b := range balances {
 		if err := ctrl.balances.RecordBalance(ctx, shortcode, b.Name, b.Currency, b.Available, ctrl.now()); err != nil {
-			ctrl.balanceLogger.Warn("could not record account balance",
+			ctrl.balanceLogger.WarnContext(ctx, "could not record account balance",
 				"shortcode", shortcode, "account", b.Name, "error", err)
 			continue
 		}
 		if floor > 0 && b.Available < floor {
-			ctrl.balanceLogger.Warn("mpesa account balance below configured floor",
+			ctrl.balanceLogger.WarnContext(ctx, "mpesa account balance below configured floor",
 				"shortcode", shortcode, "account", b.Name, "available", b.Available, "floor", floor)
 		}
 	}

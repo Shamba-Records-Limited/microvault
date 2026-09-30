@@ -62,13 +62,13 @@ func (s *RescreenSweep) Start(ctx context.Context) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
-	s.logger.Info("starting", "interval", s.interval)
+	s.logger.InfoContext(ctx, "starting", "interval", s.interval)
 	s.tick(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Info("shutting down")
+			s.logger.InfoContext(ctx, "shutting down")
 			return
 		case <-ticker.C:
 			s.tick(ctx)
@@ -86,19 +86,19 @@ func (s *RescreenSweep) Start(ctx context.Context) {
 func (s *RescreenSweep) tick(ctx context.Context) {
 	touched, err := s.repo.MarkExpiredAddresses(ctx)
 	if err != nil {
-		s.logger.Error("could not mark expired addresses", "error", err)
+		s.logger.ErrorContext(ctx, "could not mark expired addresses", "error", err)
 	} else if touched > 0 {
-		s.logger.Info("marked addresses expired", "count", touched)
+		s.logger.InfoContext(ctx, "marked addresses expired", "count", touched)
 	}
 
 	addrs, err := s.repo.ListAddressesByStatus(ctx, []string{string(models.AddressStatusExpired)}, rescreenSweepBatchSize, 0)
 	if err != nil {
-		s.logger.Error("could not list expired addresses to rescreen", "error", err)
+		s.logger.ErrorContext(ctx, "could not list expired addresses to rescreen", "error", err)
 		return
 	}
 	for _, addr := range addrs {
 		if err := s.service.ScreenAndRecord(ctx, addr.ID); err != nil {
-			s.logger.Error("rescreen failed, address stays expired until the next sweep",
+			s.logger.ErrorContext(ctx, "rescreen failed, address stays expired until the next sweep",
 				"address_id", addr.ID, "error", err)
 		}
 	}

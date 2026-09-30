@@ -42,7 +42,7 @@ var _ offramp.TreasuryTransfer = (*StellarTreasuryTransfer)(nil)
 
 // SendUSDC sends USDC from the treasury wallet to a destination address with a memo.
 func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination string, memo string, amount int64) (string, error) {
-	t.logger.Info("initiating treasury USDC transfer",
+	t.logger.InfoContext(ctx, "initiating treasury USDC transfer",
 		"destination", destination,
 		"memo", memo,
 		"amount_stroops", amount,
@@ -55,7 +55,7 @@ func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination stri
 		Amount:      amount,
 	})
 	if err != nil {
-		t.logger.Error("treasury USDC transfer failed",
+		t.logger.ErrorContext(ctx, "treasury USDC transfer failed",
 			"destination", destination,
 			"memo", memo,
 			"amount_stroops", amount,
@@ -67,7 +67,7 @@ func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination stri
 			Wrapf(err, "treasury USDC transfer failed")
 	}
 
-	t.logger.Info("treasury USDC transfer succeeded",
+	t.logger.InfoContext(ctx, "treasury USDC transfer succeeded",
 		"tx_hash", resp.TxHash,
 		"ledger", resp.Ledger,
 		"status", resp.Status,

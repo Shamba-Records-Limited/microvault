@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -111,7 +111,7 @@ func NewCounterpartyRepository(db *gorm.DB) (CounterpartyRepository, error) {
 func (r *counterpartyRepository) Create(ctx context.Context, cp *models.Counterparty) error {
 	result := r.db.WithContext(ctx).Create(cp)
 	if result.Error != nil {
-		log.Printf("Create: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Create: database error", slog.Any("error", result.Error))
 		return ErrFailedToCreateCounterparty
 	}
 	return nil
@@ -127,7 +127,7 @@ func (r *counterpartyRepository) GetByID(ctx context.Context, id string) (*model
 		return nil, ErrCounterpartyNotFound
 	}
 	if result.Error != nil {
-		log.Printf("GetByID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByID: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetCounterparty
 	}
 	return &cp, nil
@@ -145,7 +145,7 @@ func (r *counterpartyRepository) List(ctx context.Context, kybStatus string, lim
 		Offset(offset).
 		Find(&cps)
 	if result.Error != nil {
-		log.Printf("List: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "List: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetCounterparties
 	}
 	return cps, nil
@@ -158,7 +158,7 @@ func (r *counterpartyRepository) Count(ctx context.Context, kybStatus string) (i
 		query = query.Where("kyb_status = ?", kybStatus)
 	}
 	if err := query.Count(&count).Error; err != nil {
-		log.Printf("Count: database error: %v", err)
+		slog.ErrorContext(ctx, "Count: database error", slog.Any("error", err))
 		return 0, ErrFailedToCountCounterparties
 	}
 	return count, nil
@@ -179,7 +179,7 @@ func (r *counterpartyRepository) ApproveKYB(ctx context.Context, id, actor strin
 		return ErrCounterpartyNotFound
 	}
 	if result.Error != nil {
-		log.Printf("ApproveKYB: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "ApproveKYB: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateCounterparty
 	}
 	return nil
@@ -197,7 +197,7 @@ func (r *counterpartyRepository) RejectKYB(ctx context.Context, id, actor string
 		return ErrCounterpartyNotFound
 	}
 	if result.Error != nil {
-		log.Printf("RejectKYB: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "RejectKYB: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateCounterparty
 	}
 	return nil
@@ -208,7 +208,7 @@ func (r *counterpartyRepository) RejectKYB(ctx context.Context, id, actor string
 func (r *counterpartyRepository) AddAddress(ctx context.Context, addr *models.CounterpartyAddress) error {
 	result := r.db.WithContext(ctx).Create(addr)
 	if result.Error != nil {
-		log.Printf("AddAddress: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AddAddress: database error", slog.Any("error", result.Error))
 		return ErrFailedToAddCounterpartyAddress
 	}
 	return nil
@@ -225,7 +225,7 @@ func (r *counterpartyRepository) GetAddressByID(ctx context.Context, id string) 
 		return nil, ErrCounterpartyAddressNotFound
 	}
 	if result.Error != nil {
-		log.Printf("GetAddressByID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetAddressByID: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetCounterpartyAddress
 	}
 	return &addr, nil
@@ -238,7 +238,7 @@ func (r *counterpartyRepository) ListAddressesByCounterparty(ctx context.Context
 		Order("created_at DESC").
 		Find(&addrs)
 	if result.Error != nil {
-		log.Printf("ListAddressesByCounterparty: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "ListAddressesByCounterparty: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetCounterpartyAddresses
 	}
 	return addrs, nil
@@ -257,7 +257,7 @@ func (r *counterpartyRepository) ListAddressesByStatus(ctx context.Context, stat
 		Offset(offset).
 		Find(&addrs)
 	if result.Error != nil {
-		log.Printf("ListAddressesByStatus: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "ListAddressesByStatus: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetCounterpartyAddresses
 	}
 	return addrs, nil
@@ -270,7 +270,7 @@ func (r *counterpartyRepository) CountAddressesByStatus(ctx context.Context, sta
 		Where("status IN ?", statuses).
 		Count(&count)
 	if result.Error != nil {
-		log.Printf("CountAddressesByStatus: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "CountAddressesByStatus: database error", slog.Any("error", result.Error))
 		return 0, ErrFailedToCountCounterpartyAddresses
 	}
 	return count, nil
@@ -295,7 +295,7 @@ func (r *counterpartyRepository) ApproveAddress(ctx context.Context, id, actor, 
 		return ErrCounterpartyAddressNotFound
 	}
 	if result.Error != nil {
-		log.Printf("ApproveAddress: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "ApproveAddress: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateCounterpartyAddress
 	}
 	return nil
@@ -314,7 +314,7 @@ func (r *counterpartyRepository) RejectAddress(ctx context.Context, id, actor, r
 		return ErrCounterpartyAddressNotFound
 	}
 	if result.Error != nil {
-		log.Printf("RejectAddress: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "RejectAddress: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateCounterpartyAddress
 	}
 	return nil
@@ -342,7 +342,7 @@ func (r *counterpartyRepository) RevokeAddress(ctx context.Context, id, actor, r
 		return ErrCounterpartyAddressNotFound
 	}
 	if result.Error != nil {
-		log.Printf("RevokeAddress: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "RevokeAddress: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateCounterpartyAddress
 	}
 	return nil
@@ -356,7 +356,7 @@ func (r *counterpartyRepository) ListAddressesNeedingOnchainAllow(ctx context.Co
 		Limit(limit).
 		Find(&addrs)
 	if result.Error != nil {
-		log.Printf("ListAddressesNeedingOnchainAllow: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "ListAddressesNeedingOnchainAllow: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetCounterpartyAddresses
 	}
 	return addrs, nil
@@ -370,7 +370,7 @@ func (r *counterpartyRepository) ListAddressesNeedingOnchainRevoke(ctx context.C
 		Limit(limit).
 		Find(&addrs)
 	if result.Error != nil {
-		log.Printf("ListAddressesNeedingOnchainRevoke: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "ListAddressesNeedingOnchainRevoke: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetCounterpartyAddresses
 	}
 	return addrs, nil
@@ -388,7 +388,7 @@ func (r *counterpartyRepository) SetOnchainState(ctx context.Context, id string,
 		return ErrCounterpartyAddressNotFound
 	}
 	if result.Error != nil {
-		log.Printf("SetOnchainState: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "SetOnchainState: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateCounterpartyAddress
 	}
 	return nil
@@ -403,7 +403,7 @@ func (r *counterpartyRepository) MarkExpiredAddresses(ctx context.Context) (int6
 			"updated_at": time.Now(),
 		})
 	if result.Error != nil {
-		log.Printf("MarkExpiredAddresses: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "MarkExpiredAddresses: database error", slog.Any("error", result.Error))
 		return 0, ErrFailedToUpdateCounterpartyAddress
 	}
 	return result.RowsAffected, nil
@@ -416,7 +416,7 @@ func (r *counterpartyRepository) ListScreeningsByAddress(ctx context.Context, ad
 		Order("created_at DESC").
 		Find(&screenings)
 	if result.Error != nil {
-		log.Printf("ListScreeningsByAddress: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "ListScreeningsByAddress: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetCounterpartyAddresses
 	}
 	return screenings, nil
@@ -425,7 +425,7 @@ func (r *counterpartyRepository) ListScreeningsByAddress(ctx context.Context, ad
 func (r *counterpartyRepository) RecordScreening(ctx context.Context, screening *models.AddressScreening, newAddressStatus *models.CounterpartyAddressStatus, newOnchainState *models.CounterpartyAddressOnchainState, expiresAt *time.Time) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(screening).Error; err != nil {
-			log.Printf("RecordScreening: could not insert screening: %v", err)
+			slog.ErrorContext(ctx, "RecordScreening: could not insert screening", slog.Any("error", err))
 			return ErrFailedToRecordScreening
 		}
 
@@ -445,7 +445,7 @@ func (r *counterpartyRepository) RecordScreening(ctx context.Context, screening 
 			Where("id = ?", screening.AddressID).
 			Updates(updates)
 		if result.Error != nil {
-			log.Printf("RecordScreening: could not update address: %v", result.Error)
+			slog.ErrorContext(ctx, "RecordScreening: could not update address", slog.Any("error", result.Error))
 			return ErrFailedToRecordScreening
 		}
 		if result.RowsAffected == 0 {

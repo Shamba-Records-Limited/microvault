@@ -71,13 +71,13 @@ func (w *Watcher) Start(ctx context.Context) {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	w.logger.Info("starting", "interval", w.interval)
+	w.logger.InfoContext(ctx, "starting", "interval", w.interval)
 	w.tick(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			w.logger.Info("shutting down")
+			w.logger.InfoContext(ctx, "shutting down")
 			return
 		case <-ticker.C:
 			w.tick(ctx)
@@ -91,7 +91,7 @@ func (w *Watcher) Start(ctx context.Context) {
 func (w *Watcher) tick(ctx context.Context) {
 	from, err := w.cursor.Get(ctx)
 	if err != nil {
-		w.logger.Error("could not read the watch cursor", "error", err)
+		w.logger.ErrorContext(ctx, "could not read the watch cursor", "error", err)
 		return
 	}
 
@@ -101,23 +101,23 @@ func (w *Watcher) tick(ctx context.Context) {
 	if from == 0 {
 		latest, err := w.client.GetLatestLedger(ctx)
 		if err != nil {
-			w.logger.Error("could not read the latest ledger to seed the watch cursor", "error", err)
+			w.logger.ErrorContext(ctx, "could not read the latest ledger to seed the watch cursor", "error", err)
 			return
 		}
 		if err := w.cursor.Advance(ctx, latest.Sequence); err != nil {
-			w.logger.Error("could not seed the watch cursor", "error", err)
+			w.logger.ErrorContext(ctx, "could not seed the watch cursor", "error", err)
 		}
 		return
 	}
 
 	resp, err := rpc.FetchVaultEvents(ctx, w.client, w.contractID, from, maxEventsPerTick)
 	if err != nil {
-		w.logger.Error("could not fetch vault events, window will be retried next tick",
+		w.logger.ErrorContext(ctx, "could not fetch vault events, window will be retried next tick",
 			"from_ledger", from, "error", err)
 		return
 	}
 	if len(resp.Events) == maxEventsPerTick {
-		w.logger.Warn("vault event page was full — some events in this window may not have been scanned",
+		w.logger.WarnContext(ctx, "vault event page was full — some events in this window may not have been scanned",
 			"from_ledger", from, "max_events_per_tick", maxEventsPerTick)
 	}
 
@@ -127,7 +127,7 @@ func (w *Watcher) tick(ctx context.Context) {
 		if info.Ledger < 0 {
 			// Never emitted by a real network — guard against a negative
 			// int32 wrapping to a huge uint32 and corrupting the cursor.
-			w.logger.Error("vault event had a negative ledger sequence, skipping for cursor purposes",
+			w.logger.ErrorContext(ctx, "vault event had a negative ledger sequence, skipping for cursor purposes",
 				"event_id", info.ID, "ledger", info.Ledger)
 			continue
 		}
@@ -142,7 +142,7 @@ func (w *Watcher) tick(ctx context.Context) {
 	}
 
 	if err := w.cursor.Advance(ctx, nextLedger); err != nil {
-		w.logger.Error("could not advance the watch cursor", "error", err)
+		w.logger.ErrorContext(ctx, "could not advance the watch cursor", "error", err)
 	}
 }
 
@@ -153,7 +153,7 @@ func (w *Watcher) tick(ctx context.Context) {
 func (w *Watcher) inspect(ctx context.Context, info protocol.EventInfo) {
 	event, err := soroban.DecodeVaultEvent(info)
 	if err != nil {
-		w.logger.Error("could not decode a vault event", "event_id", info.ID, "error", err)
+		w.logger.ErrorContext(ctx, "could not decode a vault event", "event_id", info.ID, "error", err)
 		return
 	}
 	if event.Kind == soroban.VaultEventUnrecognized {
@@ -163,12 +163,12 @@ func (w *Watcher) inspect(ctx context.Context, info protocol.EventInfo) {
 	for _, addr := range event.Addresses {
 		allowed, err := w.allowlist.IsAllowed(ctx, addr)
 		if err != nil {
-			w.logger.Error("could not check allowlist membership during watch",
+			w.logger.ErrorContext(ctx, "could not check allowlist membership during watch",
 				"event_id", info.ID, "kind", string(event.Kind), "address", addr, "error", err)
 			continue
 		}
 		if !allowed {
-			w.logger.Error("compliance canary: unallowlisted address participated in a vault event",
+			w.logger.ErrorContext(ctx, "compliance canary: unallowlisted address participated in a vault event",
 				pkgErrors.AttrAddress, addr,
 				"event_id", info.ID,
 				"kind", string(event.Kind),

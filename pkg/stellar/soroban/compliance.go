@@ -2,7 +2,7 @@ package soroban
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -62,7 +62,7 @@ func (s *service) AllowDepositor(ctx context.Context, address string) error {
 		return err
 	}
 
-	log.Printf("AllowDepositor: %s allowed (tx: %s)", address, txResp.TransactionHash)
+	s.logger.InfoContext(ctx, "AllowDepositor: allowed", slog.String("address", address), slog.String("tx_hash", txResp.TransactionHash))
 	return nil
 }
 
@@ -88,6 +88,6 @@ func (s *service) DisallowDepositor(ctx context.Context, address string) error {
 		return err
 	}
 
-	log.Printf("DisallowDepositor: %s disallowed (tx: %s)", address, txResp.TransactionHash)
+	s.logger.InfoContext(ctx, "DisallowDepositor: disallowed", slog.String("address", address), slog.String("tx_hash", txResp.TransactionHash))
 	return nil
 }

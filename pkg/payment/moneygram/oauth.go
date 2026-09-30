@@ -159,7 +159,7 @@ func (c *OAuthClient) fetchToken(ctx context.Context) (string, time.Duration, er
 		ttl = time.Hour
 	}
 
-	c.logger.Debug("moneygram: oauth token refreshed", "ttl_seconds", int(ttl.Seconds()))
+	c.logger.DebugContext(ctx, "moneygram: oauth token refreshed", "ttl_seconds", int(ttl.Seconds()))
 	return tr.AccessToken, ttl, nil
 }
 

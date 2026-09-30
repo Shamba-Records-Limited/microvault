@@ -66,13 +66,13 @@ func (w *OnchainWriter) Start(ctx context.Context) {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	w.logger.Info("starting", "interval", w.interval)
+	w.logger.InfoContext(ctx, "starting", "interval", w.interval)
 	w.tick(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			w.logger.Info("shutting down")
+			w.logger.InfoContext(ctx, "shutting down")
 			return
 		case <-ticker.C:
 			w.tick(ctx)
@@ -92,12 +92,12 @@ func (w *OnchainWriter) tick(ctx context.Context) {
 func (w *OnchainWriter) processAllows(ctx context.Context) {
 	addrs, err := w.repo.ListAddressesNeedingOnchainAllow(ctx, onchainWriterBatchSize)
 	if err != nil {
-		w.logger.Error("could not list addresses needing an on-chain allow", "error", err)
+		w.logger.ErrorContext(ctx, "could not list addresses needing an on-chain allow", "error", err)
 		return
 	}
 	for _, addr := range addrs {
 		if err := w.signer.AllowDepositor(ctx, addr.Address); err != nil {
-			w.logger.Error("allow_depositor failed, will retry next tick",
+			w.logger.ErrorContext(ctx, "allow_depositor failed, will retry next tick",
 				"address_id", addr.ID, "address", addr.Address, "error", err)
 			continue
 		}
@@ -108,7 +108,7 @@ func (w *OnchainWriter) processAllows(ctx context.Context) {
 		// pending, contract says approved" drift pkg/services/vaultwatch
 		// exists to catch as a second layer.
 		if err := w.repo.SetOnchainState(ctx, addr.ID, models.OnchainStateApproved); err != nil {
-			w.logger.Error("allow_depositor succeeded on-chain but the database write failed",
+			w.logger.ErrorContext(ctx, "allow_depositor succeeded on-chain but the database write failed",
 				"address_id", addr.ID, "address", addr.Address, "error", err)
 		}
 	}
@@ -120,17 +120,17 @@ func (w *OnchainWriter) processAllows(ctx context.Context) {
 func (w *OnchainWriter) processRevokes(ctx context.Context) {
 	addrs, err := w.repo.ListAddressesNeedingOnchainRevoke(ctx, onchainWriterBatchSize)
 	if err != nil {
-		w.logger.Error("could not list addresses needing an on-chain revoke", "error", err)
+		w.logger.ErrorContext(ctx, "could not list addresses needing an on-chain revoke", "error", err)
 		return
 	}
 	for _, addr := range addrs {
 		if err := w.signer.DisallowDepositor(ctx, addr.Address); err != nil {
-			w.logger.Error("disallow_depositor failed, will retry next tick",
+			w.logger.ErrorContext(ctx, "disallow_depositor failed, will retry next tick",
 				"address_id", addr.ID, "address", addr.Address, "error", err)
 			continue
 		}
 		if err := w.repo.SetOnchainState(ctx, addr.ID, models.OnchainStateRevoked); err != nil {
-			w.logger.Error("disallow_depositor succeeded on-chain but the database write failed",
+			w.logger.ErrorContext(ctx, "disallow_depositor succeeded on-chain but the database write failed",
 				"address_id", addr.ID, "address", addr.Address, "error", err)
 		}
 	}

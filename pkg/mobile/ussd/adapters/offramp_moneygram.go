@@ -101,7 +101,7 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 		return nil, err
 	}
 
-	a.logger.Info("moneygram off-ramp initiated",
+	a.logger.InfoContext(ctx, "moneygram off-ramp initiated",
 		"loan_id", req.LoanID,
 		"user_id", req.UserID,
 		"amount_usd", req.AmountUSD,
@@ -142,7 +142,7 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 
 	resp, err := a.client.InitiateWithdrawal(ctx, childMemo, withdrawReq)
 	if err != nil {
-		a.logger.Error("moneygram withdraw failed",
+		a.logger.ErrorContext(ctx, "moneygram withdraw failed",
 			"loan_id", req.LoanID,
 			"child_memo", childMemo,
 			"error", err,
@@ -150,7 +150,7 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 		return nil, mgAdapterErr("initiate").With(pkgErrors.AttrLoanID, req.LoanID).Code(pkgErrors.CodeDepositInitFailed).Wrapf(err, "anchor refused the withdrawal")
 	}
 
-	a.logger.Info("moneygram withdraw created",
+	a.logger.InfoContext(ctx, "moneygram withdraw created",
 		"loan_id", req.LoanID,
 		"mg_transaction_id", resp.ID,
 		"interactive_url", resp.URL,

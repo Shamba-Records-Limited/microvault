@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -92,7 +92,7 @@ func (r *userRepository) Create(ctx context.Context, user *models.User) error {
 	}
 	result := r.db.WithContext(ctx).Create(user)
 	if result.Error != nil {
-		log.Printf("Create: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Create: database error", slog.Any("error", result.Error))
 		return ErrFailedToCreateUser
 	}
 	return nil
@@ -105,7 +105,7 @@ func (r *userRepository) CreateWithTx(ctx context.Context, tx *gorm.DB, user *mo
 	}
 	result := tx.Create(user)
 	if result.Error != nil {
-		log.Printf("CreateWithTx: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "CreateWithTx: database error", slog.Any("error", result.Error))
 		return ErrFailedToCreateUser
 	}
 	return nil
@@ -123,7 +123,7 @@ func (r *userRepository) GetByID(ctx context.Context, id string) (*models.User, 
 		return nil, ErrUserNotFound
 	}
 	if result.Error != nil {
-		log.Printf("GetByID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByID: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetUser
 	}
 	return &user, nil
@@ -139,7 +139,7 @@ func (r *userRepository) GetByMobileNumber(ctx context.Context, mobileNumber str
 		return nil, ErrUserNotFound
 	}
 	if result.Error != nil {
-		log.Printf("GetByMobileNumber: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByMobileNumber: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetUser
 	}
 	return &user, nil
@@ -155,7 +155,7 @@ func (r *userRepository) GetByNationalID(ctx context.Context, nationalID string)
 		return nil, ErrUserNotFound
 	}
 	if result.Error != nil {
-		log.Printf("GetByNationalID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByNationalID: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetUser
 	}
 	return &user, nil
@@ -171,7 +171,7 @@ func (r *userRepository) GetByKYCStatus(ctx context.Context, kycStatus string, l
 		Offset(offset).
 		Find(&users)
 	if result.Error != nil {
-		log.Printf("GetByKYCStatus: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByKYCStatus: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetUsersByKYC
 	}
 	return users, nil
@@ -187,7 +187,7 @@ func (r *userRepository) GetByRole(ctx context.Context, role string, limit, offs
 		Offset(offset).
 		Find(&users)
 	if result.Error != nil {
-		log.Printf("GetByRole: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByRole: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetUsersByRole
 	}
 	return users, nil
@@ -203,7 +203,7 @@ func (r *userRepository) List(ctx context.Context, limit, offset int) ([]*models
 		Offset(offset).
 		Find(&users)
 	if result.Error != nil {
-		log.Printf("List: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "List: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetUsers
 	}
 	return users, nil
@@ -225,7 +225,7 @@ func (r *userRepository) ListFiltered(ctx context.Context, status, kycStatus str
 		Offset(offset).
 		Find(&users)
 	if result.Error != nil {
-		log.Printf("ListFiltered: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "ListFiltered: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetUsers
 	}
 	return users, nil
@@ -242,7 +242,7 @@ func (r *userRepository) CountFiltered(ctx context.Context, status, kycStatus st
 		query = query.Where("kyc_status = ?", kycStatus)
 	}
 	if err := query.Count(&count).Error; err != nil {
-		log.Printf("CountFiltered: database error: %v", err)
+		slog.ErrorContext(ctx, "CountFiltered: database error", slog.Any("error", err))
 		return 0, ErrFailedToCountUsers
 	}
 	return count, nil
@@ -256,7 +256,7 @@ func (r *userRepository) Count(ctx context.Context) (int64, error) {
 		Where("deleted_at IS NULL").
 		Count(&count)
 	if result.Error != nil {
-		log.Printf("Count: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Count: database error", slog.Any("error", result.Error))
 		return 0, ErrFailedToCountUsers
 	}
 	return count, nil
@@ -270,7 +270,7 @@ func (r *userRepository) CountByKYCStatus(ctx context.Context, kycStatus string)
 		Where("kyc_status = ? AND deleted_at IS NULL", kycStatus).
 		Count(&count)
 	if result.Error != nil {
-		log.Printf("CountByKYCStatus: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "CountByKYCStatus: database error", slog.Any("error", result.Error))
 		return 0, ErrFailedToCountUsers
 	}
 	return count, nil
@@ -284,7 +284,7 @@ func (r *userRepository) CountByRole(ctx context.Context, role string) (int64, e
 		Where("role = ? AND deleted_at IS NULL", role).
 		Count(&count)
 	if result.Error != nil {
-		log.Printf("CountByRole: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "CountByRole: database error", slog.Any("error", result.Error))
 		return 0, ErrFailedToCountUsers
 	}
 	return count, nil
@@ -298,7 +298,7 @@ func (r *userRepository) CountAdmins(ctx context.Context) (int, error) {
 		Where("role = ? AND deleted_at IS NULL", "admin").
 		Count(&count)
 	if result.Error != nil {
-		log.Printf("CountAdmins: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "CountAdmins: database error", slog.Any("error", result.Error))
 		return 0, ErrFailedToCountAdmins
 	}
 	return int(count), nil
@@ -333,7 +333,7 @@ func (r *userRepository) Update(ctx context.Context, user *models.User) error {
 		return ErrUserNotFound
 	}
 	if result.Error != nil {
-		log.Printf("Update: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Update: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateUser
 	}
 	return nil
@@ -349,7 +349,7 @@ func (r *userRepository) UpdateMobileNumber(ctx context.Context, userID, mobileN
 			"updated_at":    time.Now(),
 		})
 	if result.Error != nil {
-		log.Printf("UpdateMobileNumber: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "UpdateMobileNumber: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateUser
 	}
 	if result.RowsAffected == 0 {
@@ -368,7 +368,7 @@ func (r *userRepository) Restore(ctx context.Context, id string) error {
 		return ErrUserNotFound
 	}
 	if result.Error != nil {
-		log.Printf("Restore: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Restore: database error", slog.Any("error", result.Error))
 		return ErrFailedToRestoreUser
 	}
 	return nil
@@ -386,7 +386,7 @@ func (r *userRepository) Delete(ctx context.Context, id string) error {
 		return ErrUserNotFound
 	}
 	if result.Error != nil {
-		log.Printf("Delete: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Delete: database error", slog.Any("error", result.Error))
 		return ErrFailedToDeleteUser
 	}
 	return nil

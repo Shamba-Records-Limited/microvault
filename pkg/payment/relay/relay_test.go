@@ -3,7 +3,6 @@ package relay
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -53,7 +52,7 @@ func (f *fakeSource) QuoteRate(_ context.Context, req RateRequest) (*RateQuote, 
 }
 
 func quietLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 func newRouter(t *testing.T, enabled bool, sources ...RateSource) *Router {

@@ -30,6 +30,7 @@ type repayLoanSvc struct {
 	initiated   []string
 	initiateErr error
 }
+
 func (s *repayLoanSvc) GetUserLoans(context.Context, string) ([]any, error) {
 	return s.loans, nil
 }

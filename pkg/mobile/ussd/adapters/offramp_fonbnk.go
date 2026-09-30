@@ -132,7 +132,7 @@ func (a *FonbnkOffRampAdapter) Initiate(ctx context.Context, req offramp.Request
 			Code(pkgErrors.CodeIncompleteResponse).Wrapf(err, "order carries no usable deposit target")
 	}
 
-	a.logger.Info("fonbnk order created",
+	a.logger.InfoContext(ctx, "fonbnk order created",
 		pkgErrors.AttrLoanID, req.LoanID,
 		pkgErrors.AttrOrderID, order.ID,
 		"status", order.Status,
@@ -240,7 +240,7 @@ func (a *FonbnkOffRampAdapter) confirm(ctx context.Context, orderID, loanID, txH
 	if err == nil {
 		return true
 	}
-	a.logger.Error("CRITICAL: USDC sent to fonbnk but the deposit could not be confirmed",
+	a.logger.ErrorContext(ctx, "CRITICAL: USDC sent to fonbnk but the deposit could not be confirmed",
 		pkgErrors.AttrLoanID, loanID,
 		pkgErrors.AttrOrderID, orderID,
 		pkgErrors.AttrTxHash, txHash,
@@ -251,7 +251,7 @@ func (a *FonbnkOffRampAdapter) confirm(ctx context.Context, orderID, loanID, txH
 // cancelQuietly releases an order no funds were sent against.
 func (a *FonbnkOffRampAdapter) cancelQuietly(ctx context.Context, orderID, loanID string) {
 	if _, err := a.client.CancelOrder(ctx, orderID); err != nil {
-		a.logger.Warn("could not cancel the unfunded fonbnk order",
+		a.logger.WarnContext(ctx, "could not cancel the unfunded fonbnk order",
 			pkgErrors.AttrLoanID, loanID, pkgErrors.AttrOrderID, orderID, "error", err)
 	}
 }

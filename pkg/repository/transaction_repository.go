@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -78,7 +78,7 @@ func NewTransactionRepository(db *gorm.DB) (TransactionRepository, error) {
 func (r *transactionRepository) Create(ctx context.Context, tx *models.Transaction) error {
 	result := r.db.WithContext(ctx).Create(tx)
 	if result.Error != nil {
-		log.Printf("Create: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Create: database error", slog.Any("error", result.Error))
 		return ErrFailedToCreateTransaction
 	}
 	return nil
@@ -92,7 +92,7 @@ func (r *transactionRepository) BatchCreate(ctx context.Context, txs []*models.T
 
 	result := r.db.WithContext(ctx).Create(txs)
 	if result.Error != nil {
-		log.Printf("BatchCreate: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "BatchCreate: database error", slog.Any("error", result.Error))
 		return ErrFailedToCreateBatchTransactions
 	}
 	return nil
@@ -110,7 +110,7 @@ func (r *transactionRepository) GetByID(ctx context.Context, id string) (*models
 		return nil, ErrTransactionNotFound
 	}
 	if result.Error != nil {
-		log.Printf("GetByID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByID: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetTransaction
 	}
 	return &tx, nil
@@ -127,7 +127,7 @@ func (r *transactionRepository) GetByStellarHash(ctx context.Context, txHash str
 		return nil, ErrTransactionNotFound
 	}
 	if result.Error != nil {
-		log.Printf("GetByStellarHash: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByStellarHash: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetTransactionByHash
 	}
 	return &tx, nil
@@ -142,7 +142,7 @@ func (r *transactionRepository) ListByExternalID(ctx context.Context, externalID
 		Order("created_at ASC").
 		Find(&transactions)
 	if result.Error != nil {
-		log.Printf("ListByExternalID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "ListByExternalID: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetTransaction
 	}
 	return transactions, nil
@@ -160,7 +160,7 @@ func (r *transactionRepository) GetByLoanIDAndType(ctx context.Context, loanID, 
 		return nil, nil //nolint:nilnil // documented contract: none maps to ErrTransactionNotFound at the service layer
 	}
 	if result.Error != nil {
-		log.Printf("GetByLoanIDAndType: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByLoanIDAndType: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetTransaction
 	}
 	return &tx, nil
@@ -176,7 +176,7 @@ func (r *transactionRepository) GetByLoanID(ctx context.Context, loanID string, 
 		Offset(offset).
 		Find(&transactions)
 	if result.Error != nil {
-		log.Printf("GetByLoanID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByLoanID: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetTransactionsByLoanID
 	}
 	return transactions, nil
@@ -192,7 +192,7 @@ func (r *transactionRepository) GetByUserID(ctx context.Context, userID string, 
 		Offset(offset).
 		Find(&transactions)
 	if result.Error != nil {
-		log.Printf("GetByUserID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByUserID: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetTransactionsByUserID
 	}
 	return transactions, nil
@@ -208,7 +208,7 @@ func (r *transactionRepository) GetByStatus(ctx context.Context, status string, 
 		Offset(offset).
 		Find(&transactions)
 	if result.Error != nil {
-		log.Printf("GetByStatus: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByStatus: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetTransactionsByStatus
 	}
 	return transactions, nil
@@ -230,7 +230,7 @@ func (r *transactionRepository) List(ctx context.Context, status, txType string,
 		Offset(offset).
 		Find(&transactions)
 	if result.Error != nil {
-		log.Printf("List: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "List: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToListTransactions
 	}
 	return transactions, nil
@@ -247,7 +247,7 @@ func (r *transactionRepository) Count(ctx context.Context, status, txType string
 		query = query.Where("tx_type = ?", txType)
 	}
 	if err := query.Count(&count).Error; err != nil {
-		log.Printf("Count: database error: %v", err)
+		slog.ErrorContext(ctx, "Count: database error", slog.Any("error", err))
 		return 0, ErrFailedToCountTransactions
 	}
 	return count, nil
@@ -305,7 +305,7 @@ func (r *transactionRepository) UpdateFields(ctx context.Context, id string, fie
 	out := make(map[string]interface{}, len(fields)+1)
 	for k, v := range fields {
 		if !transactionUpdatableColumns[k] {
-			log.Printf("UpdateFields: rejected non-updatable column %q", k)
+			slog.ErrorContext(ctx, "UpdateFields: rejected non-updatable column", slog.String("k", k))
 			return ErrFailedToUpdateTransaction
 		}
 		out[k] = v
@@ -321,7 +321,7 @@ func (r *transactionRepository) updateColumns(ctx context.Context, id string, fi
 		Where("id = ?", id).
 		Updates(fields)
 	if result.Error != nil {
-		log.Printf("Update: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Update: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateTransaction
 	}
 	if result.RowsAffected == 0 {

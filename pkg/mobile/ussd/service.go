@@ -2,7 +2,7 @@ package ussd
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
@@ -17,7 +17,7 @@ func NewUSSDService(handler *USSDHandler) *USSDService {
 
 // RegisterProvider registers a USSD provider with the service.
 func (s *USSDService) RegisterProvider(name string, provider USSDProvider) {
-	log.Printf("Registering USSD provider: %s", name)
+	slog.Info("Registering USSD provider", slog.String("name", name))
 	s.providers[name] = provider
 }
 

@@ -48,6 +48,8 @@ linters:
     - wastedassign
     - predeclared # shadowing predeclared identifiers
     - nolintlint # //nolint must name a linter and give a reason
+    - sloglint # structured, context-carrying log calls
+    - forbidigo # the standard log package outside cmd/
 
     # Security.
     - gosec
@@ -90,6 +92,18 @@ linters:
         # stroops and sized ints constantly, always within ranges fixed by the
         # protocol, and the check has no way to see that.
         - G115
+
+    sloglint:
+      # A *Context method whenever a context is in scope, so request and
+      # trace attributes attached to it reach the record.
+      context: scope
+      static-msg: true
+      key-naming-case: snake
+
+    forbidigo:
+      forbid:
+        - pattern: ^log\.Print(f|ln)?$
+          msg: use slog, with a *Context method when a context is in scope
 
     nolintlint:
       require-explanation: true
@@ -143,6 +157,12 @@ linters:
       - path: pkg/mobile/ussd/
         linters:
           - nilerr
+
+      # Binaries may print through the standard log package, which
+      # logging.Setup routes into the JSON handler.
+      - path: cmd/
+        linters:
+          - forbidigo
 
       # Generated Swagger docs.
       - path: cmd/.*/docs/

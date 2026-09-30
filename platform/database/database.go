@@ -3,7 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -128,7 +128,7 @@ func CloseConnection(name string) error {
 		return err
 	}
 
-	log.Printf("Closing connection %s", name)
+	slog.Info("Closing connection", slog.String("name", name))
 
 	if err := sqlDB.Close(); err != nil {
 		return err
@@ -145,7 +145,7 @@ func CloseAll() error {
 
 	var errors []error
 
-	log.Printf("Closing all database connections")
+	slog.Info("Closing all database connections")
 	for name, db := range instances {
 		if sqlDB, err := db.DB(); err == nil {
 			if err := sqlDB.Close(); err != nil {

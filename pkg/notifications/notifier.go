@@ -31,20 +31,20 @@ func NewSMSNotifier(provider sms.SMSProvider, from string) *SMSNotifier {
 
 // Send sends a single SMS message.
 func (n *SMSNotifier) Send(ctx context.Context, to string, message string) error {
-	slog.Info("sms: sending message",
+	slog.InfoContext(ctx, "sms: sending message",
 		slog.String("to", phone.Redact(to)),
 		slog.String("from", n.from),
 		slog.Int("message_len", len(message)),
 	)
 	_, err := n.provider.SendSingleSMS(ctx, to, message, n.from)
 	if err != nil {
-		slog.Error("sms: send failed",
+		slog.ErrorContext(ctx, "sms: send failed",
 			slog.String("to", phone.Redact(to)),
 			slog.String("error", err.Error()),
 		)
 		return fmt.Errorf("send SMS to %s: %w", phone.Redact(to), err)
 	}
-	slog.Info("sms: send succeeded",
+	slog.InfoContext(ctx, "sms: send succeeded",
 		slog.String("to", phone.Redact(to)),
 	)
 	return nil

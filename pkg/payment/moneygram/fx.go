@@ -187,7 +187,7 @@ func (o *FXOrchestrator) Quote(ctx context.Context, req FXQuoteRequest) (*FXQuot
 			o.cachePut(req, *res)
 			return res, nil
 		}
-		o.logger.Warn("primary rate source failed, attempting fallback",
+		o.logger.WarnContext(ctx, "primary rate source failed, attempting fallback",
 			"send", req.SendCurrency, "receive", req.ReceiveCurrency, "error", err)
 	}
 
@@ -205,7 +205,7 @@ func (o *FXOrchestrator) Quote(ctx context.Context, req FXQuoteRequest) (*FXQuot
 			return res, nil
 		}
 		if err != nil {
-			o.logger.Error("fallback rate source failed",
+			o.logger.ErrorContext(ctx, "fallback rate source failed",
 				"receive", req.ReceiveCurrency, "error", err)
 		}
 	}
@@ -215,12 +215,12 @@ func (o *FXOrchestrator) Quote(ctx context.Context, req FXQuoteRequest) (*FXQuot
 		age := time.Since(cached.FetchedAt)
 		if age <= o.cfg.StaleCacheMaxAge {
 			cached.Source = stalenessLabel(cached.Source)
-			o.logger.Warn("serving stale cached FX rate",
+			o.logger.WarnContext(ctx, "serving stale cached FX rate",
 				"send", req.SendCurrency, "receive", req.ReceiveCurrency,
 				"source", cached.Source, "age", age)
 			return &cached, nil
 		}
-		o.logger.Warn("cached FX rate too old, refusing to serve",
+		o.logger.WarnContext(ctx, "cached FX rate too old, refusing to serve",
 			"send", req.SendCurrency, "receive", req.ReceiveCurrency, "age", age)
 	}
 

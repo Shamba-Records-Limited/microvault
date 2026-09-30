@@ -24,7 +24,9 @@
 // # Cross-cutting stack
 //
 // FiberMiddleware registers the rest in one call: security headers (helmet),
-// panic recovery, CORS with credentials, a request rate limiter, request logging,
-// and a favicon handler. It also mounts the /health and /ready endpoints backed
+// panic recovery, CORS with credentials, a request rate limiter, and a favicon
+// handler, behind RequestID and AccessLog. RequestID attaches a request ID to the
+// user context so every *Context log call below it carries the ID; AccessLog
+// writes one structured line per request. It also mounts the /health and /ready endpoints backed
 // by the health checker.
 package middleware

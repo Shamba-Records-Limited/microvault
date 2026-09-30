@@ -208,7 +208,7 @@ func (r *Router) Best(ctx context.Context, req RateRequest) (*RateQuote, error) 
 		return best
 	}, quotes[0])
 
-	r.logger.Info("relay routed",
+	r.logger.InfoContext(ctx, "relay routed",
 		pkgErrors.AttrDirection, req.Direction,
 		pkgErrors.AttrProvider, best.Provider,
 		pkgErrors.AttrCurrency, req.FiatCurrency,
@@ -361,7 +361,7 @@ func (r *Router) quoteAll(ctx context.Context, sources []RateSource, req RateReq
 	}
 
 	for _, err := range failures {
-		r.logger.Warn("rate source failed, excluded from routing",
+		r.logger.WarnContext(ctx, "rate source failed, excluded from routing",
 			pkgErrors.AttrDirection, req.Direction, "error", err)
 	}
 	return quotes, oops.Join(failures...)

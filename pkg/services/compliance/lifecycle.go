@@ -84,7 +84,7 @@ func (s *Service) SubmitAddress(ctx context.Context, counterpartyID, address str
 			// AddressStatusPending for a retry (via the admin's rescreen
 			// action), matching the source design doc §15's "Elliptic is
 			// down" degradation: onboarding stalls, nothing is corrupted.
-			s.logger.Error("initial screening failed after address submission",
+			s.logger.ErrorContext(ctx, "initial screening failed after address submission",
 				"address_id", addr.ID, "error", err)
 		}
 	}
@@ -105,7 +105,7 @@ func (s *Service) ApproveKYB(ctx context.Context, counterpartyID, actor string) 
 	}
 	for _, addr := range addrs {
 		if err := s.ScreenAndRecord(ctx, addr.ID); err != nil {
-			s.logger.Error("screening failed during KYB approval",
+			s.logger.ErrorContext(ctx, "screening failed during KYB approval",
 				"counterparty_id", counterpartyID, "address_id", addr.ID, "error", err)
 		}
 	}

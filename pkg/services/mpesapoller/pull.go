@@ -63,13 +63,13 @@ func (s *PullSweeper) Start(ctx context.Context) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
-	s.logger.Info("starting", "interval", s.interval)
+	s.logger.InfoContext(ctx, "starting", "interval", s.interval)
 	s.sweep(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Info("shutting down")
+			s.logger.InfoContext(ctx, "shutting down")
 			return
 		case <-ticker.C:
 			s.sweep(ctx)
@@ -84,7 +84,7 @@ func (s *PullSweeper) Start(ctx context.Context) {
 func (s *PullSweeper) sweep(ctx context.Context) {
 	from, err := s.cursor.Get(ctx)
 	if err != nil {
-		s.logger.Error("could not read the pull cursor", "error", err)
+		s.logger.ErrorContext(ctx, "could not read the pull cursor", "error", err)
 		return
 	}
 	to := s.now()
@@ -94,7 +94,7 @@ func (s *PullSweeper) sweep(ctx context.Context) {
 
 	txs, err := s.client.PullAll(ctx, from, to, s.shortcode)
 	if err != nil {
-		s.logger.Error("pull query failed, window will be retried next tick",
+		s.logger.ErrorContext(ctx, "pull query failed, window will be retried next tick",
 			"from", from, "to", to, "error", err)
 		return
 	}
@@ -104,7 +104,7 @@ func (s *PullSweeper) sweep(ctx context.Context) {
 	}
 
 	if err := s.cursor.Advance(ctx, to); err != nil {
-		s.logger.Error("could not advance the pull cursor", "error", err)
+		s.logger.ErrorContext(ctx, "could not advance the pull cursor", "error", err)
 	}
 }
 
@@ -116,13 +116,13 @@ func (s *PullSweeper) sweep(ctx context.Context) {
 func (s *PullSweeper) reconcile(ctx context.Context, pt mpesa.PulledTransaction) {
 	loanID, err := s.repo.GetLoanIDByReference(ctx, pt.BillReference)
 	if err != nil {
-		s.logger.Warn("could not resolve loan reference during pull sweep",
+		s.logger.WarnContext(ctx, "could not resolve loan reference during pull sweep",
 			"trans_id", pt.TransactionID, "error", err)
 	}
 
 	payload, err := json.Marshal(pt)
 	if err != nil {
-		s.logger.Error("could not encode pulled transaction", "trans_id", pt.TransactionID, "error", err)
+		s.logger.ErrorContext(ctx, "could not encode pulled transaction", "trans_id", pt.TransactionID, "error", err)
 		return
 	}
 
@@ -144,6 +144,6 @@ func (s *PullSweeper) reconcile(ctx context.Context, pt mpesa.PulledTransaction)
 	}
 
 	if err := s.repo.UpsertFromPull(ctx, tx); err != nil {
-		s.logger.Error("could not upsert pulled transaction", "trans_id", pt.TransactionID, "error", err)
+		s.logger.ErrorContext(ctx, "could not upsert pulled transaction", "trans_id", pt.TransactionID, "error", err)
 	}
 }

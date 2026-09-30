@@ -37,7 +37,7 @@ func NewSMSCallbackController(handler *sms.DeliveryReportHandler) *SMSCallbackCo
 func (ctrl *SMSCallbackController) HandleDeliveryReport(c *fiber.Ctx) error {
 	provider := c.Params("provider")
 
-	slog.Info("sms callback: delivery report received",
+	slog.InfoContext(c.UserContext(), "sms callback: delivery report received",
 		slog.String("provider", provider),
 	)
 
@@ -53,7 +53,7 @@ func (ctrl *SMSCallbackController) HandleDeliveryReport(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "missing required fields: id and status")
 	}
 
-	go ctrl.handler.HandleReport(context.Background(), report)
+	go ctrl.handler.HandleReport(context.WithoutCancel(c.UserContext()), report)
 
 	return c.SendString("ok")
 }

@@ -34,7 +34,7 @@ const refundAssetCode = "USDC"
 // gets its turn each tick.
 func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 	if rec.MoneyGramTxID == "" {
-		p.logger.Warn("loan has no MoneyGram transaction id, skipping",
+		p.logger.WarnContext(ctx, "loan has no MoneyGram transaction id, skipping",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID)
 		return
 	}
@@ -42,7 +42,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 	childMemo := stellaranchor.ChildAccountMemo(p.client.TreasuryAddress(), rec.ChildAccountIndex)
 	tx, err := p.client.GetTransaction(ctx, childMemo, rec.MoneyGramTxID)
 	if err != nil {
-		p.logger.Error("GetTransaction failed",
+		p.logger.ErrorContext(ctx, "GetTransaction failed",
 			"loan_id", rec.LoanID,
 			"mg_tx_id", rec.MoneyGramTxID,
 			"error", err)
@@ -51,7 +51,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 
 	// Unconditional: every branch below can return without logging, which
 	// makes a parked transaction indistinguishable from a stalled poller.
-	p.logger.Info("MoneyGram transaction polled",
+	p.logger.InfoContext(ctx, "MoneyGram transaction polled",
 		"loan_id", rec.LoanID,
 		"mg_tx_id", rec.MoneyGramTxID,
 		"status", tx.Status,
@@ -64,7 +64,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 	// is the one that matters most (carries amount_out + reference) but
 	// having amount_in available earlier is harmless.
 	if err := p.recorder.RecordTransactionUpdate(ctx, rec.LoanID, tx); err != nil {
-		p.logger.Warn("failed to persist transaction update",
+		p.logger.WarnContext(ctx, "failed to persist transaction update",
 			"loan_id", rec.LoanID, "error", err)
 	}
 
@@ -76,7 +76,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		p.handlePendingUserTransferComplete(ctx, rec, tx)
 
 	case stellaranchor.StatusCompleted:
-		p.handleCompleted(rec, tx)
+		p.handleCompleted(ctx, rec, tx)
 
 	case stellaranchor.StatusRefunded:
 		p.handleRefunded(ctx, rec, tx)
@@ -86,13 +86,13 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		stellaranchor.StatusTooSmall,
 		stellaranchor.StatusTooLarge,
 		stellaranchor.StatusError:
-		p.handleTerminalFailure(rec, tx)
+		p.handleTerminalFailure(ctx, rec, tx)
 
 	case stellaranchor.StatusOnHold:
 		// MG paused the transaction for additional checks (compliance,
 		// fraud review). Not terminal, but it can sit here for a while —
 		// alert ops so a human can chase MG support if needed.
-		p.logger.Warn("MoneyGram transaction on hold",
+		p.logger.WarnContext(ctx, "MoneyGram transaction on hold",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 			"message", tx.Message)
 		p.alertOps("MoneyGram transaction on hold",
@@ -103,7 +103,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		// User-side trustline missing. In our custodial-wallet model the
 		// user never holds USDC directly, so this only arises on the MG
 		// side and likely indicates an anchor-config issue worth flagging.
-		p.logger.Warn("MoneyGram pending_trust — anchor missing trustline?",
+		p.logger.WarnContext(ctx, "MoneyGram pending_trust — anchor missing trustline?",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 			"message", tx.Message)
 		p.alertOps("MoneyGram pending_trust",
@@ -114,7 +114,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		// MG is waiting on the user (additional KYC, action at the agent,
 		// etc.). Nothing automated to do — log for visibility and let
 		// the existing reminder SMS path handle nudges.
-		p.logger.Info("MoneyGram waiting on user action",
+		p.logger.InfoContext(ctx, "MoneyGram waiting on user action",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 			"message", tx.Message)
 
@@ -125,7 +125,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		// In-flight elsewhere; status is logged unconditionally above.
 
 	default:
-		p.logger.Warn("unexpected MoneyGram status",
+		p.logger.WarnContext(ctx, "unexpected MoneyGram status",
 			"loan_id", rec.LoanID, "status", tx.Status)
 	}
 }
@@ -137,7 +137,7 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 		// Already observed — wait for MG to advance. Logged because this is
 		// otherwise a silent permanent no-op: if MG reports a stellar_transaction_id
 		// we never sent, the loan parks here forever with no diagnostic.
-		p.logger.Info("skipping SendUSDC — payment already observed",
+		p.logger.InfoContext(ctx, "skipping SendUSDC — payment already observed",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 			"mg_stellar_tx_id", tx.StellarTransactionID,
 			"has_stellar_send", rec.HasStellarSend,
@@ -145,12 +145,12 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 		return
 	}
 	if tx.WithdrawAnchorAccount == "" {
-		p.logger.Error("pending_user_transfer_start without withdraw_anchor_account",
+		p.logger.ErrorContext(ctx, "pending_user_transfer_start without withdraw_anchor_account",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID)
 		return
 	}
 	if rec.PrincipalStroops <= 0 {
-		p.logger.Error("loan has no principal_stroops to send",
+		p.logger.ErrorContext(ctx, "loan has no principal_stroops to send",
 			"loan_id", rec.LoanID)
 		return
 	}
@@ -158,12 +158,12 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 	// Claim the send before submitting: a durable claim is what stops the next
 	// tick paying twice. No claim, no send.
 	if err := p.recorder.RecordSendAttempt(ctx, rec.LoanID); err != nil {
-		p.logger.Error("could not claim send attempt; refusing to send",
+		p.logger.ErrorContext(ctx, "could not claim send attempt; refusing to send",
 			"loan_id", rec.LoanID, "error", err)
 		return
 	}
 
-	p.logger.Info("sending USDC to MoneyGram anchor",
+	p.logger.InfoContext(ctx, "sending USDC to MoneyGram anchor",
 		"loan_id", rec.LoanID,
 		"destination", tx.WithdrawAnchorAccount,
 		"memo", tx.WithdrawMemo,
@@ -172,7 +172,7 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 
 	txHash, err := p.treasury.SendUSDC(ctx, tx.WithdrawAnchorAccount, tx.WithdrawMemo, rec.PrincipalStroops)
 	if err != nil {
-		p.logger.Error("SendUSDC failed",
+		p.logger.ErrorContext(ctx, "SendUSDC failed",
 			"loan_id", rec.LoanID, "error", err)
 
 		if errors.Is(err, types.ErrTransactionFailedOnLedger) {
@@ -180,7 +180,7 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 			// PAYMENT_UNDERFUNDED): the fee was burned, no USDC moved. Safe to
 			// release the claim so a later tick retries once the cause is fixed.
 			if cerr := p.recorder.ClearSendAttempt(ctx, rec.LoanID); cerr != nil {
-				p.logger.Error("failed to release send claim after on-ledger failure; loan will not retry until cleared manually",
+				p.logger.ErrorContext(ctx, "failed to release send claim after on-ledger failure; loan will not retry until cleared manually",
 					"loan_id", rec.LoanID, "error", cerr)
 			}
 			p.alertOps("MoneyGram USDC send failed on ledger",
@@ -198,10 +198,10 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 				rec.LoanID, tx.WithdrawAnchorAccount, err))
 		return
 	}
-	p.logger.Info("USDC sent to MoneyGram",
+	p.logger.InfoContext(ctx, "USDC sent to MoneyGram",
 		"loan_id", rec.LoanID, "tx_hash", txHash)
 	if err := p.recorder.RecordSendUSDC(ctx, rec.LoanID, txHash); err != nil {
-		p.logger.Warn("failed to record SendUSDC tx hash",
+		p.logger.WarnContext(ctx, "failed to record SendUSDC tx hash",
 			"loan_id", rec.LoanID, "error", err)
 	}
 }
@@ -211,25 +211,25 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 // populated. The recorder already wrote those above; here we just emit a
 // drift alert if the locked payout deviates from what the user saw at
 // USSD entry.
-func (p *Poller) handlePendingUserTransferComplete(_ context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
+func (p *Poller) handlePendingUserTransferComplete(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
 	// Cash is collectable. The status transition is the idempotency guard, so
 	// the SMS is not re-sent every tick. Not terminal — polling continues.
 	if rec.DisbursementStatus != statusProcessing {
-		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusProcessing); err != nil {
+		if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, statusProcessing); err != nil {
 			// Bail before notifying — sending an SMS we failed to record
 			// would re-send it every tick.
-			p.logger.Error("failed to mark cash ready for pickup",
+			p.logger.ErrorContext(ctx, "failed to mark cash ready for pickup",
 				"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
 			return
 		}
-		p.logger.Info("cash available for pickup",
+		p.logger.InfoContext(ctx, "cash available for pickup",
 			"loan_id", rec.LoanID,
 			"mg_tx_id", rec.MoneyGramTxID,
 			"reference", tx.ExternalTransactionID,
 			"amount_out", tx.AmountOut,
 		)
-		if err := p.disbursement.NotifyCashPickupReady(rec.SequenceID); err != nil {
-			p.logger.Warn("cash-pickup ready SMS failed",
+		if err := p.disbursement.NotifyCashPickupReady(ctx, rec.SequenceID); err != nil {
+			p.logger.WarnContext(ctx, "cash-pickup ready SMS failed",
 				"loan_id", rec.LoanID, "error", err)
 		}
 	}
@@ -243,7 +243,7 @@ func (p *Poller) handlePendingUserTransferComplete(_ context.Context, rec LoanRe
 	}
 	deviation := (got - rec.RequestedLocalAmount) / rec.RequestedLocalAmount
 	if deviation < -p.cfg.PayoutDriftAlertPct || deviation > p.cfg.PayoutDriftAlertPct {
-		p.logger.Warn("PAYOUT DRIFT: MG amount_out diverges from requested",
+		p.logger.WarnContext(ctx, "PAYOUT DRIFT: MG amount_out diverges from requested",
 			"loan_id", rec.LoanID,
 			"requested", rec.RequestedLocalAmount,
 			"locked", got,
@@ -252,14 +252,14 @@ func (p *Poller) handlePendingUserTransferComplete(_ context.Context, rec LoanRe
 }
 
 // handleCompleted: MG confirmed the user picked up the cash.
-func (p *Poller) handleCompleted(rec LoanRecord, _ *stellaranchor.Transaction) {
-	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusCompleted); err != nil {
-		p.logger.Error("failed to mark disbursement complete",
+func (p *Poller) handleCompleted(ctx context.Context, rec LoanRecord, _ *stellaranchor.Transaction) {
+	if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, statusCompleted); err != nil {
+		p.logger.ErrorContext(ctx, "failed to mark disbursement complete",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
 		return
 	}
-	if err := p.disbursement.NotifyDisbursementComplete(rec.SequenceID); err != nil {
-		p.logger.Warn("failed to notify disbursement complete",
+	if err := p.disbursement.NotifyDisbursementComplete(ctx, rec.SequenceID); err != nil {
+		p.logger.WarnContext(ctx, "failed to notify disbursement complete",
 			"loan_id", rec.LoanID, "error", err)
 	}
 }
@@ -268,12 +268,12 @@ func (p *Poller) handleCompleted(rec LoanRecord, _ *stellaranchor.Transaction) {
 // failure. Runs in stages across ticks so every step is retried; see doc.go.
 func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
 	if rec.DisbursementStatus != statusRefundPending {
-		if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusRefundPending); err != nil {
-			p.logger.Error("failed to mark refund_pending",
+		if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, statusRefundPending); err != nil {
+			p.logger.ErrorContext(ctx, "failed to mark refund_pending",
 				"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
 			return
 		}
-		p.logger.Info("MoneyGram refunded — awaiting inbound USDC",
+		p.logger.InfoContext(ctx, "MoneyGram refunded — awaiting inbound USDC",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID)
 	}
 
@@ -290,7 +290,7 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 		// at all (and the deprecated `refunded` flag set false), so this is not
 		// always a transient gap — without a ceiling the loan polls forever and
 		// the vault is never repaid.
-		p.awaitRefundDetails(rec, tx)
+		p.awaitRefundDetails(ctx, rec, tx)
 		return
 	}
 	p.clearRefundWait(rec.LoanID)
@@ -308,14 +308,14 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 		return
 	}
 	if net <= 0 {
-		p.logger.Error("refund settled to zero; not repaying vault",
+		p.logger.ErrorContext(ctx, "refund settled to zero; not repaying vault",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID)
 		p.alertOps("MoneyGram refund settled to zero",
 			fmt.Sprintf("Loan %s: MG reported a refund of 0 after we sent %d stroops. Needs manual review.",
 				rec.LoanID, rec.PrincipalStroops))
 		return
 	}
-	p.crossCheckReportedRefund(rec, tx, net)
+	p.crossCheckReportedRefund(ctx, rec, tx, net)
 
 	p.settleRefund(ctx, rec, lastHash, net)
 }
@@ -327,14 +327,14 @@ func (p *Poller) ledgerRefundTotal(ctx context.Context, rec LoanRecord, tx *stel
 	if p.verifier == nil || dest == "" {
 		net, err := tx.Refunds.NetRefundedStroops()
 		if err != nil {
-			p.logger.Error("no ledger verification available and refund amounts are unparseable; not repaying vault",
+			p.logger.ErrorContext(ctx, "no ledger verification available and refund amounts are unparseable; not repaying vault",
 				"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "error", err)
 			p.alertOps("MoneyGram refund amount unparseable",
 				fmt.Sprintf("Loan %s: cannot parse MG refund amounts and cannot read the ledger, "+
 					"vault repay withheld: %v", rec.LoanID, err))
 			return 0, false
 		}
-		p.logger.Warn("settling refund on the anchor's reported amount; ledger unverified",
+		p.logger.WarnContext(ctx, "settling refund on the anchor's reported amount; ledger unverified",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "reported_stroops", net)
 		return net, true
 	}
@@ -352,12 +352,12 @@ func (p *Poller) ledgerRefundTotal(ctx context.Context, rec LoanRecord, tx *stel
 
 		received, err := p.verifier.PaymentsTo(ctx, pay.ID, dest, refundAssetCode, p.refundAssetIssuer())
 		if err != nil {
-			p.logger.Warn("could not read refund payment from ledger; will retry",
+			p.logger.WarnContext(ctx, "could not read refund payment from ledger; will retry",
 				"loan_id", rec.LoanID, "refund_tx_hash", pay.ID, "error", err)
 			return 0, false
 		}
 		if len(received) == 0 {
-			p.logger.Warn("refund transaction carries no payment to us; will retry",
+			p.logger.WarnContext(ctx, "refund transaction carries no payment to us; will retry",
 				"loan_id", rec.LoanID, "refund_tx_hash", pay.ID, "destination", dest)
 			return 0, false
 		}
@@ -372,17 +372,17 @@ func (p *Poller) ledgerRefundTotal(ctx context.Context, rec LoanRecord, tx *stel
 // from what the ledger shows. Settlement has already used the ledger figure;
 // this exists so a systematically wrong anchor payload is visible rather than
 // silently tolerated.
-func (p *Poller) crossCheckReportedRefund(rec LoanRecord, tx *stellaranchor.Transaction, ledger int64) {
+func (p *Poller) crossCheckReportedRefund(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction, ledger int64) {
 	reported, err := tx.Refunds.NetRefundedStroops()
 	if err != nil {
-		p.logger.Warn("anchor refund amounts unparseable; settled on the ledger regardless",
+		p.logger.WarnContext(ctx, "anchor refund amounts unparseable; settled on the ledger regardless",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "error", err)
 		return
 	}
 	if reported == ledger {
 		return
 	}
-	p.logger.Warn("anchor refund amount disagrees with the ledger",
+	p.logger.WarnContext(ctx, "anchor refund amount disagrees with the ledger",
 		"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 		"reported_stroops", reported, "ledger_stroops", ledger)
 	p.alertOps("MoneyGram refund amount mismatch",
@@ -417,13 +417,13 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 		NetStroops:       net,
 		ShortfallStroops: shortfall,
 	}); err != nil {
-		p.logger.Error("failed to record refund; not repaying vault",
+		p.logger.ErrorContext(ctx, "failed to record refund; not repaying vault",
 			"loan_id", rec.LoanID, "error", err)
 		return
 	}
 
 	if shortfall > 0 {
-		p.logger.Warn("REFUND SHORTFALL: MG returned less than we sent",
+		p.logger.WarnContext(ctx, "REFUND SHORTFALL: MG returned less than we sent",
 			"loan_id", rec.LoanID,
 			"sent_stroops", rec.PrincipalStroops,
 			"returned_stroops", net,
@@ -435,7 +435,7 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 	}
 
 	if excess > 0 {
-		p.logger.Warn("REFUND EXCESS: MG returned more than we sent",
+		p.logger.WarnContext(ctx, "REFUND EXCESS: MG returned more than we sent",
 			"loan_id", rec.LoanID,
 			"sent_stroops", rec.PrincipalStroops,
 			"returned_stroops", net,
@@ -449,8 +449,8 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 
 	// Repay only what came back. Repaying the full principal would draw the
 	// difference from unrelated treasury funds.
-	if err := p.disbursement.RepayVaultAmount(rec.SequenceID, repay); err != nil {
-		p.logger.Error("CRITICAL: vault repay failed after refund",
+	if err := p.disbursement.RepayVaultAmount(ctx, rec.SequenceID, repay); err != nil {
+		p.logger.ErrorContext(ctx, "CRITICAL: vault repay failed after refund",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID,
 			"amount_stroops", net, "error", err)
 		p.alertOps("Vault repay failed after MoneyGram refund",
@@ -461,13 +461,13 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 	}
 
 	// Terminal only once the money is genuinely back in the vault.
-	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusRefundReceived); err != nil {
-		p.logger.Error("vault repaid but failed to mark refund_received",
+	if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, statusRefundReceived); err != nil {
+		p.logger.ErrorContext(ctx, "vault repaid but failed to mark refund_received",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
 		return
 	}
 
-	p.logger.Info("MoneyGram refund settled",
+	p.logger.InfoContext(ctx, "MoneyGram refund settled",
 		"loan_id", rec.LoanID,
 		"sequence_id", rec.SequenceID,
 		"refund_tx_hash", refundHash,
@@ -476,8 +476,8 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 		"shortfall_stroops", shortfall,
 		"excess_stroops", excess)
 
-	if err := p.disbursement.NotifyRefundReceived(rec.SequenceID); err != nil {
-		p.logger.Warn("refund SMS failed",
+	if err := p.disbursement.NotifyRefundReceived(ctx, rec.SequenceID); err != nil {
+		p.logger.WarnContext(ctx, "refund SMS failed",
 			"loan_id", rec.LoanID, "error", err)
 	}
 }
@@ -493,14 +493,14 @@ func (p *Poller) settleFromStellarTx(ctx context.Context, rec LoanRecord, tx *st
 
 	dest := p.refundDestination()
 	if dest == "" {
-		p.logger.Warn("no refund destination configured; cannot settle from stellar_transaction_id",
+		p.logger.WarnContext(ctx, "no refund destination configured; cannot settle from stellar_transaction_id",
 			"loan_id", rec.LoanID)
 		return false
 	}
 
 	received, err := p.verifier.PaymentsTo(ctx, hash, dest, refundAssetCode, p.refundAssetIssuer())
 	if err != nil {
-		p.logger.Warn("could not read stellar_transaction_id from ledger; will retry",
+		p.logger.WarnContext(ctx, "could not read stellar_transaction_id from ledger; will retry",
 			"loan_id", rec.LoanID, "tx_hash", hash, "error", err)
 		return false
 	}
@@ -544,7 +544,7 @@ func (p *Poller) refundAssetIssuer() string {
 // awaitRefundDetails counts ticks spent waiting for MoneyGram to publish refund
 // payments and escalates past the ceiling. The count is in memory; it only
 // drives alerting.
-func (p *Poller) awaitRefundDetails(rec LoanRecord, tx *stellaranchor.Transaction) {
+func (p *Poller) awaitRefundDetails(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
 	p.refundWaitMu.Lock()
 	p.refundWaits[rec.LoanID]++
 	attempts := p.refundWaits[rec.LoanID]
@@ -553,14 +553,14 @@ func (p *Poller) awaitRefundDetails(rec LoanRecord, tx *stellaranchor.Transactio
 	max := p.cfg.RefundSettleMaxAttempts
 	if max <= 0 || attempts != max {
 		if attempts < max {
-			p.logger.Info("refund declared but no refund payments yet; waiting",
+			p.logger.InfoContext(ctx, "refund declared but no refund payments yet; waiting",
 				"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 				"attempt", attempts, "max_attempts", max)
 		}
 		return
 	}
 
-	p.logger.Error("MoneyGram declared a refund but never published refund payments",
+	p.logger.ErrorContext(ctx, "MoneyGram declared a refund but never published refund payments",
 		"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 		"attempts", attempts,
 		"mg_stellar_tx_id", tx.StellarTransactionID,
@@ -584,7 +584,7 @@ func (p *Poller) clearRefundWait(loanID string) {
 // verifier trusts the anchor, which is logged rather than silent.
 func (p *Poller) refundLanded(ctx context.Context, rec LoanRecord, payments []stellaranchor.RefundPayment) bool {
 	if p.verifier == nil {
-		p.logger.Warn("no payment verifier configured; trusting MoneyGram's refund unverified",
+		p.logger.WarnContext(ctx, "no payment verifier configured; trusting MoneyGram's refund unverified",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID)
 		return true
 	}
@@ -594,12 +594,12 @@ func (p *Poller) refundLanded(ctx context.Context, rec LoanRecord, payments []st
 		if err != nil {
 			// Unknown, not failed. Retry next tick rather than assuming either
 			// way — treating this as landed could overdraw the treasury.
-			p.logger.Warn("could not verify refund payment; will retry",
+			p.logger.WarnContext(ctx, "could not verify refund payment; will retry",
 				"loan_id", rec.LoanID, "refund_tx_hash", pay.ID, "error", err)
 			return false
 		}
 		if !ok {
-			p.logger.Error("MoneyGram named a refund transaction that did not succeed on-ledger",
+			p.logger.ErrorContext(ctx, "MoneyGram named a refund transaction that did not succeed on-ledger",
 				"loan_id", rec.LoanID, "refund_tx_hash", pay.ID)
 			p.alertOps("MoneyGram refund not on ledger",
 				fmt.Sprintf("Loan %s: MG reported refund tx %s but it did not succeed on-ledger. "+
@@ -612,21 +612,21 @@ func (p *Poller) refundLanded(ctx context.Context, rec LoanRecord, payments []st
 
 // handleTerminalFailure: expired/no_market/too_small/too_large/error.
 // Mark failed, notify the user. If we already sent USDC, repay vault.
-func (p *Poller) handleTerminalFailure(rec LoanRecord, tx *stellaranchor.Transaction) {
-	if err := p.disbursement.UpdateDisbursementStatus(rec.SequenceID, statusFailed); err != nil {
-		p.logger.Error("failed to mark failed",
+func (p *Poller) handleTerminalFailure(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
+	if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, statusFailed); err != nil {
+		p.logger.ErrorContext(ctx, "failed to mark failed",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
 	}
-	if err := p.disbursement.NotifyDisbursementFailed(rec.SequenceID); err != nil {
-		p.logger.Warn("failed to notify disbursement failed",
+	if err := p.disbursement.NotifyDisbursementFailed(ctx, rec.SequenceID); err != nil {
+		p.logger.WarnContext(ctx, "failed to notify disbursement failed",
 			"loan_id", rec.LoanID, "error", err)
 	}
 	if tx.StellarTransactionID != "" || rec.HasStellarSend {
 		// USDC was sent before MG terminated. Repay the vault to keep books
 		// straight — actual reconciliation happens via the inbound refund
 		// memo handler, but RepayVault flips the loan accounting too.
-		if err := p.disbursement.RepayVault(rec.SequenceID); err != nil {
-			p.logger.Error("RepayVault failed after terminal failure",
+		if err := p.disbursement.RepayVault(ctx, rec.SequenceID); err != nil {
+			p.logger.ErrorContext(ctx, "RepayVault failed after terminal failure",
 				"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
 		}
 	}

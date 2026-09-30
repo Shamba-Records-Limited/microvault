@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"time"
 
@@ -94,7 +93,6 @@ func NewUserServiceAdapter(
 	// Note: BIP32 expects a seed, we'll use the Stellar seed bytes as entropy
 	masterKey, err := bip32.NewMasterKey([]byte(treasurySeed))
 	if err != nil {
-		log.Println("Error creating master key:", err)
 		return nil, userAdapterErr("new").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not create the master key")
 	}
 
@@ -274,7 +272,7 @@ func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIn
 		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "could not create the on-chain account")
 	}
 	a.confirmChainStatus(ctx, address)
-	a.logger.Info("created missing on-chain account",
+	a.logger.InfoContext(ctx, "created missing on-chain account",
 		"address", address, "account_index", accountIndex)
 	return nil
 }
@@ -288,7 +286,7 @@ func (a *UserServiceAdapter) confirmChainStatus(ctx context.Context, address str
 	}
 	acct, err := a.accountService.GetByPublicKey(ctx, address)
 	if err != nil {
-		a.logger.Warn("could not resolve account to confirm chain status",
+		a.logger.WarnContext(ctx, "could not resolve account to confirm chain status",
 			"address", address, "error", err)
 		return
 	}
@@ -299,11 +297,12 @@ func (a *UserServiceAdapter) confirmChainStatus(ctx context.Context, address str
 }
 
 // createSponsoredAccountAsync submits the child account's sponsored-creation
-// transaction off the USSD request path. It uses a background context so it
-// outlives the USSD turn, retries transient failures, and records the outcome
-// on accounts.chain_status so a failure is queryable rather than log-only.
-func (a *UserServiceAdapter) createSponsoredAccountAsync(userID, accountID string, req stellar.CreateAccountRequest) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+// transaction off the USSD request path. It is detached from the turn's
+// cancellation so it outlives it, retries transient failures, and records the
+// outcome on accounts.chain_status so a failure is queryable rather than
+// log-only.
+func (a *UserServiceAdapter) createSponsoredAccountAsync(ctx context.Context, userID, accountID string, req stellar.CreateAccountRequest) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
 	defer cancel()
 
 	address := req.ChildKeypair.Address()
@@ -314,11 +313,11 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(userID, accountID strin
 	// can no longer sign for itself — and treating it as success would hand the
 	// borrower an account they do not control. Stop before submitting.
 	if exists, existsErr := a.stellarService.AccountExists(ctx, address); existsErr != nil {
-		a.logger.Warn("could not check whether the derived account already exists",
+		a.logger.WarnContext(ctx, "could not check whether the derived account already exists",
 			"user_id", userID, "account_id", accountID, "address", address, "error", existsErr)
 	} else if exists {
 		a.setChainStatus(ctx, accountID, models.ChainStatusFailed)
-		a.logger.Error("derivation index reused — derived account already exists on-chain",
+		a.logger.ErrorContext(ctx, "derivation index reused — derived account already exists on-chain",
 			"user_id", userID, "account_id", accountID, "address", address,
 			"error_code", pkgErrors.CodeDerivationIndexReused)
 		a.alertOps("Stellar derivation index reused",
@@ -334,18 +333,18 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(userID, accountID strin
 	for attempt := 1; attempt <= attempts; attempt++ {
 		if err = a.stellarService.CreateSponsoredAccount(ctx, req); err == nil {
 			a.setChainStatus(ctx, accountID, models.ChainStatusConfirmed)
-			a.logger.Info("sponsored Stellar account created",
+			a.logger.InfoContext(ctx, "sponsored Stellar account created",
 				"user_id", userID, "account_id", accountID, "address", address)
 			return
 		}
-		a.logger.Warn("sponsored account creation attempt failed",
+		a.logger.WarnContext(ctx, "sponsored account creation attempt failed",
 			"user_id", userID, "account_id", accountID, "address", address,
 			"attempt", attempt, "attempts", attempts, "error", err)
 
 		// Bad signatures and failed operations are properties of the
 		// transaction, not the network: the next attempt builds the same one.
 		if errors.Is(err, stellar.ErrTransactionRejectedPermanent) {
-			a.logger.Error("rejection is permanent — abandoning retries",
+			a.logger.ErrorContext(ctx, "rejection is permanent — abandoning retries",
 				"user_id", userID, "account_id", accountID, "address", address, "error", err)
 			break
 		}
@@ -357,7 +356,7 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(userID, accountID strin
 	// Marked before alerting: the durable record is what a reconciler reads,
 	// and it must survive whether or not the alert is delivered.
 	a.setChainStatus(ctx, accountID, models.ChainStatusFailed)
-	a.logger.Error("sponsored account creation permanently failed — needs reconciliation",
+	a.logger.ErrorContext(ctx, "sponsored account creation permanently failed — needs reconciliation",
 		"user_id", userID, "account_id", accountID, "address", address, "error", err)
 	a.alertOps("Stellar account creation failed",
 		fmt.Sprintf("User %s account %s (%s) has no on-chain account after %d attempts: %v. "+
@@ -382,11 +381,11 @@ func (a *UserServiceAdapter) setChainStatus(ctx context.Context, accountID, stat
 	}
 	if ctx.Err() != nil {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 	}
 	if err := a.accountService.UpdateChainStatus(ctx, accountID, status); err != nil {
-		a.logger.Error("failed to record account chain status",
+		a.logger.ErrorContext(ctx, "failed to record account chain status",
 			"account_id", accountID, "chain_status", status, "error", err)
 	}
 }
@@ -451,12 +450,12 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 		networkInfo, err := a.networkMapper.MapMobileNetworkCode(req.NetworkCode)
 		if err != nil {
 			if a.logger != nil {
-				a.logger.Warn("failed to map mobile network code",
+				a.logger.WarnContext(ctx, "failed to map mobile network code",
 					slog.String("mobile_network_code", req.NetworkCode),
 					slog.String("error", err.Error()),
 				)
 			} else {
-				log.Printf("failed to map mobile network code %s: %v", req.NetworkCode, err)
+				a.logger.ErrorContext(ctx, "failed to map mobile network code", slog.String("network_code", req.NetworkCode), slog.Any("error", err))
 			}
 		} else {
 			momoNetworkCode = networkInfo.MomoNetworkCode
@@ -465,7 +464,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 			countryCode = networkInfo.Country
 
 			if a.logger != nil {
-				a.logger.Info("mapped mobile network code",
+				a.logger.InfoContext(ctx, "mapped mobile network code",
 					slog.String("at_network_code", req.NetworkCode),
 					slog.String("momo_network_code", networkInfo.MomoNetworkCode),
 					slog.String("momo_network_name", networkInfo.MomoNetworkName),
@@ -516,7 +515,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
-			log.Printf("Panic during user registration, rolled back transaction: %v", r)
+			a.logger.ErrorContext(ctx, "Panic during user registration, rolled back transaction", slog.Any("r", r))
 		}
 	}()
 
@@ -524,7 +523,7 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	userResp, err := a.userService.CreateWithTx(ctx, tx, createReq)
 	if err != nil {
 		tx.Rollback()
-		log.Printf("Failed to create user in transaction: %v", err)
+		a.logger.ErrorContext(ctx, "Failed to create user in transaction", slog.Any("error", err))
 		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not create the user")
 	}
 
@@ -533,16 +532,16 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	accountIndex, err := a.accountService.GetNextAccountIndexWithTx(ctx, tx)
 	if err != nil {
 		tx.Rollback()
-		log.Printf("Failed to get next account index: %v", err)
+		a.logger.ErrorContext(ctx, "Failed to get next account index", slog.Any("error", err))
 		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not reserve the next account index")
 	}
-	log.Printf("Assigned global account index %d for user %s", accountIndex, userResp.ID)
+	a.logger.InfoContext(ctx, "assigned global account index", slog.Int("account_index", accountIndex), slog.String("user_id", userResp.ID))
 
 	// Derive child keypair using BIP44
 	childKP, err := a.deriveChildKeypair(accountIndex)
 	if err != nil {
 		tx.Rollback()
-		log.Printf("Failed to derive child keypair: %v", err)
+		a.logger.ErrorContext(ctx, "Failed to derive child keypair", slog.Any("error", err))
 		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not derive the child keypair")
 	}
 
@@ -561,22 +560,21 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	})
 	if err != nil {
 		tx.Rollback()
-		log.Printf("Failed to create account record for user %s: %v", userResp.ID, err)
+		a.logger.ErrorContext(ctx, "Failed to create account record", slog.String("user_id", userResp.ID), slog.Any("error", err))
 		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not create the account record")
 	}
 
 	// COMMIT TRANSACTION - user + account row created atomically
 	if err := tx.Commit().Error; err != nil {
-		log.Printf("Failed to commit transaction for user %s: %v", userResp.ID, err)
+		a.logger.ErrorContext(ctx, "Failed to commit transaction", slog.String("user_id", userResp.ID), slog.Any("error", err))
 		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not commit the registration transaction")
 	}
 
 	// Submit the on-chain sponsored-account creation off the USSD request path
 	// so the turn returns immediately and the gateway session survives.
-	go a.createSponsoredAccountAsync(userResp.ID, accountResp.ID, stellarReq)
+	go a.createSponsoredAccountAsync(ctx, userResp.ID, accountResp.ID, stellarReq)
 
-	log.Printf("Registered user %s with account %s (BIP44 index: %d); on-chain creation dispatched",
-		userResp.ID, childKP.Address(), accountIndex)
+	a.logger.InfoContext(ctx, "registered user, on-chain creation dispatched", slog.String("user_id", userResp.ID), slog.String("address", childKP.Address()), slog.Int("account_index", accountIndex))
 
 	// Convert UserResponse to map
 	userMap := map[string]any{

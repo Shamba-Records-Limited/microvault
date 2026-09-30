@@ -2,7 +2,7 @@ package jobs
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -92,7 +92,7 @@ func (s *Scheduler) RegisterCronJob(cronSpec string, taskType string, payload []
 	if err != nil {
 		return err
 	}
-	log.Printf("Registered cron job: %s with schedule: %s", taskType, cronSpec)
+	slog.Info("Registered cron job: with schedule", slog.String("task_type", taskType), slog.String("cron_spec", cronSpec))
 	return nil
 }
 
@@ -111,23 +111,23 @@ func (s *Scheduler) Schedule(taskType string, payload []byte, processAt time.Tim
 
 // StartWorker starts the worker to process tasks
 func (s *Scheduler) StartWorker() error {
-	log.Println("Starting job worker...")
+	slog.Info("Starting job worker")
 	return s.server.Run(s.mux)
 }
 
 // StartScheduler starts the scheduler for cron jobs
 func (s *Scheduler) StartScheduler() error {
-	log.Println("Starting job scheduler...")
+	slog.Info("Starting job scheduler")
 	return s.scheduler.Run()
 }
 
 // Shutdown gracefully shuts down the scheduler and worker
 func (s *Scheduler) Shutdown() {
-	log.Println("Shutting down scheduler...")
+	slog.Info("Shutting down scheduler")
 	s.scheduler.Shutdown()
 	s.server.Shutdown()
 	if err := s.client.Close(); err != nil {
-		log.Printf("Error closing client: %v", err)
+		slog.Error("Error closing client", slog.Any("error", err))
 	}
 }
 

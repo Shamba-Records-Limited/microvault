@@ -2,7 +2,7 @@ package repository
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -37,7 +37,7 @@ func (r *airtelSummaryCursorRepository) Get(ctx context.Context) (time.Time, err
 		Raw("SELECT swept_to FROM airtel_summary_cursor WHERE id = 1").
 		Scan(&sweptTo)
 	if result.Error != nil {
-		log.Printf("AirtelSummaryCursorRepository.Get: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "AirtelSummaryCursorRepository.Get: database error", slog.Any("error", result.Error))
 		return time.Time{}, result.Error
 	}
 	return sweptTo, nil

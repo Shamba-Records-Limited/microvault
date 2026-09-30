@@ -494,7 +494,7 @@ func (c *AnchorClient) GetTransaction(ctx context.Context, jwt, txID string) (*T
 	// we see one. This is what confirms an anchor's actual refunds shape
 	// against the spec.
 	if envelope.Transaction.Status == StatusRefunded {
-		c.logger.Info("SEP-24 refunded transaction raw payload",
+		c.logger.InfoContext(ctx, "SEP-24 refunded transaction raw payload",
 			"tx_id", envelope.Transaction.ID,
 			"body", truncate(string(respBody), 2000),
 		)

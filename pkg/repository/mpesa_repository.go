@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgconn"
@@ -117,7 +117,7 @@ func (r *mpesaTransactionRepository) Record(ctx context.Context, tx *models.Mpes
 		if errors.As(result.Error, &pgErr) && pgErr.Code == "23505" {
 			return ErrMpesaConflict
 		}
-		log.Printf("MpesaTransactionRepository.Record: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "MpesaTransactionRepository.Record: database error", slog.Any("error", result.Error))
 		return ErrFailedToRecord
 	}
 	return nil
@@ -131,7 +131,7 @@ func (r *mpesaTransactionRepository) GetByTransID(ctx context.Context, transID s
 		return nil, ErrMpesaNotFound
 	}
 	if result.Error != nil {
-		log.Printf("MpesaTransactionRepository.GetByTransID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "MpesaTransactionRepository.GetByTransID: database error", slog.Any("error", result.Error))
 		return nil, ErrMpesaNotFound
 	}
 	return &tx, nil
@@ -145,7 +145,7 @@ func (r *mpesaTransactionRepository) GetByCheckoutID(ctx context.Context, checko
 		return nil, ErrMpesaNotFound
 	}
 	if result.Error != nil {
-		log.Printf("MpesaTransactionRepository.GetByCheckoutID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "MpesaTransactionRepository.GetByCheckoutID: database error", slog.Any("error", result.Error))
 		return nil, ErrMpesaNotFound
 	}
 	return &tx, nil
@@ -172,7 +172,7 @@ func (r *mpesaTransactionRepository) Confirm(ctx context.Context, transID string
 		Where("trans_id = ?", transID).
 		Updates(map[string]any{"confirmed": true, "confirmed_via": string(via), "loan_id": loanID, "next_poll_at": nil})
 	if result.Error != nil {
-		log.Printf("MpesaTransactionRepository.Confirm: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "MpesaTransactionRepository.Confirm: database error", slog.Any("error", result.Error))
 		return ErrFailedToRecord
 	}
 	if result.RowsAffected == 0 {
@@ -205,7 +205,7 @@ func (r *mpesaTransactionRepository) GetLoanIDByReference(ctx context.Context, r
 		     LIMIT 1`, reference, reference).
 		Scan(&loanID)
 	if result.Error != nil {
-		log.Printf("MpesaTransactionRepository.GetLoanIDByReference: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "MpesaTransactionRepository.GetLoanIDByReference: database error", slog.Any("error", result.Error))
 		return "", ErrFailedToRecord
 	}
 	return loanID, nil
@@ -279,7 +279,7 @@ func (r *mpesaTransactionRepository) ListUnappliedConfirmed(ctx context.Context,
 		Limit(limit).
 		Find(&txs)
 	if result.Error != nil {
-		log.Printf("MpesaTransactionRepository.ListUnappliedConfirmed: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "MpesaTransactionRepository.ListUnappliedConfirmed: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToRecord
 	}
 	return txs, nil
@@ -313,7 +313,7 @@ func (r *mpesaTransactionRepository) SumAppliedStroopsByLoan(ctx context.Context
 		Select("COALESCE(SUM(applied_stroops), 0)").
 		Scan(&total)
 	if result.Error != nil {
-		log.Printf("MpesaTransactionRepository.SumAppliedStroopsByLoan: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "MpesaTransactionRepository.SumAppliedStroopsByLoan: database error", slog.Any("error", result.Error))
 		return 0, ErrFailedToRecord
 	}
 	return total, nil

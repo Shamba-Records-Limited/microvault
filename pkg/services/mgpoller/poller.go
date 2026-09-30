@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
@@ -95,33 +96,6 @@ type PaymentVerifier interface {
 	// anchor's outbound refund and our own inbound payment to that anchor are
 	// both "successful transactions", so success alone cannot tell them apart.
 	PaymentsTo(ctx context.Context, txHash, destination, assetCode, assetIssuer string) ([]rpc.Payment, error)
-}
-
-// DisbursementUpdater drives terminal state transitions and user
-// notifications. The lending module's disbursement-status adapter already
-// implements this for the YC flow; the same impl is reused here.
-type DisbursementUpdater interface {
-	UpdateDisbursementStatus(sequenceID string, status string) error
-	NotifyDisbursementComplete(sequenceID string) error
-	NotifyDisbursementFailed(sequenceID string) error
-
-	// NotifyCashPickupReady tells the borrower their cash is collectable and
-	// quotes the MG reference number. Sent once, when MG reports
-	// pending_user_transfer_complete.
-	NotifyCashPickupReady(sequenceID string) error
-
-	// NotifyRefundReceived tells the borrower their cash pickup was cancelled
-	// and the funds returned. Distinct from NotifyDisbursementFailed because
-	// the usual cause is the borrower cancelling in MoneyGram's own UI,
-	// sometimes by mistake — the message has to say they can request again.
-	NotifyRefundReceived(sequenceID string) error
-
-	RepayVault(sequenceID string) error
-
-	// RepayVaultAmount repays an explicit stroop amount rather than the loan
-	// principal. Used for refunds, where MG may return less than we sent and
-	// repaying the full principal would overdraw the treasury.
-	RepayVaultAmount(sequenceID string, amountStroops int64) error
 }
 
 // AlertService is the same interface used by the YC refund poller —
@@ -263,7 +237,7 @@ type Poller struct {
 	client       *moneygram.Client
 	fetcher      LoanFetcher
 	recorder     LoanRecorder
-	disbursement DisbursementUpdater
+	disbursement contracts.DisbursementUpdater
 	treasury     offramp.TreasuryTransfer
 	verifier     PaymentVerifier
 	alerts       AlertService
@@ -286,7 +260,7 @@ type PollerDeps struct {
 	Client       *moneygram.Client
 	Fetcher      LoanFetcher
 	Recorder     LoanRecorder
-	Disbursement DisbursementUpdater
+	Disbursement contracts.DisbursementUpdater
 	Treasury     offramp.TreasuryTransfer
 	Verifier     PaymentVerifier
 	Alerts       AlertService

@@ -248,7 +248,7 @@ func (s *Service) ChangePIN(ctx context.Context, userID, oldPin, newPin string) 
 		UserID:      userID,
 		PhoneNumber: user.MobileNumber,
 	}
-	s.notifyAsync(func(ctx context.Context) error {
+	s.notifyAsync(ctx, func(ctx context.Context) error {
 		return s.notifier.NotifyPINChanged(ctx, changedNote)
 	})
 
@@ -259,7 +259,7 @@ func (s *Service) ChangePIN(ctx context.Context, userID, oldPin, newPin string) 
 // the caller has verified the user's identity via security questions. It
 // clears any lockout state. Sends an SMS on success or failure.
 func (s *Service) ResetPIN(ctx context.Context, userID, newPin string) error {
-	slog.Info("pin: reset initiated", slog.String("user_id", userID))
+	slog.InfoContext(ctx, "pin: reset initiated", slog.String("user_id", userID))
 
 	if err := ValidatePIN(newPin); err != nil {
 		return pinErr("reset_pin").Code(pkgErrors.CodeInvalidAmount).Wrapf(err, "new PIN failed validation")
@@ -290,13 +290,13 @@ func (s *Service) ResetPIN(ctx context.Context, userID, newPin string) error {
 			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not save the reset PIN")
 	}
 
-	slog.Info("pin: reset succeeded", slog.String("user_id", userID))
+	slog.InfoContext(ctx, "pin: reset succeeded", slog.String("user_id", userID))
 
 	resetNote := contracts.AccountNotification{
 		UserID:      userID,
 		PhoneNumber: user.MobileNumber,
 	}
-	s.notifyAsync(func(ctx context.Context) error {
+	s.notifyAsync(ctx, func(ctx context.Context) error {
 		return s.notifier.NotifyPINReset(ctx, resetNote)
 	})
 
@@ -438,12 +438,12 @@ func formatLockDuration(until time.Time) string {
 
 // notifyAsync sends an account notification off the caller's request path. PIN
 // operations run on the USSD turn, where a slow SMS gateway would otherwise
-// block the response and risk breaching the USSD deadline. Uses a detached
-// context (the request ctx is cancelled when the turn returns), bounded by its
+// block the response and risk breaching the USSD deadline. Detaches from the
+// request ctx's cancellation (it is cancelled when the turn returns), bounded by its
 // own timeout; the send is best-effort and its error dropped.
-func (s *Service) notifyAsync(send func(ctx context.Context) error) {
+func (s *Service) notifyAsync(ctx context.Context, send func(ctx context.Context) error) {
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
 		_ = send(ctx)
 	}()
@@ -466,7 +466,7 @@ func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (b
 			PhoneNumber: user.MobileNumber,
 			LockedUntil: formatLockDuration(lockUntil),
 		}
-		s.notifyAsync(func(ctx context.Context) error {
+		s.notifyAsync(ctx, func(ctx context.Context) error {
 			return s.notifier.NotifyAccountLocked(ctx, lockedNote)
 		})
 
@@ -488,7 +488,7 @@ func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (b
 		PhoneNumber:       user.MobileNumber,
 		RemainingAttempts: s.maxAttempts - user.PinAttempts,
 	}
-	s.notifyAsync(func(ctx context.Context) error {
+	s.notifyAsync(ctx, func(ctx context.Context) error {
 		return s.notifier.NotifyPINWrongAttempt(ctx, wrongNote)
 	})
 
@@ -497,26 +497,26 @@ func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (b
 
 // notifyChangeFailed sends a PIN change failure notification, ignoring
 // delivery errors (best-effort).
-func (s *Service) notifyChangeFailed(_ context.Context, user *models.User, reason string) {
+func (s *Service) notifyChangeFailed(ctx context.Context, user *models.User, reason string) {
 	note := contracts.AccountNotification{
 		UserID:      user.ID,
 		PhoneNumber: user.MobileNumber,
 		Reason:      reason,
 	}
-	s.notifyAsync(func(ctx context.Context) error {
+	s.notifyAsync(ctx, func(ctx context.Context) error {
 		return s.notifier.NotifyPINChangeFailed(ctx, note)
 	})
 }
 
 // notifyResetFailed sends a PIN reset failure notification, ignoring
 // delivery errors (best-effort).
-func (s *Service) notifyResetFailed(_ context.Context, user *models.User, reason string) {
+func (s *Service) notifyResetFailed(ctx context.Context, user *models.User, reason string) {
 	note := contracts.AccountNotification{
 		UserID:      user.ID,
 		PhoneNumber: user.MobileNumber,
 		Reason:      reason,
 	}
-	s.notifyAsync(func(ctx context.Context) error {
+	s.notifyAsync(ctx, func(ctx context.Context) error {
 		return s.notifier.NotifyPINResetFailed(ctx, note)
 	})
 }

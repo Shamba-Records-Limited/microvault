@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -8,7 +9,6 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/favicon"
 	"github.com/gofiber/fiber/v2/middleware/helmet"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/health"
@@ -16,7 +16,7 @@ import (
 
 // FiberMiddleware provide Fiber's built-in middlewares.
 // See: https://docs.gofiber.io/api/middleware
-func FiberMiddleware(a *fiber.App, healthChecker *health.Checker) {
+func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.Logger) {
 	limiterConfig := limiter.Config{
 		Max:        20,
 		Expiration: 30 * time.Second,
@@ -36,6 +36,8 @@ func FiberMiddleware(a *fiber.App, healthChecker *health.Checker) {
 	}
 
 	a.Use(
+		RequestID(),
+		AccessLog(logger, "/health", "/ready"),
 		// Helmet
 		helmet.New(helmetConfig),
 		// Panic recovery
@@ -44,8 +46,6 @@ func FiberMiddleware(a *fiber.App, healthChecker *health.Checker) {
 		cors.New(corsConfig),
 		// Limiter
 		limiter.New(limiterConfig),
-		// Add simple logger.
-		logger.New(),
 		// Favicon
 		favicon.New(favicon.Config{
 			File: "./static/favicon.ico",

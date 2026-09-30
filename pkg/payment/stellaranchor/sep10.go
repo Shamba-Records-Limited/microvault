@@ -148,7 +148,7 @@ func (c *AuthClient) Authenticate(ctx context.Context, childMemo int64) (AuthRes
 	}
 
 	expiresAt := tokenExpiry(jwt, time.Now().Add(c.cfg.FallbackTokenTTL))
-	c.logger.Debug("stellaranchor: sep-10 token issued",
+	c.logger.DebugContext(ctx, "stellaranchor: sep-10 token issued",
 		"memo", childMemo,
 		"expires_at", expiresAt.Format(time.RFC3339),
 	)

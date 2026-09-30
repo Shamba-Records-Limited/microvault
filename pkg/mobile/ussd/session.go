@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -49,7 +49,7 @@ func (sm *SessionManager) GetSession(ctx context.Context, sessionID string) (*Se
 	data, err := sm.cache.Get(ctx, key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			log.Printf("GetSession - session not found for key: %s", key)
+			slog.WarnContext(ctx, "GetSession: session not found", slog.String("session_key", key))
 			// Wraps the sentinel so a genuinely absent session is
 			// distinguishable from a cache that cannot be read.
 			return nil, sessionErr("get", sessionID).Code(pkgErrors.CodeNotFound).
@@ -64,13 +64,13 @@ func (sm *SessionManager) GetSession(ctx context.Context, sessionID string) (*Se
 		return nil, sessionErr("get", sessionID).Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the stored session")
 	}
 
-	log.Printf("GetSession successful - Key: %s, CurrentMenu: %s, Phone: %s", key, session.CurrentMenu, phone.Redact(session.PhoneNumber))
+	slog.InfoContext(ctx, "GetSession successful", slog.String("session_key", key), slog.String("current_menu", session.CurrentMenu), slog.String("phone_number", phone.Redact(session.PhoneNumber)))
 	return &session, nil
 }
 
 // CreateSession creates a new USSD session
 func (sm *SessionManager) CreateSession(ctx context.Context, sessionID, phoneNumber, serviceCode, networkCode string) (*Session, error) {
-	log.Printf("CreateSession - Creating new session for SessionID: %s, Phone: %s", sessionID, phone.Redact(phoneNumber))
+	slog.InfoContext(ctx, "CreateSession: creating new session", slog.String("session_id", sessionID), slog.String("phone_number", phone.Redact(phoneNumber)))
 
 	session := &Session{
 		SessionID:     sessionID,
@@ -89,7 +89,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, sessionID, phoneNum
 		return nil, sessionErr("create", sessionID).Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not create the session")
 	}
 
-	log.Printf("CreateSession - New session created successfully")
+	slog.InfoContext(ctx, "CreateSession - New session created successfully")
 	return session, nil
 }
 
@@ -108,7 +108,7 @@ func (sm *SessionManager) SaveSession(ctx context.Context, session *Session) err
 		return sessionErr("save", session.SessionID).Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not save the session")
 	}
 
-	log.Printf("SaveSession successful - Key: %s, CurrentMenu: %s, Duration: %v", key, session.CurrentMenu, sm.sessionDuration)
+	slog.InfoContext(ctx, "SaveSession successful", slog.String("session_key", key), slog.String("current_menu", session.CurrentMenu), slog.Duration("session_duration", sm.sessionDuration))
 	return nil
 }
 

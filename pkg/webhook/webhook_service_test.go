@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 )
 
@@ -12,13 +13,13 @@ type fakeDisb struct {
 	statuses         []string
 	notifiedComplete bool
 	notifiedFailed   bool
-	completion       *CompletionFinancials
+	completion       *contracts.CompletionFinancials
 	direct           bool
 	directErr        error
 	updateErr        error
 }
 
-func (f *fakeDisb) UpdateDisbursementStatus(_ string, status string) error {
+func (f *fakeDisb) UpdateDisbursementStatus(_ context.Context, _, status string) error {
 	if f.updateErr != nil {
 		return f.updateErr
 	}
@@ -26,16 +27,25 @@ func (f *fakeDisb) UpdateDisbursementStatus(_ string, status string) error {
 	return nil
 }
 
-func (f *fakeDisb) NotifyDisbursementComplete(string) error { f.notifiedComplete = true; return nil }
+func (f *fakeDisb) NotifyDisbursementComplete(context.Context, string) error {
+	f.notifiedComplete = true
+	return nil
+}
 
-func (f *fakeDisb) RecordDisbursementCompletion(_ string, fin CompletionFinancials) error {
+func (f *fakeDisb) RecordDisbursementCompletion(_ context.Context, _ string, fin contracts.CompletionFinancials) error {
 	f.completion = &fin
 	return nil
 }
-func (f *fakeDisb) NotifyDisbursementFailed(string) error    { f.notifiedFailed = true; return nil }
-func (f *fakeDisb) RepayVault(string) error                  { return nil }
-func (f *fakeDisb) SetSettlementMethod(string, string) error { return nil }
-func (f *fakeDisb) IsDirectSettlement(string) (bool, error)  { return f.direct, f.directErr }
+
+func (f *fakeDisb) NotifyDisbursementFailed(context.Context, string) error {
+	f.notifiedFailed = true
+	return nil
+}
+func (f *fakeDisb) RepayVault(context.Context, string) error                  { return nil }
+func (f *fakeDisb) SetSettlementMethod(context.Context, string, string) error { return nil }
+func (f *fakeDisb) IsDirectSettlement(context.Context, string) (bool, error) {
+	return f.direct, f.directErr
+}
 
 func (f *fakeDisb) last() string {
 	if len(f.statuses) == 0 {
@@ -81,7 +91,7 @@ func TestProcessYellowCardEvent_Table(t *testing.T) {
 			alerts := &fakeAlerts{}
 			svc := NewService(disb, alerts, nil, nil)
 
-			err := svc.ProcessYellowCardEvent(yellowcard.WebhookEvent{
+			err := svc.ProcessYellowCardEvent(context.Background(), yellowcard.WebhookEvent{
 				Event: c.event, Status: c.status, SequenceID: "seq-1", PaymentID: "pay-1",
 			})
 			if err != nil {
@@ -123,7 +133,7 @@ func TestProcessComplete_RecordsFinancials(t *testing.T) {
 	}}
 	svc := NewService(disb, nil, nil, payments)
 
-	if err := svc.ProcessYellowCardEvent(yellowcard.WebhookEvent{
+	if err := svc.ProcessYellowCardEvent(context.Background(), yellowcard.WebhookEvent{
 		Event: yellowcard.EventPaymentComplete, SequenceID: "seq-1", PaymentID: "pay-1",
 	}); err != nil {
 		t.Fatal(err)
@@ -139,7 +149,7 @@ func TestProcessComplete_RecordsFinancials(t *testing.T) {
 func TestFailedEvent_DirectLookupError(t *testing.T) {
 	disb := &fakeDisb{directErr: errors.New("db down")}
 	svc := NewService(disb, &fakeAlerts{}, nil, nil)
-	err := svc.ProcessYellowCardEvent(yellowcard.WebhookEvent{
+	err := svc.ProcessYellowCardEvent(context.Background(), yellowcard.WebhookEvent{
 		Event: yellowcard.EventDisbursementFailed, SequenceID: "seq-1",
 	})
 	if err == nil {
@@ -150,10 +160,14 @@ func TestFailedEvent_DirectLookupError(t *testing.T) {
 func TestUpdateStatusError_Propagates(t *testing.T) {
 	disb := &fakeDisb{updateErr: errors.New("write failed")}
 	svc := NewService(disb, nil, nil, nil)
-	err := svc.ProcessYellowCardEvent(yellowcard.WebhookEvent{
+	err := svc.ProcessYellowCardEvent(context.Background(), yellowcard.WebhookEvent{
 		Event: yellowcard.EventDisbursementComplete, SequenceID: "seq-1",
 	})
 	if err == nil {
 		t.Error("expected UpdateDisbursementStatus error to propagate")
 	}
 }
+
+func (f *fakeDisb) NotifyCashPickupReady(context.Context, string) error   { return nil }
+func (f *fakeDisb) NotifyRefundReceived(context.Context, string) error    { return nil }
+func (f *fakeDisb) RepayVaultAmount(context.Context, string, int64) error { return nil }

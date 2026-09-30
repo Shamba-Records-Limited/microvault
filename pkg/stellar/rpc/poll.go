@@ -44,7 +44,7 @@ func PollTransaction(
 		slog.String("component", "poll_transaction"),
 	)
 
-	logger.Info("starting transaction polling",
+	logger.InfoContext(ctx, "starting transaction polling",
 		slog.Int("max_attempts", cfg.MaxAttempts),
 		slog.Duration("poll_interval", cfg.PollInterval),
 	)
@@ -53,7 +53,7 @@ func PollTransaction(
 		// Check for context cancellation
 		select {
 		case <-ctx.Done():
-			logger.Warn("context cancelled while polling",
+			logger.WarnContext(ctx, "context cancelled while polling",
 				slog.Int("attempt", attempt),
 				slog.String("error", ctx.Err().Error()),
 			)
@@ -66,7 +66,7 @@ func PollTransaction(
 			Hash: txHash,
 		})
 		if err != nil {
-			logger.Warn("failed to fetch transaction",
+			logger.WarnContext(ctx, "failed to fetch transaction",
 				slog.Int("attempt", attempt),
 				slog.Int("max_attempts", cfg.MaxAttempts),
 				slog.String("error", err.Error()),
@@ -75,7 +75,7 @@ func PollTransaction(
 			continue
 		}
 
-		logger.Debug("received transaction response",
+		logger.DebugContext(ctx, "received transaction response",
 			slog.Int("attempt", attempt),
 			slog.String("status", resp.Status),
 			slog.Uint64("ledger", uint64(resp.Ledger)),
@@ -84,14 +84,14 @@ func PollTransaction(
 		// Handle transaction status
 		switch resp.Status {
 		case protocol.TransactionStatusSuccess:
-			logger.Info("transaction succeeded",
+			logger.InfoContext(ctx, "transaction succeeded",
 				slog.Int("attempt", attempt),
 				slog.Uint64("ledger", uint64(resp.Ledger)),
 			)
 			return resp, nil
 
 		case protocol.TransactionStatusFailed:
-			logger.Error("transaction failed",
+			logger.ErrorContext(ctx, "transaction failed",
 				slog.Int("attempt", attempt),
 				slog.Uint64("ledger", uint64(resp.Ledger)),
 				slog.String("result_xdr", resp.ResultXDR),
@@ -99,7 +99,7 @@ func PollTransaction(
 			return resp, types.ErrTransactionFailedOnLedger
 
 		case protocol.TransactionStatusNotFound:
-			logger.Debug("transaction not yet found",
+			logger.DebugContext(ctx, "transaction not yet found",
 				slog.Int("attempt", attempt),
 				slog.Int("max_attempts", cfg.MaxAttempts),
 			)
@@ -107,7 +107,7 @@ func PollTransaction(
 			continue
 
 		default:
-			logger.Warn("unknown transaction status",
+			logger.WarnContext(ctx, "unknown transaction status",
 				slog.Int("attempt", attempt),
 				slog.String("status", resp.Status),
 			)
@@ -115,7 +115,7 @@ func PollTransaction(
 		}
 	}
 
-	logger.Error("transaction polling timed out",
+	logger.ErrorContext(ctx, "transaction polling timed out",
 		slog.Int("max_attempts", cfg.MaxAttempts),
 	)
 	return protocol.GetTransactionResponse{}, types.ErrTransactionTimeout

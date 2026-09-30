@@ -130,19 +130,19 @@ type RepaymentNotifier interface {
 	// NotifyRepaymentReference carries MoneyGram's deposit reference once the
 	// borrower has committed in the webview. Without it they reach the counter
 	// with nothing to quote.
-	NotifyRepaymentReference(loanID, reference string) error
+	NotifyRepaymentReference(ctx context.Context, loanID, reference string) error
 
 	// NotifyRepaymentMoreInfo carries MoneyGram's transaction page instead,
 	// for the case where no reference has been issued. See sendPayInstructions.
-	NotifyRepaymentMoreInfo(loanID string) error
+	NotifyRepaymentMoreInfo(ctx context.Context, loanID string) error
 
-	NotifyRepaymentReceived(loanID string) error
-	NotifyRepaymentReminder(loanID string) error
-	NotifyRepaymentExpired(loanID string) error
+	NotifyRepaymentReceived(ctx context.Context, loanID string) error
+	NotifyRepaymentReminder(ctx context.Context, loanID string) error
+	NotifyRepaymentExpired(ctx context.Context, loanID string) error
 
 	// NotifyLoanRepaid confirms the treasury-to-vault leg confirmed and the
 	// loan is closed — sent once, right after MarkSettled records it.
-	NotifyLoanRepaid(loanID string) error
+	NotifyLoanRepaid(ctx context.Context, loanID string) error
 }
 
 // DepositDriver drives the borrower repayment cash-in state machine.
@@ -229,7 +229,7 @@ func (d *DepositDriver) poll(ctx context.Context) { d.runner.poll(ctx) }
 // Errors are logged but never abort the batch.
 func (d *DepositDriver) Drive(ctx context.Context, rec RepaymentRecord) {
 	if rec.MoneyGramTxID == "" {
-		d.logger.Warn("repayment has no MoneyGram transaction id, skipping",
+		d.logger.WarnContext(ctx, "repayment has no MoneyGram transaction id, skipping",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID)
 		return
 	}
@@ -237,7 +237,7 @@ func (d *DepositDriver) Drive(ctx context.Context, rec RepaymentRecord) {
 	childMemo := stellaranchor.ChildAccountMemo(d.client.TreasuryAddress(), rec.ChildAccountIndex)
 	tx, err := d.client.GetTransaction(ctx, childMemo, rec.MoneyGramTxID)
 	if err != nil {
-		d.logger.Error("GetTransaction failed",
+		d.logger.ErrorContext(ctx, "GetTransaction failed",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "error", err)
 		// Reschedule anyway: without this a transient MoneyGram outage would
 		// leave next_poll_at in the past and the row spinning every tick.
@@ -247,7 +247,7 @@ func (d *DepositDriver) Drive(ctx context.Context, rec RepaymentRecord) {
 
 	// Unconditional: every branch below can return without logging, which
 	// makes a parked transaction indistinguishable from a stalled poller.
-	d.logger.Info("MoneyGram deposit polled",
+	d.logger.InfoContext(ctx, "MoneyGram deposit polled",
 		"loan_id", rec.LoanID,
 		"mg_tx_id", rec.MoneyGramTxID,
 		"status", tx.Status,
@@ -267,7 +267,7 @@ func (d *DepositDriver) Drive(ctx context.Context, rec RepaymentRecord) {
 	}
 
 	if err := d.recorder.RecordDepositUpdate(ctx, rec.LoanID, tx); err != nil {
-		d.logger.Warn("failed to persist deposit update",
+		d.logger.WarnContext(ctx, "failed to persist deposit update",
 			"loan_id", rec.LoanID, "error", err)
 	}
 
@@ -309,7 +309,7 @@ func (d *DepositDriver) Drive(ctx context.Context, rec RepaymentRecord) {
 		d.failRepayment(ctx, rec, fmt.Sprintf("MoneyGram reported %s: %s", tx.Status, tx.Message))
 
 	case stellaranchor.StatusOnHold:
-		d.logger.Warn("MoneyGram deposit on hold",
+		d.logger.WarnContext(ctx, "MoneyGram deposit on hold",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "message", tx.Message)
 		d.alertOps("MoneyGram deposit on hold",
 			fmt.Sprintf("Loan %s: MG on_hold for additional checks. Message: %s",
@@ -326,7 +326,7 @@ func (d *DepositDriver) Drive(ctx context.Context, rec RepaymentRecord) {
 		d.reschedule(ctx, rec, d.cfg.DepositActiveBackoff)
 
 	default:
-		d.logger.Warn("unexpected MoneyGram deposit status",
+		d.logger.WarnContext(ctx, "unexpected MoneyGram deposit status",
 			"loan_id", rec.LoanID, "status", tx.Status)
 		d.reschedule(ctx, rec, d.cfg.DepositIdleBackoff)
 	}
@@ -344,11 +344,11 @@ func (d *DepositDriver) handleIncomplete(ctx context.Context, rec RepaymentRecor
 
 	if d.shouldRemind(rec, tx, now) {
 		sent := d.notify("reminder", rec, func(n RepaymentNotifier) error {
-			return n.NotifyRepaymentReminder(rec.LoanID)
+			return n.NotifyRepaymentReminder(ctx, rec.LoanID)
 		})
 		if sent {
 			if err := d.recorder.MarkReminderSent(ctx, rec.LoanID); err != nil {
-				d.logger.Error("sent repayment reminder but could not record it, may resend next tick",
+				d.logger.ErrorContext(ctx, "sent repayment reminder but could not record it, may resend next tick",
 					"loan_id", rec.LoanID, "error", err)
 			}
 		}
@@ -410,20 +410,20 @@ func parseAnchorTime(s string) (time.Time, bool) {
 func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord, tx *stellaranchor.Transaction) {
 	if rec.RepaymentStatus != repaymentFundsReceived {
 		if err := d.recorder.MarkFundsReceived(ctx, rec.LoanID, tx); err != nil {
-			d.logger.Error("failed to mark funds received, retrying next tick",
+			d.logger.ErrorContext(ctx, "failed to mark funds received, retrying next tick",
 				"loan_id", rec.LoanID, "error", err)
 			d.reschedule(ctx, rec, d.cfg.DepositActiveBackoff)
 			return
 		}
 		d.notify("received", rec, func(n RepaymentNotifier) error {
-			return n.NotifyRepaymentReceived(rec.LoanID)
+			return n.NotifyRepaymentReceived(ctx, rec.LoanID)
 		})
 	}
 
 	if rec.BorrowerAddress == "" {
 		// Without the borrower we could still call plain repay, but that would
 		// silently drop the attribution the whole rail exists to produce.
-		d.logger.Error("repayment has no borrower address, cannot attribute vault repay",
+		d.logger.ErrorContext(ctx, "repayment has no borrower address, cannot attribute vault repay",
 			"loan_id", rec.LoanID)
 		d.alertOps("Repayment missing borrower address",
 			fmt.Sprintf("Loan %s: funds received but no child account address to attribute repay_for. Vault leg withheld.", rec.LoanID))
@@ -431,7 +431,7 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 		return
 	}
 	if rec.PayoffStroops <= 0 {
-		d.logger.Error("repayment has no locked payoff, cannot repay vault",
+		d.logger.ErrorContext(ctx, "repayment has no locked payoff, cannot repay vault",
 			"loan_id", rec.LoanID, "payoff_stroops", rec.PayoffStroops)
 		d.alertOps("Repayment missing locked payoff",
 			fmt.Sprintf("Loan %s: funds received but repayment_payoff_stroops is %d. Vault leg withheld.", rec.LoanID, rec.PayoffStroops))
@@ -452,21 +452,21 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 	if err := d.recorder.MarkSettled(ctx, rec.LoanID, hash); err != nil {
 		// The chain moved but the row did not. Loud, because the next tick
 		// would see funds_received again and could repay a second time.
-		d.logger.Error("CRITICAL: vault repay_for succeeded but settlement was not recorded",
+		d.logger.ErrorContext(ctx, "CRITICAL: vault repay_for succeeded but settlement was not recorded",
 			"loan_id", rec.LoanID, "vault_tx_hash", hash, "error", err)
 		d.alertOps("Repayment settled on-chain but not recorded",
 			fmt.Sprintf("Loan %s: repay_for landed as %s but the loan row was not updated. Do not let this loan be repaid again.", rec.LoanID, hash))
 		return
 	}
 
-	d.logger.Info("repayment settled",
+	d.logger.InfoContext(ctx, "repayment settled",
 		"loan_id", rec.LoanID,
 		"borrower", rec.BorrowerAddress,
 		"amount_stroops", rec.PayoffStroops,
 		"vault_tx_hash", hash)
 
 	d.notify("repaid", rec, func(n RepaymentNotifier) error {
-		return n.NotifyLoanRepaid(rec.LoanID)
+		return n.NotifyLoanRepaid(ctx, rec.LoanID)
 	})
 }
 
@@ -514,7 +514,7 @@ func (d *DepositDriver) checkDepositShortfall(rec RepaymentRecord, tx *stellaran
 func (d *DepositDriver) vaultLegFailed(ctx context.Context, rec RepaymentRecord, cause error) {
 	attempts := rec.VaultAttempts + 1
 
-	d.logger.Error("CRITICAL: vault repay_for failed — borrower USDC held in treasury",
+	d.logger.ErrorContext(ctx, "CRITICAL: vault repay_for failed — borrower USDC held in treasury",
 		"loan_id", rec.LoanID,
 		"borrower", rec.BorrowerAddress,
 		"amount_stroops", rec.PayoffStroops,
@@ -525,7 +525,7 @@ func (d *DepositDriver) vaultLegFailed(ctx context.Context, rec RepaymentRecord,
 	if err := d.recorder.RecordVaultAttempt(ctx, rec.LoanID, attempts); err != nil {
 		// Losing the count is not fatal to the retry, but it does mean the
 		// ceiling may never be reached, so it is worth its own line.
-		d.logger.Error("failed to record vault repay attempt; escalation ceiling may not fire",
+		d.logger.ErrorContext(ctx, "failed to record vault repay attempt; escalation ceiling may not fire",
 			"loan_id", rec.LoanID, "attempts", attempts, "error", err)
 	}
 
@@ -554,23 +554,23 @@ func (d *DepositDriver) sendPayInstructionsOnce(ctx context.Context, rec Repayme
 
 	reference := strings.TrimSpace(tx.ExternalTransactionID)
 	if reference == "" && strings.TrimSpace(tx.MoreInfoURL) == "" {
-		d.logger.Debug("no deposit reference or transaction page yet",
+		d.logger.DebugContext(ctx, "no deposit reference or transaction page yet",
 			"loan_id", rec.LoanID, "status", tx.Status)
 		return
 	}
 
-	kind, send := "more_info", func(n RepaymentNotifier) error { return n.NotifyRepaymentMoreInfo(rec.LoanID) }
+	kind, send := "more_info", func(n RepaymentNotifier) error { return n.NotifyRepaymentMoreInfo(ctx, rec.LoanID) }
 	if reference != "" {
 		kind = "reference"
-		send = func(n RepaymentNotifier) error { return n.NotifyRepaymentReference(rec.LoanID, reference) }
+		send = func(n RepaymentNotifier) error { return n.NotifyRepaymentReference(ctx, rec.LoanID, reference) }
 	}
-	d.logger.Info("sending deposit pay instructions", "kind", kind, "loan_id", rec.LoanID)
+	d.logger.InfoContext(ctx, "sending deposit pay instructions", "kind", kind, "loan_id", rec.LoanID)
 
 	if !d.notifyPayInstructions(kind, rec, send) {
 		return
 	}
 	if err := d.recorder.MarkReferenceSent(ctx, rec.LoanID); err != nil {
-		d.logger.Error("sent deposit instructions but could not record it, may resend next tick",
+		d.logger.ErrorContext(ctx, "sent deposit instructions but could not record it, may resend next tick",
 			"loan_id", rec.LoanID, "error", err)
 	}
 }
@@ -597,29 +597,29 @@ func (d *DepositDriver) notifyPayInstructions(kind string, rec RepaymentRecord, 
 // expireRepayment releases the quote lock after the window elapsed.
 func (d *DepositDriver) expireRepayment(ctx context.Context, rec RepaymentRecord) {
 	if err := d.recorder.MarkExpired(ctx, rec.LoanID); err != nil {
-		d.logger.Error("failed to expire repayment, retrying next tick",
+		d.logger.ErrorContext(ctx, "failed to expire repayment, retrying next tick",
 			"loan_id", rec.LoanID, "error", err)
 		d.reschedule(ctx, rec, d.cfg.DepositIdleBackoff)
 		return
 	}
-	d.logger.Info("repayment window expired",
+	d.logger.InfoContext(ctx, "repayment window expired",
 		"loan_id", rec.LoanID, "expires_at", rec.ExpiresAt)
 	d.notify("expired", rec, func(n RepaymentNotifier) error {
-		return n.NotifyRepaymentExpired(rec.LoanID)
+		return n.NotifyRepaymentExpired(ctx, rec.LoanID)
 	})
 }
 
 // failRepayment ends the rail before any funds moved.
 func (d *DepositDriver) failRepayment(ctx context.Context, rec RepaymentRecord, reason string) {
 	if err := d.recorder.MarkFailed(ctx, rec.LoanID, reason); err != nil {
-		d.logger.Error("failed to mark repayment failed, retrying next tick",
+		d.logger.ErrorContext(ctx, "failed to mark repayment failed, retrying next tick",
 			"loan_id", rec.LoanID, "error", err)
 		d.reschedule(ctx, rec, d.cfg.DepositIdleBackoff)
 		return
 	}
-	d.logger.Info("repayment failed", "loan_id", rec.LoanID, "reason", reason)
+	d.logger.InfoContext(ctx, "repayment failed", "loan_id", rec.LoanID, "reason", reason)
 	d.notify("expired", rec, func(n RepaymentNotifier) error {
-		return n.NotifyRepaymentExpired(rec.LoanID)
+		return n.NotifyRepaymentExpired(ctx, rec.LoanID)
 	})
 }
 
@@ -630,7 +630,7 @@ func (d *DepositDriver) reschedule(ctx context.Context, rec RepaymentRecord, in 
 		in = defaultDepositActiveBackoff
 	}
 	if err := d.recorder.ScheduleNextPoll(ctx, rec.LoanID, d.now().Add(in)); err != nil {
-		d.logger.Warn("failed to schedule next poll",
+		d.logger.WarnContext(ctx, "failed to schedule next poll",
 			"loan_id", rec.LoanID, "in", in, "error", err)
 	}
 }

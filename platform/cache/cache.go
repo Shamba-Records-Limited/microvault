@@ -3,7 +3,7 @@ package cache
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -71,7 +71,7 @@ func createClient(cfg *config.RedisConfig) (*redis.Client, error) {
 		// Clean up resources on failure
 		defer func() {
 			if err := client.Close(); err != nil {
-				log.Printf("Failed to close Redis client: %v", err)
+				slog.ErrorContext(ctx, "Failed to close Redis client", slog.Any("error", err))
 			}
 		}()
 		return nil, fmt.Errorf("failed to ping Redis at %s: %w", cfg.Addr(), err)
@@ -128,7 +128,7 @@ func CloseConnection(name string) error {
 		return fmt.Errorf("redis client '%s' not found", name)
 	}
 
-	log.Printf("Closing redis connection: %s", name)
+	slog.Info("Closing redis connection", slog.String("name", name))
 	if err := client.Close(); err != nil {
 		return fmt.Errorf("failed to close redis client: %w", err)
 	}
@@ -144,7 +144,7 @@ func CloseAll() error {
 
 	var errors []error
 
-	log.Printf("Closing all redis connections")
+	slog.Info("Closing all redis connections")
 	for name, client := range redisInstances {
 		if err := client.Close(); err != nil {
 			errors = append(errors, fmt.Errorf("%s: %w", name, err))

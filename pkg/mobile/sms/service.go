@@ -3,7 +3,7 @@ package sms
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 )
 
 // SMSRequest represents an SMS message request.
@@ -46,7 +46,7 @@ func NewSMSService() *SMSService {
 
 // RegisterProvider registers an SMS provider with the service.
 func (s *SMSService) RegisterProvider(name string, provider SMSProvider) {
-	log.Printf("Registering SMS provider: %s", name)
+	slog.Info("Registering SMS provider", slog.String("name", name))
 	s.providers[name] = provider
 }
 

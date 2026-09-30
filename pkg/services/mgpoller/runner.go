@@ -126,7 +126,7 @@ func (r *Runner[T]) Start(ctx context.Context) {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
 
-	r.logger.Info("starting", "interval", r.interval, "max_batch", r.maxBatch)
+	r.logger.InfoContext(ctx, "starting", "interval", r.interval, "max_batch", r.maxBatch)
 
 	// Run once immediately for boot-time resume so we don't wait one full
 	// interval before catching up on records that moved during downtime.
@@ -135,7 +135,7 @@ func (r *Runner[T]) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.logger.Info("shutting down")
+			r.logger.InfoContext(ctx, "shutting down")
 			return
 		case <-ticker.C:
 			r.poll(ctx)
@@ -161,7 +161,7 @@ func (r *Runner[T]) poll(ctx context.Context) {
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		r.logger.Error("could not open advisory-lock transaction", "error", err)
+		r.logger.ErrorContext(ctx, "could not open advisory-lock transaction", "error", err)
 		return
 	}
 	// Nothing here is meant to be committed — this transaction exists only to
@@ -170,11 +170,11 @@ func (r *Runner[T]) poll(ctx context.Context) {
 
 	var acquired bool
 	if err := tx.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock(hashtext($1))", r.direction).Scan(&acquired); err != nil {
-		r.logger.Error("advisory lock check failed", "error", err)
+		r.logger.ErrorContext(ctx, "advisory lock check failed", "error", err)
 		return
 	}
 	if !acquired {
-		r.logger.Debug("skipping tick, another replica holds the lock")
+		r.logger.DebugContext(ctx, "skipping tick, another replica holds the lock")
 		return
 	}
 	r.runOnce(ctx)
@@ -184,13 +184,13 @@ func (r *Runner[T]) poll(ctx context.Context) {
 func (r *Runner[T]) runOnce(ctx context.Context) {
 	recs, err := r.fetcher.Fetch(ctx, r.maxBatch)
 	if err != nil {
-		r.logger.Error("failed to fetch active loans", "error", err)
+		r.logger.ErrorContext(ctx, "failed to fetch active loans", "error", err)
 		return
 	}
 	if len(recs) == 0 {
 		return
 	}
-	r.logger.Info("polling tick", "active_loans", len(recs))
+	r.logger.InfoContext(ctx, "polling tick", "active_loans", len(recs))
 
 	for _, rec := range recs {
 		if ctx.Err() != nil {

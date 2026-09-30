@@ -375,7 +375,7 @@ func (s *service) invokeSigned(
 	// not a transport failure. Wrapping the sentinel is what lets callers use
 	// errors.Is rather than matching on the message.
 	if simResp.Error != "" {
-		s.logger.Error("contract simulation rejected the call",
+		s.logger.ErrorContext(ctx, "contract simulation rejected the call",
 			"contract_function", fnName, "simulation_error", simResp.Error)
 		return nil, errb.
 			Code(pkgErrors.CodeSimulationRejected).

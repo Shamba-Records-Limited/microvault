@@ -2,7 +2,7 @@ package soroban
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -36,7 +36,7 @@ func (s *service) PauseVault(ctx context.Context) error {
 		return err
 	}
 
-	log.Printf("PauseVault: vault paused successfully (tx: %s)", txResp.TransactionHash)
+	s.logger.InfoContext(ctx, "PauseVault: vault paused", slog.String("tx_hash", txResp.TransactionHash))
 	return nil
 }
 
@@ -52,7 +52,7 @@ func (s *service) UnpauseVault(ctx context.Context) error {
 		return err
 	}
 
-	log.Printf("UnpauseVault: vault unpaused successfully (tx: %s)", txResp.TransactionHash)
+	s.logger.InfoContext(ctx, "UnpauseVault: vault unpaused", slog.String("tx_hash", txResp.TransactionHash))
 	return nil
 }
 
@@ -68,7 +68,7 @@ func (s *service) SetMaxDeposit(ctx context.Context, limit int64) error {
 		return err
 	}
 
-	log.Printf("SetMaxDeposit: limit set to %d (tx: %s)", limit, txResp.TransactionHash)
+	s.logger.InfoContext(ctx, "SetMaxDeposit: limit set", slog.Int64("limit", limit), slog.String("tx_hash", txResp.TransactionHash))
 	return nil
 }
 
@@ -84,7 +84,7 @@ func (s *service) SetMaxWithdraw(ctx context.Context, limit int64) error {
 		return err
 	}
 
-	log.Printf("SetMaxWithdraw: limit set to %d (tx: %s)", limit, txResp.TransactionHash)
+	s.logger.InfoContext(ctx, "SetMaxWithdraw: limit set", slog.Int64("limit", limit), slog.String("tx_hash", txResp.TransactionHash))
 	return nil
 }
 
@@ -100,6 +100,6 @@ func (s *service) SetLockPeriod(ctx context.Context, periodSeconds uint64) error
 		return err
 	}
 
-	log.Printf("SetLockPeriod: period set to %d seconds (tx: %s)", periodSeconds, txResp.TransactionHash)
+	s.logger.InfoContext(ctx, "SetLockPeriod: period set", slog.Uint64("period_seconds", periodSeconds), slog.String("tx_hash", txResp.TransactionHash))
 	return nil
 }

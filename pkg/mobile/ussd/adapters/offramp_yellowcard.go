@@ -135,7 +135,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 		return nil, err
 	}
 
-	a.logger.Info("off-ramp initiated",
+	a.logger.InfoContext(ctx, "off-ramp initiated",
 		"loan_id", req.LoanID,
 		"user_id", req.UserID,
 		"amount_usd", req.AmountUSD,
@@ -151,15 +151,15 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 	}
 
 	// Resolve channel and network upfront (shared by both modes).
-	a.logger.Info("fetching channels", "loan_id", req.LoanID, "country", req.CountryCode)
+	a.logger.InfoContext(ctx, "fetching channels", "loan_id", req.LoanID, "country", req.CountryCode)
 	channels, err := a.getChannelsWithCache(ctx, req.CountryCode)
 	if err != nil {
-		a.logger.Error("failed to fetch channels", "loan_id", req.LoanID, "error", err)
+		a.logger.ErrorContext(ctx, "failed to fetch channels", "loan_id", req.LoanID, "error", err)
 		return nil, ycAdapterErr("initiate").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not list payout channels")
 	}
 
 	activeChannels := yellowcard.FilterActiveChannels(channels, yellowcard.ChannelTypeMomo)
-	a.logger.Info("active momo channels found",
+	a.logger.InfoContext(ctx, "active momo channels found",
 		"loan_id", req.LoanID,
 		"total_channels", len(channels),
 		"active_momo_channels", len(activeChannels),
@@ -173,7 +173,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 		}
 	}
 	if len(withdrawChannels) == 0 {
-		a.logger.Error("no active withdraw momo channel",
+		a.logger.ErrorContext(ctx, "no active withdraw momo channel",
 			"loan_id", req.LoanID,
 			"country", req.CountryCode,
 			"active_momo_channels", len(activeChannels),
@@ -182,7 +182,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 	}
 
 	momoChannel := withdrawChannels[0]
-	a.logger.Info("channel resolved",
+	a.logger.InfoContext(ctx, "channel resolved",
 		"loan_id", req.LoanID,
 		"channel_id", momoChannel.ID,
 		"country", momoChannel.Country,
@@ -201,13 +201,13 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 	// not USD. YellowCard's API enforces limits server-side on submission,
 	// so we skip client-side comparison to avoid currency mismatch.
 
-	a.logger.Info("validating network", "loan_id", req.LoanID, "network_code", req.NetworkCode, "country", req.CountryCode)
+	a.logger.InfoContext(ctx, "validating network", "loan_id", req.LoanID, "network_code", req.NetworkCode, "country", req.CountryCode)
 	networkID, networkName, err := a.validateNetwork(ctx, req.CountryCode, req.NetworkCode, req.NetworkName)
 	if err != nil {
-		a.logger.Error("network validation failed", "loan_id", req.LoanID, "error", err)
+		a.logger.ErrorContext(ctx, "network validation failed", "loan_id", req.LoanID, "error", err)
 		return nil, err
 	}
-	a.logger.Info("network resolved", "loan_id", req.LoanID, "network_id", networkID, "network_name", networkName)
+	a.logger.InfoContext(ctx, "network resolved", "loan_id", req.LoanID, "network_id", networkID, "network_name", networkName)
 
 	idempotencyKey := req.IdempotencyKey
 	if idempotencyKey == "" {
@@ -233,19 +233,19 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 			return nil, ycAdapterErr("direct_settlement").With(pkgErrors.AttrDependency, "treasury_transfer").Code(pkgErrors.CodeMissingDependency).Errorf("required dependency is missing")
 		}
 
-		a.logger.Info("attempting direct settlement", "loan_id", req.LoanID, "idempotency_key", idempotencyKey)
+		a.logger.InfoContext(ctx, "attempting direct settlement", "loan_id", req.LoanID, "idempotency_key", idempotencyKey)
 		result, err := a.tryDirectSettlement(ctx, params)
 		if err != nil {
 			// F1/F2: Direct settlement failed. USDC is still in treasury.
 			// Fallback to fiat mode with a differentiated sequenceID.
-			a.logger.Warn("direct settlement failed, falling back to fiat",
+			a.logger.WarnContext(ctx, "direct settlement failed, falling back to fiat",
 				"loan_id", req.LoanID,
 				"error", err,
 			)
 			params.idempotencyKey = idempotencyKey + "_fiat"
 			return a.tryFiatDisbursement(ctx, params)
 		}
-		a.logger.Info("direct settlement succeeded",
+		a.logger.InfoContext(ctx, "direct settlement succeeded",
 			"loan_id", req.LoanID,
 			"request_id", result.RequestID,
 		)
@@ -253,7 +253,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 	}
 
 	// Fiat settlement path (explicit or fallback).
-	a.logger.Info("attempting fiat settlement", "loan_id", req.LoanID, "idempotency_key", idempotencyKey)
+	a.logger.InfoContext(ctx, "attempting fiat settlement", "loan_id", req.LoanID, "idempotency_key", idempotencyKey)
 	return a.tryFiatDisbursement(ctx, params)
 }
 
@@ -272,7 +272,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 	loanID := p.req.LoanID
 
 	if a.testDestinationAddress != "" {
-		a.logger.Warn("YC test destination address override active — checking its trustline before any direct submission to avoid an orphaned YC payment",
+		a.logger.WarnContext(ctx, "YC test destination address override active — checking its trustline before any direct submission to avoid an orphaned YC payment",
 			"loan_id", loanID,
 			"override_address", a.testDestinationAddress,
 		)
@@ -297,7 +297,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		CryptoAmount:   p.req.AmountUSD,
 	}
 
-	a.logger.Info("submitting direct settlement payment to YellowCard",
+	a.logger.InfoContext(ctx, "submitting direct settlement payment to YellowCard",
 		"loan_id", loanID,
 		"channel_id", paymentReq.ChannelID,
 		"sequence_id", paymentReq.SequenceID,
@@ -309,14 +309,14 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 	// F1 checkpoint: If YC API call fails, USDC is still in treasury to safe to failover.
 	resp, err := a.ycAdapter.SubmitPayment(ctx, paymentReq)
 	if err != nil {
-		a.logger.Error("direct settlement API call failed (F1)",
+		a.logger.ErrorContext(ctx, "direct settlement API call failed (F1)",
 			"loan_id", loanID,
 			"error", err,
 		)
 		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeHTTPError).Wrapf(err, "direct settlement call failed")
 	}
 
-	a.logger.Info("YellowCard payment created",
+	a.logger.InfoContext(ctx, "YellowCard payment created",
 		"loan_id", loanID,
 		"yc_payment_id", resp.ID,
 		"status", resp.Status,
@@ -330,11 +330,11 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 
 	// Parse the combined wallet address format: {stellar_address}_{memo}
 	if resp.SettlementInfo == nil || resp.SettlementInfo.WalletAddress == "" {
-		a.logger.Error("direct settlement response missing wallet address", "loan_id", loanID, "yc_payment_id", resp.ID)
+		a.logger.ErrorContext(ctx, "direct settlement response missing wallet address", "loan_id", loanID, "yc_payment_id", resp.ID)
 		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeIncompleteResponse).Errorf("direct settlement response has no wallet address")
 	}
 
-	a.logger.Info("parsing YellowCard settlement info",
+	a.logger.InfoContext(ctx, "parsing YellowCard settlement info",
 		"loan_id", loanID,
 		"wallet_address_raw", resp.SettlementInfo.WalletAddress,
 		"crypto_amount", resp.SettlementInfo.CryptoAmount,
@@ -345,7 +345,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 
 	stellarAddr, stellarMemo, err := yellowcard.ParseStellarWalletAddress(resp.SettlementInfo.WalletAddress)
 	if err != nil {
-		a.logger.Error("failed to parse YC wallet address",
+		a.logger.ErrorContext(ctx, "failed to parse YC wallet address",
 			"loan_id", loanID,
 			"raw_address", resp.SettlementInfo.WalletAddress,
 			"error", err,
@@ -353,7 +353,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeInvalidAddress).Wrapf(err, "could not parse the YellowCard wallet address")
 	}
 
-	a.logger.Info("YellowCard wallet address parsed",
+	a.logger.InfoContext(ctx, "YellowCard wallet address parsed",
 		"loan_id", loanID,
 		"stellar_address", stellarAddr,
 		"stellar_memo", stellarMemo,
@@ -363,7 +363,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 	// Check if YellowCard's destination wallet is missing a USDC trustline before attempting Stellar transfer.
 	hasTrustline, err := a.treasury.CheckUSDCTrustline(ctx, stellarAddr)
 	if err != nil {
-		a.logger.Error("failed to verify trustline for YellowCard wallet",
+		a.logger.ErrorContext(ctx, "failed to verify trustline for YellowCard wallet",
 			"loan_id", loanID,
 			"destination", stellarAddr,
 			"error", err,
@@ -371,7 +371,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not verify the YellowCard wallet trustline")
 	}
 	if !hasTrustline {
-		a.logger.Warn("YellowCard destination wallet does not have a USDC trustline, aborting on-chain send",
+		a.logger.WarnContext(ctx, "YellowCard destination wallet does not have a USDC trustline, aborting on-chain send",
 			"loan_id", loanID,
 			"destination", stellarAddr,
 		)
@@ -387,7 +387,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		amountStroops = int64(resp.SettlementInfo.CryptoAmount*1e7 + 0.5)
 	}
 	if amountStroops <= 0 {
-		a.logger.Error("cannot determine USDC amount to send",
+		a.logger.ErrorContext(ctx, "cannot determine USDC amount to send",
 			"loan_id", loanID,
 			"request_stroops", p.req.AmountStroops,
 			"yc_crypto_amount", resp.SettlementInfo.CryptoAmount,
@@ -397,7 +397,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 
 	// F2 checkpoint: Send USDC from treasury to YellowCard's Stellar wallet.
 	// If Stellar tx fails, USDC is still in treasury to safe to failover.
-	a.logger.Info("sending USDC from treasury to YellowCard wallet",
+	a.logger.InfoContext(ctx, "sending USDC from treasury to YellowCard wallet",
 		"loan_id", loanID,
 		"destination", stellarAddr,
 		"memo", stellarMemo,
@@ -407,7 +407,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 
 	txHash, err := a.treasury.SendUSDC(ctx, stellarAddr, stellarMemo, amountStroops)
 	if err != nil {
-		a.logger.Error("USDC transfer to YC wallet failed (F2)",
+		a.logger.ErrorContext(ctx, "USDC transfer to YC wallet failed (F2)",
 			"loan_id", loanID,
 			"destination", stellarAddr,
 			"memo", stellarMemo,
@@ -417,7 +417,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "USDC transfer to the YellowCard wallet failed")
 	}
 
-	a.logger.Info("USDC transfer to YellowCard wallet succeeded",
+	a.logger.InfoContext(ctx, "USDC transfer to YellowCard wallet succeeded",
 		"loan_id", loanID,
 		"tx_hash", txHash,
 		"destination", stellarAddr,
@@ -456,21 +456,21 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 	loanID := p.req.LoanID
 
 	// Balance guard: check YC has sufficient USD balance for fiat disbursement.
-	a.logger.Info("checking YellowCard balance for fiat disbursement", "loan_id", loanID)
+	a.logger.InfoContext(ctx, "checking YellowCard balance for fiat disbursement", "loan_id", loanID)
 	availableBalance, err := a.ycAdapter.GetAvailableBalance(ctx)
 	if err != nil {
-		a.logger.Error("failed to check YC balance", "loan_id", loanID, "error", err)
+		a.logger.ErrorContext(ctx, "failed to check YC balance", "loan_id", loanID, "error", err)
 		return nil, ycAdapterErr("fiat_settlement").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not check the available balance")
 	}
 
-	a.logger.Info("YellowCard balance check",
+	a.logger.InfoContext(ctx, "YellowCard balance check",
 		"loan_id", loanID,
 		"available_usd", availableBalance,
 		"requested_usd", p.req.AmountUSD,
 	)
 
 	if availableBalance < p.req.AmountUSD {
-		a.logger.Warn("insufficient YC balance for fiat disbursement",
+		a.logger.WarnContext(ctx, "insufficient YC balance for fiat disbursement",
 			"loan_id", loanID,
 			"available", availableBalance,
 			"requested", p.req.AmountUSD,
@@ -484,7 +484,7 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 	paymentReq := a.buildPaymentRequest(p)
 	// Fiat mode: forceAccept is set in buildPaymentRequest, no directSettlement.
 
-	a.logger.Info("submitting fiat disbursement to YellowCard",
+	a.logger.InfoContext(ctx, "submitting fiat disbursement to YellowCard",
 		"loan_id", loanID,
 		"channel_id", paymentReq.ChannelID,
 		"sequence_id", paymentReq.SequenceID,
@@ -493,11 +493,11 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 
 	resp, err := a.ycAdapter.SubmitPayment(ctx, paymentReq)
 	if err != nil {
-		a.logger.Error("fiat disbursement failed", "loan_id", loanID, "error", err)
+		a.logger.ErrorContext(ctx, "fiat disbursement failed", "loan_id", loanID, "error", err)
 		return nil, ycAdapterErr("fiat_settlement").Code(pkgErrors.CodeHTTPError).Wrapf(err, "fiat disbursement failed")
 	}
 
-	a.logger.Info("fiat disbursement submitted",
+	a.logger.InfoContext(ctx, "fiat disbursement submitted",
 		"loan_id", loanID,
 		"yc_payment_id", resp.ID,
 		"status", resp.Status,
@@ -740,7 +740,7 @@ func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryC
 		return "", "", ycAdapterErr("resolve_network").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not list networks")
 	}
 
-	a.logger.Info("searching for network",
+	a.logger.InfoContext(ctx, "searching for network",
 		"country", countryCode,
 		"network_code", networkCode,
 		"network_name", networkName,
@@ -761,7 +761,7 @@ func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryC
 	// Fallback: pick the first active MoMo network (accountNumberType=phone).
 	// This handles USSD simulator codes like "SANDBOX" that don't exist in YellowCard.
 	if matchedNetwork == nil {
-		a.logger.Warn("no exact network match, falling back to first active MoMo network",
+		a.logger.WarnContext(ctx, "no exact network match, falling back to first active MoMo network",
 			"country", countryCode,
 			"network_code", networkCode,
 			"network_name", networkName,
@@ -770,7 +770,7 @@ func (a *YellowCardOffRampAdapter) validateNetwork(ctx context.Context, countryC
 			n := &networks[i]
 			if n.Status == "active" && n.AccountNumberType == "phone" {
 				matchedNetwork = n
-				a.logger.Info("fallback network selected",
+				a.logger.InfoContext(ctx, "fallback network selected",
 					"network_id", n.ID,
 					"network_name", n.Name,
 					"network_code", n.CodeString(),
@@ -808,7 +808,7 @@ func (a *YellowCardOffRampAdapter) getChannelsWithCache(ctx context.Context, cou
 	a.cacheMu.RUnlock()
 
 	if ok && hasExpire && time.Now().Before(expireAt) {
-		a.logger.Debug("getChannelsWithCache: cache hit", "country", country)
+		a.logger.DebugContext(ctx, "getChannelsWithCache: cache hit", "country", country)
 		return channels, nil
 	}
 
@@ -822,7 +822,7 @@ func (a *YellowCardOffRampAdapter) getChannelsWithCache(ctx context.Context, cou
 		return channels, nil
 	}
 
-	a.logger.Info("getChannelsWithCache: cache miss, fetching from API", "country", country)
+	a.logger.InfoContext(ctx, "getChannelsWithCache: cache miss, fetching from API", "country", country)
 	fetched, err := a.ycAdapter.GetChannels(ctx, country)
 	if err != nil {
 		return nil, err
@@ -842,7 +842,7 @@ func (a *YellowCardOffRampAdapter) getNetworksWithCache(ctx context.Context, cou
 	a.cacheMu.RUnlock()
 
 	if ok && hasExpire && time.Now().Before(expireAt) {
-		a.logger.Debug("getNetworksWithCache: cache hit", "country", country)
+		a.logger.DebugContext(ctx, "getNetworksWithCache: cache hit", "country", country)
 		return networks, nil
 	}
 
@@ -856,7 +856,7 @@ func (a *YellowCardOffRampAdapter) getNetworksWithCache(ctx context.Context, cou
 		return networks, nil
 	}
 
-	a.logger.Info("getNetworksWithCache: cache miss, fetching from API", "country", country)
+	a.logger.InfoContext(ctx, "getNetworksWithCache: cache miss, fetching from API", "country", country)
 	fetched, err := a.ycAdapter.GetNetworks(ctx, country)
 	if err != nil {
 		return nil, err

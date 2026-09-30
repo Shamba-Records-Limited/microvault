@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -25,7 +24,7 @@ func testPollConfig(maxAttempts int) PollConfig {
 	return PollConfig{
 		MaxAttempts:  maxAttempts,
 		PollInterval: time.Millisecond,
-		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:       slog.New(slog.DiscardHandler),
 	}
 }
 

@@ -39,7 +39,7 @@ func (h *DeliveryReportHandler) HandleReport(ctx context.Context, report Deliver
 	h.onReport(ctx, report)
 }
 
-func defaultReportHandler(_ context.Context, report DeliveryReport) {
+func defaultReportHandler(ctx context.Context, report DeliveryReport) {
 	attrs := []any{
 		slog.String("message_id", report.ID),
 		slog.String("status", report.Status),
@@ -50,5 +50,5 @@ func defaultReportHandler(_ context.Context, report DeliveryReport) {
 	if report.FailureReason != "" {
 		attrs = append(attrs, slog.String("failure_reason", report.FailureReason))
 	}
-	slog.Info("sms delivery report received", attrs...)
+	slog.InfoContext(ctx, "sms delivery report received", attrs...)
 }

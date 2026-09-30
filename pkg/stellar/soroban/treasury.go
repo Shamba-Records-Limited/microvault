@@ -2,7 +2,7 @@ package soroban
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -68,21 +68,20 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 
 	// Fallback protection: if event_recipient is not found or empty, fall back to the recipient address from request
 	if eventRecipient == "" {
-		log.Printf("BorrowFromVault: event recipient not found in on-chain events, using request fallback: %s", req.RecipientAddress)
+		s.logger.WarnContext(ctx, "BorrowFromVault: event recipient not found in on-chain events, using request fallback", slog.String("recipient_address", req.RecipientAddress))
 		eventRecipient = req.RecipientAddress
 	} else {
-		log.Printf("BorrowFromVault: event recipient successfully extracted from on-chain event: %s", eventRecipient)
+		s.logger.InfoContext(ctx, "BorrowFromVault: event recipient successfully extracted from on-chain event", slog.String("event_recipient", eventRecipient))
 	}
 
 	// Fetch current borrow index after the borrow has been processed.
 	borrowIndex, err := s.GetBorrowIndex(ctx)
 	if err != nil {
-		log.Printf("BorrowFromVault: failed to fetch borrow index: %v", err)
+		s.logger.ErrorContext(ctx, "BorrowFromVault: failed to fetch borrow index", slog.Any("error", err))
 		// Non-fatal: borrow succeeded, index is supplementary data.
 	}
 
-	log.Printf("BorrowFromVault: %d to %s (tx: %s, event_recipient: %s, borrow_index: %d)",
-		req.Amount, req.RecipientAddress, txResp.TransactionHash, eventRecipient, borrowIndex)
+	s.logger.InfoContext(ctx, "BorrowFromVault: borrowed", slog.Int64("amount", req.Amount), slog.String("recipient_address", req.RecipientAddress), slog.String("tx_hash", txResp.TransactionHash), slog.String("event_recipient", eventRecipient), slog.Int64("borrow_index", borrowIndex))
 
 	contractID, functionName := s.contractInfoOrFallback(txResp.EnvelopeXDR, fnName)
 
@@ -165,13 +164,12 @@ func (s *service) repay(ctx context.Context, borrowerAddress string, amount int6
 		// Fallback protection: if the event borrower is missing or empty, fall
 		// back to the borrower address from the request.
 		if eventBorrower == "" {
-			log.Printf("RepayForVault: event borrower not found in on-chain events, using request fallback: %s", borrowerAddress)
+			s.logger.WarnContext(ctx, "RepayForVault: event borrower not found in on-chain events, using request fallback", slog.String("borrower_address", borrowerAddress))
 			eventBorrower = borrowerAddress
 		}
 	}
 
-	log.Printf("RepayToVault: %d repaid (tx: %s, borrower: %q, event_borrower: %q)",
-		amount, txResp.TransactionHash, borrowerAddress, eventBorrower)
+	s.logger.InfoContext(ctx, "RepayToVault: repaid", slog.Int64("amount", amount), slog.String("tx_hash", txResp.TransactionHash), slog.String("borrower_address", borrowerAddress), slog.String("event_borrower", eventBorrower))
 
 	contractID, functionName := s.contractInfoOrFallback(txResp.EnvelopeXDR, fnName)
 
@@ -218,13 +216,12 @@ func (s *service) BumpYield(ctx context.Context, req types.BumpYieldRequest) (*t
 	if txResp.ResultMetaXDR != "" {
 		totalManaged, err = extractYieldBumpedTotalManaged(txResp.ResultMetaXDR, s.contractID)
 		if err != nil {
-			log.Printf("BumpYield: failed to read total_managed from YieldBumped event: %v", err)
+			s.logger.ErrorContext(ctx, "BumpYield: failed to read total_managed from YieldBumped event", slog.Any("error", err))
 			// Non-fatal: the contribution succeeded, this figure is supplementary.
 		}
 	}
 
-	log.Printf("BumpYield: %d contributed (tx: %s, total_managed: %d)",
-		req.Amount, txResp.TransactionHash, totalManaged)
+	s.logger.InfoContext(ctx, "BumpYield: contributed", slog.Int64("amount", req.Amount), slog.String("tx_hash", txResp.TransactionHash), slog.Int64("total_managed", totalManaged))
 
 	contractID, functionName := s.contractInfoOrFallback(txResp.EnvelopeXDR, fnName)
 
@@ -250,7 +247,7 @@ func (s *service) AccrueInterest(ctx context.Context) error {
 		return err
 	}
 
-	log.Printf("AccrueInterest: interest accrued (tx: %s)", txResp.TransactionHash)
+	s.logger.InfoContext(ctx, "AccrueInterest: interest accrued", slog.String("tx_hash", txResp.TransactionHash))
 	return nil
 }
 
@@ -261,7 +258,7 @@ func (s *service) AccrueInterest(ctx context.Context) error {
 func (s *service) contractInfoOrFallback(envelopeXDR, fnName string) (string, string) {
 	contractID, functionName, err := ExtractContractInfo(envelopeXDR)
 	if err != nil {
-		log.Printf("%s: failed to extract contract info: %v", fnName, err)
+		s.logger.Error("failed to extract contract info", slog.String("fn_name", fnName), slog.Any("error", err))
 		return s.contractID, fnName
 	}
 	return contractID, functionName

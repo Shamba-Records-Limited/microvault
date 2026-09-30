@@ -118,7 +118,7 @@ func (a *AfricaTalkingSMSAdapter) SendSMS(ctx context.Context, req sms.SMSReques
 		resp, err := a.send(ctx, encoded)
 		if err == nil {
 			if attempt > 1 {
-				slog.Info("sms: send succeeded after retry",
+				slog.InfoContext(ctx, "sms: send succeeded after retry",
 					slog.Int("attempt", attempt),
 					slog.String("recipients", recipients),
 				)
@@ -131,7 +131,7 @@ func (a *AfricaTalkingSMSAdapter) SendSMS(ctx context.Context, req sms.SMSReques
 			return sms.SMSResponse{}, err
 		}
 
-		slog.Warn("sms: send attempt failed, will retry",
+		slog.WarnContext(ctx, "sms: send attempt failed, will retry",
 			slog.Int("attempt", attempt),
 			slog.Int("max_attempts", maxSendAttempts),
 			slog.String("error", err.Error()),
@@ -172,7 +172,7 @@ func (a *AfricaTalkingSMSAdapter) send(ctx context.Context, encoded string) (sms
 
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			slog.Warn("sms: failed to close response body", slog.String("error", err.Error()))
+			slog.WarnContext(ctx, "sms: failed to close response body", slog.String("error", err.Error()))
 		}
 	}()
 
@@ -181,7 +181,7 @@ func (a *AfricaTalkingSMSAdapter) send(ctx context.Context, encoded string) (sms
 		return sms.SMSResponse{}, retryableError{fmt.Errorf("failed to read response: %w", err)}
 	}
 
-	slog.Debug("sms: gateway responded",
+	slog.DebugContext(ctx, "sms: gateway responded",
 		slog.Int("status", resp.StatusCode),
 		slog.Duration("latency", time.Since(start).Round(time.Millisecond)),
 	)

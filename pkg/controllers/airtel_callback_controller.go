@@ -64,7 +64,7 @@ func NewAirtelCallbackController(repo repository.AirtelTransactionRepository, cf
 func (ctrl *AirtelCallbackController) allowedCIDR(c *fiber.Ctx) error {
 	if len(ctrl.config.CallbackAllowedCIDRs) == 0 {
 		if ctrl.serverEnv == "production" {
-			ctrl.logger.Warn("rejecting airtel callback: no CIDR allowlist configured in production",
+			ctrl.logger.WarnContext(c.UserContext(), "rejecting airtel callback: no CIDR allowlist configured in production",
 				"path", c.Path())
 			return fiber.NewError(fiber.StatusForbidden, "callback allowlist not configured")
 		}
@@ -77,7 +77,7 @@ func (ctrl *AirtelCallbackController) allowedCIDR(c *fiber.Ctx) error {
 			return nil
 		}
 	}
-	ctrl.logger.Warn("rejecting airtel callback: source not in the allowlist",
+	ctrl.logger.WarnContext(c.UserContext(), "rejecting airtel callback: source not in the allowlist",
 		"path", c.Path(), "client_ip", clientIP, "x_forwarded_for", c.Get(fiber.HeaderXForwardedFor),
 		"allowed_cidrs", ctrl.config.CallbackAllowedCIDRs)
 	return fiber.NewError(fiber.StatusForbidden, "source not permitted")

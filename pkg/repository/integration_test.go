@@ -14,10 +14,11 @@ import (
 	"os"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/platform/database"
-	"gorm.io/gorm"
 )
 
 var testDB *gorm.DB

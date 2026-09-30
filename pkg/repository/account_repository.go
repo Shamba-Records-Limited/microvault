@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -75,7 +75,7 @@ func NewAccountRepository(db *gorm.DB) (AccountRepository, error) {
 func (r *accountRepository) Create(ctx context.Context, account *models.Account) error {
 	result := r.db.WithContext(ctx).Create(account)
 	if result.Error != nil {
-		log.Printf("Create: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Create: database error", slog.Any("error", result.Error))
 		return ErrFailedToCreateAccount
 	}
 	return nil
@@ -85,7 +85,7 @@ func (r *accountRepository) Create(ctx context.Context, account *models.Account)
 func (r *accountRepository) CreateWithTx(ctx context.Context, tx *gorm.DB, account *models.Account) error {
 	result := tx.Create(account)
 	if result.Error != nil {
-		log.Printf("CreateWithTx: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "CreateWithTx: database error", slog.Any("error", result.Error))
 		return ErrFailedToCreateAccount
 	}
 	return nil
@@ -103,7 +103,7 @@ func (r *accountRepository) GetByID(ctx context.Context, id string) (*models.Acc
 		return nil, ErrAccountNotFound
 	}
 	if result.Error != nil {
-		log.Printf("GetByID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByID: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetAccount
 	}
 	return &account, nil
@@ -119,7 +119,7 @@ func (r *accountRepository) GetByUserID(ctx context.Context, userID string) (*mo
 		return nil, ErrAccountNotFound
 	}
 	if result.Error != nil {
-		log.Printf("GetByUserID: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByUserID: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetAccount
 	}
 	return &account, nil
@@ -135,7 +135,7 @@ func (r *accountRepository) GetByPublicKey(ctx context.Context, publicKey string
 		return nil, ErrAccountNotFound
 	}
 	if result.Error != nil {
-		log.Printf("GetByPublicKey: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByPublicKey: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetAccount
 	}
 	return &account, nil
@@ -148,7 +148,7 @@ func (r *accountRepository) GetByStatus(ctx context.Context, status string) (*mo
 		Where("status = ? AND deleted_at IS NULL", status).
 		First(&account)
 	if result.Error != nil {
-		log.Printf("GetByStatus: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "GetByStatus: database error", slog.Any("error", result.Error))
 		return nil, ErrFailedToGetAccount
 	}
 	return &account, nil
@@ -162,7 +162,7 @@ func (r *accountRepository) GetByStatus(ctx context.Context, status string) (*mo
 func (r *accountRepository) GetNextAccountIndex(ctx context.Context, userID string) (int, error) {
 	var idx int64
 	if err := r.db.WithContext(ctx).Raw("SELECT nextval('account_index_seq')").Scan(&idx).Error; err != nil {
-		log.Printf("GetNextAccountIndex: database error: %v", err)
+		slog.ErrorContext(ctx, "GetNextAccountIndex: database error", slog.Any("error", err))
 		return 0, ErrFailedToGetNextIndex
 	}
 	return int(idx), nil
@@ -174,7 +174,7 @@ func (r *accountRepository) GetNextAccountIndex(ctx context.Context, userID stri
 func (r *accountRepository) GetNextAccountIndexWithTx(ctx context.Context, tx *gorm.DB) (int, error) {
 	var idx int64
 	if err := tx.WithContext(ctx).Raw("SELECT nextval('account_index_seq')").Scan(&idx).Error; err != nil {
-		log.Printf("GetNextAccountIndexWithTx: database error: %v", err)
+		slog.ErrorContext(ctx, "GetNextAccountIndexWithTx: database error", slog.Any("error", err))
 		return 0, ErrFailedToGetNextIndex
 	}
 	return int(idx), nil
@@ -201,7 +201,7 @@ func (r *accountRepository) EnsureAccountIndexFloor(ctx context.Context, floor i
 		ELSE setval('account_index_seq', GREATEST((SELECT last_value FROM account_index_seq), ? - 1), true)
 	END`
 	if err := r.db.WithContext(ctx).Exec(sql, floor, floor).Error; err != nil {
-		log.Printf("EnsureAccountIndexFloor: database error: %v", err)
+		slog.ErrorContext(ctx, "EnsureAccountIndexFloor: database error", slog.Any("error", err))
 		return ErrFailedToGetNextIndex
 	}
 	return nil
@@ -218,7 +218,7 @@ func (r *accountRepository) MaxAccountIndex(ctx context.Context) (int64, error) 
 		Model(&models.Account{}).
 		Select("MAX(account_index)").
 		Scan(&highest).Error; err != nil {
-		log.Printf("MaxAccountIndex: database error: %v", err)
+		slog.ErrorContext(ctx, "MaxAccountIndex: database error", slog.Any("error", err))
 		return 0, ErrFailedToGetNextIndex
 	}
 	if highest == nil {
@@ -261,7 +261,7 @@ func (r *accountRepository) peekAccountIndex(ctx context.Context) (int64, error)
 	sql := `SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END
 		FROM account_index_seq`
 	if err := r.db.WithContext(ctx).Raw(sql).Scan(&next).Error; err != nil {
-		log.Printf("peekAccountIndex: database error: %v", err)
+		slog.ErrorContext(ctx, "peekAccountIndex: database error", slog.Any("error", err))
 		return 0, ErrFailedToGetNextIndex
 	}
 	return next, nil
@@ -282,7 +282,7 @@ func (r *accountRepository) Update(ctx context.Context, account *models.Account)
 		return ErrAccountNotFound
 	}
 	if result.Error != nil {
-		log.Printf("Update: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Update: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateAccount
 	}
 	return nil
@@ -300,7 +300,7 @@ func (r *accountRepository) UpdateChainStatus(ctx context.Context, id, chainStat
 			"updated_at":   time.Now(),
 		})
 	if result.Error != nil {
-		log.Printf("UpdateChainStatus: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "UpdateChainStatus: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateAccount
 	}
 	if result.RowsAffected == 0 {
@@ -320,7 +320,7 @@ func (r *accountRepository) Restore(ctx context.Context, id string) error {
 		return ErrAccountNotFound
 	}
 	if result.Error != nil {
-		log.Printf("Restore: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Restore: database error", slog.Any("error", result.Error))
 		return ErrFailedToRestoreAccount
 	}
 	return nil
@@ -338,7 +338,7 @@ func (r *accountRepository) Delete(ctx context.Context, id string) error {
 		return ErrAccountNotFound
 	}
 	if result.Error != nil {
-		log.Printf("Delete: database error: %v", result.Error)
+		slog.ErrorContext(ctx, "Delete: database error", slog.Any("error", result.Error))
 		return ErrFailedToDeleteAccount
 	}
 	return nil

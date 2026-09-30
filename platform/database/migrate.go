@@ -3,7 +3,7 @@ package database
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -36,10 +36,10 @@ func RunMigrations(cfg *config.PostgresConfig) error {
 	defer func() {
 		sourceErr, dbErr := m.Close()
 		if sourceErr != nil {
-			log.Printf("Error closing migrate source: %v", sourceErr)
+			slog.Error("Error closing migrate source", slog.Any("error", sourceErr))
 		}
 		if dbErr != nil {
-			log.Printf("Error closing migrate database: %v", dbErr)
+			slog.Error("Error closing migrate database", slog.Any("error", dbErr))
 		}
 	}()
 
@@ -49,9 +49,9 @@ func RunMigrations(cfg *config.PostgresConfig) error {
 	}
 
 	if errors.Is(err, migrate.ErrNoChange) {
-		log.Println("Database migrations: no changes to apply")
+		slog.Info("Database migrations: no changes to apply")
 	} else {
-		log.Println("Database migrations: applied successfully")
+		slog.Info("Database migrations: applied successfully")
 	}
 
 	return nil
@@ -81,10 +81,10 @@ func RollbackMigration(cfg *config.PostgresConfig) error {
 	defer func() {
 		sourceErr, dbErr := m.Close()
 		if sourceErr != nil {
-			log.Printf("Error closing migrate source: %v", sourceErr)
+			slog.Error("Error closing migrate source", slog.Any("error", sourceErr))
 		}
 		if dbErr != nil {
-			log.Printf("Error closing migrate database: %v", dbErr)
+			slog.Error("Error closing migrate database", slog.Any("error", dbErr))
 		}
 	}()
 
@@ -94,9 +94,9 @@ func RollbackMigration(cfg *config.PostgresConfig) error {
 	}
 
 	if errors.Is(err, migrate.ErrNoChange) {
-		log.Println("Database rollback: no migrations to rollback")
+		slog.Info("Database rollback: no migrations to rollback")
 	} else {
-		log.Println("Database rollback: completed successfully")
+		slog.Info("Database rollback: completed successfully")
 	}
 
 	return nil
@@ -126,10 +126,10 @@ func MigrationVersion(cfg *config.PostgresConfig) (uint, bool, error) {
 	defer func() {
 		sourceErr, dbErr := m.Close()
 		if sourceErr != nil {
-			log.Printf("Error closing migrate source: %v", sourceErr)
+			slog.Error("Error closing migrate source", slog.Any("error", sourceErr))
 		}
 		if dbErr != nil {
-			log.Printf("Error closing migrate database: %v", dbErr)
+			slog.Error("Error closing migrate database", slog.Any("error", dbErr))
 		}
 	}()
 
@@ -166,10 +166,10 @@ func ForceMigrationVersion(cfg *config.PostgresConfig, version int) error {
 	defer func() {
 		sourceErr, dbErr := m.Close()
 		if sourceErr != nil {
-			log.Printf("Error closing migrate source: %v", sourceErr)
+			slog.Error("Error closing migrate source", slog.Any("error", sourceErr))
 		}
 		if dbErr != nil {
-			log.Printf("Error closing migrate database: %v", dbErr)
+			slog.Error("Error closing migrate database", slog.Any("error", dbErr))
 		}
 	}()
 
@@ -177,6 +177,6 @@ func ForceMigrationVersion(cfg *config.PostgresConfig, version int) error {
 		return fmt.Errorf("failed to force migration version: %w", err)
 	}
 
-	log.Printf("Database migration: forced to version %d", version)
+	slog.Info("Database migration: forced to version", slog.Int("version", version))
 	return nil
 }
