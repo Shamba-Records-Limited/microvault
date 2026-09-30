@@ -81,7 +81,7 @@ func createClient(cfg *config.RedisConfig) (*redis.Client, error) {
 }
 
 // Ready checks if a specific Redis connection is alive
-func Ready(name string) bool {
+func Ready(ctx context.Context, name string) bool {
 	redisMutex.RLock()
 	client, exists := redisInstances[name]
 
@@ -91,7 +91,7 @@ func Ready(name string) bool {
 	}
 	redisMutex.RUnlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
 	err := client.Ping(ctx).Err()

@@ -29,15 +29,15 @@ type Challenge struct {
 type ChallengeStore interface {
 	// Store persists a challenge with automatic expiration based on the challenge's ExpiresAt field.
 	// Returns an error if the challenge is already expired or if storage fails.
-	Store(challengeID string, challenge *Challenge) error
+	Store(ctx context.Context, challengeID string, challenge *Challenge) error
 
 	// Get retrieves a challenge by its ID. Returns an error if the challenge is not found,
 	// has expired, or if retrieval fails.
-	Get(challengeID string) (*Challenge, error)
+	Get(ctx context.Context, challengeID string) (*Challenge, error)
 
 	// Delete removes a challenge from storage. This should be called after successful
 	// authentication to prevent challenge reuse. Returns an error if deletion fails.
-	Delete(challengeID string) error
+	Delete(ctx context.Context, challengeID string) error
 }
 
 // authStoreErr starts an error builder for challenge persistence.
@@ -88,8 +88,8 @@ func (s *RedisStore) key(id string) string {
 //   - JSON marshaling fails
 //   - Redis SET operation fails
 //   - The operation times out (3 second timeout)
-func (s *RedisStore) Store(challengeID string, challenge *Challenge) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (s *RedisStore) Store(ctx context.Context, challengeID string, challenge *Challenge) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	data, err := json.Marshal(challenge)
@@ -122,8 +122,8 @@ func (s *RedisStore) Store(challengeID string, challenge *Challenge) error {
 //
 // Note: If a challenge has expired, Redis will automatically delete it and this
 // method will return a "challenge not found" error.
-func (s *RedisStore) Get(challengeID string) (*Challenge, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (s *RedisStore) Get(ctx context.Context, challengeID string) (*Challenge, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	data, err := s.client.Get(ctx, s.key(challengeID)).Bytes()
@@ -156,8 +156,8 @@ func (s *RedisStore) Get(challengeID string) (*Challenge, error) {
 //
 // Note: This method does not return an error if the challenge doesn't exist.
 // DEL operations in Redis are idempotent.
-func (s *RedisStore) Delete(challengeID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (s *RedisStore) Delete(ctx context.Context, challengeID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	err := s.client.Del(ctx, s.key(challengeID)).Err()

@@ -114,7 +114,6 @@ func (s *service) Create(ctx context.Context, req CreateUserRequest) (*UserRespo
 		return nil, ErrMobileNumberAlreadyExists
 	}
 	if !errors.Is(err, repository.ErrUserNotFound) {
-		slog.ErrorContext(ctx, "Create: failed to check mobile number uniqueness", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -125,7 +124,6 @@ func (s *service) Create(ctx context.Context, req CreateUserRequest) (*UserRespo
 			return nil, ErrNationalIDAlreadyExists
 		}
 		if !errors.Is(err, repository.ErrUserNotFound) {
-			slog.ErrorContext(ctx, "Create: failed to check national ID uniqueness", slog.Any("error", err))
 			return nil, err
 		}
 	}
@@ -165,7 +163,6 @@ func (s *service) Create(ctx context.Context, req CreateUserRequest) (*UserRespo
 
 	// Create user in database
 	if err := s.repo.Create(ctx, user); err != nil {
-		slog.ErrorContext(ctx, "Create: failed to create user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -217,7 +214,6 @@ func (s *service) CreateWithTx(ctx context.Context, tx *gorm.DB, req CreateUserR
 	}
 
 	if err := s.repo.CreateWithTx(ctx, tx, user); err != nil {
-		slog.ErrorContext(ctx, "CreateWithTx: failed to create user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -231,7 +227,6 @@ func (s *service) GetByID(ctx context.Context, id string) (*UserResponse, error)
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, ErrUserNotFound
 		}
-		slog.ErrorContext(ctx, "GetByID: failed to get user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -245,7 +240,6 @@ func (s *service) GetByMobileNumber(ctx context.Context, mobileNumber string) (*
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, ErrUserNotFound
 		}
-		slog.ErrorContext(ctx, "GetByMobileNumber: failed to get user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -258,7 +252,6 @@ func (s *service) RebindMobileNumber(ctx context.Context, userID, mobileNumber s
 		return ErrInvalidMobileNumber
 	}
 	if err := s.repo.UpdateMobileNumber(ctx, userID, mobileNumber); err != nil {
-		slog.ErrorContext(ctx, "RebindMobileNumber: failed", slog.String("user_id", userID), slog.Any("error", err))
 		return err
 	}
 	slog.InfoContext(ctx, "RebindMobileNumber: user rebound to a new MSISDN", slog.String("user_id", userID))
@@ -271,7 +264,6 @@ func (s *service) GetByNationalID(ctx context.Context, nationalID string) (*User
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, ErrUserNotFound
 		}
-		slog.ErrorContext(ctx, "GetByNationalID: failed to get user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -302,39 +294,33 @@ func (s *service) List(ctx context.Context, filters UserFilters, pagination serv
 		// Get users by KYC status
 		users, err = s.repo.GetByKYCStatus(ctx, filters.KYCStatus, pagination.PageSize, offset)
 		if err != nil {
-			slog.ErrorContext(ctx, "List: failed to get users by KYC status", slog.Any("error", err))
 			return nil, err
 		}
 		// Get total count for this filter
 		totalCount, err = s.repo.CountByKYCStatus(ctx, filters.KYCStatus)
 		if err != nil {
-			slog.ErrorContext(ctx, "List: failed to count users by KYC status", slog.Any("error", err))
 			return nil, err
 		}
 	} else if filters.Role != "" {
 		// Get users by role
 		users, err = s.repo.GetByRole(ctx, filters.Role, pagination.PageSize, offset)
 		if err != nil {
-			slog.ErrorContext(ctx, "List: failed to get users by role", slog.Any("error", err))
 			return nil, err
 		}
 		// Get total count for this filter
 		totalCount, err = s.repo.CountByRole(ctx, filters.Role)
 		if err != nil {
-			slog.ErrorContext(ctx, "List: failed to count users by role", slog.Any("error", err))
 			return nil, err
 		}
 	} else {
 		// Get all users
 		users, err = s.repo.List(ctx, pagination.PageSize, offset)
 		if err != nil {
-			slog.ErrorContext(ctx, "List: failed to get users", slog.Any("error", err))
 			return nil, err
 		}
 		// Get total count of all users
 		totalCount, err = s.repo.Count(ctx)
 		if err != nil {
-			slog.ErrorContext(ctx, "List: failed to count users", slog.Any("error", err))
 			return nil, err
 		}
 	}
@@ -361,7 +347,6 @@ func (s *service) Update(ctx context.Context, id string, req UpdateUserRequest) 
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, ErrUserNotFound
 		}
-		slog.ErrorContext(ctx, "Update: failed to get user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -378,7 +363,6 @@ func (s *service) Update(ctx context.Context, id string, req UpdateUserRequest) 
 				return nil, ErrNationalIDAlreadyExists
 			}
 			if err != nil && !errors.Is(err, repository.ErrUserNotFound) {
-				slog.ErrorContext(ctx, "Update: failed to check national ID uniqueness", slog.Any("error", err))
 				return nil, err
 			}
 		}
@@ -409,7 +393,6 @@ func (s *service) Update(ctx context.Context, id string, req UpdateUserRequest) 
 
 	// Update in database
 	if err := s.repo.Update(ctx, user); err != nil {
-		slog.ErrorContext(ctx, "Update: failed to update user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -429,7 +412,6 @@ func (s *service) Delete(ctx context.Context, requesterID, targetID string) erro
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return services.ErrUnauthorized
 		}
-		slog.ErrorContext(ctx, "Delete: failed to get requester", slog.Any("error", err))
 		return err
 	}
 
@@ -444,7 +426,6 @@ func (s *service) Delete(ctx context.Context, requesterID, targetID string) erro
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return ErrUserNotFound
 		}
-		slog.ErrorContext(ctx, "Delete: failed to get target user", slog.Any("error", err))
 		return err
 	}
 
@@ -457,7 +438,6 @@ func (s *service) Delete(ctx context.Context, requesterID, targetID string) erro
 	if targetUser.Role == "admin" {
 		count, err := s.repo.CountAdmins(ctx)
 		if err != nil {
-			slog.ErrorContext(ctx, "Delete: failed to count admins", slog.Any("error", err))
 			return err
 		}
 		if count <= 1 {
@@ -467,7 +447,6 @@ func (s *service) Delete(ctx context.Context, requesterID, targetID string) erro
 
 	// Delete user
 	if err := s.repo.Delete(ctx, targetID); err != nil {
-		slog.ErrorContext(ctx, "Delete: failed to delete user", slog.Any("error", err))
 		return err
 	}
 
@@ -482,7 +461,6 @@ func (s *service) Restore(ctx context.Context, requesterID, targetID string) err
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return services.ErrUnauthorized
 		}
-		slog.ErrorContext(ctx, "Restore: failed to get requester", slog.Any("error", err))
 		return err
 	}
 
@@ -496,7 +474,6 @@ func (s *service) Restore(ctx context.Context, requesterID, targetID string) err
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return ErrUserNotFound
 		}
-		slog.ErrorContext(ctx, "Restore: failed to restore user", slog.Any("error", err))
 		return err
 	}
 
@@ -516,7 +493,6 @@ func (s *service) UpdateKYCStatus(ctx context.Context, adminID, userID string, r
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, services.ErrUnauthorized
 		}
-		slog.ErrorContext(ctx, "UpdateKYCStatus: failed to get admin", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -531,7 +507,6 @@ func (s *service) UpdateKYCStatus(ctx context.Context, adminID, userID string, r
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, ErrUserNotFound
 		}
-		slog.ErrorContext(ctx, "UpdateKYCStatus: failed to get user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -549,7 +524,6 @@ func (s *service) UpdateKYCStatus(ctx context.Context, adminID, userID string, r
 
 	// Update in database
 	if err := s.repo.Update(ctx, user); err != nil {
-		slog.ErrorContext(ctx, "UpdateKYCStatus: failed to update user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -569,7 +543,6 @@ func (s *service) UpdateUserStatus(ctx context.Context, adminID, userID string, 
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, services.ErrUnauthorized
 		}
-		slog.ErrorContext(ctx, "UpdateUserStatus: failed to get admin", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -584,7 +557,6 @@ func (s *service) UpdateUserStatus(ctx context.Context, adminID, userID string, 
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, ErrUserNotFound
 		}
-		slog.ErrorContext(ctx, "UpdateUserStatus: failed to get user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -598,7 +570,6 @@ func (s *service) UpdateUserStatus(ctx context.Context, adminID, userID string, 
 
 	// Update in database
 	if err := s.repo.Update(ctx, user); err != nil {
-		slog.ErrorContext(ctx, "UpdateUserStatus: failed to update user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -623,7 +594,6 @@ func (s *service) UpdateUserRole(ctx context.Context, adminID, userID string, re
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, services.ErrUnauthorized
 		}
-		slog.ErrorContext(ctx, "UpdateUserRole: failed to get admin", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -638,7 +608,6 @@ func (s *service) UpdateUserRole(ctx context.Context, adminID, userID string, re
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, ErrUserNotFound
 		}
-		slog.ErrorContext(ctx, "UpdateUserRole: failed to get user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -646,7 +615,6 @@ func (s *service) UpdateUserRole(ctx context.Context, adminID, userID string, re
 	if user.Role == "admin" && req.Role != "admin" {
 		count, err := s.repo.CountAdmins(ctx)
 		if err != nil {
-			slog.ErrorContext(ctx, "UpdateUserRole: failed to count admins", slog.Any("error", err))
 			return nil, err
 		}
 		if count <= 1 {
@@ -659,7 +627,6 @@ func (s *service) UpdateUserRole(ctx context.Context, adminID, userID string, re
 
 	// Update in database
 	if err := s.repo.Update(ctx, user); err != nil {
-		slog.ErrorContext(ctx, "UpdateUserRole: failed to update user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -670,7 +637,6 @@ func (s *service) UpdateUserRole(ctx context.Context, adminID, userID string, re
 func (s *service) CountAdmins(ctx context.Context) (int, error) {
 	count, err := s.repo.CountAdmins(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "CountAdmins: failed to count admins", slog.Any("error", err))
 		return 0, err
 	}
 	return count, nil
@@ -680,7 +646,6 @@ func (s *service) CountAdmins(ctx context.Context) (int, error) {
 func (s *service) Count(ctx context.Context) (int64, error) {
 	count, err := s.repo.Count(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "Count: failed to count users", slog.Any("error", err))
 		return 0, err
 	}
 	return count, nil
@@ -695,7 +660,6 @@ func (s *service) CountByKYCStatus(ctx context.Context, kycStatus string) (int64
 
 	count, err := s.repo.CountByKYCStatus(ctx, kycStatus)
 	if err != nil {
-		slog.ErrorContext(ctx, "CountByKYCStatus: failed to count users by KYC status", slog.Any("error", err))
 		return 0, err
 	}
 	return count, nil
@@ -710,7 +674,6 @@ func (s *service) CountByRole(ctx context.Context, role string) (int64, error) {
 
 	count, err := s.repo.CountByRole(ctx, role)
 	if err != nil {
-		slog.ErrorContext(ctx, "CountByRole: failed to count users by role", slog.Any("error", err))
 		return 0, err
 	}
 	return count, nil

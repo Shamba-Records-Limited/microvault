@@ -71,7 +71,7 @@ func createConnection(cfg *config.PostgresConfig) (*gorm.DB, error) {
 }
 
 // Ready checks if a specific connection is alive
-func Ready(name string) bool {
+func Ready(ctx context.Context, name string) bool {
 	mutex.RLock()
 	db, exists := instances[name]
 
@@ -86,7 +86,7 @@ func Ready(name string) bool {
 		return false
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
 	return sqlDB.PingContext(ctx) == nil

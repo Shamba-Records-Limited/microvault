@@ -14,6 +14,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/Shamba-Records-Limited/microvault/pkg/loanref"
+	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/mpesa"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
@@ -152,6 +153,7 @@ func (ctrl *DarajaCallbackController) STKCallback(c *fiber.Ctx) error {
 
 	callback, err := mpesa.ParseExpressCallback(c.Body())
 	if err != nil {
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusBadRequest, "could not decode the callback")
 	}
 
@@ -180,6 +182,7 @@ func (ctrl *DarajaCallbackController) STKCallback(c *fiber.Ctx) error {
 		if errors.Is(err, repository.ErrMpesaConflict) {
 			return c.SendStatus(fiber.StatusOK)
 		}
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusInternalServerError, "could not record the observation")
 	}
 	return c.SendStatus(fiber.StatusOK)
@@ -205,6 +208,7 @@ func (ctrl *DarajaCallbackController) C2BValidation(c *fiber.Ctx) error {
 
 	notification, err := mpesa.ParseC2BNotification(c.Body())
 	if err != nil {
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusBadRequest, "could not decode the notification")
 	}
 
@@ -225,6 +229,7 @@ func (ctrl *DarajaCallbackController) C2BValidation(c *fiber.Ctx) error {
 	// accept the payment.
 	loanID, err := ctrl.resolveLoan(c.UserContext(), notification.BillRefNumber)
 	if err != nil {
+		middleware.NoteError(c, err)
 		return c.JSON(mpesa.RejectPayment(mpesa.ValidationOtherError))
 	}
 	if loanID == "" {
@@ -253,6 +258,7 @@ func (ctrl *DarajaCallbackController) C2BConfirmation(c *fiber.Ctx) error {
 
 	notification, err := mpesa.ParseC2BNotification(c.Body())
 	if err != nil {
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusBadRequest, "could not decode the confirmation")
 	}
 
@@ -271,6 +277,7 @@ func (ctrl *DarajaCallbackController) C2BConfirmation(c *fiber.Ctx) error {
 		if errors.Is(err, repository.ErrMpesaConflict) {
 			return c.SendStatus(fiber.StatusOK)
 		}
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusInternalServerError, "could not record the observation")
 	}
 	return c.SendStatus(fiber.StatusOK)
@@ -325,6 +332,7 @@ func (ctrl *DarajaCallbackController) AsyncTimeout(c *fiber.Ctx) error {
 func (ctrl *DarajaCallbackController) async(c *fiber.Ctx, kind mpesa.CallbackKind) error {
 	callback, err := mpesa.ParseCallback(kind, c.Body())
 	if err != nil {
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusBadRequest, "could not decode the result")
 	}
 
@@ -343,6 +351,7 @@ func (ctrl *DarajaCallbackController) async(c *fiber.Ctx, kind mpesa.CallbackKin
 		if errors.Is(err, repository.ErrMpesaConflict) {
 			return c.SendStatus(fiber.StatusOK)
 		}
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusInternalServerError, "could not record the observation")
 	}
 

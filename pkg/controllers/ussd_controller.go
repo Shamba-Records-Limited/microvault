@@ -3,6 +3,7 @@ package controllers
 import (
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 )
 
@@ -37,8 +38,9 @@ func (ctrl *USSDController) HandleCallback(c *fiber.Ctx) error {
 	for key, value := range c.Request().PostArgs().All() {
 		data[string(key)] = string(value)
 	}
-	resp, err := ctrl.ussdService.HandleRequest(c.Context(), provider, data)
+	resp, err := ctrl.ussdService.HandleRequest(c.UserContext(), provider, data)
 	if err != nil {
+		middleware.NoteError(c, err)
 		return c.Status(fiber.StatusInternalServerError).SendString("END An error occurred. Please try again.")
 	}
 	text, ok := resp.(string)

@@ -85,7 +85,6 @@ func (s *service) Create(ctx context.Context, req CreateAccountRequest) (*Accoun
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, services.ErrNotFound
 		}
-		slog.ErrorContext(ctx, "Create: failed to get user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -95,14 +94,12 @@ func (s *service) Create(ctx context.Context, req CreateAccountRequest) (*Accoun
 		return nil, ErrPublicKeyAlreadyExists
 	}
 	if !errors.Is(err, repository.ErrAccountNotFound) {
-		slog.ErrorContext(ctx, "Create: failed to check public key uniqueness", slog.Any("error", err))
 		return nil, err
 	}
 
 	// Get next account index for the user
 	accountIndex, err := s.repo.GetNextAccountIndex(ctx, req.UserID)
 	if err != nil {
-		slog.ErrorContext(ctx, "Create: failed to get next account index", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -118,7 +115,6 @@ func (s *service) Create(ctx context.Context, req CreateAccountRequest) (*Accoun
 
 	// Create account in database
 	if err := s.repo.Create(ctx, account); err != nil {
-		slog.ErrorContext(ctx, "Create: failed to create account", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -148,7 +144,6 @@ func (s *service) CreateWithTx(ctx context.Context, tx *gorm.DB, req CreateAccou
 		return nil, ErrPublicKeyAlreadyExists
 	}
 	if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		slog.ErrorContext(ctx, "CreateWithTx: failed to check public key uniqueness", slog.Any("error", result.Error))
 		return nil, result.Error
 	}
 
@@ -163,7 +158,6 @@ func (s *service) CreateWithTx(ctx context.Context, tx *gorm.DB, req CreateAccou
 		var err error
 		accountIndex, err = s.repo.GetNextAccountIndexWithTx(ctx, tx)
 		if err != nil {
-			slog.ErrorContext(ctx, "CreateWithTx: failed to get next account index", slog.Any("error", err))
 			return nil, err
 		}
 		slog.InfoContext(ctx, "CreateWithTx: fetched account index", slog.Int("account_index", accountIndex))
@@ -181,7 +175,6 @@ func (s *service) CreateWithTx(ctx context.Context, tx *gorm.DB, req CreateAccou
 
 	// Create account in database
 	if err := s.repo.CreateWithTx(ctx, tx, account); err != nil {
-		slog.ErrorContext(ctx, "CreateWithTx: failed to create account", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -195,7 +188,6 @@ func (s *service) GetByID(ctx context.Context, id string) (*AccountResponse, err
 		if errors.Is(err, repository.ErrAccountNotFound) {
 			return nil, ErrAccountNotFound
 		}
-		slog.ErrorContext(ctx, "GetByID: failed to get account", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -209,7 +201,6 @@ func (s *service) GetByPublicKey(ctx context.Context, publicKey string) (*Accoun
 		if errors.Is(err, repository.ErrAccountNotFound) {
 			return nil, ErrAccountNotFound
 		}
-		slog.ErrorContext(ctx, "GetByPublicKey: failed to get account", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -224,7 +215,6 @@ func (s *service) GetByUserID(ctx context.Context, userID string) (*AccountRespo
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return nil, services.ErrNotFound
 		}
-		slog.ErrorContext(ctx, "GetByUserID: failed to get user", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -234,7 +224,6 @@ func (s *service) GetByUserID(ctx context.Context, userID string) (*AccountRespo
 		if errors.Is(err, repository.ErrAccountNotFound) {
 			return nil, ErrAccountNotFound
 		}
-		slog.ErrorContext(ctx, "GetByUserID: failed to get account", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -249,14 +238,12 @@ func (s *service) GetNextAccountIndex(ctx context.Context, userID string) (int, 
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return 0, services.ErrNotFound
 		}
-		slog.ErrorContext(ctx, "GetNextAccountIndex: failed to get user", slog.Any("error", err))
 		return 0, err
 	}
 
 	// Get next account index
 	accountIndex, err := s.repo.GetNextAccountIndex(ctx, userID)
 	if err != nil {
-		slog.ErrorContext(ctx, "GetNextAccountIndex: failed to get next account index", slog.Any("error", err))
 		return 0, err
 	}
 
@@ -268,7 +255,6 @@ func (s *service) GetNextAccountIndexWithTx(ctx context.Context, tx *gorm.DB) (i
 	// Get next account index from repository
 	accountIndex, err := s.repo.GetNextAccountIndexWithTx(ctx, tx)
 	if err != nil {
-		slog.ErrorContext(ctx, "GetNextAccountIndexWithTx: failed to get next account index", slog.Any("error", err))
 		return 0, err
 	}
 
@@ -288,7 +274,6 @@ func (s *service) UpdateStatus(ctx context.Context, id string, req UpdateAccount
 		if errors.Is(err, repository.ErrAccountNotFound) {
 			return nil, ErrAccountNotFound
 		}
-		slog.ErrorContext(ctx, "UpdateStatus: failed to get account", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -307,7 +292,6 @@ func (s *service) UpdateStatus(ctx context.Context, id string, req UpdateAccount
 
 	// Update in database
 	if err := s.repo.Update(ctx, account); err != nil {
-		slog.ErrorContext(ctx, "UpdateStatus: failed to update account", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -326,7 +310,6 @@ func (s *service) UpdateChainStatus(ctx context.Context, id string, chainStatus 
 		if errors.Is(err, repository.ErrAccountNotFound) {
 			return ErrAccountNotFound
 		}
-		slog.ErrorContext(ctx, "UpdateChainStatus: failed to update account", slog.String("account_id", id), slog.Any("error", err))
 		return err
 	}
 	return nil
@@ -340,7 +323,6 @@ func (s *service) Delete(ctx context.Context, id string) error {
 		if errors.Is(err, repository.ErrAccountNotFound) {
 			return ErrAccountNotFound
 		}
-		slog.ErrorContext(ctx, "Delete: failed to get account", slog.Any("error", err))
 		return err
 	}
 
@@ -351,7 +333,6 @@ func (s *service) Delete(ctx context.Context, id string) error {
 
 	// Delete account
 	if err := s.repo.Delete(ctx, id); err != nil {
-		slog.ErrorContext(ctx, "Delete: failed to delete account", slog.Any("error", err))
 		return err
 	}
 
@@ -365,7 +346,6 @@ func (s *service) Restore(ctx context.Context, id string) error {
 		if errors.Is(err, repository.ErrAccountNotFound) {
 			return ErrAccountNotFound
 		}
-		slog.ErrorContext(ctx, "Restore: failed to restore account", slog.Any("error", err))
 		return err
 	}
 

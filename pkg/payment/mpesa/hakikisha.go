@@ -1,6 +1,7 @@
 package mpesa
 
 import (
+	"context"
 	"encoding/json"
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
@@ -62,7 +63,7 @@ const (
 // They must also never place a person's name in AccountName; see
 // HakikishaResponse.
 type AccountResolver interface {
-	ResolveAccount(accountNumber string) (accountName string, found bool, err error)
+	ResolveAccount(ctx context.Context, accountNumber string) (accountName string, found bool, err error)
 }
 
 // ParseHakikishaRequest decodes an inbound request.

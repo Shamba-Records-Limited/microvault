@@ -3,7 +3,6 @@ package transaction
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"slices"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
@@ -70,7 +69,6 @@ func (s *service) Create(ctx context.Context, req CreateTransactionRequest) (*Tr
 			return nil, ErrStellarHashAlreadyExists
 		}
 		if err != nil && !errors.Is(err, repository.ErrTransactionNotFound) {
-			slog.ErrorContext(ctx, "Create: failed to check stellar hash uniqueness", slog.Any("error", err))
 			return nil, err
 		}
 	}
@@ -96,7 +94,6 @@ func (s *service) Create(ctx context.Context, req CreateTransactionRequest) (*Tr
 
 	// Create transaction in database
 	if err := s.repo.Create(ctx, tx); err != nil {
-		slog.ErrorContext(ctx, "Create: failed to create transaction", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -135,7 +132,6 @@ func (s *service) BatchCreate(ctx context.Context, reqs []CreateTransactionReque
 	}
 
 	if err := s.repo.BatchCreate(ctx, txs); err != nil {
-		slog.ErrorContext(ctx, "BatchCreate: failed to create transactions", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -154,7 +150,6 @@ func (s *service) GetByID(ctx context.Context, id string) (*TransactionResponse,
 		if errors.Is(err, repository.ErrTransactionNotFound) {
 			return nil, ErrTransactionNotFound
 		}
-		slog.ErrorContext(ctx, "GetByID: failed to get transaction", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -168,7 +163,6 @@ func (s *service) GetByStellarHash(ctx context.Context, txHash string) (*Transac
 		if errors.Is(err, repository.ErrTransactionNotFound) {
 			return nil, ErrTransactionNotFound
 		}
-		slog.ErrorContext(ctx, "GetByStellarHash: failed to get transaction", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -179,7 +173,6 @@ func (s *service) GetByStellarHash(ctx context.Context, txHash string) (*Transac
 func (s *service) ListByExternalID(ctx context.Context, externalID string) ([]*TransactionResponse, error) {
 	txs, err := s.repo.ListByExternalID(ctx, externalID)
 	if err != nil {
-		slog.ErrorContext(ctx, "ListByExternalID: failed to get transactions", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -194,7 +187,6 @@ func (s *service) ListByExternalID(ctx context.Context, externalID string) ([]*T
 func (s *service) GetByLoanIDAndType(ctx context.Context, loanID, txType string) (*TransactionResponse, error) {
 	tx, err := s.repo.GetByLoanIDAndType(ctx, loanID, txType)
 	if err != nil {
-		slog.ErrorContext(ctx, "GetByLoanIDAndType: failed to get transaction", slog.Any("error", err))
 		return nil, err
 	}
 	if tx == nil {
@@ -220,7 +212,6 @@ func (s *service) GetByLoanID(ctx context.Context, loanID string, pagination ser
 
 	txs, err := s.repo.GetByLoanID(ctx, loanID, pagination.PageSize, offset)
 	if err != nil {
-		slog.ErrorContext(ctx, "GetByLoanID: failed to get transactions", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -252,7 +243,6 @@ func (s *service) GetByUserID(ctx context.Context, userID string, pagination ser
 
 	txs, err := s.repo.GetByUserID(ctx, userID, pagination.PageSize, offset)
 	if err != nil {
-		slog.ErrorContext(ctx, "GetByUserID: failed to get transactions", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -288,7 +278,6 @@ func (s *service) GetByStatus(ctx context.Context, status string, pagination ser
 
 	txs, err := s.repo.GetByStatus(ctx, status, pagination.PageSize, offset)
 	if err != nil {
-		slog.ErrorContext(ctx, "GetByStatus: failed to get transactions", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -312,7 +301,6 @@ func (s *service) Update(ctx context.Context, id string, req UpdateTransactionRe
 		if errors.Is(err, repository.ErrTransactionNotFound) {
 			return nil, ErrTransactionNotFound
 		}
-		slog.ErrorContext(ctx, "Update: failed to get transaction", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -337,7 +325,6 @@ func (s *service) Update(ctx context.Context, id string, req UpdateTransactionRe
 	// status-only change.
 	if fields := req.changedFields(); len(fields) > 0 {
 		if err := s.repo.UpdateFields(ctx, id, fields); err != nil {
-			slog.ErrorContext(ctx, "Update: failed to update transaction", slog.Any("error", err))
 			return nil, err
 		}
 	}
@@ -346,7 +333,6 @@ func (s *service) Update(ctx context.Context, id string, req UpdateTransactionRe
 	// locally-mutated copy.
 	updated, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		slog.ErrorContext(ctx, "Update: failed to reload transaction", slog.Any("error", err))
 		return nil, err
 	}
 	return toTransactionResponse(updated), nil

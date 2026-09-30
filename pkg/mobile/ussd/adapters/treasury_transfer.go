@@ -55,14 +55,9 @@ func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination stri
 		Amount:      amount,
 	})
 	if err != nil {
-		t.logger.ErrorContext(ctx, "treasury USDC transfer failed",
-			"destination", destination,
-			"memo", memo,
-			"amount_stroops", amount,
-			"error", err,
-		)
 		return "", oops.In(pkgErrors.DomainStellarClassic).Tags("treasury").
 			With(pkgErrors.AttrOperation, "transfer_usdc").
+			With("destination", destination).With("memo", memo).With(pkgErrors.AttrAmountStroops, amount).
 			Code(pkgErrors.CodeSubmitFailed).
 			Wrapf(err, "treasury USDC transfer failed")
 	}

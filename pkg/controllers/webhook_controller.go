@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 	"github.com/Shamba-Records-Limited/microvault/pkg/webhook"
 )
@@ -64,6 +65,7 @@ func (ctrl *WebhookController) HandleYellowCardWebhook(c *fiber.Ctx) error {
 	// 2. Parse the webhook event.
 	var event yellowcard.WebhookEvent
 	if err := c.BodyParser(&event); err != nil {
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusBadRequest, "invalid webhook payload")
 	}
 

@@ -6,6 +6,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
+	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 )
 
@@ -47,8 +48,9 @@ type ChallengeResponse struct {
 // @Failure 500 {object} middleware.Response "Failed to generate challenge"
 // @Router /api/v1/auth/challenge [get]
 func (ctrl *AuthController) GetChallenge(c *fiber.Ctx) error {
-	challenge, err := ctrl.challengeService.GenerateChallenge()
+	challenge, err := ctrl.challengeService.GenerateChallenge(c.UserContext())
 	if err != nil {
+		middleware.NoteError(c, err)
 		c.Locals("error", err.Error())
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to generate challenge")
 	}
@@ -97,6 +99,7 @@ func (ctrl *AuthController) VerifyChallenge(c *fiber.Ctx) error {
 	// Parse request body
 	requestBody := new(VerifyRequest)
 	if err := c.BodyParser(&requestBody); err != nil {
+		middleware.NoteError(c, err)
 		c.Locals("error", "invalid request body")
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 	}
@@ -104,6 +107,7 @@ func (ctrl *AuthController) VerifyChallenge(c *fiber.Ctx) error {
 	// Validate request body using validation service
 	fieldErrors, err := ctrl.validationService.Validate(requestBody)
 	if err != nil {
+		middleware.NoteError(c, err)
 		c.Locals("error", err.Error())
 		return fiber.NewError(fiber.StatusInternalServerError, "validation failed")
 	}
@@ -114,7 +118,8 @@ func (ctrl *AuthController) VerifyChallenge(c *fiber.Ctx) error {
 	}
 
 	// Verify the signed challenge
-	if err := ctrl.challengeService.VerifySignedChallenge(requestBody.ChallengeID, requestBody.SignedTransaction); err != nil {
+	if err := ctrl.challengeService.VerifySignedChallenge(c.UserContext(), requestBody.ChallengeID, requestBody.SignedTransaction); err != nil {
+		middleware.NoteError(c, err)
 		// Map service errors to HTTP status codes
 		switch {
 		case errors.Is(err, auth.ErrChallengeNotFound):
@@ -141,6 +146,7 @@ func (ctrl *AuthController) VerifyChallenge(c *fiber.Ctx) error {
 	// Generate JWT token
 	token, expiresAt, err := ctrl.jwtService.GenerateToken(ctrl.adminPublicKey)
 	if err != nil {
+		middleware.NoteError(c, err)
 		c.Locals("error", err.Error())
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to generate token")
 	}

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -29,11 +30,11 @@ func challengeErr(op string) oops.OopsErrorBuilder {
 type ChallengeService interface {
 	// GenerateChallenge creates a new authentication challenge containing a Stellar transaction
 	// that must be signed by the user. The challenge expires after a configured duration.
-	GenerateChallenge() (*Challenge, error)
+	GenerateChallenge(ctx context.Context) (*Challenge, error)
 
 	// VerifySignedChallenge validates that the provided transaction was signed by the correct
 	// keypair and matches the original challenge. Challenges are single-use and deleted after verification.
-	VerifySignedChallenge(challengeID, signedTxB64 string) error
+	VerifySignedChallenge(ctx context.Context, challengeID, signedTxB64 string) error
 }
 
 type challengeService struct {
@@ -68,7 +69,7 @@ func NewChallengeService(authConfig *config.AuthConfig, stellarConfig *config.St
 // GenerateChallenge creates a new Stellar transaction challenge for authentication.
 // The generated transaction contains a random nonce and must be signed by the admin's
 // private key to prove ownership. The transaction is never submitted to the network.
-func (s *challengeService) GenerateChallenge() (*Challenge, error) {
+func (s *challengeService) GenerateChallenge(ctx context.Context) (*Challenge, error) {
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, challengeErr("generate").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not generate a nonce")
@@ -134,7 +135,7 @@ func (s *challengeService) GenerateChallenge() (*Challenge, error) {
 		ExpiresAt:   now.Add(s.authConfig.ChallengeExpiration),
 	}
 
-	if err := s.store.Store(challengeIDStr, challenge); err != nil {
+	if err := s.store.Store(ctx, challengeIDStr, challenge); err != nil {
 		return nil, challengeErr("generate").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not store the challenge")
 	}
 
@@ -146,8 +147,8 @@ func (s *challengeService) GenerateChallenge() (*Challenge, error) {
 //  1. The challenge exists and hasn't expired
 //  2. The transaction matches the original challenge
 //  3. The transaction is signed by the admin's private key
-func (s *challengeService) VerifySignedChallenge(challengeID, signedTxB64 string) error {
-	challenge, err := s.store.Get(challengeID)
+func (s *challengeService) VerifySignedChallenge(ctx context.Context, challengeID, signedTxB64 string) error {
+	challenge, err := s.store.Get(ctx, challengeID)
 	if err != nil {
 		// Only a genuinely absent challenge is a client error. A store that
 		// cannot be read is ours, and collapsing the two reported every Redis
@@ -160,7 +161,7 @@ func (s *challengeService) VerifySignedChallenge(challengeID, signedTxB64 string
 	}
 
 	if time.Now().After(challenge.ExpiresAt) {
-		_ = s.store.Delete(challengeID) // Ignore error on cleanup
+		_ = s.store.Delete(ctx, challengeID) // Ignore error on cleanup
 		return ErrChallengeExpired
 	}
 
@@ -228,7 +229,7 @@ func (s *challengeService) VerifySignedChallenge(challengeID, signedTxB64 string
 	}
 
 	// Delete challenge to prevent reuse ignore error on cleanup
-	_ = s.store.Delete(challengeID)
+	_ = s.store.Delete(ctx, challengeID)
 
 	return nil
 }

@@ -24,6 +24,14 @@ func newApp(buf *bytes.Buffer) *fiber.App {
 		return c.SendString("ok")
 	})
 	app.Get("/boom", func(*fiber.Ctx) error { return errors.New("boom") })
+	app.Get("/masked", func(c *fiber.Ctx) error {
+		middleware.NoteError(c, errors.New("redis timeout"))
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to generate challenge")
+	})
+	app.Get("/handled", func(c *fiber.Ctx) error {
+		middleware.NoteError(c, errors.New("db down"))
+		return c.SendString("could not load")
+	})
 	app.Get("/health", func(c *fiber.Ctx) error { return c.SendString("ok") })
 	app.Get("/static/*", func(c *fiber.Ctx) error { return c.SendString("asset") })
 	return app
@@ -113,5 +121,30 @@ func TestSkippedPathsAreNotLogged(t *testing.T) {
 	_, _ = app.Test(httptest.NewRequestWithContext(t.Context(), "GET", "/static/css/admin.css", nil))
 	if buf.Len() != 0 {
 		t.Fatalf("health logged: %s", buf.String())
+	}
+}
+
+func TestNotedErrorIsLoggedAtWarn(t *testing.T) {
+	var buf bytes.Buffer
+	app := newApp(&buf)
+
+	resp, _ := app.Test(httptest.NewRequestWithContext(t.Context(), "GET", "/handled", nil))
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	got := lines(t, &buf)
+	if len(got) != 1 || got[0]["level"] != "WARN" || got[0]["error"] != "db down" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestNotedErrorWinsOverGenericHTTPError(t *testing.T) {
+	var buf bytes.Buffer
+	app := newApp(&buf)
+
+	_, _ = app.Test(httptest.NewRequestWithContext(t.Context(), "GET", "/masked", nil))
+	got := lines(t, &buf)
+	if len(got) != 1 || got[0]["error"] != "redis timeout" || got[0]["status"] != float64(500) {
+		t.Fatalf("got %v", got)
 	}
 }

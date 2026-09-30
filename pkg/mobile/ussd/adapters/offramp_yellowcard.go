@@ -154,8 +154,7 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 	a.logger.InfoContext(ctx, "fetching channels", "loan_id", req.LoanID, "country", req.CountryCode)
 	channels, err := a.getChannelsWithCache(ctx, req.CountryCode)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "failed to fetch channels", "loan_id", req.LoanID, "error", err)
-		return nil, ycAdapterErr("initiate").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not list payout channels")
+		return nil, ycAdapterErr("initiate").Code(pkgErrors.CodeTransportFailed).With(pkgErrors.AttrLoanID, req.LoanID).Wrapf(err, "could not list payout channels")
 	}
 
 	activeChannels := yellowcard.FilterActiveChannels(channels, yellowcard.ChannelTypeMomo)
@@ -204,7 +203,6 @@ func (a *YellowCardOffRampAdapter) Initiate(ctx context.Context, req offramp.Req
 	a.logger.InfoContext(ctx, "validating network", "loan_id", req.LoanID, "network_code", req.NetworkCode, "country", req.CountryCode)
 	networkID, networkName, err := a.validateNetwork(ctx, req.CountryCode, req.NetworkCode, req.NetworkName)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "network validation failed", "loan_id", req.LoanID, "error", err)
 		return nil, err
 	}
 	a.logger.InfoContext(ctx, "network resolved", "loan_id", req.LoanID, "network_id", networkID, "network_name", networkName)
@@ -309,11 +307,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 	// F1 checkpoint: If YC API call fails, USDC is still in treasury to safe to failover.
 	resp, err := a.ycAdapter.SubmitPayment(ctx, paymentReq)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "direct settlement API call failed (F1)",
-			"loan_id", loanID,
-			"error", err,
-		)
-		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeHTTPError).Wrapf(err, "direct settlement call failed")
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeHTTPError).With(pkgErrors.AttrLoanID, loanID).Wrapf(err, "direct settlement call failed")
 	}
 
 	a.logger.InfoContext(ctx, "YellowCard payment created",
@@ -345,12 +339,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 
 	stellarAddr, stellarMemo, err := yellowcard.ParseStellarWalletAddress(resp.SettlementInfo.WalletAddress)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "failed to parse YC wallet address",
-			"loan_id", loanID,
-			"raw_address", resp.SettlementInfo.WalletAddress,
-			"error", err,
-		)
-		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeInvalidAddress).Wrapf(err, "could not parse the YellowCard wallet address")
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeInvalidAddress).With(pkgErrors.AttrLoanID, loanID).With("raw_address", resp.SettlementInfo.WalletAddress).Wrapf(err, "could not parse the YellowCard wallet address")
 	}
 
 	a.logger.InfoContext(ctx, "YellowCard wallet address parsed",
@@ -363,12 +352,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 	// Check if YellowCard's destination wallet is missing a USDC trustline before attempting Stellar transfer.
 	hasTrustline, err := a.treasury.CheckUSDCTrustline(ctx, stellarAddr)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "failed to verify trustline for YellowCard wallet",
-			"loan_id", loanID,
-			"destination", stellarAddr,
-			"error", err,
-		)
-		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not verify the YellowCard wallet trustline")
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeTransportFailed).With(pkgErrors.AttrLoanID, loanID).With("destination", stellarAddr).Wrapf(err, "could not verify the YellowCard wallet trustline")
 	}
 	if !hasTrustline {
 		a.logger.WarnContext(ctx, "YellowCard destination wallet does not have a USDC trustline, aborting on-chain send",
@@ -407,14 +391,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 
 	txHash, err := a.treasury.SendUSDC(ctx, stellarAddr, stellarMemo, amountStroops)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "USDC transfer to YC wallet failed (F2)",
-			"loan_id", loanID,
-			"destination", stellarAddr,
-			"memo", stellarMemo,
-			"amount_stroops", amountStroops,
-			"error", err,
-		)
-		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "USDC transfer to the YellowCard wallet failed")
+		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeSubmitFailed).With(pkgErrors.AttrLoanID, loanID).With("destination", stellarAddr).With("memo", stellarMemo).With(pkgErrors.AttrAmountStroops, amountStroops).Wrapf(err, "USDC transfer to the YellowCard wallet failed")
 	}
 
 	a.logger.InfoContext(ctx, "USDC transfer to YellowCard wallet succeeded",
@@ -459,8 +436,7 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 	a.logger.InfoContext(ctx, "checking YellowCard balance for fiat disbursement", "loan_id", loanID)
 	availableBalance, err := a.ycAdapter.GetAvailableBalance(ctx)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "failed to check YC balance", "loan_id", loanID, "error", err)
-		return nil, ycAdapterErr("fiat_settlement").Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not check the available balance")
+		return nil, ycAdapterErr("fiat_settlement").Code(pkgErrors.CodeTransportFailed).With(pkgErrors.AttrLoanID, loanID).Wrapf(err, "could not check the available balance")
 	}
 
 	a.logger.InfoContext(ctx, "YellowCard balance check",
@@ -493,8 +469,7 @@ func (a *YellowCardOffRampAdapter) tryFiatDisbursement(ctx context.Context, p *d
 
 	resp, err := a.ycAdapter.SubmitPayment(ctx, paymentReq)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "fiat disbursement failed", "loan_id", loanID, "error", err)
-		return nil, ycAdapterErr("fiat_settlement").Code(pkgErrors.CodeHTTPError).Wrapf(err, "fiat disbursement failed")
+		return nil, ycAdapterErr("fiat_settlement").Code(pkgErrors.CodeHTTPError).With(pkgErrors.AttrLoanID, loanID).Wrapf(err, "fiat disbursement failed")
 	}
 
 	a.logger.InfoContext(ctx, "fiat disbursement submitted",

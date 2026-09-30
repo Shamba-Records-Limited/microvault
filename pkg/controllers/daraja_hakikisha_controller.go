@@ -13,6 +13,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/Shamba-Records-Limited/microvault/pkg/loanref"
+	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/mpesa"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 )
@@ -51,11 +52,11 @@ type hakikishaResolver struct {
 	repo repository.MpesaTransactionRepository
 }
 
-func (r hakikishaResolver) ResolveAccount(accountNumber string) (accountName string, found bool, err error) {
+func (r hakikishaResolver) ResolveAccount(ctx context.Context, accountNumber string) (accountName string, found bool, err error) {
 	// Hakikisha sits in front of a customer holding a handset; bounded well
 	// inside whatever timeout Safaricom applies, matching the discipline
 	// C2BValidation already uses for the same reason.
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	loanID, err := r.repo.GetLoanIDByReference(ctx, accountNumber)
@@ -122,6 +123,7 @@ func (ctrl *DarajaHakikishaController) Token(c *fiber.Ctx) error {
 	}
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(ctrl.config.HakikishaSigningKey))
 	if err != nil {
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusInternalServerError, "could not issue a token")
 	}
 
@@ -156,6 +158,7 @@ func (ctrl *DarajaHakikishaController) Resolve(c *fiber.Ctx) error {
 
 	req, err := mpesa.ParseHakikishaRequest(c.Body())
 	if err != nil {
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusUnprocessableEntity, "could not decode the request")
 	}
 
@@ -166,7 +169,7 @@ func (ctrl *DarajaHakikishaController) Resolve(c *fiber.Ctx) error {
 		return c.JSON(mpesa.AccountNotFound(req.AccountNumber))
 	}
 
-	_, found, err := ctrl.resolver.ResolveAccount(req.AccountNumber)
+	_, found, err := ctrl.resolver.ResolveAccount(c.UserContext(), req.AccountNumber)
 	if err != nil || !found {
 		return c.JSON(mpesa.AccountNotFound(req.AccountNumber))
 	}
@@ -192,6 +195,7 @@ func (ctrl *DarajaHakikishaController) checkBearer(c *fiber.Ctx) error {
 		return []byte(ctrl.config.HakikishaSigningKey), nil
 	})
 	if err != nil {
+		middleware.NoteError(c, err)
 		return hakikishaAuthError(c, "invalid_token", "token is invalid or expired")
 	}
 	return nil
@@ -216,6 +220,7 @@ func parseBasicAuth(c *fiber.Ctx) (username, password string, ok bool) {
 	}
 	decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(header, prefix))
 	if err != nil {
+		middleware.NoteError(c, err)
 		return "", "", false
 	}
 	user, pass, found := strings.Cut(string(decoded), ":")

@@ -38,10 +38,6 @@ func (n *SMSNotifier) Send(ctx context.Context, to string, message string) error
 	)
 	_, err := n.provider.SendSingleSMS(ctx, to, message, n.from)
 	if err != nil {
-		slog.ErrorContext(ctx, "sms: send failed",
-			slog.String("to", phone.Redact(to)),
-			slog.String("error", err.Error()),
-		)
 		return fmt.Errorf("send SMS to %s: %w", phone.Redact(to), err)
 	}
 	slog.InfoContext(ctx, "sms: send succeeded",

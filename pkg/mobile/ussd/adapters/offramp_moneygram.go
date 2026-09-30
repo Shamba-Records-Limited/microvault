@@ -142,12 +142,7 @@ func (a *MoneyGramOffRampAdapter) Initiate(ctx context.Context, req offramp.Requ
 
 	resp, err := a.client.InitiateWithdrawal(ctx, childMemo, withdrawReq)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "moneygram withdraw failed",
-			"loan_id", req.LoanID,
-			"child_memo", childMemo,
-			"error", err,
-		)
-		return nil, mgAdapterErr("initiate").With(pkgErrors.AttrLoanID, req.LoanID).Code(pkgErrors.CodeDepositInitFailed).Wrapf(err, "anchor refused the withdrawal")
+		return nil, mgAdapterErr("initiate").With(pkgErrors.AttrLoanID, req.LoanID).Code(pkgErrors.CodeDepositInitFailed).With("child_memo", childMemo).Wrapf(err, "anchor refused the withdrawal")
 	}
 
 	a.logger.InfoContext(ctx, "moneygram withdraw created",

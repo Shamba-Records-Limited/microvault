@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -25,8 +26,9 @@ type memStore struct {
 
 func newMemStore() *memStore { return &memStore{m: map[string]*Challenge{}} }
 
-func (s *memStore) Store(id string, c *Challenge) error { s.m[id] = c; return nil }
-func (s *memStore) Get(id string) (*Challenge, error) {
+func (s *memStore) Store(_ context.Context, id string, c *Challenge) error { s.m[id] = c; return nil }
+
+func (s *memStore) Get(_ context.Context, id string) (*Challenge, error) {
 	if s.getErr != nil {
 		return nil, s.getErr
 	}
@@ -38,7 +40,7 @@ func (s *memStore) Get(id string) (*Challenge, error) {
 	}
 	return c, nil
 }
-func (s *memStore) Delete(id string) error { delete(s.m, id); return nil }
+func (s *memStore) Delete(_ context.Context, id string) error { delete(s.m, id); return nil }
 
 func newChallengeSvc(t *testing.T, store ChallengeStore) (ChallengeService, *keypair.Full) {
 	t.Helper()
@@ -119,7 +121,7 @@ func TestGenerateChallenge(t *testing.T) {
 	store := newMemStore()
 	svc, _ := newChallengeSvc(t, store)
 
-	ch, err := svc.GenerateChallenge()
+	ch, err := svc.GenerateChallenge(t.Context())
 	if err != nil {
 		t.Fatalf("GenerateChallenge: %v", err)
 	}
@@ -130,7 +132,7 @@ func TestGenerateChallenge(t *testing.T) {
 		t.Error("challenge not persisted to store")
 	}
 	// IDs are unique per call.
-	ch2, _ := svc.GenerateChallenge()
+	ch2, _ := svc.GenerateChallenge(t.Context())
 	if ch.ID == ch2.ID {
 		t.Error("challenge IDs should be unique")
 	}
@@ -140,8 +142,8 @@ func TestVerify_HappyPath(t *testing.T) {
 	store := newMemStore()
 	svc, admin := newChallengeSvc(t, store)
 
-	ch, _ := svc.GenerateChallenge()
-	if err := svc.VerifySignedChallenge(ch.ID, signChallenge(t, ch.Transaction, admin)); err != nil {
+	ch, _ := svc.GenerateChallenge(t.Context())
+	if err := svc.VerifySignedChallenge(t.Context(), ch.ID, signChallenge(t, ch.Transaction, admin)); err != nil {
 		t.Fatalf("VerifySignedChallenge: %v", err)
 	}
 	// Single-use: the challenge is deleted after a successful verify.
@@ -153,8 +155,8 @@ func TestVerify_HappyPath(t *testing.T) {
 func TestVerify_RejectsUnsignedEcho(t *testing.T) {
 	svc, _ := newChallengeSvc(t, newMemStore())
 
-	ch, _ := svc.GenerateChallenge()
-	if err := svc.VerifySignedChallenge(ch.ID, ch.Transaction); !errors.Is(err, ErrInvalidSignature) {
+	ch, _ := svc.GenerateChallenge(t.Context())
+	if err := svc.VerifySignedChallenge(t.Context(), ch.ID, ch.Transaction); !errors.Is(err, ErrInvalidSignature) {
 		t.Errorf("err = %v, want ErrInvalidSignature", err)
 	}
 }
@@ -163,8 +165,8 @@ func TestVerify_RejectsForeignSigner(t *testing.T) {
 	svc, _ := newChallengeSvc(t, newMemStore())
 	attacker, _ := keypair.Random()
 
-	ch, _ := svc.GenerateChallenge()
-	if err := svc.VerifySignedChallenge(ch.ID, signChallenge(t, ch.Transaction, attacker)); !errors.Is(err, ErrInvalidSignature) {
+	ch, _ := svc.GenerateChallenge(t.Context())
+	if err := svc.VerifySignedChallenge(t.Context(), ch.ID, signChallenge(t, ch.Transaction, attacker)); !errors.Is(err, ErrInvalidSignature) {
 		t.Errorf("err = %v, want ErrInvalidSignature", err)
 	}
 }
@@ -176,7 +178,7 @@ func TestVerify_StoreFailureIsNotReportedAsNotFound(t *testing.T) {
 	store.getErr = errors.New("redis: connection refused")
 	svc, _ := newChallengeSvc(t, store)
 
-	err := svc.VerifySignedChallenge("any", "irrelevant")
+	err := svc.VerifySignedChallenge(t.Context(), "any", "irrelevant")
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -187,7 +189,7 @@ func TestVerify_StoreFailureIsNotReportedAsNotFound(t *testing.T) {
 
 func TestVerify_NotFound(t *testing.T) {
 	svc, _ := newChallengeSvc(t, newMemStore())
-	if err := svc.VerifySignedChallenge("missing", "irrelevant"); !errors.Is(err, ErrChallengeNotFound) {
+	if err := svc.VerifySignedChallenge(t.Context(), "missing", "irrelevant"); !errors.Is(err, ErrChallengeNotFound) {
 		t.Errorf("err = %v, want ErrChallengeNotFound", err)
 	}
 }
@@ -196,25 +198,25 @@ func TestVerify_Expired(t *testing.T) {
 	store := newMemStore()
 	svc, _ := newChallengeSvc(t, store)
 	store.m["exp"] = &Challenge{ID: "exp", Transaction: "x", ExpiresAt: time.Now().Add(-time.Minute)}
-	if err := svc.VerifySignedChallenge("exp", "x"); !errors.Is(err, ErrChallengeExpired) {
+	if err := svc.VerifySignedChallenge(t.Context(), "exp", "x"); !errors.Is(err, ErrChallengeExpired) {
 		t.Errorf("err = %v, want ErrChallengeExpired", err)
 	}
 }
 
 func TestVerify_InvalidTransaction(t *testing.T) {
 	svc, _ := newChallengeSvc(t, newMemStore())
-	ch, _ := svc.GenerateChallenge()
-	if err := svc.VerifySignedChallenge(ch.ID, "not-valid-xdr"); !errors.Is(err, ErrInvalidTransaction) {
+	ch, _ := svc.GenerateChallenge(t.Context())
+	if err := svc.VerifySignedChallenge(t.Context(), ch.ID, "not-valid-xdr"); !errors.Is(err, ErrInvalidTransaction) {
 		t.Errorf("err = %v, want ErrInvalidTransaction", err)
 	}
 }
 
 func TestVerify_TransactionMismatch(t *testing.T) {
 	svc, _ := newChallengeSvc(t, newMemStore())
-	ch1, _ := svc.GenerateChallenge()
-	ch2, _ := svc.GenerateChallenge()
+	ch1, _ := svc.GenerateChallenge(t.Context())
+	ch2, _ := svc.GenerateChallenge(t.Context())
 	// A valid tx from a different challenge has a different hash.
-	if err := svc.VerifySignedChallenge(ch1.ID, ch2.Transaction); !errors.Is(err, ErrTransactionMismatch) {
+	if err := svc.VerifySignedChallenge(t.Context(), ch1.ID, ch2.Transaction); !errors.Is(err, ErrTransactionMismatch) {
 		t.Errorf("err = %v, want ErrTransactionMismatch", err)
 	}
 }

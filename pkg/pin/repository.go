@@ -3,7 +3,6 @@ package pin
 import (
 	"context"
 	"errors"
-	"log/slog"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -51,7 +50,6 @@ func (r *SecurityQuestionRepository) GetByUserID(ctx context.Context, userID str
 		Order("question_id ASC").
 		Find(&questions)
 	if result.Error != nil {
-		slog.ErrorContext(ctx, "SecurityQuestionRepository.GetByUserID: database error", slog.Any("error", result.Error))
 		return nil, pinRepoErr("get_security_questions").With(pkgErrors.AttrUserID, userID).
 			Code(pkgErrors.CodeNotFound).Wrapf(result.Error, "could not read the security questions")
 	}

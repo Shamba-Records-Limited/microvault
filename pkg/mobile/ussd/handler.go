@@ -190,7 +190,6 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 		// New user — choose language first, then register in that language.
 		session.CurrentMenu = "language_select"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			slog.ErrorContext(ctx, "ERROR: Failed to save session before language select", slog.Any("error", err))
 			return "", sessionSaveErr(session, err)
 		}
 		return h.showLanguageMenu(session)
@@ -1163,6 +1162,7 @@ func (h *USSDHandler) handleMyLoans(ctx context.Context, session *Session) (stri
 
 	loans, err := h.loanService.GetUserLoans(ctx, session.UserID)
 	if err != nil {
+		slog.ErrorContext(ctx, "could not load the user's loans", slog.String("user_id", session.UserID), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 	if len(loans) == 0 {
@@ -2101,6 +2101,7 @@ func (h *USSDHandler) handlePINRecoveryNationalID(ctx context.Context, session *
 	// Look up user and check national ID matches.
 	user, _, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
 	if err != nil {
+		slog.ErrorContext(ctx, "could not load the user for national ID check", slog.String("user_id", session.UserID), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
 

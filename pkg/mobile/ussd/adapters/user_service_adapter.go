@@ -191,6 +191,9 @@ func (a *UserServiceAdapter) GetUserWithAccounts(ctx context.Context, userIDOrPh
 	// Get user's account
 	accountResp, err := a.accountService.GetByUserID(ctx, userResp.ID)
 	if err != nil {
+		if !errors.Is(err, account.ErrAccountNotFound) {
+			a.logger.ErrorContext(ctx, "could not load the user's account", slog.String("user_id", userResp.ID), slog.Any("error", err))
+		}
 		return userMap, []any{}, nil
 	}
 
@@ -523,7 +526,6 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	userResp, err := a.userService.CreateWithTx(ctx, tx, createReq)
 	if err != nil {
 		tx.Rollback()
-		a.logger.ErrorContext(ctx, "Failed to create user in transaction", slog.Any("error", err))
 		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not create the user")
 	}
 
@@ -532,7 +534,6 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	accountIndex, err := a.accountService.GetNextAccountIndexWithTx(ctx, tx)
 	if err != nil {
 		tx.Rollback()
-		a.logger.ErrorContext(ctx, "Failed to get next account index", slog.Any("error", err))
 		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not reserve the next account index")
 	}
 	a.logger.InfoContext(ctx, "assigned global account index", slog.Int("account_index", accountIndex), slog.String("user_id", userResp.ID))
@@ -541,7 +542,6 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	childKP, err := a.deriveChildKeypair(accountIndex)
 	if err != nil {
 		tx.Rollback()
-		a.logger.ErrorContext(ctx, "Failed to derive child keypair", slog.Any("error", err))
 		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not derive the child keypair")
 	}
 
@@ -560,14 +560,12 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	})
 	if err != nil {
 		tx.Rollback()
-		a.logger.ErrorContext(ctx, "Failed to create account record", slog.String("user_id", userResp.ID), slog.Any("error", err))
-		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not create the account record")
+		return nil, nil, userAdapterErr("register").With(pkgErrors.AttrUserID, userResp.ID).Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not create the account record")
 	}
 
 	// COMMIT TRANSACTION - user + account row created atomically
 	if err := tx.Commit().Error; err != nil {
-		a.logger.ErrorContext(ctx, "Failed to commit transaction", slog.String("user_id", userResp.ID), slog.Any("error", err))
-		return nil, nil, userAdapterErr("register").Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not commit the registration transaction")
+		return nil, nil, userAdapterErr("register").With(pkgErrors.AttrUserID, userResp.ID).Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not commit the registration transaction")
 	}
 
 	// Submit the on-chain sponsored-account creation off the USSD request path

@@ -10,6 +10,7 @@ import (
 	"gorm.io/datatypes"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
+	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/airtel"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
@@ -104,6 +105,7 @@ func (ctrl *AirtelCallbackController) CollectionCallback(c *fiber.Ctx) error {
 	body := c.Body()
 	callback, err := airtel.ParseCallback(body)
 	if err != nil {
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusBadRequest, "could not decode the callback")
 	}
 
@@ -132,6 +134,7 @@ func (ctrl *AirtelCallbackController) CollectionCallback(c *fiber.Ctx) error {
 	}
 
 	if err := ctrl.repo.RecordCallback(c.UserContext(), &tx); err != nil {
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusInternalServerError, "could not record the observation")
 	}
 	return c.SendStatus(fiber.StatusOK)

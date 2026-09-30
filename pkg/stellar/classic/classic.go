@@ -703,16 +703,12 @@ func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 	pollCfg.Logger = s.logger
 	txResult, err := rpc.PollTransaction(ctx, s.rpcClient, txHash, pollCfg)
 	if err != nil {
-		s.logger.ErrorContext(ctx, "SendUSDC: transaction failed",
-			slog.String("tx_hash", txHash),
-			slog.String("error", err.Error()),
-		)
 		// Preserve the underlying reason: callers must distinguish a
 		// definitive on-ledger failure (nothing moved, safe to retry) from an
 		// unknown outcome such as a poll timeout, where retrying risks a
 		// duplicate payment.
 		return nil, classicErr("submit").Code(pkgErrors.CodeSubmitFailed).
-			With("cause", err.Error()).
+			With("cause", err.Error()).With(pkgErrors.AttrTxHash, txHash).
 			Wrapf(types.ErrTransactionFailed, "transaction did not succeed on ledger")
 	}
 

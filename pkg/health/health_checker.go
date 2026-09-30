@@ -45,11 +45,11 @@ func (h *Checker) LivenessProbe(c *fiber.Ctx) bool {
 
 // ReadinessProbe returns true if all critical services are ready
 func (h *Checker) ReadinessProbe(c *fiber.Ctx) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Second)
 	defer cancel()
 
-	databaseReady := database.Ready(h.dbName)
-	cacheReady := cache.Ready(h.cacheName)
+	databaseReady := database.Ready(ctx, h.dbName)
+	cacheReady := cache.Ready(ctx, h.cacheName)
 
 	if h.stellarClient == nil {
 		return databaseReady && cacheReady
@@ -113,7 +113,7 @@ func (h *Checker) ReadyHandler(c *fiber.Ctx) error {
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(c.UserContext(), 1*time.Second)
 	defer cancel()
 
 	// If not ready, provide detailed status for debugging
@@ -123,13 +123,13 @@ func (h *Checker) ReadyHandler(c *fiber.Ctx) error {
 			"timestamp": time.Now(),
 			"services": fiber.Map{
 				"database": func() string {
-					if database.Ready(h.dbName) {
+					if database.Ready(ctx, h.dbName) {
 						return "healthy"
 					}
 					return "unhealthy"
 				}(),
 				"cache": func() string {
-					if cache.Ready(h.cacheName) {
+					if cache.Ready(ctx, h.cacheName) {
 						return "healthy"
 					}
 					return "unhealthy"
@@ -143,13 +143,13 @@ func (h *Checker) ReadyHandler(c *fiber.Ctx) error {
 		"timestamp": time.Now(),
 		"services": fiber.Map{
 			"database": func() string {
-				if database.Ready(h.dbName) {
+				if database.Ready(ctx, h.dbName) {
 					return "healthy"
 				}
 				return "unhealthy"
 			}(),
 			"cache": func() string {
-				if cache.Ready(h.cacheName) {
+				if cache.Ready(ctx, h.cacheName) {
 					return "healthy"
 				}
 				return "unhealthy"
