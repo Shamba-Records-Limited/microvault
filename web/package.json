@@ -24,7 +24,7 @@
     "@stellar/stellar-sdk": "^17.1.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.103.2",
-    "@tanstack/react-router": "^1.170.38",
+    "@tanstack/react-router": "^1.170.40",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "radix-ui": "^1.6.7",
