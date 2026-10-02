@@ -135,3 +135,28 @@ func TestTraceIDsAppearOnlyWithAValidSpan(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestWithLoan_SkipsEmptyValues(t *testing.T) {
+	tests := []struct {
+		name      string
+		id, ref   string
+		wantAttrs []slog.Attr
+	}{
+		{name: "both", id: "l1", ref: "R1", wantAttrs: []slog.Attr{slog.String("loan_id", "l1"), slog.String("loan_reference", "R1")}},
+		{name: "id only", id: "l1", wantAttrs: []slog.Attr{slog.String("loan_id", "l1")}},
+		{name: "neither", wantAttrs: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := logging.WithLoan(context.Background(), tt.id, tt.ref)
+			if diff := len(logging.Attrs(ctx)) - len(tt.wantAttrs); diff != 0 {
+				t.Fatalf("got %v, want %v", logging.Attrs(ctx), tt.wantAttrs)
+			}
+			for i, a := range tt.wantAttrs {
+				if !logging.Attrs(ctx)[i].Equal(a) {
+					t.Fatalf("attr %d: got %v, want %v", i, logging.Attrs(ctx)[i], a)
+				}
+			}
+		})
+	}
+}

@@ -3,9 +3,11 @@ package webhook
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
 )
 
@@ -54,9 +56,16 @@ func (f *fakeDisb) last() string {
 	return f.statuses[len(f.statuses)-1]
 }
 
-type fakeAlerts struct{ count int }
+type fakeAlerts struct {
+	count int
+	attrs []slog.Attr
+}
 
-func (f *fakeAlerts) AlertOps(context.Context, string, string) error { f.count++; return nil }
+func (f *fakeAlerts) AlertOps(ctx context.Context, _, _ string) error {
+	f.count++
+	f.attrs = logging.Attrs(ctx)
+	return nil
+}
 
 func TestProcessYellowCardEvent_Table(t *testing.T) {
 	cases := []struct {
@@ -173,4 +182,26 @@ func (f *fakeDisb) NotifyRefundReceived(context.Context, string) error    { retu
 func (f *fakeDisb) RepayVaultAmount(context.Context, string, int64) error { return nil }
 func (f *fakeDisb) LoanRefs(context.Context, string) (string, string, error) {
 	return "loan-1", "REF-1", nil
+}
+
+// The webhook only knows the sequence ID; an alert it raises must still be
+// attributable to the loan, or OpenObserve cannot group it per loan.
+func TestAlert_CarriesTheLoanResolvedFromTheSequence(t *testing.T) {
+	alerts := &fakeAlerts{}
+	svc := NewService(&fakeDisb{}, alerts, nil, nil)
+
+	err := svc.ProcessYellowCardEvent(context.Background(), yellowcard.WebhookEvent{
+		Status: yellowcard.StatusPendingLiquidity, SequenceID: "seq-1", PaymentID: "pay-1",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := map[string]string{}
+	for _, a := range alerts.attrs {
+		got[a.Key] = a.Value.String()
+	}
+	if got["loan_id"] != "loan-1" || got["loan_reference"] != "REF-1" {
+		t.Errorf("alert context = %v, want loan_id=loan-1 loan_reference=REF-1", got)
+	}
 }

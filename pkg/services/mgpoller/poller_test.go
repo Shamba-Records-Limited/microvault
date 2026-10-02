@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
@@ -1097,4 +1098,24 @@ func (d *fakeDisbursement) RecordDisbursementCompletion(context.Context, string,
 func (d *fakeDisbursement) SetSettlementMethod(context.Context, string, string) error { return nil }
 func (d *fakeDisbursement) IsDirectSettlement(context.Context, string) (bool, error) {
 	return false, nil
+}
+
+type ctxCapturingDriver struct{ attrs []slog.Attr }
+
+func (d *ctxCapturingDriver) Drive(ctx context.Context, _ LoanRecord) { d.attrs = logging.Attrs(ctx) }
+
+// Alerts raised while driving a record must carry the loan, so OpenObserve
+// can group page alerts per loan and show the reference.
+func TestRunner_DriveAttachesLoanIDAndReference(t *testing.T) {
+	driver := &ctxCapturingDriver{}
+	r := NewRunner[LoanRecord](RunnerDeps[LoanRecord]{
+		Direction:     "test",
+		Driver:        driver,
+		LoanID:        func(rec LoanRecord) string { return rec.LoanID },
+		LoanReference: func(rec LoanRecord) string { return rec.LoanReference },
+	})
+
+	r.drive(context.Background(), LoanRecord{LoanID: "loan-1", LoanReference: "REF-1"})
+
+	assert.Equal(t, []slog.Attr{slog.String("loan_id", "loan-1"), slog.String("loan_reference", "REF-1")}, driver.attrs)
 }
