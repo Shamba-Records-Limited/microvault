@@ -100,7 +100,7 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 
 // RepayToVault allows treasury to repay borrowed funds
 func (s *service) RepayToVault(ctx context.Context, req types.RepayRequest) (*types.RepayResponse, error) {
-	return s.repay(ctx, "", req.Amount)
+	return s.repay(ctx, "", req.Amount, req.OnSigned)
 }
 
 // RepayForVault repays borrowed funds on behalf of a named borrower. Behaves
@@ -114,13 +114,13 @@ func (s *service) RepayForVault(ctx context.Context, req types.RepayForRequest) 
 			Code(pkgErrors.CodeInvalidAddress).
 			Wrapf(types.ErrInvalidStellarAddress, "borrower address is required for an attributed repay")
 	}
-	return s.repay(ctx, req.BorrowerAddress, req.Amount)
+	return s.repay(ctx, req.BorrowerAddress, req.Amount, nil)
 }
 
 // repay is the shared body of RepayToVault and RepayForVault. An empty borrower
 // invokes the contract's unattributed "repay"; a non-empty one invokes
 // "repay_for".
-func (s *service) repay(ctx context.Context, borrowerAddress string, amount int64) (*types.RepayResponse, error) {
+func (s *service) repay(ctx context.Context, borrowerAddress string, amount int64, onSigned signedHook) (*types.RepayResponse, error) {
 	fnName := "repay"
 	if borrowerAddress != "" {
 		fnName = "repay_for"
@@ -148,7 +148,7 @@ func (s *service) repay(ctx context.Context, borrowerAddress string, amount int6
 		args = []xdr.ScVal{treasuryAddr, borrowerAddr, amountVal}
 	}
 
-	txResp, err := s.invokeSigned(ctx, treasuryKP, fnName, args, errb)
+	txResp, err := s.invokeSignedHooked(ctx, treasuryKP, fnName, args, errb, onSigned)
 	if err != nil {
 		return nil, err
 	}

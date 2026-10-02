@@ -2,6 +2,7 @@ package soroban
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -255,6 +256,7 @@ func (s *service) submitContractTransaction(
 	signerKP *keypair.Full,
 	op *txnbuild.InvokeHostFunction,
 	simResp *protocol.SimulateTransactionResponse,
+	onSigned signedHook,
 ) (protocol.GetTransactionResponse, error) {
 	empty := protocol.GetTransactionResponse{}
 	errb := coreErr("submit").With(pkgErrors.AttrAddress, signerKP.Address())
@@ -326,14 +328,28 @@ func (s *service) submitContractTransaction(
 			Wrapf(err, "could not sign the contract transaction")
 	}
 
+	if onSigned != nil {
+		txHash, err := tx.HashHex(s.networkPassphrase)
+		if err != nil {
+			return empty, errb.Code(pkgErrors.CodeBuildFailed).
+				Wrapf(err, "could not hash the signed contract transaction")
+		}
+		validUntil := time.Unix(tx.Timebounds().MaxTime, 0)
+		if err := onSigned(ctx, txHash, validUntil); err != nil {
+			return empty, errb.Code(pkgErrors.CodeStateWriteFailed).With(pkgErrors.AttrTxHash, txHash).
+				Wrapf(err, "signed transaction could not be recorded; not submitted")
+		}
+	}
+
 	// Submit
 	txXDR, _ := tx.Base64()
 	sendResp, err := s.rpcClient.SendTransaction(ctx, protocol.SendTransactionRequest{
 		Transaction: txXDR,
 	})
 	if err != nil {
+		// The node may have accepted the transaction before the call failed.
 		return empty, errb.Code(pkgErrors.CodeSubmitFailed).
-			Wrapf(err, "could not submit the contract transaction")
+			Wrapf(fmt.Errorf("%w: %w", types.ErrSubmissionUnconfirmed, err), "could not submit the contract transaction")
 	}
 
 	// Poll for result
@@ -373,11 +389,24 @@ func (s *service) invokeSigned(
 	args []xdr.ScVal,
 	errb oops.OopsErrorBuilder,
 ) (*protocol.GetTransactionResponse, error) {
+	return s.invokeSignedHooked(ctx, signerKP, fnName, args, errb, nil)
+}
+
+// invokeSignedHooked is invokeSigned with a hook run between signing and
+// submission.
+func (s *service) invokeSignedHooked(
+	ctx context.Context,
+	signerKP *keypair.Full,
+	fnName string,
+	args []xdr.ScVal,
+	errb oops.OopsErrorBuilder,
+	onSigned signedHook,
+) (*protocol.GetTransactionResponse, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "soroban."+fnName,
 		trace.WithAttributes(attribute.String(pkgErrors.AttrContractFunction, fnName)))
 	defer span.End()
 	start := time.Now()
-	resp, err := s.invokeSignedTx(ctx, signerKP, fnName, args, errb)
+	resp, err := s.invokeSignedTx(ctx, signerKP, fnName, args, errb, onSigned)
 	invocationDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
 		attribute.String(pkgErrors.AttrContractFunction, fnName), attribute.String("outcome", telemetry.Outcome(err))))
 	if resp != nil {
@@ -387,6 +416,9 @@ func (s *service) invokeSigned(
 	return resp, err
 }
 
+// signedHook is types.RepayRequest.OnSigned as the submit path sees it.
+type signedHook func(ctx context.Context, txHash string, validUntil time.Time) error
+
 // invokeSignedTx is invokeSigned without the span.
 func (s *service) invokeSignedTx(
 	ctx context.Context,
@@ -394,6 +426,7 @@ func (s *service) invokeSignedTx(
 	fnName string,
 	args []xdr.ScVal,
 	errb oops.OopsErrorBuilder,
+	onSigned signedHook,
 ) (*protocol.GetTransactionResponse, error) {
 	op, err := s.buildInvokeContractOp(fnName, args)
 	if err != nil {
@@ -417,7 +450,7 @@ func (s *service) invokeSignedTx(
 			Wrapf(types.ErrSimulationFailed, "contract simulation rejected the call")
 	}
 
-	txResp, err := s.submitContractTransaction(ctx, signerKP, op, simResp)
+	txResp, err := s.submitContractTransaction(ctx, signerKP, op, simResp, onSigned)
 	if err != nil {
 		return nil, errb.Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "could not submit contract transaction")
 	}

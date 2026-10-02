@@ -52,6 +52,7 @@ var (
 	ErrTransactionFailedOnLedger     = types.ErrTransactionFailedOnLedger
 	ErrUnknownTransactionStatus      = types.ErrUnknownTransactionStatus
 	ErrTransactionTimeout            = types.ErrTransactionTimeout
+	ErrSubmissionUnconfirmed         = types.ErrSubmissionUnconfirmed
 	ErrFailedToGetTransactionDetails = types.ErrFailedToGetTransactionDetails
 	ErrInvalidContractID             = types.ErrInvalidContractID
 	ErrNoSimulationResult            = types.ErrNoSimulationResult

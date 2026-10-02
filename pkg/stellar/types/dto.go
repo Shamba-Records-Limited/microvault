@@ -1,6 +1,9 @@
 package types
 
 import (
+	"context"
+	"time"
+
 	"github.com/stellar/go-stellar-sdk/keypair"
 )
 
@@ -90,6 +93,11 @@ type BorrowResponse struct {
 // RepayRequest represents a request to repay borrowed funds
 type RepayRequest struct {
 	Amount int64 // Amount to repay in smallest unit (stroops)
+
+	// OnSigned, when set, runs after signing and before submission with the
+	// transaction hash and the end of its validity window. An error aborts
+	// the submission, so nothing reaches the network that was not recorded.
+	OnSigned func(ctx context.Context, txHash string, validUntil time.Time) error
 }
 
 // RepayForRequest represents a request to repay borrowed funds on behalf of a

@@ -2,10 +2,13 @@ package soroban
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/samber/oops"
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -539,6 +542,69 @@ func TestRepayToVaultInvokesUnattributedRepay(t *testing.T) {
 		addressScVal(t, keys.TreasuryPublic),
 		i128ToScVal(500000000),
 	}, invokeArgs(t, envelope))
+}
+
+func TestRepayToVaultOnSigned(t *testing.T) {
+	successMock := func(m *stellartesting.MockRPCClient, envelope *string, sendErr error) {
+		m.SimulateTransactionFunc = func(ctx context.Context, req protocol.SimulateTransactionRequest) (protocol.SimulateTransactionResponse, error) {
+			return stellartesting.NewSimulationResponse().WithTransactionData().WithAuth().Build(), nil
+		}
+		m.SendTransactionFunc = func(ctx context.Context, req protocol.SendTransactionRequest) (protocol.SendTransactionResponse, error) {
+			*envelope = req.Transaction
+			if sendErr != nil {
+				return protocol.SendTransactionResponse{}, sendErr
+			}
+			return stellartesting.NewSendTransactionResponse().WithHash("repay_tx_hash").Build(), nil
+		}
+	}
+
+	t.Run("hook sees the hash of the envelope that is submitted", func(t *testing.T) {
+		var envelope, hooked string
+		var validUntil time.Time
+		m := stellartesting.NewMockRPCClient()
+		successMock(m, &envelope, nil)
+
+		_, err := newTestService(m).RepayToVault(t.Context(), types.RepayRequest{
+			Amount: 500000000,
+			OnSigned: func(_ context.Context, hash string, until time.Time) error {
+				require.Empty(t, envelope, "hook must run before submission")
+				hooked, validUntil = hash, until
+				return nil
+			},
+		})
+		require.NoError(t, err)
+
+		generic, err := txnbuild.TransactionFromXDR(envelope)
+		require.NoError(t, err)
+		tx, ok := generic.Transaction()
+		require.True(t, ok)
+		want, err := tx.HashHex(stellartesting.TestNetworkPassphrase)
+		require.NoError(t, err)
+		assert.Equal(t, want, hooked)
+		assert.Equal(t, tx.Timebounds().MaxTime, validUntil.Unix())
+	})
+
+	t.Run("hook error aborts before submission", func(t *testing.T) {
+		var envelope string
+		m := stellartesting.NewMockRPCClient()
+		successMock(m, &envelope, nil)
+
+		_, err := newTestService(m).RepayToVault(t.Context(), types.RepayRequest{
+			Amount:   500000000,
+			OnSigned: func(context.Context, string, time.Time) error { return errors.New("db down") },
+		})
+		require.Error(t, err)
+		assert.Empty(t, envelope, "nothing may reach the network unrecorded")
+	})
+
+	t.Run("send transport error is unconfirmed, not failed", func(t *testing.T) {
+		var envelope string
+		m := stellartesting.NewMockRPCClient()
+		successMock(m, &envelope, errors.New("connection reset"))
+
+		_, err := newTestService(m).RepayToVault(t.Context(), types.RepayRequest{Amount: 500000000})
+		require.ErrorIs(t, err, types.ErrSubmissionUnconfirmed)
+	})
 }
 
 func TestBumpYield(t *testing.T) {

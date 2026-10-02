@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"time"
 
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 
@@ -63,6 +64,71 @@ func (v *Verifier) TransactionSucceeded(ctx context.Context, txHash string) (boo
 			Code(pkgErrors.CodeNotFound).Errorf("transaction is not on the ledger")
 	default:
 		return false, verifyErr("transaction_succeeded").
+			With(pkgErrors.AttrTxHash, txHash).
+			With("status", resp.Status).
+			Code(pkgErrors.CodeIncompleteResponse).
+			Errorf("transaction has an unexpected status")
+	}
+}
+
+// TxOutcome is what the ledger can say about a transaction we submitted.
+type TxOutcome int
+
+const (
+	// TxUnresolved means the ledger cannot answer yet: the transaction may
+	// still land before validUntil, or the latest ledger has not passed it.
+	TxUnresolved TxOutcome = iota
+	// TxSucceeded means the transaction is on the ledger and succeeded.
+	TxSucceeded
+	// TxFailed means the transaction is on the ledger and failed.
+	TxFailed
+	// TxNeverLanded means the RPC's history covers the whole validity window
+	// and the transaction is not in it, so it can no longer be included.
+	TxNeverLanded
+	// TxOutsideRetention means the RPC no longer holds the ledgers the
+	// transaction could have landed in; only an archive can answer.
+	TxOutsideRetention
+)
+
+// TxResolution is the outcome of ResolveSubmitted and, on success, the ledger
+// the transaction landed in.
+type TxResolution struct {
+	Outcome TxOutcome
+	Ledger  uint32
+}
+
+// ResolveSubmitted settles the outcome of a transaction we signed and may have
+// submitted. submittedAfter is any time at or before signing; validUntil is
+// the transaction's max time bound. NOT_FOUND is only conclusive once the
+// latest ledger has closed past validUntil and the oldest retained ledger
+// closed before submittedAfter, both by ledger time rather than local clock.
+func (v *Verifier) ResolveSubmitted(ctx context.Context, txHash string, submittedAfter, validUntil time.Time) (TxResolution, error) {
+	if txHash == "" {
+		return TxResolution{}, verifyErr("resolve_submitted").Code(pkgErrors.CodeMissingAccount).Errorf("transaction hash is empty")
+	}
+
+	resp, err := v.client.GetTransaction(ctx, protocol.GetTransactionRequest{Hash: txHash})
+	if err != nil {
+		return TxResolution{}, verifyErr("resolve_submitted").With(pkgErrors.AttrTxHash, txHash).
+			Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the transaction")
+	}
+
+	switch resp.Status {
+	case protocol.TransactionStatusSuccess:
+		return TxResolution{Outcome: TxSucceeded, Ledger: resp.Ledger}, nil
+	case protocol.TransactionStatusFailed:
+		return TxResolution{Outcome: TxFailed, Ledger: resp.Ledger}, nil
+	case protocol.TransactionStatusNotFound:
+		switch {
+		case resp.LatestLedgerCloseTime <= validUntil.Unix():
+			return TxResolution{Outcome: TxUnresolved}, nil
+		case resp.OldestLedgerCloseTime >= submittedAfter.Unix():
+			return TxResolution{Outcome: TxOutsideRetention}, nil
+		default:
+			return TxResolution{Outcome: TxNeverLanded}, nil
+		}
+	default:
+		return TxResolution{}, verifyErr("resolve_submitted").
 			With(pkgErrors.AttrTxHash, txHash).
 			With("status", resp.Status).
 			Code(pkgErrors.CodeIncompleteResponse).

@@ -39,6 +39,7 @@ var (
 	ErrTransactionFailedOnLedger     = errors.New("transaction failed on ledger")
 	ErrUnknownTransactionStatus      = errors.New("unknown transaction status")
 	ErrTransactionTimeout            = errors.New("timeout waiting for transaction")
+	ErrSubmissionUnconfirmed         = errors.New("transaction submission unconfirmed")
 	ErrFailedToGetTransactionDetails = errors.New("failed to get transaction details")
 
 	// Soroban-specific service errors
