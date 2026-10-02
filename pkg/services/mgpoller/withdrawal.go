@@ -10,6 +10,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
@@ -462,6 +463,11 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 	// Repay only what came back. Repaying the full principal would draw the
 	// difference from unrelated treasury funds.
 	if err := p.disbursement.RepayVaultAmount(ctx, rec.SequenceID, repay); err != nil {
+		if errors.Is(err, contracts.ErrVaultRepayDeferred) {
+			p.logger.InfoContext(ctx, "vault repay deferred to the reconciler; staying refund_pending",
+				"loan_id", rec.LoanID, "sequence_id", rec.SequenceID)
+			return
+		}
 		p.logger.ErrorContext(ctx, "CRITICAL: vault repay failed after refund",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID,
 			"amount_stroops", net, "error", err)

@@ -161,6 +161,22 @@ type StellarConfig struct {
 	// VaultWatchInterval is how often the vault watcher polls for new
 	// contract events. From VAULT_WATCH_INTERVAL, default 5 minutes.
 	VaultWatchInterval time.Duration
+
+	// VaultRepayMaxAttempts caps the inline treasury-to-vault repay attempts
+	// for an unwound disbursement before the reconciler takes the loan over.
+	// From VAULT_REPAY_MAX_ATTEMPTS, default 5.
+	VaultRepayMaxAttempts int
+	// VaultRepaySettlementWindow is how long a failed or in-flight repay is
+	// left to the off-ramp pollers before the reconciler acts on it. From
+	// VAULT_REPAY_SETTLEMENT_WINDOW (seconds), default 1 hour.
+	VaultRepaySettlementWindow time.Duration
+	// VaultRepayRetryBackoff spaces the reconciler's retries once a loan has
+	// exhausted VaultRepayMaxAttempts. From VAULT_REPAY_RETRY_BACKOFF
+	// (seconds), default 1 hour.
+	VaultRepayRetryBackoff time.Duration
+	// VaultRepayReconcileInterval is how often the reconciler looks for due
+	// repays. From VAULT_REPAY_RECONCILE_INTERVAL (seconds), default 10 minutes.
+	VaultRepayReconcileInterval time.Duration
 }
 
 // NewRpcClient creates a new instance of Stellar RPC Client to connect with Stellar's RPC Server
@@ -602,6 +618,23 @@ func New() (*Config, error) {
 		return nil, err
 	}
 
+	vaultRepayMaxAttempts, err := envPositiveInt("VAULT_REPAY_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+	vaultRepayWindow, err := envSeconds("VAULT_REPAY_SETTLEMENT_WINDOW")
+	if err != nil {
+		return nil, err
+	}
+	vaultRepayBackoff, err := envSeconds("VAULT_REPAY_RETRY_BACKOFF")
+	if err != nil {
+		return nil, err
+	}
+	vaultRepayInterval, err := envSeconds("VAULT_REPAY_RECONCILE_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+
 	// Create a map of required variables to check
 	required := map[string]string{
 		"SERVER_ENVIRONMENT":        serverEnvironment,
@@ -835,6 +868,11 @@ func New() (*Config, error) {
 			ContractID:              contractID,
 			AccountIndexBase:        accountIndexBase,
 			VaultWatchInterval:      firstNonZeroDuration(vaultWatchInterval, 5*time.Minute),
+
+			VaultRepayMaxAttempts:       firstNonZeroInt(vaultRepayMaxAttempts, 5),
+			VaultRepaySettlementWindow:  firstNonZeroDuration(vaultRepayWindow, time.Hour),
+			VaultRepayRetryBackoff:      firstNonZeroDuration(vaultRepayBackoff, time.Hour),
+			VaultRepayReconcileInterval: firstNonZeroDuration(vaultRepayInterval, 10*time.Minute),
 		},
 		Payments: PaymentsConfig{
 			EntryFXBufferPct:          entryFXBuffer,

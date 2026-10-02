@@ -852,6 +852,19 @@ func TestPoller_Refunded_RepayFails_StaysPendingForRetry(t *testing.T) {
 	assert.Contains(t, alerts.calls, "Vault repay failed after MoneyGram refund")
 }
 
+func TestPoller_Refunded_RepayDeferred_StaysPendingWithoutAlerting(t *testing.T) {
+	p, srv, fetcher, _, disb, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
+	fetcher.loans = []LoanRecord{refundPendingLoan(500000000)}
+	p.verifier = ledgerRefund(500000000)
+	disb.repayAmountErr = fmt.Errorf("capped: %w", contracts.ErrVaultRepayDeferred)
+
+	p.poll(context.Background())
+
+	assert.Empty(t, disb.statuses, "must not reach refund_received until the reconciler repays")
+	assert.Empty(t, alerts.calls, "the reconciler owns a deferred repay; alerting every tick is noise")
+}
+
 func TestPoller_Refunded_RecordFails_WithholdsRepay(t *testing.T) {
 	p, srv, fetcher, recorder, disb, _, _ := newTestPoller(t)
 	srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
