@@ -635,6 +635,16 @@ func (a *UserServiceAdapter) RegisterUser(ctx context.Context, req *ussd.Registe
 	return userMap, []any{accountMap}, nil
 }
 
+// DeriveChildAddress returns the address derived from accountIndex, so an
+// operator tool can compare it with the stored one without the private key.
+func (a *UserServiceAdapter) DeriveChildAddress(accountIndex int) (string, error) {
+	kp, err := a.deriveChildKeypair(accountIndex)
+	if err != nil {
+		return "", err
+	}
+	return kp.Address(), nil
+}
+
 // deriveChildKeypair derives a child keypair using BIP44 path: m/44'/148'/accountIndex'
 func (a *UserServiceAdapter) deriveChildKeypair(accountIndex int) (*keypair.Full, error) {
 	errb := userAdapterErr("derive_keypair").With(pkgErrors.AttrAccountIndex, accountIndex).Code(pkgErrors.CodeBuildFailed)
