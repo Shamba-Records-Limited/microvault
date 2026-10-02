@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -43,6 +44,11 @@ func (f *acctRepo) Update(context.Context, *models.Account) error               
 func (f *acctRepo) UpdateChainStatus(context.Context, string, string) error           { return nil }
 func (f *acctRepo) Restore(context.Context, string) error                             { return nil }
 func (f *acctRepo) Delete(context.Context, string) error                              { return nil }
+
+func (f *acctRepo) RecordChainCheck(context.Context, string, int, time.Time) error { return nil }
+func (f *acctRepo) GetDueChainHeals(context.Context, repository.ChainHealDue, int) ([]*models.Account, error) {
+	return nil, nil
+}
 
 type usrRepo struct {
 	byID    *models.User

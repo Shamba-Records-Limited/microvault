@@ -12,6 +12,12 @@ var (
 	ErrAccountAlreadyDeleted  = errors.New("account is already deleted")
 	ErrChainStatusConflict    = errors.New("account chain status is conflict and cannot change")
 
+	// On-chain ensure outcomes, so callers can classify a failure without
+	// reading error codes through a wrap chain.
+	ErrDerivationConflict     = errors.New("account address was derived from a reused index")
+	ErrDerivedAddressMismatch = errors.New("derived address does not match the stored one")
+	ErrChainCheckUnavailable  = errors.New("on-chain account state could not be checked")
+
 	// Business logic errors
 	ErrCannotModifyDeletedAccount = errors.New("cannot modify deleted account")
 	ErrInvalidStatusTransition    = errors.New("invalid status transition")

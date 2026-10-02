@@ -113,6 +113,11 @@ type Account struct {
 	UpdatedAt    time.Time  `json:"updated_at" gorm:"autoUpdateTime;not null"`
 	DeletedAt    *time.Time `json:"deleted_at,omitempty" gorm:"index"`
 
+	// ChainAttempts counts failed heals by the account chain reconciler;
+	// ChainCheckedAt is its last attempt.
+	ChainAttempts  int        `json:"chain_attempts" gorm:"not null;default:0"`
+	ChainCheckedAt *time.Time `json:"chain_checked_at,omitempty" gorm:"type:timestamptz"`
+
 	User User `gorm:"foreignKey:UserID"`
 }
 

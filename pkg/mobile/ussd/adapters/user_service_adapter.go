@@ -247,7 +247,8 @@ func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIn
 
 	exists, err := a.stellarService.AccountExists(ctx, address)
 	if err != nil {
-		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not check whether the account exists on-chain")
+		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).Code(pkgErrors.CodeTransportFailed).
+			Wrapf(fmt.Errorf("%w: %w", account.ErrChainCheckUnavailable, err), "could not check whether the account exists on-chain")
 	}
 	if exists {
 		// Settles rows left pending by a dropped goroutine, marked failed by an
@@ -266,7 +267,7 @@ func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIn
 			With("stored_address", address).
 			With(pkgErrors.AttrAccountIndex, accountIndex).
 			Code(pkgErrors.CodeInvalidAddress).
-			Errorf("derived address does not match the stored one, which means the seed or index is wrong")
+			Wrapf(account.ErrDerivedAddressMismatch, "the seed or index is wrong")
 	}
 
 	if err := a.stellarService.CreateSponsoredAccount(ctx, a.buildSponsoredAccountReq(childKP)); err != nil {
@@ -295,13 +296,14 @@ func (a *UserServiceAdapter) refuseConflict(ctx context.Context, address string)
 	acct, err := a.accountService.GetByPublicKey(ctx, address)
 	if err != nil {
 		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).
-			Code(pkgErrors.CodeAccountLoadFailed).Wrapf(err, "could not load the account to check for a derivation conflict")
+			Code(pkgErrors.CodeAccountLoadFailed).
+			Wrapf(fmt.Errorf("%w: %w", account.ErrChainCheckUnavailable, err), "could not load the account to check for a derivation conflict")
 	}
 	if acct.ChainStatus == models.ChainStatusConflict {
 		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).
 			Code(pkgErrors.CodeDerivationIndexReused).
 			Hint("Re-issue this account at a fresh index; the address belongs to another account.").
-			Errorf("account address was derived from a reused index")
+			Wrap(account.ErrDerivationConflict)
 	}
 	return nil
 }

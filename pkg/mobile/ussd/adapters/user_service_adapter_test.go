@@ -187,6 +187,7 @@ func TestEnsureOnChainAccount_RejectsIndexAddressMismatch(t *testing.T) {
 	require.ErrorAs(t, err, &oopsErr)
 	assert.NotEmpty(t, oopsErr.Context()["derived_address"])
 	assert.NotEmpty(t, oopsErr.Context()["stored_address"])
+	assert.ErrorIs(t, err, account.ErrDerivedAddressMismatch)
 	assert.Empty(t, fake.created, "must not create an account for a mismatched index")
 }
 
@@ -269,6 +270,7 @@ func TestEnsureOnChainAccount_RefusesConflictBeforeTheExistenceCheck(t *testing.
 	var oopsErr oops.OopsError
 	require.ErrorAs(t, err, &oopsErr)
 	assert.Equal(t, pkgErrors.CodeDerivationIndexReused, oopsErr.Code())
+	assert.ErrorIs(t, err, account.ErrDerivationConflict)
 	assert.Zero(t, stell.checks, "a conflict must not reach the existence check")
 	assert.Empty(t, stell.created)
 	assert.Empty(t, accts.chainWrites, "a conflict is never confirmed")
@@ -284,7 +286,7 @@ func TestEnsureOnChainAccount_AccountLookupFailureRefuses(t *testing.T) {
 
 	err := a.EnsureOnChainAccount(context.Background(), 3, "GABC")
 
-	require.Error(t, err)
+	require.ErrorIs(t, err, account.ErrChainCheckUnavailable)
 	assert.Zero(t, stell.checks)
 }
 

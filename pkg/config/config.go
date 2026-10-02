@@ -177,6 +177,24 @@ type StellarConfig struct {
 	// VaultRepayReconcileInterval is how often the reconciler looks for due
 	// repays. From VAULT_REPAY_RECONCILE_INTERVAL (seconds), default 10 minutes.
 	VaultRepayReconcileInterval time.Duration
+
+	// AccountHealMaxAttempts is how many failed heals an account may have
+	// before the one-time alert and the longer backoff. From
+	// ACCOUNT_HEAL_MAX_ATTEMPTS, default 5.
+	AccountHealMaxAttempts int
+	// AccountHealRetryAfter spaces heals below the cap. From
+	// ACCOUNT_HEAL_RETRY_AFTER (seconds), default 15 minutes.
+	AccountHealRetryAfter time.Duration
+	// AccountHealRetryBackoff spaces heals at or past the cap. From
+	// ACCOUNT_HEAL_RETRY_BACKOFF (seconds), default 1 hour.
+	AccountHealRetryBackoff time.Duration
+	// AccountHealPendingAfter is how old a pending account must be before the
+	// reconciler treats its registration goroutine as lost. From
+	// ACCOUNT_HEAL_PENDING_AFTER (seconds), default 15 minutes.
+	AccountHealPendingAfter time.Duration
+	// AccountHealInterval is how often the reconciler runs. From
+	// ACCOUNT_HEAL_INTERVAL (seconds), default 10 minutes.
+	AccountHealInterval time.Duration
 }
 
 // NewRpcClient creates a new instance of Stellar RPC Client to connect with Stellar's RPC Server
@@ -635,6 +653,27 @@ func New() (*Config, error) {
 		return nil, err
 	}
 
+	accountHealMaxAttempts, err := envPositiveInt("ACCOUNT_HEAL_MAX_ATTEMPTS")
+	if err != nil {
+		return nil, err
+	}
+	accountHealRetryAfter, err := envSeconds("ACCOUNT_HEAL_RETRY_AFTER")
+	if err != nil {
+		return nil, err
+	}
+	accountHealBackoff, err := envSeconds("ACCOUNT_HEAL_RETRY_BACKOFF")
+	if err != nil {
+		return nil, err
+	}
+	accountHealPendingAfter, err := envSeconds("ACCOUNT_HEAL_PENDING_AFTER")
+	if err != nil {
+		return nil, err
+	}
+	accountHealInterval, err := envSeconds("ACCOUNT_HEAL_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+
 	// Create a map of required variables to check
 	required := map[string]string{
 		"SERVER_ENVIRONMENT":        serverEnvironment,
@@ -873,6 +912,12 @@ func New() (*Config, error) {
 			VaultRepaySettlementWindow:  firstNonZeroDuration(vaultRepayWindow, time.Hour),
 			VaultRepayRetryBackoff:      firstNonZeroDuration(vaultRepayBackoff, time.Hour),
 			VaultRepayReconcileInterval: firstNonZeroDuration(vaultRepayInterval, 10*time.Minute),
+
+			AccountHealMaxAttempts:  firstNonZeroInt(accountHealMaxAttempts, 5),
+			AccountHealRetryAfter:   firstNonZeroDuration(accountHealRetryAfter, 15*time.Minute),
+			AccountHealRetryBackoff: firstNonZeroDuration(accountHealBackoff, time.Hour),
+			AccountHealPendingAfter: firstNonZeroDuration(accountHealPendingAfter, 15*time.Minute),
+			AccountHealInterval:     firstNonZeroDuration(accountHealInterval, 10*time.Minute),
 		},
 		Payments: PaymentsConfig{
 			EntryFXBufferPct:          entryFXBuffer,

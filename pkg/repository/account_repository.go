@@ -43,6 +43,9 @@ type AccountRepository interface {
 	// MaxAccountIndex is the highest derivation index ever recorded, counting
 	// soft-deleted rows. Returns -1 when the table holds none.
 	MaxAccountIndex(ctx context.Context) (int64, error)
+	// GetDueChainHeals returns accounts the chain reconciler should heal,
+	// least recently checked first. See ChainHealDue.
+	GetDueChainHeals(ctx context.Context, due ChainHealDue, limit int) ([]*models.Account, error)
 	// EnsureAccountIndexIntegrity floors the sequence above both the recorded
 	// high-water mark and the operator-supplied base, returning the index the
 	// next allocation will hand out.
@@ -51,6 +54,8 @@ type AccountRepository interface {
 	// Update operations
 	Update(ctx context.Context, account *models.Account) error
 	UpdateChainStatus(ctx context.Context, id string, chainStatus string) error
+	// RecordChainCheck stores the reconciler's attempt count and check time.
+	RecordChainCheck(ctx context.Context, id string, attempts int, checkedAt time.Time) error
 	Restore(ctx context.Context, id string) error
 
 	// Delete operations
@@ -285,6 +290,66 @@ func (r *accountRepository) Update(ctx context.Context, account *models.Account)
 	if result.Error != nil {
 		slog.ErrorContext(ctx, "Update: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateAccount
+	}
+	return nil
+}
+
+// ChainHealDue selects the chain reconciler's work. failed and unknown rows
+// are due once RetryAfter has passed since their last check, or RetryBackoff
+// once they have reached MaxAttempts. A pending row is only considered once
+// it is PendingAfter old, so the registration goroutine is not raced.
+// conflict and confirmed rows are never due.
+type ChainHealDue struct {
+	Now          time.Time
+	RetryAfter   time.Duration
+	RetryBackoff time.Duration
+	PendingAfter time.Duration
+	MaxAttempts  int
+}
+
+// GetDueChainHeals implements AccountRepository.
+func (r *accountRepository) GetDueChainHeals(ctx context.Context, due ChainHealDue, limit int) ([]*models.Account, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	retryCutoff := due.Now.Add(-due.RetryAfter)
+	backoffCutoff := due.Now.Add(-due.RetryBackoff)
+	var accounts []*models.Account
+	result := r.db.WithContext(ctx).
+		Where("deleted_at IS NULL").
+		Where(r.db.
+			Where("chain_status IN ?", []string{models.ChainStatusFailed, models.ChainStatusUnknown}).
+			Or("chain_status = ? AND created_at <= ?", models.ChainStatusPending, due.Now.Add(-due.PendingAfter))).
+		Where(r.db.
+			Where("chain_checked_at IS NULL").
+			Or("chain_attempts < ? AND chain_checked_at <= ?", due.MaxAttempts, retryCutoff).
+			Or("chain_attempts >= ? AND chain_checked_at <= ?", due.MaxAttempts, backoffCutoff)).
+		Order("chain_checked_at ASC NULLS FIRST").
+		Limit(limit).
+		Find(&accounts)
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "GetDueChainHeals: database error", slog.Any("error", result.Error))
+		return nil, ErrFailedToGetAccount
+	}
+	return accounts, nil
+}
+
+// RecordChainCheck implements AccountRepository.
+func (r *accountRepository) RecordChainCheck(ctx context.Context, id string, attempts int, checkedAt time.Time) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.Account{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Updates(map[string]interface{}{
+			"chain_attempts":   attempts,
+			"chain_checked_at": checkedAt,
+			"updated_at":       time.Now(),
+		})
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "RecordChainCheck: database error", slog.Any("error", result.Error))
+		return ErrFailedToUpdateAccount
+	}
+	if result.RowsAffected == 0 {
+		return ErrAccountNotFound
 	}
 	return nil
 }
