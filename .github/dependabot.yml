@@ -10,6 +10,9 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "deps(go)"
+    groups:
+      gomod:
+        patterns: ["*"]
 
   # Docker
   - package-ecosystem: "docker"
@@ -18,6 +21,9 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "deps(docker)"
+    groups:
+      docker:
+        patterns: ["*"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -26,6 +32,9 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "deps(actions)"
+    groups:
+      actions:
+        patterns: ["*"]
 
   # npm (web frontend)
   - package-ecosystem: "npm"
@@ -34,3 +43,6 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "deps(npm)"
+    groups:
+      npm:
+        patterns: ["*"]
