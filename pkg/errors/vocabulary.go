@@ -123,6 +123,9 @@ const (
 	// CodeLoanLoadFailed is a loan row that could not be read.
 	CodeLoanLoadFailed = "loan_load_failed"
 
+	// CodeAccountLoadFailed is an account row that could not be read.
+	CodeAccountLoadFailed = "account_load_failed"
+
 	// CodeNotFound is a record that does not exist, as distinct from one that
 	// could not be read.
 	CodeNotFound = "not_found"

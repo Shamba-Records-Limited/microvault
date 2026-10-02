@@ -241,6 +241,10 @@ func (a *UserServiceAdapter) buildSponsoredAccountReq(childKP *keypair.Full) ste
 // proceed without it. Idempotent and safe to call before each disbursement;
 // returns an error only when the account is absent and cannot be created.
 func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIndex int, address string) error {
+	if err := a.refuseConflict(ctx, address); err != nil {
+		return err
+	}
+
 	exists, err := a.stellarService.AccountExists(ctx, address)
 	if err != nil {
 		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not check whether the account exists on-chain")
@@ -280,6 +284,28 @@ func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIn
 	return nil
 }
 
+// refuseConflict fails closed: an address whose derivation index was reused
+// exists on-chain but belongs to another account, so the existence check
+// below would wrongly confirm it. A failed lookup refuses too, since lending
+// against an unchecked account is worse than cancelling one loan.
+func (a *UserServiceAdapter) refuseConflict(ctx context.Context, address string) error {
+	if a.accountService == nil {
+		return nil
+	}
+	acct, err := a.accountService.GetByPublicKey(ctx, address)
+	if err != nil {
+		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).
+			Code(pkgErrors.CodeAccountLoadFailed).Wrapf(err, "could not load the account to check for a derivation conflict")
+	}
+	if acct.ChainStatus == models.ChainStatusConflict {
+		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).
+			Code(pkgErrors.CodeDerivationIndexReused).
+			Hint("Re-issue this account at a fresh index; the address belongs to another account.").
+			Errorf("account address was derived from a reused index")
+	}
+	return nil
+}
+
 // confirmChainStatus marks the account behind address as present on-chain. Best
 // effort: the account genuinely exists at this point, so a bookkeeping failure
 // must not fail the caller — worst case a later ensure records it.
@@ -293,7 +319,7 @@ func (a *UserServiceAdapter) confirmChainStatus(ctx context.Context, address str
 			"address", address, "error", err)
 		return
 	}
-	if acct.ChainStatus == models.ChainStatusConfirmed {
+	if acct.ChainStatus == models.ChainStatusConfirmed || acct.ChainStatus == models.ChainStatusConflict {
 		return
 	}
 	a.setChainStatus(ctx, acct.ID, models.ChainStatusConfirmed)
@@ -319,7 +345,7 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(ctx context.Context, us
 		a.logger.WarnContext(ctx, "could not check whether the derived account already exists",
 			"user_id", userID, "account_id", accountID, "address", address, "error", existsErr)
 	} else if exists {
-		a.setChainStatus(ctx, accountID, models.ChainStatusFailed)
+		a.setChainStatus(ctx, accountID, models.ChainStatusConflict)
 		a.logger.ErrorContext(ctx, "derivation index reused — derived account already exists on-chain",
 			"user_id", userID, "account_id", accountID, "address", address,
 			"error_code", pkgErrors.CodeDerivationIndexReused)

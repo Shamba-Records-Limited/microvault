@@ -138,6 +138,12 @@ const (
 
 	// ChainStatusUnknown marks rows that predate this column.
 	ChainStatusUnknown = "unknown"
+
+	// ChainStatusConflict means the derived address already exists on-chain
+	// and belongs to another account: the derivation index was reused. It is
+	// never healed or confirmed; the account must be re-issued at a fresh
+	// index.
+	ChainStatusConflict = "conflict"
 )
 
 // BeforeCreate sets the ID before creating a new account

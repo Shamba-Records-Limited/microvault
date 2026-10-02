@@ -36,6 +36,7 @@ var validChainStatuses = map[string]bool{
 	models.ChainStatusConfirmed: true,
 	models.ChainStatusFailed:    true,
 	models.ChainStatusUnknown:   true,
+	models.ChainStatusConflict:  true,
 }
 
 // Service defines the interface for account business logic operations
@@ -309,6 +310,9 @@ func (s *service) UpdateChainStatus(ctx context.Context, id string, chainStatus 
 	if err := s.repo.UpdateChainStatus(ctx, id, chainStatus); err != nil {
 		if errors.Is(err, repository.ErrAccountNotFound) {
 			return ErrAccountNotFound
+		}
+		if errors.Is(err, repository.ErrAccountChainConflict) {
+			return ErrChainStatusConflict
 		}
 		return err
 	}

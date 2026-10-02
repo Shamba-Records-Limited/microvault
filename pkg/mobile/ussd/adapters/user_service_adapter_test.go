@@ -131,10 +131,12 @@ func (f *fakeAccountService) UpdateChainStatus(_ context.Context, _, chainStatus
 type fakeStellarService struct {
 	stellar.Service
 	exists  bool
+	checks  int
 	created []stellar.CreateAccountRequest
 }
 
 func (f *fakeStellarService) AccountExists(_ context.Context, _ string) (bool, error) {
+	f.checks++
 	return f.exists, nil
 }
 
@@ -170,6 +172,9 @@ func TestEnsureOnChainAccount_RejectsIndexAddressMismatch(t *testing.T) {
 	a := newDerivationTestAdapter(t)
 	fake := &fakeStellarService{exists: false}
 	a.stellarService = fake
+	a.accountService = &fakeAccountService{
+		acct: &account.AccountResponse{ID: "acct-1", ChainStatus: models.ChainStatusPending},
+	}
 
 	kp, err := a.deriveChildKeypair(3)
 	require.NoError(t, err)
@@ -238,9 +243,49 @@ func TestEnsureOnChainAccount_AlreadyConfirmedSkipsRedundantWrite(t *testing.T) 
 func TestEnsureOnChainAccount_BookkeepingFailureDoesNotFailCaller(t *testing.T) {
 	a := newDerivationTestAdapter(t)
 	a.stellarService = &fakeStellarService{exists: true}
-	a.accountService = &fakeAccountService{lookupErr: errors.New("db down")}
+	a.accountService = &fakeAccountService{
+		acct:      &account.AccountResponse{ID: "acct-1", ChainStatus: models.ChainStatusPending},
+		updateErr: errors.New("db down"),
+	}
 
 	assert.NoError(t, a.EnsureOnChainAccount(context.Background(), 3, "GABC"))
+}
+
+// A reused index derives an address that exists on-chain but belongs to
+// another account. The existence check alone would confirm it and lend
+// against a stranger's account, so the conflict gate runs first.
+func TestEnsureOnChainAccount_RefusesConflictBeforeTheExistenceCheck(t *testing.T) {
+	a := newDerivationTestAdapter(t)
+	stell := &fakeStellarService{exists: true}
+	a.stellarService = stell
+	accts := &fakeAccountService{
+		acct: &account.AccountResponse{ID: "acct-1", ChainStatus: models.ChainStatusConflict},
+	}
+	a.accountService = accts
+
+	err := a.EnsureOnChainAccount(context.Background(), 3, "GABC")
+
+	require.Error(t, err)
+	var oopsErr oops.OopsError
+	require.ErrorAs(t, err, &oopsErr)
+	assert.Equal(t, pkgErrors.CodeDerivationIndexReused, oopsErr.Code())
+	assert.Zero(t, stell.checks, "a conflict must not reach the existence check")
+	assert.Empty(t, stell.created)
+	assert.Empty(t, accts.chainWrites, "a conflict is never confirmed")
+}
+
+// The gate fails closed: without the row there is no way to tell a conflict
+// from a healthy account, and cancelling one loan beats lending blind.
+func TestEnsureOnChainAccount_AccountLookupFailureRefuses(t *testing.T) {
+	a := newDerivationTestAdapter(t)
+	stell := &fakeStellarService{exists: true}
+	a.stellarService = stell
+	a.accountService = &fakeAccountService{lookupErr: errors.New("db down")}
+
+	err := a.EnsureOnChainAccount(context.Background(), 3, "GABC")
+
+	require.Error(t, err)
+	assert.Zero(t, stell.checks)
 }
 
 func TestDeriveChildKeypair_IsDeterministic(t *testing.T) {
@@ -317,7 +362,8 @@ func TestCreateSponsoredAccountAsync_ReusedIndexDoesNotSubmit(t *testing.T) {
 	a.createSponsoredAccountAsync(context.Background(), "user-1", "acct-1", testCreateAccountReq(t, a))
 
 	assert.Zero(t, svc.calls, "must not submit a creation for an address that already exists")
-	assert.Equal(t, []string{models.ChainStatusFailed}, acctSvc.chainWrites)
+	assert.Equal(t, []string{models.ChainStatusConflict}, acctSvc.chainWrites,
+		"conflict, not failed: failed would be healed into the other user's account")
 	require.Len(t, alerts.subjects, 1)
 	assert.Contains(t, alerts.subjects[0], "index reused")
 }

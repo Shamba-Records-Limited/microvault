@@ -20,6 +20,7 @@ var (
 	ErrFailedToGetAccountsByUser = errors.New("failed to get accounts by user")
 	ErrFailedToGetNextIndex      = errors.New("failed to get next account index")
 	ErrFailedToUpdateAccount     = errors.New("failed to update account")
+	ErrAccountChainConflict      = errors.New("account chain status is conflict")
 	ErrFailedToDeleteAccount     = errors.New("failed to delete account")
 	ErrFailedToRestoreAccount    = errors.New("failed to restore account")
 )
@@ -290,20 +291,30 @@ func (r *accountRepository) Update(ctx context.Context, account *models.Account)
 
 // UpdateChainStatus sets only the on-chain lifecycle state. Kept separate from
 // Update so a background reconciler can record what it observed on the network
-// without racing the row's other columns.
+// without racing the row's other columns. A conflict row is never moved out of
+// conflict; the write is refused with ErrAccountChainConflict.
 func (r *accountRepository) UpdateChainStatus(ctx context.Context, id, chainStatus string) error {
-	result := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Model(&models.Account{}).
-		Where("id = ? AND deleted_at IS NULL", id).
-		Updates(map[string]interface{}{
-			"chain_status": chainStatus,
-			"updated_at":   time.Now(),
-		})
+		Where("id = ? AND deleted_at IS NULL", id)
+	if chainStatus != models.ChainStatusConflict {
+		query = query.Where("chain_status <> ?", models.ChainStatusConflict)
+	}
+	result := query.Updates(map[string]interface{}{
+		"chain_status": chainStatus,
+		"updated_at":   time.Now(),
+	})
 	if result.Error != nil {
 		slog.ErrorContext(ctx, "UpdateChainStatus: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateAccount
 	}
 	if result.RowsAffected == 0 {
+		var conflicts int64
+		if err := r.db.WithContext(ctx).Model(&models.Account{}).
+			Where("id = ? AND deleted_at IS NULL AND chain_status = ?", id, models.ChainStatusConflict).
+			Count(&conflicts).Error; err == nil && conflicts > 0 {
+			return ErrAccountChainConflict
+		}
 		return ErrAccountNotFound
 	}
 	return nil

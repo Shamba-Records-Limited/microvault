@@ -10,6 +10,7 @@ var (
 	// Conflict errors
 	ErrPublicKeyAlreadyExists = errors.New("public key already registered")
 	ErrAccountAlreadyDeleted  = errors.New("account is already deleted")
+	ErrChainStatusConflict    = errors.New("account chain status is conflict and cannot change")
 
 	// Business logic errors
 	ErrCannotModifyDeletedAccount = errors.New("cannot modify deleted account")
