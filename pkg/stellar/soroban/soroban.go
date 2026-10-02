@@ -18,6 +18,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
+	"github.com/stellar/go-stellar-sdk/protocols/stellarcore"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -350,6 +351,17 @@ func (s *service) submitContractTransaction(
 		// The node may have accepted the transaction before the call failed.
 		return empty, errb.Code(pkgErrors.CodeSubmitFailed).
 			Wrapf(fmt.Errorf("%w: %w", types.ErrSubmissionUnconfirmed, err), "could not submit the contract transaction")
+	}
+
+	// ERROR and TRY_AGAIN_LATER mean stellar-core did not admit the
+	// transaction, so it can never land; polling would only wait out the
+	// timeout and report an outcome that is in fact known.
+	switch sendResp.Status {
+	case stellarcore.TXStatusError:
+		return empty, rpc.RejectionError(errb, sendResp)
+	case stellarcore.TXStatusTryAgainLater:
+		return empty, errb.Code(pkgErrors.CodeSubmitFailed).With(pkgErrors.AttrTxHash, sendResp.Hash).
+			Wrapf(types.ErrStellarCoreOverloaded, "stellar-core did not admit the contract transaction")
 	}
 
 	// Poll for result

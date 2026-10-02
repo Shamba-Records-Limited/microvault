@@ -8,6 +8,7 @@ import (
 
 	"github.com/samber/oops"
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
+	"github.com/stellar/go-stellar-sdk/protocols/stellarcore"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -605,6 +606,53 @@ func TestRepayToVaultOnSigned(t *testing.T) {
 		_, err := newTestService(m).RepayToVault(t.Context(), types.RepayRequest{Amount: 500000000})
 		require.ErrorIs(t, err, types.ErrSubmissionUnconfirmed)
 	})
+}
+
+func TestRepayToVaultSendStatus(t *testing.T) {
+	badSeq, err := xdr.MarshalBase64(xdr.TransactionResult{
+		Result: xdr.TransactionResultResult{Code: xdr.TransactionResultCodeTxBadSeq},
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		status    string
+		errXDR    string
+		wantErrIs error
+		wantPolls bool
+	}{
+		{name: "error is a rejection, not a timeout", status: stellarcore.TXStatusError, errXDR: badSeq, wantErrIs: types.ErrTransactionRejected},
+		{name: "try again later was never admitted", status: stellarcore.TXStatusTryAgainLater, wantErrIs: types.ErrStellarCoreOverloaded},
+		{name: "duplicate is already in flight", status: stellarcore.TXStatusDuplicate, wantPolls: true},
+		{name: "pending is polled", status: stellarcore.TXStatusPending, wantPolls: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			polls := 0
+			m := stellartesting.NewMockRPCClient()
+			m.SimulateTransactionFunc = func(ctx context.Context, req protocol.SimulateTransactionRequest) (protocol.SimulateTransactionResponse, error) {
+				return stellartesting.NewSimulationResponse().WithTransactionData().WithAuth().Build(), nil
+			}
+			m.SendTransactionFunc = func(ctx context.Context, req protocol.SendTransactionRequest) (protocol.SendTransactionResponse, error) {
+				return stellartesting.NewSendTransactionResponse().WithStatus(tt.status).WithError(tt.errXDR).WithHash("h").Build(), nil
+			}
+			m.GetTransactionFunc = func(ctx context.Context, req protocol.GetTransactionRequest) (protocol.GetTransactionResponse, error) {
+				polls++
+				return stellartesting.NewGetTransactionResponse().WithStatus(protocol.TransactionStatusSuccess).Build(), nil
+			}
+
+			_, err := newTestService(m).RepayToVault(t.Context(), types.RepayRequest{Amount: 500000000})
+
+			if tt.wantErrIs != nil {
+				require.ErrorIs(t, err, tt.wantErrIs)
+				assert.NotErrorIs(t, err, types.ErrSubmissionUnconfirmed, "a refused submission is a known outcome")
+				assert.NotErrorIs(t, err, types.ErrTransactionTimeout)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantPolls, polls > 0)
+		})
+	}
 }
 
 func TestBumpYield(t *testing.T) {
