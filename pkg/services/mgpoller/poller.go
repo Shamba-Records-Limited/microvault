@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
@@ -22,6 +23,7 @@ import (
 // where ramp_provider="moneygram" and disbursement_status is in the active set.
 type LoanRecord struct {
 	LoanID               string
+	LoanReference        string
 	SequenceID           string  // = loans.ramp_sequence_id
 	MoneyGramTxID        string  // = loans.ramp_request_id
 	ChildAccountIndex    uint32  // for SEP-10 memo re-derivation
@@ -98,11 +100,9 @@ type PaymentVerifier interface {
 	PaymentsTo(ctx context.Context, txHash, destination, assetCode, assetIssuer string) ([]rpc.Payment, error)
 }
 
-// AlertService is the same interface used by the YC refund poller —
-// receives ops alerts when something needs human attention. Optional.
-type AlertService interface {
-	AlertOps(subject, message string) error
-}
+// AlertService receives ops alerts when something needs human attention.
+// Optional; see alerts.Raise.
+type AlertService = alerts.Service
 
 // PollerConfig configures cadence and drift detection.
 type PollerConfig struct {
@@ -322,13 +322,14 @@ func NewPoller(deps PollerDeps) (*Poller, error) {
 	}
 	// Two-step because the runner's Driver is the Poller itself.
 	p.runner = NewRunner(RunnerDeps[LoanRecord]{
-		Direction: direction,
-		Interval:  cfg.PollInterval,
-		MaxBatch:  cfg.MaxBatch,
-		Fetcher:   FetchFunc[LoanRecord](fetcher.GetActiveMoneyGramLoans),
-		Driver:    p,
-		Logger:    p.logger,
-		LoanID:    func(r LoanRecord) string { return r.LoanID },
+		Direction:     direction,
+		Interval:      cfg.PollInterval,
+		MaxBatch:      cfg.MaxBatch,
+		Fetcher:       FetchFunc[LoanRecord](fetcher.GetActiveMoneyGramLoans),
+		Driver:        p,
+		Logger:        p.logger,
+		LoanID:        func(r LoanRecord) string { return r.LoanID },
+		LoanReference: func(r LoanRecord) string { return r.LoanReference },
 	})
 	return p, nil
 }
@@ -343,6 +344,6 @@ func (p *Poller) poll(ctx context.Context) { p.runner.poll(ctx) }
 // withdrawal.go; this is the name the runner calls it by.
 func (p *Poller) Drive(ctx context.Context, rec LoanRecord) { p.driveLoan(ctx, rec) }
 
-func (p *Poller) alertOps(subject, message string) {
-	alertOps(p.alerts, p.logger, subject, message)
+func (p *Poller) alertOps(ctx context.Context, subject, message string) {
+	alerts.Raise(ctx, p.alerts, p.logger, subject, message)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
@@ -34,10 +35,7 @@ type PaymentLookup interface {
 }
 
 // AlertService is the interface for sending operational alerts.
-type AlertService interface {
-	// AlertOps sends an alert to the operations team.
-	AlertOps(subject string, message string) error
-}
+type AlertService = alerts.Service
 
 // TransactionRecorder records and updates transaction records for disbursement events.
 type TransactionRecorder interface {
@@ -163,7 +161,7 @@ func (s *Service) handleFailedEvent(ctx context.Context, seqID, paymentID, statu
 			return webhookErr("update_status").With("target_status", "refund_pending").
 				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
 		}
-		s.alertOps(ctx, "Direct Settlement Failed",
+		s.alertOps(ctx, seqID, "Direct Settlement Failed",
 			fmt.Sprintf("Payment %s (seq: %s) failed after USDC sent. Awaiting crypto refund.", paymentID, seqID))
 	} else {
 		// Fiat disbursement failed to terminal failure.
@@ -174,7 +172,7 @@ func (s *Service) handleFailedEvent(ctx context.Context, seqID, paymentID, statu
 		if err := s.disbursements.NotifyDisbursementFailed(ctx, seqID); err != nil {
 			slog.ErrorContext(ctx, "yellowcard webhook: failed to notify user of failure", slog.Any("error", err))
 		}
-		s.alertOps(ctx, "Fiat Disbursement Failed",
+		s.alertOps(ctx, seqID, "Fiat Disbursement Failed",
 			fmt.Sprintf("Payment %s (seq: %s) fiat disbursement failed.", paymentID, seqID))
 	}
 	return nil
@@ -198,7 +196,7 @@ func (s *Service) handleByStatus(ctx context.Context, seqID, paymentID, status s
 
 	case yellowcard.StatusPendingLiquidity:
 		// YC balance is low; YC auto-retries for ~2 hours. Alert ops.
-		s.alertOps(ctx, "YellowCard Pending Liquidity",
+		s.alertOps(ctx, seqID, "YellowCard Pending Liquidity",
 			fmt.Sprintf("Payment %s (seq: %s) is pending liquidity. YC will auto-retry.", paymentID, seqID))
 
 	case yellowcard.StatusPendingRefund, yellowcard.StatusRefundProcessing:
@@ -221,8 +219,8 @@ func (s *Service) handleByStatus(ctx context.Context, seqID, paymentID, status s
 			return webhookErr("update_status").With("target_status", "failed").
 				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
 		}
-		s.alertOps(ctx, "YellowCard Refund Failed",
-			fmt.Sprintf("CRITICAL: Refund failed for payment %s (seq: %s). Manual intervention required.", paymentID, seqID))
+		s.alertOps(ctx, seqID, "YellowCard Refund Failed",
+			fmt.Sprintf("Refund failed for payment %s (seq: %s). Manual intervention required.", paymentID, seqID))
 
 	case yellowcard.StatusProcess, yellowcard.StatusProcessing, yellowcard.StatusPending,
 		yellowcard.StatusCreated, yellowcard.StatusPendingApproval:
@@ -245,13 +243,12 @@ func (s *Service) handleByStatus(ctx context.Context, seqID, paymentID, status s
 	return nil
 }
 
-// alertOps sends an alert to the operations team, logging on failure.
-func (s *Service) alertOps(ctx context.Context, subject, message string) {
-	if s.alerts == nil {
-		slog.InfoContext(ctx, "yellowcard webhook alert", slog.String("subject", subject), slog.String("message", message))
-		return
+// alertOps sends an alert to the operations team. The webhook only knows the
+// sequence ID, so the loan is resolved here, on the alert path only, to give
+// the alert its loan_id and loan_reference.
+func (s *Service) alertOps(ctx context.Context, sequenceID, subject, message string) {
+	if loanID, ref, err := s.disbursements.LoanRefs(ctx, sequenceID); err == nil {
+		ctx = logging.WithLoan(ctx, loanID, ref)
 	}
-	if err := s.alerts.AlertOps(subject, message); err != nil {
-		slog.ErrorContext(ctx, "yellowcard webhook: failed to send ops alert", slog.String("subject", subject), slog.Any("error", err))
-	}
+	alerts.Raise(ctx, s.alerts, nil, subject, message)
 }

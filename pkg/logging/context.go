@@ -3,6 +3,8 @@ package logging
 import (
 	"context"
 	"log/slog"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 type attrsKey struct{}
@@ -18,6 +20,19 @@ func With(ctx context.Context, attrs ...slog.Attr) context.Context {
 	merged = append(merged, prev...)
 	merged = append(merged, attrs...)
 	return context.WithValue(ctx, attrsKey{}, merged)
+}
+
+// WithLoan attaches a loan's identity. Empty values are skipped, so callers
+// that only know the id need not special-case the reference.
+func WithLoan(ctx context.Context, loanID, reference string) context.Context {
+	var attrs []slog.Attr
+	if loanID != "" {
+		attrs = append(attrs, slog.String(pkgErrors.AttrLoanID, loanID))
+	}
+	if reference != "" {
+		attrs = append(attrs, slog.String(pkgErrors.AttrLoanReference, reference))
+	}
+	return With(ctx, attrs...)
 }
 
 // Attrs returns the attributes attached to ctx by With.

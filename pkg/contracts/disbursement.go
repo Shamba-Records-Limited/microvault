@@ -55,6 +55,10 @@ type DisbursementUpdater interface {
 	// principal. Used for refunds, where the anchor may return less than was
 	// sent and repaying the principal would overdraw the treasury.
 	RepayVaultAmount(ctx context.Context, sequenceID string, amountStroops int64) error
+
+	// LoanRefs resolves the loan behind sequenceID, for callers that only
+	// know the off-ramp sequence and need the loan's identity on a log line.
+	LoanRefs(ctx context.Context, sequenceID string) (loanID, reference string, err error)
 }
 
 // CompletionFinancials carries the final amounts of a completed off-ramp

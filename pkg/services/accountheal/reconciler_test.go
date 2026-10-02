@@ -47,7 +47,7 @@ func (f *fakeRepo) UpdateChainStatus(_ context.Context, _ string, status string)
 
 type fakeAlerts struct{ subjects []string }
 
-func (f *fakeAlerts) AlertOps(subject, _ string) error {
+func (f *fakeAlerts) AlertOps(_ context.Context, subject, _ string) error {
 	f.subjects = append(f.subjects, subject)
 	return nil
 }

@@ -307,7 +307,7 @@ type fakeAlertService struct {
 	subjects []string
 }
 
-func (f *fakeAlertService) AlertOps(subject, _ string) error {
+func (f *fakeAlertService) AlertOps(_ context.Context, subject, _ string) error {
 	f.subjects = append(f.subjects, subject)
 	return nil
 }

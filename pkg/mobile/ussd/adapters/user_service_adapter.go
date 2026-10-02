@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
+	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
@@ -43,9 +44,7 @@ type WalletConfig struct {
 
 // AlertService escalates conditions that need a human. Optional — a nil
 // service degrades to logging.
-type AlertService interface {
-	AlertOps(subject, message string) error
-}
+type AlertService = alerts.Service
 
 // userAdapterErr starts an error builder for registration and child-account
 // work. Derived key material is never an attribute — only addresses and
@@ -117,14 +116,8 @@ func NewUserServiceAdapter(
 
 // alertOps escalates to the ops team, falling back to a log line when no alert
 // service is wired.
-func (a *UserServiceAdapter) alertOps(subject, message string) {
-	if a.alerts == nil {
-		a.logger.Error("ops alert", "subject", subject, "message", message)
-		return
-	}
-	if err := a.alerts.AlertOps(subject, message); err != nil {
-		a.logger.Error("failed to send ops alert", "subject", subject, "error", err)
-	}
+func (a *UserServiceAdapter) alertOps(ctx context.Context, subject, message string) {
+	alerts.Raise(ctx, a.alerts, a.logger, subject, message)
 }
 
 // GetUserWithAccounts retrieves a user and their accounts by ID or phone number
@@ -351,7 +344,7 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(ctx context.Context, us
 		a.logger.ErrorContext(ctx, "derivation index reused — derived account already exists on-chain",
 			"user_id", userID, "account_id", accountID, "address", address,
 			"error_code", pkgErrors.CodeDerivationIndexReused)
-		a.alertOps("Stellar derivation index reused",
+		a.alertOps(ctx, "Stellar derivation index reused",
 			fmt.Sprintf("User %s account %s derived %s, which already exists on-chain. "+
 				"account_index_seq has been rewound: two users now derive one keypair. "+
 				"Do not retry — re-arm STELLAR_ACCOUNT_INDEX_BASE above the on-chain "+
@@ -389,7 +382,7 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(ctx context.Context, us
 	a.setChainStatus(ctx, accountID, models.ChainStatusFailed)
 	a.logger.ErrorContext(ctx, "sponsored account creation permanently failed — needs reconciliation",
 		"user_id", userID, "account_id", accountID, "address", address, "error", err)
-	a.alertOps("Stellar account creation failed",
+	a.alertOps(ctx, "Stellar account creation failed",
 		fmt.Sprintf("User %s account %s (%s) has no on-chain account after %d attempts: %v. "+
 			"chain_status=failed; lending is blocked until it is healed.",
 			userID, accountID, address, attempts, err))

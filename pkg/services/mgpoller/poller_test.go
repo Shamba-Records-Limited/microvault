@@ -247,6 +247,10 @@ func (d *fakeDisbursement) NotifyRefundReceived(_ context.Context, seqID string)
 	return nil
 }
 
+func (d *fakeDisbursement) LoanRefs(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
+
 func (d *fakeDisbursement) RepayVaultAmount(_ context.Context, seqID string, stroops int64) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -322,7 +326,7 @@ type fakeAlerts struct {
 	bodies []string
 }
 
-func (a *fakeAlerts) AlertOps(subject, body string) error {
+func (a *fakeAlerts) AlertOps(_ context.Context, subject, body string) error {
 	a.calls = append(a.calls, subject)
 	a.bodies = append(a.bodies, body)
 	return nil

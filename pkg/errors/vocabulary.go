@@ -262,6 +262,7 @@ const (
 // `loan_id` and `loanID` cannot be searched as one field.
 const (
 	AttrLoanID           = "loan_id"
+	AttrLoanReference    = "loan_reference"
 	AttrUserID           = "user_id"
 	AttrAccountIndex     = "account_index"
 	AttrBorrower         = "borrower"

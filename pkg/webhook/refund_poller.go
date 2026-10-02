@@ -10,6 +10,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
 
@@ -31,6 +32,7 @@ type RefundPendingRecord struct {
 	SequenceID       string  // YC sequenceId / idempotency key
 	PaymentID        string  // YC payment ID
 	LoanID           string  // Loan ID for tracking
+	LoanReference    string  // Human-facing loan reference, for alerts
 	UserID           string  // User ID for tracking
 	RecipientName    string  // Recipient name for fiat disbursement
 	AmountUSD        float64 // Amount in USD
@@ -130,7 +132,8 @@ func (p *RefundPoller) poll(ctx context.Context) {
 }
 
 func (p *RefundPoller) traceRefund(ctx context.Context, rec RefundPendingRecord) {
-	ctx = logging.With(ctx, slog.String(pkgErrors.AttrLoanID, rec.LoanID), slog.String(pkgErrors.AttrSequenceID, rec.SequenceID), slog.String("payment_id", rec.PaymentID))
+	ctx = logging.WithLoan(ctx, rec.LoanID, rec.LoanReference)
+	ctx = logging.With(ctx, slog.String(pkgErrors.AttrSequenceID, rec.SequenceID), slog.String("payment_id", rec.PaymentID))
 	ctx, span := telemetry.StartRoot(ctx, "yellowcard.refund_check",
 		attribute.String(pkgErrors.AttrLoanID, rec.LoanID), attribute.String(pkgErrors.AttrSequenceID, rec.SequenceID), attribute.String("payment_id", rec.PaymentID))
 	defer span.End()
@@ -164,8 +167,8 @@ func (p *RefundPoller) checkRefund(ctx context.Context, rec RefundPendingRecord)
 		if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, yellowcard.DisbursementFailed); err != nil {
 			slog.ErrorContext(ctx, "refund_poller: failed to update status", slog.String("sequence_id", rec.SequenceID), slog.Any("error", err))
 		}
-		p.alertOps("Refund Failed",
-			fmt.Sprintf("CRITICAL: Refund failed for payment %s (seq: %s). Manual intervention required.", rec.PaymentID, rec.SequenceID))
+		p.alertOps(ctx, "Refund Failed",
+			fmt.Sprintf("Refund failed for payment %s (seq: %s). Manual intervention required.", rec.PaymentID, rec.SequenceID))
 
 	case yellowcard.StatusPendingRefund, yellowcard.StatusRefundProcessing:
 		// Still in progress — will check again next poll cycle.
@@ -195,7 +198,7 @@ func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendin
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "refund_poller: fiat failover failed", slog.String("payment_id", rec.PaymentID), slog.Any("error", err))
-		p.alertOps("Fiat Failover Failed",
+		p.alertOps(ctx, "Fiat Failover Failed",
 			fmt.Sprintf("Payment %s (seq: %s) fiat failover failed: %v", rec.PaymentID, rec.SequenceID, err))
 
 		if err := p.disbursement.UpdateDisbursementStatus(ctx, rec.SequenceID, yellowcard.DisbursementFailed); err != nil {
@@ -231,13 +234,7 @@ func (p *RefundPoller) attemptFiatFailover(ctx context.Context, rec RefundPendin
 	slog.ErrorContext(ctx, "refund_poller: fiat failover initiated for: new request_id", slog.String("payment_id", rec.PaymentID), slog.String("request_id", fiatResult.RequestID))
 }
 
-// alertOps sends an alert to the operations team, logging on failure.
-func (p *RefundPoller) alertOps(subject, message string) {
-	if p.alerts == nil {
-		slog.Info("refund_poller alert", slog.String("subject", subject), slog.String("message", message))
-		return
-	}
-	if err := p.alerts.AlertOps(subject, message); err != nil {
-		slog.Error("refund_poller: failed to send ops alert", slog.String("subject", subject), slog.Any("error", err))
-	}
+// alertOps sends an alert to the operations team.
+func (p *RefundPoller) alertOps(ctx context.Context, subject, message string) {
+	alerts.Raise(ctx, p.alerts, nil, subject, message)
 }

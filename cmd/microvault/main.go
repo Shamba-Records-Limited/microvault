@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
 
 	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
@@ -203,7 +204,7 @@ func main() {
 			HighThreshold:      uint32(cfg.Stellar.MultiSigHighThreshold),
 		},
 		nil, // Logger — falls back to slog.Default()
-		nil, // AlertService — chain-status failures log-only for now
+		alerts.LogAlerter{Logger: logger},
 	)
 	if err != nil {
 		log.Fatalf("Failed to initialize USSD user service adapter: %v", err)

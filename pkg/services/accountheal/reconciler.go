@@ -15,6 +15,7 @@ import (
 	"github.com/samber/oops"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
+	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
@@ -161,13 +162,7 @@ func (d *Driver) record(ctx context.Context, acct *models.Account, attempts int,
 }
 
 func (d *Driver) alertOps(ctx context.Context, subject, message string) {
-	if d.alerts == nil {
-		d.logger.WarnContext(ctx, "ops alert", "subject", subject, "message", message)
-		return
-	}
-	if err := d.alerts.AlertOps(subject, message); err != nil {
-		d.logger.WarnContext(ctx, "failed to send ops alert", "subject", subject, "error", err)
-	}
+	alerts.Raise(ctx, d.alerts, d.logger, subject, message)
 }
 
 // permanent reports a failure that retrying the same heal cannot clear: the

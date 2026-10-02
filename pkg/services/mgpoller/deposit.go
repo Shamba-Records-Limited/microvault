@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 	"github.com/Shamba-Records-Limited/microvault/pkg/utils"
@@ -20,6 +21,7 @@ import (
 // one of the live states and whose repayment_next_poll_at is due.
 type RepaymentRecord struct {
 	LoanID        string
+	LoanReference string
 	SequenceID    string // = loans.ramp_sequence_id; the handle notifications use
 	MoneyGramTxID string // = loans.repayment_mg_tx_id
 
@@ -209,13 +211,14 @@ func NewDepositDriver(deps DepositDriverDeps) (*DepositDriver, error) {
 	}
 	// Two-step because the runner's Driver is the driver itself.
 	d.runner = NewRunner(RunnerDeps[RepaymentRecord]{
-		Direction: direction,
-		Interval:  cfg.DepositPollInterval,
-		MaxBatch:  cfg.DepositMaxBatch,
-		Fetcher:   FetchFunc[RepaymentRecord](fetcher.GetDueRepayments),
-		Driver:    d,
-		Logger:    d.logger,
-		LoanID:    func(r RepaymentRecord) string { return r.LoanID },
+		Direction:     direction,
+		Interval:      cfg.DepositPollInterval,
+		MaxBatch:      cfg.DepositMaxBatch,
+		Fetcher:       FetchFunc[RepaymentRecord](fetcher.GetDueRepayments),
+		Driver:        d,
+		Logger:        d.logger,
+		LoanID:        func(r RepaymentRecord) string { return r.LoanID },
+		LoanReference: func(r RepaymentRecord) string { return r.LoanReference },
 	})
 	return d, nil
 }
@@ -301,7 +304,7 @@ func (d *DepositDriver) Drive(ctx context.Context, rec RepaymentRecord) {
 	case stellaranchor.StatusTooSmall, stellaranchor.StatusTooLarge:
 		// Our own floor should have kept us out of these. Alert as well as
 		// fail: it means the amount gate and MoneyGram's limits disagree.
-		d.alertOps("MoneyGram deposit outside anchor limits",
+		d.alertOps(ctx, "MoneyGram deposit outside anchor limits",
 			fmt.Sprintf("Loan %s: MG reported %s for a %d stroop payoff. Check the repayment amount gate against MG's deposit limits. Message: %s",
 				rec.LoanID, tx.Status, rec.PayoffStroops, tx.Message))
 		d.failRepayment(ctx, rec, fmt.Sprintf("MoneyGram reported %s", tx.Status))
@@ -312,7 +315,7 @@ func (d *DepositDriver) Drive(ctx context.Context, rec RepaymentRecord) {
 	case stellaranchor.StatusOnHold:
 		d.logger.WarnContext(ctx, "MoneyGram deposit on hold",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "message", tx.Message)
-		d.alertOps("MoneyGram deposit on hold",
+		d.alertOps(ctx, "MoneyGram deposit on hold",
 			fmt.Sprintf("Loan %s: MG on_hold for additional checks. Message: %s",
 				rec.LoanID, tx.Message))
 		d.reschedule(ctx, rec, d.cfg.DepositActiveBackoff)
@@ -426,7 +429,7 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 		// silently drop the attribution the whole rail exists to produce.
 		d.logger.ErrorContext(ctx, "repayment has no borrower address, cannot attribute vault repay",
 			"loan_id", rec.LoanID)
-		d.alertOps("Repayment missing borrower address",
+		d.alertOps(ctx, "Repayment missing borrower address",
 			fmt.Sprintf("Loan %s: funds received but no child account address to attribute repay_for. Vault leg withheld.", rec.LoanID))
 		d.reschedule(ctx, rec, d.cfg.DepositActiveBackoff)
 		return
@@ -434,7 +437,7 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 	if rec.PayoffStroops <= 0 {
 		d.logger.ErrorContext(ctx, "repayment has no locked payoff, cannot repay vault",
 			"loan_id", rec.LoanID, "payoff_stroops", rec.PayoffStroops)
-		d.alertOps("Repayment missing locked payoff",
+		d.alertOps(ctx, "Repayment missing locked payoff",
 			fmt.Sprintf("Loan %s: funds received but repayment_payoff_stroops is %d. Vault leg withheld.", rec.LoanID, rec.PayoffStroops))
 		d.reschedule(ctx, rec, d.cfg.DepositActiveBackoff)
 		return
@@ -442,7 +445,7 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 
 	// Record what arrived versus what was quoted. The repay still uses the
 	// quoted payoff — whether amount_out is net of the fee is unconfirmed.
-	d.checkDepositShortfall(rec, tx)
+	d.checkDepositShortfall(ctx, rec, tx)
 
 	hash, err := d.vault.RepayForBorrower(ctx, rec.LoanID, rec.BorrowerAddress, rec.PayoffStroops)
 	if err != nil {
@@ -453,9 +456,9 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 	if err := d.recorder.MarkSettled(ctx, rec.LoanID, hash); err != nil {
 		// The chain moved but the row did not. Loud, because the next tick
 		// would see funds_received again and could repay a second time.
-		d.logger.ErrorContext(ctx, "CRITICAL: vault repay_for succeeded but settlement was not recorded",
+		d.logger.ErrorContext(ctx, "vault repay_for succeeded but settlement was not recorded",
 			"loan_id", rec.LoanID, "vault_tx_hash", hash, "error", err)
-		d.alertOps("Repayment settled on-chain but not recorded",
+		d.alertOps(ctx, "Repayment settled on-chain but not recorded",
 			fmt.Sprintf("Loan %s: repay_for landed as %s but the loan row was not updated. Do not let this loan be repaid again.", rec.LoanID, hash))
 		return
 	}
@@ -473,7 +476,7 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 
 // checkDepositShortfall compares what MoneyGram credited against the quote.
 // Reports only: a shortfall is a slow treasury drain, so it alerts.
-func (d *DepositDriver) checkDepositShortfall(rec RepaymentRecord, tx *stellaranchor.Transaction) {
+func (d *DepositDriver) checkDepositShortfall(ctx context.Context, rec RepaymentRecord, tx *stellaranchor.Transaction) {
 	arrived, ok := utils.ParseDecimalStroops(tx.AmountOut)
 	if !ok || arrived <= 0 {
 		d.logger.Warn("deposit completed without a readable amount_out",
@@ -493,7 +496,7 @@ func (d *DepositDriver) checkDepositShortfall(rec RepaymentRecord, tx *stellaran
 		feeTotal = tx.FeeDetails.Total
 	}
 
-	d.logger.Error("CRITICAL: deposit credited less than the quoted payoff",
+	d.logger.Error("deposit credited less than the quoted payoff",
 		"loan_id", rec.LoanID,
 		"arrived_stroops", arrived,
 		"payoff_stroops", rec.PayoffStroops,
@@ -502,7 +505,7 @@ func (d *DepositDriver) checkDepositShortfall(rec RepaymentRecord, tx *stellaran
 		"amount_out_asset", tx.AmountOutAsset,
 		"fee_total", feeTotal)
 
-	d.alertOps("Repayment deposit short of the quoted payoff",
+	d.alertOps(ctx, "Repayment deposit short of the quoted payoff",
 		fmt.Sprintf("Loan %s: MoneyGram credited %d stroops against a quoted payoff of %d — short by %d. "+
 			"The vault is being repaid the full payoff, so the treasury absorbs the difference. "+
 			"amount_out=%s %s, fee_total=%s.",
@@ -515,7 +518,7 @@ func (d *DepositDriver) checkDepositShortfall(rec RepaymentRecord, tx *stellaran
 func (d *DepositDriver) vaultLegFailed(ctx context.Context, rec RepaymentRecord, cause error) {
 	attempts := rec.VaultAttempts + 1
 
-	d.logger.ErrorContext(ctx, "CRITICAL: vault repay_for failed — borrower USDC held in treasury",
+	d.logger.ErrorContext(ctx, "vault repay_for failed — borrower USDC held in treasury",
 		"loan_id", rec.LoanID,
 		"borrower", rec.BorrowerAddress,
 		"amount_stroops", rec.PayoffStroops,
@@ -533,7 +536,7 @@ func (d *DepositDriver) vaultLegFailed(ctx context.Context, rec RepaymentRecord,
 	// Attempts only ever increment, so equality fires exactly once. Alerting on
 	// >= instead would page ops on every subsequent tick.
 	if attempts == d.cfg.DepositVaultMaxAttempts {
-		d.alertOps("Repayment vault leg stuck",
+		d.alertOps(ctx, "Repayment vault leg stuck",
 			fmt.Sprintf("Loan %s: repay_for has failed %d times. The borrower paid, their USDC is on the treasury, "+
 				"and the loan is still open. Borrower %s, amount %d stroops. Last error: %v",
 				rec.LoanID, attempts, rec.BorrowerAddress, rec.PayoffStroops, cause))
@@ -567,7 +570,7 @@ func (d *DepositDriver) sendPayInstructionsOnce(ctx context.Context, rec Repayme
 	}
 	d.logger.InfoContext(ctx, "sending deposit pay instructions", "kind", kind, "loan_id", rec.LoanID)
 
-	if !d.notifyPayInstructions(kind, rec, send) {
+	if !d.notifyPayInstructions(ctx, kind, rec, send) {
 		return
 	}
 	if err := d.recorder.MarkReferenceSent(ctx, rec.LoanID); err != nil {
@@ -578,11 +581,11 @@ func (d *DepositDriver) sendPayInstructionsOnce(ctx context.Context, rec Repayme
 
 // notifyPayInstructions sends the message the borrower cannot pay without.
 // The marker is already spent, so a failure alerts rather than logs.
-func (d *DepositDriver) notifyPayInstructions(kind string, rec RepaymentRecord, send func(RepaymentNotifier) error) bool {
+func (d *DepositDriver) notifyPayInstructions(ctx context.Context, kind string, rec RepaymentRecord, send func(RepaymentNotifier) error) bool {
 	if d.notifier == nil {
 		d.logger.Error("no repayment notifier configured, borrower cannot be told how to pay",
 			"kind", kind, "loan_id", rec.LoanID)
-		d.alertOps("Repayment instructions not delivered",
+		d.alertOps(ctx, "Repayment instructions not delivered",
 			fmt.Sprintf("Loan %s: no notifier is wired.", rec.LoanID))
 		return false
 	}
@@ -651,6 +654,6 @@ func (d *DepositDriver) notify(kind string, rec RepaymentRecord, send func(Repay
 	return true
 }
 
-func (d *DepositDriver) alertOps(subject, message string) {
-	alertOps(d.alerts, d.logger, subject, message)
+func (d *DepositDriver) alertOps(ctx context.Context, subject, message string) {
+	alerts.Raise(ctx, d.alerts, d.logger, subject, message)
 }

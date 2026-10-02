@@ -56,7 +56,7 @@ func (f *fakeDisb) last() string {
 
 type fakeAlerts struct{ count int }
 
-func (f *fakeAlerts) AlertOps(string, string) error { f.count++; return nil }
+func (f *fakeAlerts) AlertOps(context.Context, string, string) error { f.count++; return nil }
 
 func TestProcessYellowCardEvent_Table(t *testing.T) {
 	cases := []struct {
@@ -171,3 +171,6 @@ func TestUpdateStatusError_Propagates(t *testing.T) {
 func (f *fakeDisb) NotifyCashPickupReady(context.Context, string) error   { return nil }
 func (f *fakeDisb) NotifyRefundReceived(context.Context, string) error    { return nil }
 func (f *fakeDisb) RepayVaultAmount(context.Context, string, int64) error { return nil }
+func (f *fakeDisb) LoanRefs(context.Context, string) (string, string, error) {
+	return "loan-1", "REF-1", nil
+}

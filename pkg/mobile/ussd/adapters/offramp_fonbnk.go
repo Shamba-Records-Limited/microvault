@@ -9,7 +9,9 @@ import (
 	"github.com/samber/lo"
 	"github.com/samber/oops"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/fonbnk"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	phoneutil "github.com/Shamba-Records-Limited/microvault/pkg/phone"
@@ -40,6 +42,7 @@ type FonbnkOffRampAdapter struct {
 	cryptoCode     string
 	treasuryPubkey string
 	channel        string
+	alerts         alerts.Service
 	logger         *slog.Logger
 }
 
@@ -55,6 +58,7 @@ type FonbnkOffRampConfig struct {
 	TreasuryAddress string
 
 	PaymentChannel string
+	Alerts         alerts.Service
 	Logger         *slog.Logger
 }
 
@@ -92,6 +96,7 @@ func NewFonbnkOffRampAdapter(cfg FonbnkOffRampConfig) (*FonbnkOffRampAdapter, er
 		cryptoCode:     cfg.CryptoCurrencyCode,
 		treasuryPubkey: cfg.TreasuryAddress,
 		channel:        channel,
+		alerts:         cfg.Alerts,
 		logger:         logger.With("component", "fonbnk_offramp"),
 	}, nil
 }
@@ -240,11 +245,9 @@ func (a *FonbnkOffRampAdapter) confirm(ctx context.Context, orderID, loanID, txH
 	if err == nil {
 		return true
 	}
-	a.logger.ErrorContext(ctx, "CRITICAL: USDC sent to fonbnk but the deposit could not be confirmed",
-		pkgErrors.AttrLoanID, loanID,
-		pkgErrors.AttrOrderID, orderID,
-		pkgErrors.AttrTxHash, txHash,
-		"error", err)
+	alerts.Raise(logging.WithLoan(ctx, loanID, ""), a.alerts, a.logger, "Fonbnk deposit not confirmed",
+		fmt.Sprintf("USDC sent to Fonbnk (order %s, tx %s) but the deposit confirmation failed: %v. "+
+			"Fonbnk detects incoming payments on its own; check the order settles.", orderID, txHash, err))
 	return false
 }
 

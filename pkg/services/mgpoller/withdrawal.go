@@ -100,7 +100,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		p.logger.WarnContext(ctx, "MoneyGram transaction on hold",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 			"message", tx.Message)
-		p.alertOps("MoneyGram transaction on hold",
+		p.alertOps(ctx, "MoneyGram transaction on hold",
 			fmt.Sprintf("Loan %s: MG on_hold for additional checks. Message: %s",
 				rec.LoanID, tx.Message))
 
@@ -111,7 +111,7 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 		p.logger.WarnContext(ctx, "MoneyGram pending_trust — anchor missing trustline?",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 			"message", tx.Message)
-		p.alertOps("MoneyGram pending_trust",
+		p.alertOps(ctx, "MoneyGram pending_trust",
 			fmt.Sprintf("Loan %s: MG reported pending_trust. Investigate anchor trustline. Message: %s",
 				rec.LoanID, tx.Message))
 
@@ -188,7 +188,7 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 				p.logger.ErrorContext(ctx, "failed to release send claim after on-ledger failure; loan will not retry until cleared manually",
 					"loan_id", rec.LoanID, "error", cerr)
 			}
-			p.alertOps("MoneyGram USDC send failed on ledger",
+			p.alertOps(ctx, "MoneyGram USDC send failed on ledger",
 				fmt.Sprintf("Loan %s: payment to %s failed on ledger (no funds moved), will retry: %v",
 					rec.LoanID, tx.WithdrawAnchorAccount, err))
 			return
@@ -197,7 +197,7 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 		// Outcome unknown (submission error, poll timeout): the payment may or
 		// may not have landed. Keep the claim — a duplicate payment is worse
 		// than a stalled loan — and escalate for manual reconciliation.
-		p.alertOps("MoneyGram USDC send outcome UNKNOWN — manual reconciliation required",
+		p.alertOps(ctx, "MoneyGram USDC send outcome UNKNOWN — manual reconciliation required",
 			fmt.Sprintf("Loan %s: SendUSDC to %s returned %v. The payment may have landed. "+
 				"Verify on-chain before clearing ramp_stellar_tx_hash; clearing it allows a re-send.",
 				rec.LoanID, tx.WithdrawAnchorAccount, err))
@@ -323,7 +323,7 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 	if net <= 0 {
 		p.logger.ErrorContext(ctx, "refund settled to zero; not repaying vault",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID)
-		p.alertOps("MoneyGram refund settled to zero",
+		p.alertOps(ctx, "MoneyGram refund settled to zero",
 			fmt.Sprintf("Loan %s: MG reported a refund of 0 after we sent %d stroops. Needs manual review.",
 				rec.LoanID, rec.PrincipalStroops))
 		return
@@ -342,7 +342,7 @@ func (p *Poller) ledgerRefundTotal(ctx context.Context, rec LoanRecord, tx *stel
 		if err != nil {
 			p.logger.ErrorContext(ctx, "no ledger verification available and refund amounts are unparseable; not repaying vault",
 				"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID, "error", err)
-			p.alertOps("MoneyGram refund amount unparseable",
+			p.alertOps(ctx, "MoneyGram refund amount unparseable",
 				fmt.Sprintf("Loan %s: cannot parse MG refund amounts and cannot read the ledger, "+
 					"vault repay withheld: %v", rec.LoanID, err))
 			return 0, false
@@ -398,7 +398,7 @@ func (p *Poller) crossCheckReportedRefund(ctx context.Context, rec LoanRecord, t
 	p.logger.WarnContext(ctx, "anchor refund amount disagrees with the ledger",
 		"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
 		"reported_stroops", reported, "ledger_stroops", ledger)
-	p.alertOps("MoneyGram refund amount mismatch",
+	p.alertOps(ctx, "MoneyGram refund amount mismatch",
 		fmt.Sprintf("Loan %s: MG reported %d stroops refunded but the ledger shows %d. "+
 			"Settled on the ledger figure.", rec.LoanID, reported, ledger))
 }
@@ -441,7 +441,7 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 			"sent_stroops", rec.PrincipalStroops,
 			"returned_stroops", net,
 			"shortfall_stroops", shortfall)
-		p.alertOps("MoneyGram refund shortfall",
+		p.alertOps(ctx, "MoneyGram refund shortfall",
 			fmt.Sprintf("Loan %s: sent %d stroops, MG returned %d, shortfall %d. "+
 				"Vault repaid with what came back; treasury absorbed the difference.",
 				rec.LoanID, rec.PrincipalStroops, net, shortfall))
@@ -453,7 +453,7 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 			"sent_stroops", rec.PrincipalStroops,
 			"returned_stroops", net,
 			"excess_stroops", excess)
-		p.alertOps("MoneyGram refund excess",
+		p.alertOps(ctx, "MoneyGram refund excess",
 			fmt.Sprintf("Loan %s: sent %d stroops, MG returned %d, excess %d. "+
 				"Vault repaid the principal; the excess is held in the funds wallet "+
 				"for an admin to settle.",
@@ -468,10 +468,10 @@ func (p *Poller) settleRefund(ctx context.Context, rec LoanRecord, refundHash st
 				"loan_id", rec.LoanID, "sequence_id", rec.SequenceID)
 			return
 		}
-		p.logger.ErrorContext(ctx, "CRITICAL: vault repay failed after refund",
+		p.logger.ErrorContext(ctx, "vault repay failed after refund",
 			"loan_id", rec.LoanID, "sequence_id", rec.SequenceID,
 			"amount_stroops", net, "error", err)
-		p.alertOps("Vault repay failed after MoneyGram refund",
+		p.alertOps(ctx, "Vault repay failed after MoneyGram refund",
 			fmt.Sprintf("Loan %s: refund of %d stroops landed but vault repay failed: %v",
 				rec.LoanID, net, err))
 		// Stay in refund_pending so the next tick retries the repay.
@@ -583,7 +583,7 @@ func (p *Poller) awaitRefundDetails(ctx context.Context, rec LoanRecord, tx *ste
 		"attempts", attempts,
 		"mg_stellar_tx_id", tx.StellarTransactionID,
 		"amount_in", tx.AmountIn)
-	p.alertOps("MoneyGram refund has no settlement details",
+	p.alertOps(ctx, "MoneyGram refund has no settlement details",
 		fmt.Sprintf("Loan %s (MG tx %s): status=refunded after %d polls but the SEP-24 refunds "+
 			"object is absent, so no refund transaction hash is available and the vault has not "+
 			"been repaid. We sent %d stroops. Verify on-chain whether the anchor returned funds "+
@@ -619,7 +619,7 @@ func (p *Poller) refundLanded(ctx context.Context, rec LoanRecord, payments []st
 		if !ok {
 			p.logger.ErrorContext(ctx, "MoneyGram named a refund transaction that did not succeed on-ledger",
 				"loan_id", rec.LoanID, "refund_tx_hash", pay.ID)
-			p.alertOps("MoneyGram refund not on ledger",
+			p.alertOps(ctx, "MoneyGram refund not on ledger",
 				fmt.Sprintf("Loan %s: MG reported refund tx %s but it did not succeed on-ledger. "+
 					"Vault repay withheld.", rec.LoanID, pay.ID))
 			return false
@@ -648,7 +648,7 @@ func (p *Poller) handleTerminalFailure(ctx context.Context, rec LoanRecord, tx *
 				"loan_id", rec.LoanID, "sequence_id", rec.SequenceID, "error", err)
 		}
 	}
-	p.alertOps("MoneyGram off-ramp terminated",
+	p.alertOps(ctx, "MoneyGram off-ramp terminated",
 		fmt.Sprintf("Loan %s ended in MG status %s. Message: %s",
 			rec.LoanID, tx.Status, tx.Message))
 }

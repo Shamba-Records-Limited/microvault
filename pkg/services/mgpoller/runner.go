@@ -83,6 +83,7 @@ type Runner[T any] struct {
 	logger    *slog.Logger
 	db        *sql.DB
 	loanID    func(T) string
+	loanRef   func(T) string
 }
 
 // RunnerDeps are the collaborators and settings a Runner needs. Logger and DB
@@ -110,6 +111,10 @@ type RunnerDeps[T any] struct {
 	// driven under its own root span and a context carrying loan_id, so its
 	// trace and log lines are findable by loan. Optional.
 	LoanID func(T) string
+
+	// LoanReference names the loan's human-facing reference, attached beside
+	// loan_id so ops alerts can show it. Optional.
+	LoanReference func(T) string
 }
 
 // NewRunner pairs a fetcher and a driver on one cadence.
@@ -130,6 +135,7 @@ func NewRunner[T any](deps RunnerDeps[T]) *Runner[T] {
 		logger:    logger.With(pkgErrors.AttrDirection, direction),
 		db:        deps.DB,
 		loanID:    deps.LoanID,
+		loanRef:   deps.LoanReference,
 	}
 }
 
@@ -217,21 +223,13 @@ func (r *Runner[T]) drive(ctx context.Context, rec T) {
 	if r.loanID != nil {
 		id := r.loanID(rec)
 		attrs = append(attrs, attribute.String(pkgErrors.AttrLoanID, id))
-		ctx = logging.With(ctx, slog.String(pkgErrors.AttrLoanID, id))
+		var ref string
+		if r.loanRef != nil {
+			ref = r.loanRef(rec)
+		}
+		ctx = logging.WithLoan(ctx, id, ref)
 	}
 	ctx, span := telemetry.StartRoot(ctx, r.direction+".drive", attrs...)
 	defer span.End()
 	r.driver.Drive(ctx, rec)
-}
-
-// alertOps sends an ops alert, degrading to a log line when no AlertService is
-// configured. Shared by both directions; alerts is optional everywhere.
-func alertOps(alerts AlertService, logger *slog.Logger, subject, message string) {
-	if alerts == nil {
-		logger.Warn("ops alert", "subject", subject, "message", message)
-		return
-	}
-	if err := alerts.AlertOps(subject, message); err != nil {
-		logger.Warn("failed to send ops alert", "subject", subject, "error", err)
-	}
 }
