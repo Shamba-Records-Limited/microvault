@@ -197,6 +197,7 @@ pub struct WithdrawGracePeriodUpdated {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExitDeadlineSet {
+    #[topic]
     pub account: Address,
     pub deadline: u64,
     pub frozen: bool,
@@ -206,6 +207,7 @@ pub struct ExitDeadlineSet {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExitDeadlineCleared {
+    #[topic]
     pub account: Address,
 }
 

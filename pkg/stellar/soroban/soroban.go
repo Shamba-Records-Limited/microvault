@@ -65,6 +65,12 @@ type Service interface {
 	// AllowlistEnforced reports whether the vault currently blocks
 	// deposits/mints/transfers involving an unallowlisted address.
 	AllowlistEnforced(ctx context.Context) (bool, error)
+	// ExitDeadline returns when a revoked or frozen depositor's withdraw
+	// window closes, or nil if none is set.
+	ExitDeadline(ctx context.Context, address string) (*time.Time, error)
+	// IsFrozen reports whether the address's exit window has closed.
+	IsFrozen(ctx context.Context, address string) (bool, error)
+	WithdrawGracePeriod(ctx context.Context) (time.Duration, error)
 	GetLockPeriod(ctx context.Context) (uint64, error)
 	GetRemainingLockTime(ctx context.Context, userAddress string) (uint64, error)
 	IsPaused(ctx context.Context) (bool, error)
@@ -90,6 +96,8 @@ type Service interface {
 	// these rather than falling back to another key.
 	AllowDepositor(ctx context.Context, address string) error
 	DisallowDepositor(ctx context.Context, address string) error
+	FreezeDepositor(ctx context.Context, address string) error
+	ExtendExitDeadline(ctx context.Context, address string, deadline time.Time) error
 	// WithComplianceRole sets the signing key for AllowDepositor/
 	// DisallowDepositor and returns the same Service, so a caller that
 	// doesn't need compliance calls (most of them — five existing

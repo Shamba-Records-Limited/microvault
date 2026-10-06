@@ -3,6 +3,7 @@ package soroban
 import (
 	"context"
 	"testing"
+	"time"
 
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 	"github.com/stretchr/testify/assert"
@@ -117,4 +118,35 @@ func TestAllowDepositor_InvalidAddress(t *testing.T) {
 	svc := newTestServiceWithComplianceRole(mockClient)
 	err := svc.AllowDepositor(context.Background(), "not-a-valid-address")
 	require.Error(t, err)
+}
+
+func successfulInvokeMock() *stellartesting.MockRPCClient {
+	m := stellartesting.NewMockRPCClient()
+	m.SimulateTransactionFunc = func(ctx context.Context, req protocol.SimulateTransactionRequest) (protocol.SimulateTransactionResponse, error) {
+		return stellartesting.NewSimulationResponse().WithTransactionData().WithAuth().Build(), nil
+	}
+	m.SendTransactionFunc = func(ctx context.Context, req protocol.SendTransactionRequest) (protocol.SendTransactionResponse, error) {
+		return stellartesting.NewSendTransactionResponse().WithHash("tx_hash").Build(), nil
+	}
+	m.GetTransactionFunc = func(ctx context.Context, req protocol.GetTransactionRequest) (protocol.GetTransactionResponse, error) {
+		return stellartesting.NewGetTransactionResponse().WithStatus(protocol.TransactionStatusSuccess).Build(), nil
+	}
+	return m
+}
+
+func TestFreezeDepositor(t *testing.T) {
+	svc := newTestServiceWithComplianceRole(successfulInvokeMock())
+	require.NoError(t, svc.FreezeDepositor(context.Background(), stellartesting.NewTestKeys().UserPublic))
+
+	err := newTestService(stellartesting.NewMockRPCClient()).FreezeDepositor(context.Background(), stellartesting.NewTestKeys().UserPublic)
+	require.ErrorContains(t, err, "no compliance role key configured")
+}
+
+func TestExtendExitDeadline(t *testing.T) {
+	svc := newTestServiceWithComplianceRole(successfulInvokeMock())
+	depositor := stellartesting.NewTestKeys().UserPublic
+
+	require.NoError(t, svc.ExtendExitDeadline(context.Background(), depositor, time.Unix(1_800_000_000, 0)))
+	require.Error(t, svc.ExtendExitDeadline(context.Background(), depositor, time.Unix(-1, 0)))
+	require.Error(t, svc.ExtendExitDeadline(context.Background(), "not-a-valid-address", time.Unix(1_800_000_000, 0)))
 }

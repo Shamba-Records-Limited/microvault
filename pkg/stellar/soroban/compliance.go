@@ -3,6 +3,7 @@ package soroban
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -89,5 +90,63 @@ func (s *service) DisallowDepositor(ctx context.Context, address string) error {
 	}
 
 	s.logger.InfoContext(ctx, "DisallowDepositor: disallowed", slog.String("address", address), slog.String("tx_hash", txResp.TransactionHash))
+	return nil
+}
+
+// FreezeDepositor calls the vault's freeze_depositor, signed by the
+// compliance role: disallow and close the exit window immediately.
+func (s *service) FreezeDepositor(ctx context.Context, address string) error {
+	const fnName = "freeze_depositor"
+
+	roleKP, err := s.requireComplianceRole(fnName)
+	if err != nil {
+		return err
+	}
+	callerAddr, _ := addressToScVal(roleKP.Address())
+	depositorAddr, err := addressToScVal(address)
+	if err != nil {
+		return complianceErr(fnName).Code(pkgErrors.CodeInvalidAddress).
+			With(pkgErrors.AttrAddress, address).
+			Wrapf(err, "invalid depositor address")
+	}
+
+	txResp, err := s.invokeSigned(ctx, roleKP, fnName, []xdr.ScVal{callerAddr, depositorAddr}, complianceErr(fnName).With(pkgErrors.AttrAddress, address))
+	if err != nil {
+		return err
+	}
+
+	s.logger.InfoContext(ctx, "FreezeDepositor: frozen", slog.String("address", address), slog.String("tx_hash", txResp.TransactionHash))
+	return nil
+}
+
+// ExtendExitDeadline calls the vault's extend_exit_deadline, signed by the
+// compliance role. deadline must be later than the current one.
+func (s *service) ExtendExitDeadline(ctx context.Context, address string, deadline time.Time) error {
+	const fnName = "extend_exit_deadline"
+
+	roleKP, err := s.requireComplianceRole(fnName)
+	if err != nil {
+		return err
+	}
+	callerAddr, _ := addressToScVal(roleKP.Address())
+	depositorAddr, err := addressToScVal(address)
+	if err != nil {
+		return complianceErr(fnName).Code(pkgErrors.CodeInvalidAddress).
+			With(pkgErrors.AttrAddress, address).
+			Wrapf(err, "invalid depositor address")
+	}
+	if deadline.Unix() <= 0 {
+		return complianceErr(fnName).Code(pkgErrors.CodeInvalidDeadline).
+			With(pkgErrors.AttrAddress, address).
+			Errorf("exit deadline must be a positive unix time")
+	}
+
+	args := []xdr.ScVal{callerAddr, depositorAddr, u64ToScVal(uint64(deadline.Unix()))}
+	txResp, err := s.invokeSigned(ctx, roleKP, fnName, args, complianceErr(fnName).With(pkgErrors.AttrAddress, address).With("deadline", deadline))
+	if err != nil {
+		return err
+	}
+
+	s.logger.InfoContext(ctx, "ExtendExitDeadline: extended", slog.String("address", address), slog.Time("deadline", deadline), slog.String("tx_hash", txResp.TransactionHash))
 	return nil
 }

@@ -2,6 +2,7 @@ package stellar
 
 import (
 	"context"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 
@@ -146,6 +147,18 @@ func (s *service) AllowlistEnforced(ctx context.Context) (bool, error) {
 	return s.sorobanService.AllowlistEnforced(ctx)
 }
 
+func (s *service) ExitDeadline(ctx context.Context, address string) (*time.Time, error) {
+	return s.sorobanService.ExitDeadline(ctx, address)
+}
+
+func (s *service) IsFrozen(ctx context.Context, address string) (bool, error) {
+	return s.sorobanService.IsFrozen(ctx, address)
+}
+
+func (s *service) WithdrawGracePeriod(ctx context.Context) (time.Duration, error) {
+	return s.sorobanService.WithdrawGracePeriod(ctx)
+}
+
 func (s *service) GetLockPeriod(ctx context.Context) (uint64, error) {
 	return s.sorobanService.GetLockPeriod(ctx)
 }
@@ -207,6 +220,14 @@ func (s *service) AllowDepositor(ctx context.Context, address string) error {
 
 func (s *service) DisallowDepositor(ctx context.Context, address string) error {
 	return s.sorobanService.DisallowDepositor(ctx, address)
+}
+
+func (s *service) FreezeDepositor(ctx context.Context, address string) error {
+	return s.sorobanService.FreezeDepositor(ctx, address)
+}
+
+func (s *service) ExtendExitDeadline(ctx context.Context, address string, deadline time.Time) error {
+	return s.sorobanService.ExtendExitDeadline(ctx, address, deadline)
 }
 
 // WithComplianceRole returns soroban.Service, not the composed

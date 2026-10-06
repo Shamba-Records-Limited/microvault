@@ -171,6 +171,58 @@ func (f *fakeRepo) RevokeAddress(_ context.Context, id, actor, reason string) er
 	return nil
 }
 
+func (f *fakeRepo) FreezeAddress(_ context.Context, id, actor, reason string) error {
+	addr, ok := f.addresses[id]
+	if !ok {
+		return repository.ErrCounterpartyAddressNotFound
+	}
+	now := time.Now()
+	addr.FrozenBy, addr.FrozenAt = &actor, &now
+	if addr.RevokedAt == nil {
+		addr.RevokedBy, addr.RevokedAt = &actor, &now
+	}
+	addr.OverrideReason = &reason
+	return nil
+}
+
+func (f *fakeRepo) ListAddressesNeedingOnchainFreeze(_ context.Context, limit int) ([]*models.CounterpartyAddress, error) {
+	var out []*models.CounterpartyAddress
+	for _, a := range f.addresses {
+		if a.FrozenAt != nil && a.OnchainState != models.OnchainStateFrozen {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) SetExitDeadline(_ context.Context, address string, deadline *time.Time) error {
+	for _, a := range f.addresses {
+		if a.Address == address {
+			a.ExitDeadline = deadline
+			a.ExitWarningLevel = 0
+		}
+	}
+	return nil
+}
+
+func (f *fakeRepo) ListExitWindowsClosing(_ context.Context, before time.Time, level, limit int) ([]*models.CounterpartyAddress, error) {
+	var out []*models.CounterpartyAddress
+	now := time.Now()
+	for _, a := range f.addresses {
+		if a.ExitDeadline != nil && a.ExitDeadline.After(now) && !a.ExitDeadline.After(before) && a.ExitWarningLevel < level {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) SetExitWarningLevel(_ context.Context, id string, level int) error {
+	if a, ok := f.addresses[id]; ok {
+		a.ExitWarningLevel = level
+	}
+	return nil
+}
+
 func (f *fakeRepo) ListScreeningsByAddress(_ context.Context, addressID string) ([]*models.AddressScreening, error) {
 	var out []*models.AddressScreening
 	for _, s := range f.screenings {
@@ -215,7 +267,7 @@ func (f *fakeRepo) ListAddressesNeedingOnchainAllow(_ context.Context, limit int
 func (f *fakeRepo) ListAddressesNeedingOnchainRevoke(_ context.Context, limit int) ([]*models.CounterpartyAddress, error) {
 	var out []*models.CounterpartyAddress
 	for _, a := range f.addresses {
-		if a.RevokedAt != nil && a.OnchainState != models.OnchainStateRevoked {
+		if a.RevokedAt != nil && a.FrozenAt == nil && a.OnchainState != models.OnchainStateRevoked {
 			out = append(out, a)
 		}
 	}

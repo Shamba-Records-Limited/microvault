@@ -4,12 +4,15 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 )
 
 // testAddress returns a fresh, valid Stellar account address for fixtures.
@@ -66,11 +69,24 @@ func (f *fakeEventsClient) GetLatestLedger(_ context.Context) (protocol.GetLates
 }
 
 type fakeAllowlist struct {
-	allowed map[string]bool
+	allowed   map[string]bool
+	enforced  bool
+	deadlines map[string]time.Time
+	checked   []string
 }
 
 func (f *fakeAllowlist) IsAllowed(_ context.Context, address string) (bool, error) {
+	f.checked = append(f.checked, address)
 	return f.allowed[address], nil
+}
+
+func (f *fakeAllowlist) AllowlistEnforced(context.Context) (bool, error) { return f.enforced, nil }
+
+func (f *fakeAllowlist) ExitDeadline(_ context.Context, address string) (*time.Time, error) {
+	if d, ok := f.deadlines[address]; ok {
+		return &d, nil
+	}
+	return nil, nil
 }
 
 type fakeCursor struct {
@@ -169,4 +185,126 @@ func TestInspect_LogsMismatchWithoutPanicking(t *testing.T) {
 	require.NotPanics(t, func() {
 		w.inspect(context.Background(), events[0])
 	})
+}
+
+type recordingAlerts struct{ subjects []string }
+
+func (r *recordingAlerts) AlertOps(_ context.Context, subject, _ string) error {
+	r.subjects = append(r.subjects, subject)
+	return nil
+}
+
+type fakeDeadlines struct {
+	byAddress map[string]*time.Time
+	rows      []*models.CounterpartyAddress
+}
+
+func (f *fakeDeadlines) SetExitDeadline(_ context.Context, address string, deadline *time.Time) error {
+	f.byAddress[address] = deadline
+	return nil
+}
+
+func (f *fakeDeadlines) ListExitWindowsClosing(_ context.Context, before time.Time, level, _ int) ([]*models.CounterpartyAddress, error) {
+	var out []*models.CounterpartyAddress
+	for _, r := range f.rows {
+		if r.ExitDeadline.After(time.Now()) && !r.ExitDeadline.After(before) && r.ExitWarningLevel < level {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeDeadlines) SetExitWarningLevel(_ context.Context, id string, level int) error {
+	for _, r := range f.rows {
+		if r.ID == id {
+			r.ExitWarningLevel = level
+		}
+	}
+	return nil
+}
+
+func newExitWatcher(allowlist *fakeAllowlist, deadlines *fakeDeadlines, rec *recordingAlerts) *Watcher {
+	return NewWatcher(WatcherDeps{
+		Client:    &fakeEventsClient{},
+		Allowlist: allowlist,
+		Deadlines: deadlines,
+		Alerts:    rec,
+		Cursor:    &fakeCursor{ledger: 100},
+		Logger:    slog.New(slog.DiscardHandler),
+	})
+}
+
+func withdrawEvent(t *testing.T, owner string, closedAt time.Time) protocol.EventInfo {
+	op := testAddress(t)
+	return protocol.EventInfo{
+		ID:             "w-1",
+		LedgerClosedAt: closedAt.UTC().Format(time.RFC3339),
+		TopicXDR:       vaultTopicXDR(t, "withdraw", op, op, owner),
+	}
+}
+
+func TestInspect_WithdrawAfterDeadlinePages(t *testing.T) {
+	owner := testAddress(t)
+	deadline := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	rec := &recordingAlerts{}
+	w := newExitWatcher(&fakeAllowlist{enforced: true, deadlines: map[string]time.Time{owner: deadline}}, nil, rec)
+
+	w.inspect(context.Background(), withdrawEvent(t, owner, deadline.Add(-time.Hour)))
+	assert.Empty(t, rec.subjects, "a withdraw inside the grace window is legitimate")
+
+	w.inspect(context.Background(), withdrawEvent(t, owner, deadline))
+	assert.Equal(t, []string{SubjectFrozenDepositorWithdrew}, rec.subjects)
+}
+
+func TestInspect_WithdrawIgnoredWhenEnforcementOffOrAllowed(t *testing.T) {
+	owner := testAddress(t)
+	deadline := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	rec := &recordingAlerts{}
+
+	newExitWatcher(&fakeAllowlist{deadlines: map[string]time.Time{owner: deadline}}, nil, rec).
+		inspect(context.Background(), withdrawEvent(t, owner, deadline.Add(time.Hour)))
+	newExitWatcher(&fakeAllowlist{enforced: true, allowed: map[string]bool{owner: true}, deadlines: map[string]time.Time{owner: deadline}}, nil, rec).
+		inspect(context.Background(), withdrawEvent(t, owner, deadline.Add(time.Hour)))
+
+	assert.Empty(t, rec.subjects)
+}
+
+func TestInspect_DisallowEventIsNotACanaryHit(t *testing.T) {
+	addr := testAddress(t)
+	allowlist := &fakeAllowlist{enforced: true}
+	w := newExitWatcher(allowlist, nil, &recordingAlerts{})
+
+	w.inspect(context.Background(), protocol.EventInfo{ID: "d-1", TopicXDR: vaultTopicXDR(t, "user_disallowed", addr)})
+
+	assert.Empty(t, allowlist.checked, "a revocation must not be checked against the allowlist")
+}
+
+func TestInspect_ExitDeadlineEventsSyncTheStore(t *testing.T) {
+	addr := testAddress(t)
+	store := &fakeDeadlines{byAddress: map[string]*time.Time{}}
+	w := newExitWatcher(&fakeAllowlist{}, store, &recordingAlerts{})
+
+	w.inspect(context.Background(), protocol.EventInfo{ID: "c-1", TopicXDR: vaultTopicXDR(t, "exit_deadline_cleared", addr)})
+
+	got, ok := store.byAddress[addr]
+	assert.True(t, ok)
+	assert.Nil(t, got)
+}
+
+func TestCheckExitWindows_AlertsOncePerLevel(t *testing.T) {
+	in3Days := time.Now().Add(72 * time.Hour)
+	in12Hours := time.Now().Add(12 * time.Hour)
+	store := &fakeDeadlines{rows: []*models.CounterpartyAddress{
+		{ID: "a", Address: "GA", ExitDeadline: &in3Days},
+		{ID: "b", Address: "GB", ExitDeadline: &in12Hours},
+	}}
+	rec := &recordingAlerts{}
+	w := newExitWatcher(&fakeAllowlist{}, store, rec)
+
+	w.checkExitWindows(context.Background())
+	w.checkExitWindows(context.Background())
+
+	assert.Equal(t, []string{SubjectExitWindowClosing, SubjectExitWindowClosing}, rec.subjects, "one alert each, not repeated")
+	assert.Equal(t, 1, store.rows[0].ExitWarningLevel)
+	assert.Equal(t, 2, store.rows[1].ExitWarningLevel, "first seen inside a day gets only the one-day alert")
 }

@@ -1,6 +1,8 @@
 package soroban
 
 import (
+	"time"
+
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -123,5 +125,54 @@ func TestDecodeVaultEvent(t *testing.T) {
 		}
 		_, err := DecodeVaultEvent(info)
 		assert.Error(t, err)
+	})
+}
+
+func exitDeadlineValue(t *testing.T, deadline uint64, frozen bool) string {
+	t.Helper()
+	dKey, fKey := xdr.ScSymbol("deadline"), xdr.ScSymbol("frozen")
+	d := xdr.Uint64(deadline)
+	f := frozen
+	m := xdr.ScMap{
+		{Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: &dKey}, Val: xdr.ScVal{Type: xdr.ScValTypeScvU64, U64: &d}},
+		{Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: &fKey}, Val: xdr.ScVal{Type: xdr.ScValTypeScvBool, B: &f}},
+	}
+	mp := &m
+	out, err := xdr.MarshalBase64(xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &mp})
+	require.NoError(t, err)
+	return out
+}
+
+func TestDecodeVaultEvent_ExitDeadlines(t *testing.T) {
+	t.Run("withdraw yields operator, receiver, owner", func(t *testing.T) {
+		event, err := DecodeVaultEvent(protocol.EventInfo{ID: "w-1", TopicXDR: topicXDR(t, "withdraw", testAddrA, testAddrB, testAddrA)})
+		require.NoError(t, err)
+		assert.Equal(t, VaultEventWithdraw, event.Kind)
+		assert.Equal(t, []string{testAddrA, testAddrB, testAddrA}, event.Addresses)
+	})
+
+	t.Run("exit_deadline_set yields account, deadline and frozen", func(t *testing.T) {
+		event, err := DecodeVaultEvent(protocol.EventInfo{
+			ID:       "eds-1",
+			TopicXDR: topicXDR(t, "exit_deadline_set", testAddrA),
+			ValueXDR: exitDeadlineValue(t, 1_800_000_000, true),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, VaultEventExitDeadlineSet, event.Kind)
+		assert.Equal(t, []string{testAddrA}, event.Addresses)
+		assert.Equal(t, time.Unix(1_800_000_000, 0).UTC(), event.Deadline)
+		assert.True(t, event.Frozen)
+	})
+
+	t.Run("exit_deadline_set without a data map is an error", func(t *testing.T) {
+		_, err := DecodeVaultEvent(protocol.EventInfo{ID: "eds-2", TopicXDR: topicXDR(t, "exit_deadline_set", testAddrA), ValueXDR: encodeSymbol(t, "x")})
+		assert.Error(t, err)
+	})
+
+	t.Run("exit_deadline_cleared yields account", func(t *testing.T) {
+		event, err := DecodeVaultEvent(protocol.EventInfo{ID: "edc-1", TopicXDR: topicXDR(t, "exit_deadline_cleared", testAddrA)})
+		require.NoError(t, err)
+		assert.Equal(t, VaultEventExitDeadlineCleared, event.Kind)
+		assert.Equal(t, []string{testAddrA}, event.Addresses)
 	})
 }

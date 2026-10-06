@@ -2,6 +2,7 @@ package soroban
 
 import (
 	"context"
+	"time"
 
 	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -196,6 +197,58 @@ func (s *service) AllowlistEnforced(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return scValToBool(result)
+}
+
+// ExitDeadline returns the vault's exit_deadline for address, or nil when
+// the contract returns None.
+func (s *service) ExitDeadline(ctx context.Context, address string) (*time.Time, error) {
+	const fnName = "exit_deadline"
+
+	args, err := userViewArgs(fnName, address)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.callView(ctx, fnName, args)
+	if err != nil {
+		return nil, err
+	}
+	if result.Type == xdr.ScValTypeScvVoid {
+		return nil, nil
+	}
+	secs, err := scValToU64(result)
+	if err != nil {
+		return nil, err
+	}
+	t := time.Unix(int64(secs), 0).UTC()
+	return &t, nil
+}
+
+// IsFrozen reports the vault's is_frozen view for address.
+func (s *service) IsFrozen(ctx context.Context, address string) (bool, error) {
+	const fnName = "is_frozen"
+
+	args, err := userViewArgs(fnName, address)
+	if err != nil {
+		return false, err
+	}
+	result, err := s.callView(ctx, fnName, args)
+	if err != nil {
+		return false, err
+	}
+	return scValToBool(result)
+}
+
+// WithdrawGracePeriod returns the vault's post-revocation withdraw window.
+func (s *service) WithdrawGracePeriod(ctx context.Context) (time.Duration, error) {
+	result, err := s.callView(ctx, "withdraw_grace_period", nil)
+	if err != nil {
+		return 0, err
+	}
+	secs, err := scValToU64(result)
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(secs) * time.Second, nil
 }
 
 // GetLockPeriod returns the lock period in seconds

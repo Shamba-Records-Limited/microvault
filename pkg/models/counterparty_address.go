@@ -35,6 +35,7 @@ const (
 	OnchainStatePending  CounterpartyAddressOnchainState = "pending"
 	OnchainStateApproved CounterpartyAddressOnchainState = "approved"
 	OnchainStateRevoked  CounterpartyAddressOnchainState = "revoked"
+	OnchainStateFrozen   CounterpartyAddressOnchainState = "frozen"
 )
 
 // CounterpartyAddress is a wallet address a counterparty has submitted for
@@ -60,6 +61,11 @@ type CounterpartyAddress struct {
 	RevokedBy      *string    `json:"revoked_by,omitempty" gorm:"column:revoked_by"`
 	RevokedAt      *time.Time `json:"revoked_at,omitempty" gorm:"column:revoked_at"`
 	OverrideReason *string    `json:"override_reason,omitempty" gorm:"column:override_reason"`
+
+	FrozenBy         *string    `json:"frozen_by,omitempty" gorm:"column:frozen_by"`
+	FrozenAt         *time.Time `json:"frozen_at,omitempty" gorm:"column:frozen_at"`
+	ExitDeadline     *time.Time `json:"exit_deadline,omitempty" gorm:"column:exit_deadline"`
+	ExitWarningLevel int        `json:"exit_warning_level" gorm:"column:exit_warning_level;not null;default:0"`
 
 	Counterparty *Counterparty `json:"counterparty,omitempty" gorm:"foreignKey:CounterpartyID"`
 	// LatestScreening is a belongs-to on last_screening_id — an ordinary FK,

@@ -88,6 +88,10 @@ const (
 	// contract address.
 	CodeInvalidAddress = "invalid_address"
 
+	// CodeInvalidDeadline is a deadline that cannot be sent on-chain, such as
+	// a time before the unix epoch.
+	CodeInvalidDeadline = "invalid_deadline"
+
 	// CodeBelowAnchorMinimum is an amount under a provider's floor — for
 	// MoneyGram deposits, 15 USDC. Distinct from CodeInvalidAmount because the
 	// amount is well-formed and the limit is someone else's.

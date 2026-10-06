@@ -127,6 +127,10 @@ func MapContractError(code uint32) *ContractError {
 		return &ContractError{code, "AddressNotAllowed", "Address is not on the compliance allowlist", "microvault"}
 	case 15:
 		return &ContractError{code, "ComplianceRoleNotSet", "Compliance role has not been configured", "microvault"}
+	case 16:
+		return &ContractError{code, "ExitWindowClosed", "Depositor's exit window has closed; shares are frozen", "microvault"}
+	case 17:
+		return &ContractError{code, "InvalidExitDeadline", "Exit deadline must be later than the current one", "microvault"}
 
 	// FungibleTokenError (100-114)
 	case 100:

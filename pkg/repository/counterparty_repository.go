@@ -53,6 +53,9 @@ type CounterpartyRepository interface {
 	ApproveAddress(ctx context.Context, id, actor, reason string) error
 	RejectAddress(ctx context.Context, id, actor, reason string) error
 	RevokeAddress(ctx context.Context, id, actor, reason string) error
+	// FreezeAddress records a freeze intent: revoked too, and the on-chain
+	// writer calls freeze_depositor rather than disallow_depositor.
+	FreezeAddress(ctx context.Context, id, actor, reason string) error
 
 	// ListScreeningsByAddress returns an address's full screening history,
 	// newest first — the audit artefact the screening detail screen renders
@@ -84,6 +87,22 @@ type CounterpartyRepository interface {
 	// after submitting a transaction — the "observed state" half of the
 	// intent/observed split described in RevokeAddress's doc comment.
 	SetOnchainState(ctx context.Context, id string, state models.CounterpartyAddressOnchainState) error
+
+	// ListAddressesNeedingOnchainFreeze returns addresses with a freeze
+	// intent the chain has not yet confirmed.
+	ListAddressesNeedingOnchainFreeze(ctx context.Context, limit int) ([]*models.CounterpartyAddress, error)
+
+	// SetExitDeadline mirrors the vault's exit deadline for address; nil
+	// clears it. A changed deadline resets exit_warning_level. An address
+	// that is not a counterparty is not an error.
+	SetExitDeadline(ctx context.Context, address string, deadline *time.Time) error
+
+	// ListExitWindowsClosing returns addresses whose deadline is still ahead
+	// but no later than before, and whose warning level is below level.
+	ListExitWindowsClosing(ctx context.Context, before time.Time, level, limit int) ([]*models.CounterpartyAddress, error)
+
+	// SetExitWarningLevel records which closing alert was sent.
+	SetExitWarningLevel(ctx context.Context, id string, level int) error
 
 	// MarkExpiredAddresses flips every approved address whose expires_at
 	// has passed to AddressStatusExpired, and returns how many it touched.
@@ -288,6 +307,10 @@ func (r *counterpartyRepository) ApproveAddress(ctx context.Context, id, actor, 
 			"onchain_state":   models.OnchainStatePending,
 			"approved_by":     actor,
 			"approved_at":     now,
+			"revoked_by":      nil,
+			"revoked_at":      nil,
+			"frozen_by":       nil,
+			"frozen_at":       nil,
 			"override_reason": reason,
 			"updated_at":      now,
 		})
@@ -348,6 +371,88 @@ func (r *counterpartyRepository) RevokeAddress(ctx context.Context, id, actor, r
 	return nil
 }
 
+func (r *counterpartyRepository) FreezeAddress(ctx context.Context, id, actor, reason string) error {
+	now := time.Now()
+	result := r.db.WithContext(ctx).
+		Model(&models.CounterpartyAddress{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"frozen_by":       actor,
+			"frozen_at":       now,
+			"revoked_by":      gorm.Expr("COALESCE(revoked_by, ?)", actor),
+			"revoked_at":      gorm.Expr("COALESCE(revoked_at, ?)", now),
+			"override_reason": reason,
+			"updated_at":      now,
+		})
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "FreezeAddress: database error", slog.Any("error", result.Error))
+		return ErrFailedToUpdateCounterpartyAddress
+	}
+	if result.RowsAffected == 0 {
+		return ErrCounterpartyAddressNotFound
+	}
+	return nil
+}
+
+func (r *counterpartyRepository) ListAddressesNeedingOnchainFreeze(ctx context.Context, limit int) ([]*models.CounterpartyAddress, error) {
+	var addrs []*models.CounterpartyAddress
+	result := r.db.WithContext(ctx).
+		Where("frozen_at IS NOT NULL AND onchain_state != ?", models.OnchainStateFrozen).
+		Order("frozen_at ASC").
+		Limit(limit).
+		Find(&addrs)
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "ListAddressesNeedingOnchainFreeze: database error", slog.Any("error", result.Error))
+		return nil, ErrFailedToGetCounterpartyAddresses
+	}
+	return addrs, nil
+}
+
+func (r *counterpartyRepository) SetExitDeadline(ctx context.Context, address string, deadline *time.Time) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.CounterpartyAddress{}).
+		Where("address = ? AND exit_deadline IS DISTINCT FROM ?", address, deadline).
+		Updates(map[string]interface{}{
+			"exit_deadline":      deadline,
+			"exit_warning_level": 0,
+			"updated_at":         time.Now(),
+		})
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "SetExitDeadline: database error", slog.Any("error", result.Error))
+		return ErrFailedToUpdateCounterpartyAddress
+	}
+	return nil
+}
+
+func (r *counterpartyRepository) ListExitWindowsClosing(ctx context.Context, before time.Time, level, limit int) ([]*models.CounterpartyAddress, error) {
+	var addrs []*models.CounterpartyAddress
+	result := r.db.WithContext(ctx).
+		Where("exit_deadline > ? AND exit_deadline <= ? AND exit_warning_level < ?", time.Now(), before, level).
+		Order("exit_deadline ASC").
+		Limit(limit).
+		Find(&addrs)
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "ListExitWindowsClosing: database error", slog.Any("error", result.Error))
+		return nil, ErrFailedToGetCounterpartyAddresses
+	}
+	return addrs, nil
+}
+
+func (r *counterpartyRepository) SetExitWarningLevel(ctx context.Context, id string, level int) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.CounterpartyAddress{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"exit_warning_level": level,
+			"updated_at":         time.Now(),
+		})
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "SetExitWarningLevel: database error", slog.Any("error", result.Error))
+		return ErrFailedToUpdateCounterpartyAddress
+	}
+	return nil
+}
+
 func (r *counterpartyRepository) ListAddressesNeedingOnchainAllow(ctx context.Context, limit int) ([]*models.CounterpartyAddress, error) {
 	var addrs []*models.CounterpartyAddress
 	result := r.db.WithContext(ctx).
@@ -365,7 +470,7 @@ func (r *counterpartyRepository) ListAddressesNeedingOnchainAllow(ctx context.Co
 func (r *counterpartyRepository) ListAddressesNeedingOnchainRevoke(ctx context.Context, limit int) ([]*models.CounterpartyAddress, error) {
 	var addrs []*models.CounterpartyAddress
 	result := r.db.WithContext(ctx).
-		Where("revoked_at IS NOT NULL AND onchain_state != ?", models.OnchainStateRevoked).
+		Where("revoked_at IS NOT NULL AND frozen_at IS NULL AND onchain_state != ?", models.OnchainStateRevoked).
 		Order("revoked_at ASC").
 		Limit(limit).
 		Find(&addrs)

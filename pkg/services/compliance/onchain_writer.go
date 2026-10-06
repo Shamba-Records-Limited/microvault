@@ -26,6 +26,8 @@ const onchainWriterBatchSize = 50
 type OnchainSigner interface {
 	AllowDepositor(ctx context.Context, address string) error
 	DisallowDepositor(ctx context.Context, address string) error
+	FreezeDepositor(ctx context.Context, address string) error
+	ExitDeadline(ctx context.Context, address string) (*time.Time, error)
 }
 
 // OnchainWriter is the separate worker the source design doc §14 calls
@@ -87,6 +89,7 @@ func (w *OnchainWriter) Start(ctx context.Context) {
 func (w *OnchainWriter) tick(ctx context.Context) {
 	w.processAllows(ctx)
 	w.processRevokes(ctx)
+	w.processFreezes(ctx)
 }
 
 // processAllows submits allow_depositor for every address the database
@@ -150,6 +153,51 @@ func (w *OnchainWriter) revoke(ctx context.Context, addr *models.CounterpartyAdd
 	}
 	if err := w.repo.SetOnchainState(ctx, addr.ID, models.OnchainStateRevoked); err != nil {
 		w.logger.ErrorContext(ctx, "disallow_depositor succeeded on-chain but the database write failed",
+			"address_id", addr.ID, "address", addr.Address, "error", err)
+	}
+	w.recordExitDeadline(ctx, addr)
+}
+
+// processFreezes submits freeze_depositor for every address with a freeze
+// intent the chain has not confirmed.
+func (w *OnchainWriter) processFreezes(ctx context.Context) {
+	addrs, err := w.repo.ListAddressesNeedingOnchainFreeze(ctx, onchainWriterBatchSize)
+	if err != nil {
+		w.logger.ErrorContext(ctx, "could not list addresses needing an on-chain freeze", "error", err)
+		return
+	}
+	for _, addr := range addrs {
+		w.freeze(ctx, addr)
+	}
+}
+
+func (w *OnchainWriter) freeze(ctx context.Context, addr *models.CounterpartyAddress) {
+	ctx, span := telemetry.StartRoot(ctx, "compliance.freeze_depositor", attribute.String("address_id", addr.ID))
+	defer span.End()
+	if err := w.signer.FreezeDepositor(ctx, addr.Address); err != nil {
+		telemetry.RecordError(span, err)
+		w.logger.ErrorContext(ctx, "freeze_depositor failed, will retry next tick",
+			"address_id", addr.ID, "address", addr.Address, "error", err)
+		return
+	}
+	if err := w.repo.SetOnchainState(ctx, addr.ID, models.OnchainStateFrozen); err != nil {
+		w.logger.ErrorContext(ctx, "freeze_depositor succeeded on-chain but the database write failed",
+			"address_id", addr.ID, "address", addr.Address, "error", err)
+	}
+	w.recordExitDeadline(ctx, addr)
+}
+
+// recordExitDeadline copies the deadline the contract set into the
+// database. Best effort: the watcher also syncs it from the event.
+func (w *OnchainWriter) recordExitDeadline(ctx context.Context, addr *models.CounterpartyAddress) {
+	deadline, err := w.signer.ExitDeadline(ctx, addr.Address)
+	if err != nil {
+		w.logger.WarnContext(ctx, "could not read the exit deadline back; the watcher will sync it",
+			"address_id", addr.ID, "address", addr.Address, "error", err)
+		return
+	}
+	if err := w.repo.SetExitDeadline(ctx, addr.Address, deadline); err != nil {
+		w.logger.ErrorContext(ctx, "could not record the exit deadline",
 			"address_id", addr.ID, "address", addr.Address, "error", err)
 	}
 }

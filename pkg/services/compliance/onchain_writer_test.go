@@ -22,8 +22,20 @@ func testNow() time.Time { return time.Now() }
 type fakeSigner struct {
 	allowErr    error
 	disallowErr error
+	freezeErr   error
 	allowed     []string
 	disallowed  []string
+	frozen      []string
+	deadline    *time.Time
+}
+
+func (f *fakeSigner) FreezeDepositor(_ context.Context, address string) error {
+	f.frozen = append(f.frozen, address)
+	return f.freezeErr
+}
+
+func (f *fakeSigner) ExitDeadline(context.Context, string) (*time.Time, error) {
+	return f.deadline, nil
 }
 
 func (f *fakeSigner) AllowDepositor(_ context.Context, address string) error {
@@ -128,4 +140,50 @@ func TestOnchainWriter_ProcessRevokes(t *testing.T) {
 
 		assert.Equal(t, models.OnchainStateApproved, addr.OnchainState, "must not be marked revoked when the chain call failed")
 	})
+}
+
+func TestOnchainWriter_ProcessFreezes(t *testing.T) {
+	t.Run("submits freeze_depositor, marks frozen and records the deadline", func(t *testing.T) {
+		repo := newFakeRepo()
+		now := testNow()
+		addr := &models.CounterpartyAddress{ID: "addr-1", Address: testAddress(), OnchainState: models.OnchainStateApproved, FrozenAt: &now, RevokedAt: &now}
+		repo.addresses[addr.ID] = addr
+		deadline := now.Truncate(time.Second)
+		signer := &fakeSigner{deadline: &deadline}
+
+		w := newTestWriter(repo, signer)
+		w.tick(context.Background())
+
+		assert.Equal(t, []string{addr.Address}, signer.frozen)
+		assert.Empty(t, signer.disallowed, "a freeze intent must not also go through the revoke pass")
+		assert.Equal(t, models.OnchainStateFrozen, addr.OnchainState)
+		assert.Equal(t, &deadline, addr.ExitDeadline)
+	})
+
+	t.Run("a failed freeze is retried next tick", func(t *testing.T) {
+		repo := newFakeRepo()
+		now := testNow()
+		addr := &models.CounterpartyAddress{ID: "addr-1", Address: testAddress(), OnchainState: models.OnchainStateRevoked, FrozenAt: &now, RevokedAt: &now}
+		repo.addresses[addr.ID] = addr
+		signer := &fakeSigner{freezeErr: assertErr("rpc down")}
+
+		newTestWriter(repo, signer).processFreezes(context.Background())
+
+		assert.Equal(t, models.OnchainStateRevoked, addr.OnchainState)
+		assert.Nil(t, addr.ExitDeadline)
+	})
+}
+
+func TestOnchainWriter_RevokeRecordsExitDeadline(t *testing.T) {
+	repo := newFakeRepo()
+	now := testNow()
+	addr := &models.CounterpartyAddress{ID: "addr-1", Address: testAddress(), OnchainState: models.OnchainStateApproved, RevokedAt: &now}
+	repo.addresses[addr.ID] = addr
+	deadline := now.Add(30 * 24 * time.Hour).Truncate(time.Second)
+	signer := &fakeSigner{deadline: &deadline}
+
+	newTestWriter(repo, signer).processRevokes(context.Background())
+
+	assert.Equal(t, models.OnchainStateRevoked, addr.OnchainState)
+	assert.Equal(t, &deadline, addr.ExitDeadline)
 }

@@ -1,6 +1,8 @@
 package soroban
 
 import (
+	"time"
+
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -21,7 +23,14 @@ const (
 	VaultEventTransfer       VaultEventKind = "transfer"
 	VaultEventUserAllowed    VaultEventKind = "user_allowed"
 	VaultEventUserDisallowed VaultEventKind = "user_disallowed"
-	VaultEventUnrecognized   VaultEventKind = ""
+	// VaultEventWithdraw covers withdraw and redeem, topics [operator,
+	// receiver, owner].
+	VaultEventWithdraw VaultEventKind = "withdraw"
+	// VaultEventExitDeadlineSet carries the deadline and frozen flag in
+	// VaultEvent; topic [account].
+	VaultEventExitDeadlineSet     VaultEventKind = "exit_deadline_set"
+	VaultEventExitDeadlineCleared VaultEventKind = "exit_deadline_cleared"
+	VaultEventUnrecognized        VaultEventKind = ""
 )
 
 // VaultEvent is the decoded subset of a vault contract event the watcher
@@ -31,6 +40,10 @@ const (
 type VaultEvent struct {
 	Kind      VaultEventKind
 	Addresses []string
+
+	// Deadline and Frozen are set for VaultEventExitDeadlineSet only.
+	Deadline time.Time
+	Frozen   bool
 }
 
 // DecodeVaultEvent decodes the topics of a getEvents EventInfo emitted by
@@ -51,11 +64,11 @@ func DecodeVaultEvent(info protocol.EventInfo) (VaultEvent, error) {
 	kind := VaultEventKind(*topics[0].Sym)
 	var addrCount int
 	switch kind {
-	case VaultEventDeposit:
+	case VaultEventDeposit, VaultEventWithdraw:
 		addrCount = 3
 	case VaultEventTransfer:
 		addrCount = 2
-	case VaultEventUserAllowed, VaultEventUserDisallowed:
+	case VaultEventUserAllowed, VaultEventUserDisallowed, VaultEventExitDeadlineSet, VaultEventExitDeadlineCleared:
 		addrCount = 1
 	default:
 		return VaultEvent{}, nil
@@ -76,7 +89,51 @@ func DecodeVaultEvent(info protocol.EventInfo) (VaultEvent, error) {
 		addresses = append(addresses, addr)
 	}
 
-	return VaultEvent{Kind: kind, Addresses: addresses}, nil
+	event := VaultEvent{Kind: kind, Addresses: addresses}
+	if kind == VaultEventExitDeadlineSet {
+		if event.Deadline, event.Frozen, err = decodeExitDeadline(info.ValueXDR); err != nil {
+			return VaultEvent{}, errb.With("kind", string(kind)).Wrapf(err, "could not decode the exit deadline")
+		}
+	}
+	return event, nil
+}
+
+// decodeExitDeadline reads the {deadline, frozen} data map of an
+// exit_deadline_set event.
+func decodeExitDeadline(valueXDR string) (time.Time, bool, error) {
+	var val xdr.ScVal
+	if err := xdr.SafeUnmarshalBase64(valueXDR, &val); err != nil {
+		return time.Time{}, false, err
+	}
+	m, ok := val.GetMap()
+	if !ok || m == nil {
+		return time.Time{}, false, decodeErr("exit_deadline").With("got_type", val.Type.String()).Errorf("expected a map")
+	}
+	var deadline *uint64
+	var frozen *bool
+	for _, entry := range *m {
+		if entry.Key.Type != xdr.ScValTypeScvSymbol {
+			continue
+		}
+		switch string(*entry.Key.Sym) {
+		case "deadline":
+			v, err := scValToU64(entry.Val)
+			if err != nil {
+				return time.Time{}, false, err
+			}
+			deadline = &v
+		case "frozen":
+			v, err := scValToBool(entry.Val)
+			if err != nil {
+				return time.Time{}, false, err
+			}
+			frozen = &v
+		}
+	}
+	if deadline == nil || frozen == nil {
+		return time.Time{}, false, decodeErr("exit_deadline").Errorf("deadline or frozen missing")
+	}
+	return time.Unix(int64(*deadline), 0).UTC(), *frozen, nil
 }
 
 // decodeTopics decodes a getEvents EventInfo's base64 XDR topic strings.
