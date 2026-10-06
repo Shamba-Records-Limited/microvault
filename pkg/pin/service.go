@@ -164,34 +164,39 @@ func (s *Service) VerifyPIN(ctx context.Context, userID, pin string) (bool, erro
 		return false, ErrPINNotSet
 	}
 
-	// Check lockout.
 	if user.PinLockedUntil != nil && time.Now().Before(*user.PinLockedUntil) {
-		// Public: the borrower sees this wording on a feature phone, so it
-		// must be GSM-7 clean and free of anything technical.
-		return false, pinErr("verify_pin").
-			With(pkgErrors.AttrUserID, userID).
-			With("locked_until", user.PinLockedUntil.Format(time.RFC3339)).
-			Code(pkgErrors.CodeAccountLocked).
-			Public("Account locked. Try again after "+formatLockDuration(*user.PinLockedUntil)+".").
-			Wrapf(ErrAccountLocked, "PIN verification attempted while the account is locked")
+		return false, lockedErr("verify_pin", userID, *user.PinLockedUntil)
 	}
 
-	// Compare PIN.
+	attempts, lockedUntil, err := s.userRepo.ClaimPINAttempt(ctx, userID, s.maxAttempts, s.lockout)
+	if errors.Is(err, repository.ErrPINLocked) && lockedUntil != nil {
+		return false, lockedErr("verify_pin", userID, *lockedUntil)
+	}
+	if err != nil {
+		return false, pinErr("verify_pin").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not record the PIN attempt")
+	}
+
 	if err := bcrypt.CompareHashAndPassword([]byte(*user.PinHash), []byte(pin)); err != nil {
-		return s.handleFailedAttempt(ctx, user)
+		return s.handleFailedAttempt(ctx, user, attempts, lockedUntil)
 	}
 
-	// Success — reset attempt counter.
-	if user.PinAttempts > 0 {
-		user.PinAttempts = 0
-		user.PinLockedUntil = nil
-		if err := s.userRepo.Update(ctx, user); err != nil {
-			return true, pinErr("verify_pin").With(pkgErrors.AttrUserID, userID).
-				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not reset the PIN attempt counter")
-		}
+	if err := s.userRepo.ResetPINAttempts(ctx, userID); err != nil {
+		return true, pinErr("verify_pin").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not reset the PIN attempt counter")
 	}
 
 	return true, nil
+}
+
+// lockedErr is the public lockout error shown to the borrower.
+func lockedErr(op, userID string, until time.Time) error {
+	return pinErr(op).
+		With(pkgErrors.AttrUserID, userID).
+		With("locked_until", until.Format(time.RFC3339)).
+		Code(pkgErrors.CodeAccountLocked).
+		Public("Account locked. Try again after "+formatLockDuration(until)+".").
+		Wrapf(ErrAccountLocked, "attempt made while the account is locked")
 }
 
 // ChangePIN verifies the old PIN then sets a new one. The new PIN must differ
@@ -362,12 +367,22 @@ func (s *Service) SetSecurityQuestions(ctx context.Context, userID string, quest
 
 // VerifySecurityAnswers checks the supplied answers against the stored hashes
 // for the given user. All answers must match for the result to be true.
-// Answers are normalized before comparison.
+// Answers are normalized before comparison. Each call counts against the
+// shared PIN attempt limit and returns ErrAccountLocked once it is reached.
 func (s *Service) VerifySecurityAnswers(ctx context.Context, userID string, answers []QuestionAnswer) (bool, error) {
 	stored, err := s.sqRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return false, pinErr("verify_security_answers").With(pkgErrors.AttrUserID, userID).
 			Code(pkgErrors.CodeNotFound).Wrapf(err, "could not load the security questions")
+	}
+
+	_, lockedUntil, err := s.userRepo.ClaimPINAttempt(ctx, userID, s.maxAttempts, s.lockout)
+	if errors.Is(err, repository.ErrPINLocked) && lockedUntil != nil {
+		return false, lockedErr("verify_security_answers", userID, *lockedUntil)
+	}
+	if err != nil {
+		return false, pinErr("verify_security_answers").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not record the recovery attempt")
 	}
 
 	// Build lookup by question ID.
@@ -388,6 +403,11 @@ func (s *Service) VerifySecurityAnswers(ctx context.Context, userID string, answ
 		if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(normalized)); err != nil {
 			return false, nil
 		}
+	}
+
+	if err := s.userRepo.ResetPINAttempts(ctx, userID); err != nil {
+		return true, pinErr("verify_security_answers").With(pkgErrors.AttrUserID, userID).
+			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not reset the attempt counter")
 	}
 
 	return true, nil
@@ -449,18 +469,9 @@ func (s *Service) notifyAsync(ctx context.Context, send func(ctx context.Context
 	}()
 }
 
-func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (bool, error) {
-	user.PinAttempts++
-
-	if user.PinAttempts >= s.maxAttempts {
-		lockUntil := time.Now().Add(s.lockout)
-		user.PinLockedUntil = &lockUntil
-
-		if err := s.userRepo.Update(ctx, user); err != nil {
-			return false, pinErr("handle_failed_attempt").With(pkgErrors.AttrUserID, user.ID).
-				Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not lock the account")
-		}
-
+func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User, attempts int, lockedUntil *time.Time) (bool, error) {
+	if lockedUntil != nil {
+		lockUntil := *lockedUntil
 		lockedNote := contracts.AccountNotification{
 			UserID:      user.ID,
 			PhoneNumber: user.MobileNumber,
@@ -478,15 +489,10 @@ func (s *Service) handleFailedAttempt(ctx context.Context, user *models.User) (b
 			Wrapf(ErrAccountLocked, "account locked after too many failed PIN attempts")
 	}
 
-	if err := s.userRepo.Update(ctx, user); err != nil {
-		return false, pinErr("handle_failed_attempt").With(pkgErrors.AttrUserID, user.ID).
-			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not update the PIN attempt counter")
-	}
-
 	wrongNote := contracts.AccountNotification{
 		UserID:            user.ID,
 		PhoneNumber:       user.MobileNumber,
-		RemainingAttempts: s.maxAttempts - user.PinAttempts,
+		RemainingAttempts: s.maxAttempts - attempts,
 	}
 	s.notifyAsync(ctx, func(ctx context.Context) error {
 		return s.notifier.NotifyPINWrongAttempt(ctx, wrongNote)

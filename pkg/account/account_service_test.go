@@ -83,8 +83,12 @@ func (f *usrRepo) CountByRole(context.Context, string) (int64, error)       { re
 func (f *usrRepo) CountAdmins(context.Context) (int, error)                 { return 1, nil }
 func (f *usrRepo) Update(context.Context, *models.User) error               { return nil }
 func (f *usrRepo) UpdateMobileNumber(context.Context, string, string) error { return nil }
-func (f *usrRepo) Restore(context.Context, string) error                    { return nil }
-func (f *usrRepo) Delete(context.Context, string) error                     { return nil }
+func (f *usrRepo) ClaimPINAttempt(context.Context, string, int, time.Duration) (int, *time.Time, error) {
+	return 0, nil, nil
+}
+func (f *usrRepo) ResetPINAttempts(context.Context, string) error { return nil }
+func (f *usrRepo) Restore(context.Context, string) error          { return nil }
+func (f *usrRepo) Delete(context.Context, string) error           { return nil }
 
 const validPK = "G" + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" // 56 chars
 

@@ -74,6 +74,13 @@ func (r *fakeRepaymentRecorder) RecordVaultAttempt(_ context.Context, loanID str
 	return nil
 }
 
+func (r *fakeRepaymentRecorder) MarkVaultOutcomeUnknown(_ context.Context, loanID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.failed[loanID] = "vault_unknown"
+	return nil
+}
+
 func (r *fakeRepaymentRecorder) RecordDepositUpdate(_ context.Context, _ string, _ *stellaranchor.Transaction) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

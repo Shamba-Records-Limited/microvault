@@ -25,6 +25,7 @@ var (
 	ErrFailedToUpdateUser     = errors.New("failed to update user")
 	ErrFailedToDeleteUser     = errors.New("failed to delete user")
 	ErrFailedToRestoreUser    = errors.New("failed to restore user")
+	ErrPINLocked              = errors.New("pin attempts locked")
 )
 
 // UserRepository defines the interface for user data access
@@ -63,6 +64,14 @@ type UserRepository interface {
 	// after the caller has verified ownership. The unique index on
 	// mobile_number is the final guard against binding a number twice.
 	UpdateMobileNumber(ctx context.Context, userID, mobileNumber string) error
+
+	// ClaimPINAttempt atomically counts one PIN or recovery attempt and sets
+	// pin_locked_until once maxAttempts is reached. It returns ErrPINLocked and
+	// the current lock expiry when the account is already locked.
+	ClaimPINAttempt(ctx context.Context, userID string, maxAttempts int, lockout time.Duration) (int, *time.Time, error)
+
+	// ResetPINAttempts clears pin_attempts and pin_locked_until.
+	ResetPINAttempts(ctx context.Context, userID string) error
 
 	Restore(ctx context.Context, id string) error
 
@@ -335,6 +344,56 @@ func (r *userRepository) Update(ctx context.Context, user *models.User) error {
 	if result.Error != nil {
 		slog.ErrorContext(ctx, "Update: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateUser
+	}
+	return nil
+}
+
+// ClaimPINAttempt counts one attempt in a single statement. See the interface docs.
+func (r *userRepository) ClaimPINAttempt(ctx context.Context, userID string, maxAttempts int, lockout time.Duration) (int, *time.Time, error) {
+	now := time.Now()
+	var row struct {
+		PinAttempts    int
+		PinLockedUntil *time.Time
+	}
+	result := r.db.WithContext(ctx).Raw(`
+		UPDATE users
+		SET pin_attempts = pin_attempts + 1,
+		    pin_locked_until = CASE WHEN pin_attempts + 1 >= ? THEN CAST(? AS timestamp) ELSE NULL END,
+		    updated_at = ?
+		WHERE id = ? AND deleted_at IS NULL
+		  AND (pin_locked_until IS NULL OR pin_locked_until <= ?)
+		RETURNING pin_attempts, pin_locked_until`,
+		maxAttempts, now.Add(lockout), now, userID, now).Scan(&row)
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "ClaimPINAttempt: database error", slog.Any("error", result.Error))
+		return 0, nil, ErrFailedToUpdateUser
+	}
+	if result.RowsAffected > 0 {
+		return row.PinAttempts, row.PinLockedUntil, nil
+	}
+	user, err := r.GetByID(ctx, userID)
+	if err != nil {
+		return 0, nil, err
+	}
+	return user.PinAttempts, user.PinLockedUntil, ErrPINLocked
+}
+
+// ResetPINAttempts clears the attempt counter and lock. See the interface docs.
+func (r *userRepository) ResetPINAttempts(ctx context.Context, userID string) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("id = ? AND deleted_at IS NULL", userID).
+		Updates(map[string]interface{}{
+			"pin_attempts":     0,
+			"pin_locked_until": nil,
+			"updated_at":       time.Now(),
+		})
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "ResetPINAttempts: database error", slog.Any("error", result.Error))
+		return ErrFailedToUpdateUser
+	}
+	if result.RowsAffected == 0 {
+		return ErrUserNotFound
 	}
 	return nil
 }

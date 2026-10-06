@@ -10,6 +10,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 )
@@ -107,6 +109,14 @@ func Tracing(skip ...string) fiber.Handler {
 	return otelfiber.Middleware(
 		otelfiber.WithNext(func(c *fiber.Ctx) bool { return skipped(c.Path(), skip) }),
 		otelfiber.WithPropagators(propagation.NewCompositeTextMapPropagator()),
-		otelfiber.WithSpanNameFormatter(func(c *fiber.Ctx) string { return c.Method() + " " + c.Route().Path }),
+		otelfiber.WithSpanNameFormatter(spanName),
 	)
+}
+
+// spanName names the server span by method and route, and replaces the raw
+// url.path and url.full with the route so path-borne secrets are not exported.
+func spanName(c *fiber.Ctx) string {
+	route := c.Route().Path
+	trace.SpanFromContext(c.UserContext()).SetAttributes(semconv.URLPath(route), semconv.URLFull(route))
+	return c.Method() + " " + route
 }

@@ -2,8 +2,8 @@ package controllers
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/netip"
 	"time"
@@ -91,12 +91,12 @@ func (ctrl *DarajaCallbackController) allowedCIDR(c *fiber.Ctx) error {
 			// Fail closed: a production callback with no allowlist configured is
 			// a misconfiguration, not a permissive default.
 			ctrl.logger.WarnContext(c.UserContext(), "rejecting daraja callback: no CIDR allowlist configured in production",
-				"path", c.Path())
+				"route", c.Route().Path)
 			return fiber.NewError(fiber.StatusForbidden, "callback allowlist not configured")
 		}
 		return nil
 	}
-	clientIP := c.IP()
+	clientIP := middleware.ClientIP(c)
 	for _, cidr := range ctrl.config.CallbackAllowedCIDRs {
 		if cidrMatch(clientIP, cidr) {
 			return nil
@@ -107,7 +107,7 @@ func (ctrl *DarajaCallbackController) allowedCIDR(c *fiber.Ctx) error {
 	// X-Forwarded-For handling is wrong, this is the tunnel's own address,
 	// not Safaricom's — indistinguishable from a real mismatch without it.
 	ctrl.logger.WarnContext(c.UserContext(), "rejecting daraja callback: source not in the allowlist",
-		"path", c.Path(), "client_ip", clientIP, "x_forwarded_for", c.Get(fiber.HeaderXForwardedFor),
+		"route", c.Route().Path, "client_ip", clientIP, "x_forwarded_for", c.Get(fiber.HeaderXForwardedFor),
 		"allowed_cidrs", ctrl.config.CallbackAllowedCIDRs)
 	return fiber.NewError(fiber.StatusForbidden, "source not permitted")
 }
@@ -266,7 +266,7 @@ func (ctrl *DarajaCallbackController) C2BConfirmation(c *fiber.Ctx) error {
 		TransID:           notification.TransID,
 		Source:            models.MpesaSourceC2BConfirmation,
 		BillRefNumber:     notification.BillRefNumber,
-		AmountKes:         notification.TransAmountMinor / 100,
+		AmountKes:         notification.TransAmountMinor,
 		MsidnMasked:       string(notification.MSISDN),
 		PayerName:         &notification.FirstName,
 		TransTime:         ctrl.now(),
@@ -403,14 +403,26 @@ func ptrTime(t time.Time) *time.Time { return new(t) }
 // containing mpesa, safaricom, exe, exec, cmd, sql or query, which the client
 // asserts at registration time.
 func (ctrl *DarajaCallbackController) Register(app fiber.Router) {
-	group := app.Group(fmt.Sprintf("/callbacks/daraja/%s", ctrl.config.CallbackSlug))
-	group.Post("/stk/result", ctrl.STKCallback)
-	group.Post("/c2b/validation", ctrl.C2BValidation)
-	group.Post("/c2b/confirmation", ctrl.C2BConfirmation)
-	group.Post("/status/result", ctrl.AsyncResult)
-	group.Post("/status/timeout", ctrl.AsyncTimeout)
-	group.Post("/balance/result", ctrl.AsyncResult)
-	group.Post("/balance/timeout", ctrl.AsyncTimeout)
-	group.Post("/reversal/result", ctrl.AsyncResult)
-	group.Post("/reversal/timeout", ctrl.AsyncTimeout)
+	group := app.Group("/callbacks/daraja/:slug")
+	slug := requireSlug(ctrl.config.CallbackSlug)
+	group.Post("/stk/result", slug, ctrl.STKCallback)
+	group.Post("/c2b/validation", slug, ctrl.C2BValidation)
+	group.Post("/c2b/confirmation", slug, ctrl.C2BConfirmation)
+	group.Post("/status/result", slug, ctrl.AsyncResult)
+	group.Post("/status/timeout", slug, ctrl.AsyncTimeout)
+	group.Post("/balance/result", slug, ctrl.AsyncResult)
+	group.Post("/balance/timeout", slug, ctrl.AsyncTimeout)
+	group.Post("/reversal/result", slug, ctrl.AsyncResult)
+	group.Post("/reversal/timeout", slug, ctrl.AsyncTimeout)
+}
+
+// requireSlug answers 404 unless the :slug path parameter equals slug, so the
+// secret stays out of the route template that logs, spans and metrics carry.
+func requireSlug(slug string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if slug == "" || subtle.ConstantTimeCompare([]byte(c.Params("slug")), []byte(slug)) != 1 {
+			return fiber.ErrNotFound
+		}
+		return c.Next()
+	}
 }

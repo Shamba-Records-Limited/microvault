@@ -354,8 +354,8 @@ func TestC2BConfirmationRecorded(t *testing.T) {
 	if tx.TransID != "RKTQDM7W6J" || tx.Source != models.MpesaSourceC2BConfirmation {
 		t.Fatalf("tx = %+v", tx)
 	}
-	if tx.AmountKes != 10 {
-		t.Fatalf("AmountKes = %d, want 10", tx.AmountKes)
+	if tx.AmountKes != 1000 {
+		t.Fatalf("AmountKes = %d, want 1000", tx.AmountKes)
 	}
 	if tx.PayerName == nil || *tx.PayerName != "John" {
 		t.Fatalf("PayerName = %v, want John", tx.PayerName)

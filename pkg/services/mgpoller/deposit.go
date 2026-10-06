@@ -2,6 +2,7 @@ package mgpoller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
 	"github.com/Shamba-Records-Limited/microvault/pkg/utils"
 )
 
@@ -117,6 +119,10 @@ type RepaymentRecorder interface {
 	// after each failure so the count survives a restart, which is what makes
 	// the escalation ceiling meaningful.
 	RecordVaultAttempt(ctx context.Context, loanID string, attempts int) error
+
+	// MarkVaultOutcomeUnknown parks a repayment whose repay_for may have
+	// landed, taking it out of the due set until ops verify it on-chain.
+	MarkVaultOutcomeUnknown(ctx context.Context, loanID string) error
 }
 
 // VaultRepayer settles the on-chain leg, treasury to vault, attributed to the
@@ -448,6 +454,10 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 	d.checkDepositShortfall(ctx, rec, tx)
 
 	hash, err := d.vault.RepayForBorrower(ctx, rec.LoanID, rec.BorrowerAddress, rec.PayoffStroops)
+	if outcomeUnknown(err) {
+		d.vaultOutcomeUnknown(ctx, rec, err)
+		return
+	}
 	if err != nil {
 		d.vaultLegFailed(ctx, rec, err)
 		return
@@ -547,6 +557,34 @@ func (d *DepositDriver) vaultLegFailed(ctx context.Context, rec RepaymentRecord,
 		backoff = d.cfg.DepositVaultRetryBackoff
 	}
 	d.reschedule(ctx, rec, backoff)
+}
+
+// outcomeUnknown reports whether a submit error leaves open that the
+// transaction landed.
+func outcomeUnknown(err error) bool {
+	return errors.Is(err, stellar.ErrSubmissionUnconfirmed) || errors.Is(err, stellar.ErrTransactionTimeout) ||
+		errors.Is(err, stellar.ErrUnknownTransactionStatus) || errors.Is(err, stellar.ErrContextCancelled)
+}
+
+// vaultOutcomeUnknown parks a repayment whose repay_for may have landed so it
+// is never resubmitted automatically.
+func (d *DepositDriver) vaultOutcomeUnknown(ctx context.Context, rec RepaymentRecord, cause error) {
+	d.logger.ErrorContext(ctx, "vault repay_for outcome unknown — parked for on-chain verification",
+		"loan_id", rec.LoanID,
+		"borrower", rec.BorrowerAddress,
+		"amount_stroops", rec.PayoffStroops,
+		"error", cause)
+
+	if err := d.recorder.MarkVaultOutcomeUnknown(ctx, rec.LoanID); err != nil {
+		d.logger.ErrorContext(ctx, "failed to park repayment with unknown vault outcome",
+			"loan_id", rec.LoanID, "error", err)
+		d.reschedule(ctx, rec, d.cfg.DepositVaultRetryBackoff)
+	}
+
+	d.alertOps(ctx, "Repayment vault leg outcome unknown",
+		fmt.Sprintf("Loan %s: repay_for of %d stroops for borrower %s may have landed (%v). "+
+			"The repayment is parked. Verify on-chain, then settle it with the tx hash or set repayment_status back to funds_received to retry.",
+			rec.LoanID, rec.PayoffStroops, rec.BorrowerAddress, cause))
 }
 
 // sendPayInstructionsOnce tells the borrower how to hand over the cash,

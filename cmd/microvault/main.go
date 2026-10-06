@@ -274,7 +274,7 @@ func main() {
 	ussdService.RegisterProvider("africastalking", AfricasTalkingUSSDProvider)
 
 	// Initialize USSD controller
-	ussdController := controllers.NewUSSDController(ussdService)
+	ussdController := controllers.NewUSSDController(ussdService, cfg.Mobile.USSDCallbackToken)
 
 	// ---- Initialize Application ----
 	// Create a new fiber app. The proxy header is read only from a trusted

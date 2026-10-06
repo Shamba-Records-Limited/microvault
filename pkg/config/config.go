@@ -389,6 +389,10 @@ type MobileConfig struct {
 	// USSDDialString is what a user dials to reach this deployment, stored
 	// complete with prefix and terminator.
 	USSDDialString string
+
+	// USSDCallbackToken is the shared secret the USSD gateway sends as the
+	// token query parameter. From USSD_CALLBACK_TOKEN; empty rejects all callbacks.
+	USSDCallbackToken string
 }
 
 type AuthConfig struct {
@@ -1024,8 +1028,9 @@ func New() (*Config, error) {
 				Shortcode:   mobileShortcode,
 				HTTPTimeout: mobileHTTPTimeout,
 			},
-			SessionTimeout: ussdSessionTimeout,
-			USSDDialString: ussdDialString,
+			SessionTimeout:    ussdSessionTimeout,
+			USSDDialString:    ussdDialString,
+			USSDCallbackToken: os.Getenv("USSD_CALLBACK_TOKEN"),
 		},
 		Auth: AuthConfig{
 			JWTSecret:           jwtSecret,

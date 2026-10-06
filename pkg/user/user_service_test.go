@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -66,8 +67,12 @@ func (f *fakeUserRepo) CountByRole(context.Context, string) (int64, error)      
 func (f *fakeUserRepo) CountAdmins(context.Context) (int, error)                 { return 1, nil }
 func (f *fakeUserRepo) Update(context.Context, *models.User) error               { return nil }
 func (f *fakeUserRepo) UpdateMobileNumber(context.Context, string, string) error { return nil }
-func (f *fakeUserRepo) Restore(context.Context, string) error                    { return nil }
-func (f *fakeUserRepo) Delete(context.Context, string) error                     { return nil }
+func (f *fakeUserRepo) ClaimPINAttempt(context.Context, string, int, time.Duration) (int, *time.Time, error) {
+	return 0, nil, nil
+}
+func (f *fakeUserRepo) ResetPINAttempts(context.Context, string) error { return nil }
+func (f *fakeUserRepo) Restore(context.Context, string) error          { return nil }
+func (f *fakeUserRepo) Delete(context.Context, string) error           { return nil }
 
 // notFoundRepo returns "not found" for the uniqueness lookups so Create proceeds.
 func notFoundRepo() *fakeUserRepo {

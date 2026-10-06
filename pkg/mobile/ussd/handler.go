@@ -582,6 +582,10 @@ func (h *USSDHandler) handleRecoverSimQ2(ctx context.Context, session *Session, 
 		{QuestionID: q1ID, Answer: a1},
 		{QuestionID: q2ID, Answer: input},
 	})
+	if errors.Is(err, pinPkg.ErrAccountLocked) {
+		h.clearRecoverySession(session)
+		return h.formatLockedMessage(ctx, session), nil
+	}
 	if err != nil {
 		slog.ErrorContext(ctx, "handleRecoverSimQ2: VerifySecurityAnswers failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
@@ -2198,6 +2202,9 @@ func (h *USSDHandler) handlePINRecoveryQ2(ctx context.Context, session *Session,
 		{QuestionID: q1ID, Answer: a1},
 		{QuestionID: q2ID, Answer: input},
 	})
+	if errors.Is(err, pinPkg.ErrAccountLocked) {
+		return h.formatLockedMessage(ctx, session), nil
+	}
 	if err != nil {
 		slog.ErrorContext(ctx, "handlePINRecoveryQ2: VerifySecurityAnswers failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil

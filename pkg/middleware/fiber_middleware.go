@@ -18,8 +18,9 @@ import (
 // See: https://docs.gofiber.io/api/middleware
 func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.Logger) {
 	limiterConfig := limiter.Config{
-		Max:        20,
-		Expiration: 30 * time.Second,
+		Max:          20,
+		Expiration:   30 * time.Second,
+		KeyGenerator: ClientIP,
 	}
 
 	helmetConfig := helmet.Config{

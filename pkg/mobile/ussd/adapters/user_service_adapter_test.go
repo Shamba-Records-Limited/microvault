@@ -226,6 +226,22 @@ func TestEnsureOnChainAccount_ConfirmsPendingRowThatIsAlreadyOnChain(t *testing.
 	assert.Empty(t, stell.created, "account already exists; nothing to create")
 }
 
+func TestEnsureOnChainAccount_FailedRowAlreadyOnChainIsConflict(t *testing.T) {
+	a := newDerivationTestAdapter(t)
+	stell := &fakeStellarService{exists: true}
+	a.stellarService = stell
+	accts := &fakeAccountService{
+		acct: &account.AccountResponse{ID: "acct-1", ChainStatus: models.ChainStatusFailed},
+	}
+	a.accountService = accts
+
+	err := a.EnsureOnChainAccount(context.Background(), 3, "GABC")
+
+	require.ErrorIs(t, err, account.ErrDerivationConflict)
+	assert.Equal(t, []string{models.ChainStatusConflict}, accts.chainWrites)
+	assert.Empty(t, stell.created)
+}
+
 func TestEnsureOnChainAccount_AlreadyConfirmedSkipsRedundantWrite(t *testing.T) {
 	a := newDerivationTestAdapter(t)
 	a.stellarService = &fakeStellarService{exists: true}

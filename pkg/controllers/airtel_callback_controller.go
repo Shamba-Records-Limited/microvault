@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -66,20 +65,20 @@ func (ctrl *AirtelCallbackController) allowedCIDR(c *fiber.Ctx) error {
 	if len(ctrl.config.CallbackAllowedCIDRs) == 0 {
 		if ctrl.serverEnv == "production" {
 			ctrl.logger.WarnContext(c.UserContext(), "rejecting airtel callback: no CIDR allowlist configured in production",
-				"path", c.Path())
+				"route", c.Route().Path)
 			return fiber.NewError(fiber.StatusForbidden, "callback allowlist not configured")
 		}
 		return nil
 	}
 
-	clientIP := c.IP()
+	clientIP := middleware.ClientIP(c)
 	for _, cidr := range ctrl.config.CallbackAllowedCIDRs {
 		if cidrMatch(clientIP, cidr) {
 			return nil
 		}
 	}
 	ctrl.logger.WarnContext(c.UserContext(), "rejecting airtel callback: source not in the allowlist",
-		"path", c.Path(), "client_ip", clientIP, "x_forwarded_for", c.Get(fiber.HeaderXForwardedFor),
+		"route", c.Route().Path, "client_ip", clientIP, "x_forwarded_for", c.Get(fiber.HeaderXForwardedFor),
 		"allowed_cidrs", ctrl.config.CallbackAllowedCIDRs)
 	return fiber.NewError(fiber.StatusForbidden, "source not permitted")
 }
@@ -183,6 +182,6 @@ func (ctrl *AirtelCallbackController) enquiryDelay() time.Duration {
 // Register mounts the callback route. The slug is the unguessable path
 // segment; the route hangs under it so the path cannot be enumerated.
 func (ctrl *AirtelCallbackController) Register(app fiber.Router) {
-	group := app.Group(fmt.Sprintf("/callbacks/airtel/%s", ctrl.config.CallbackSlug))
-	group.Post("/collection", ctrl.CollectionCallback)
+	group := app.Group("/callbacks/airtel/:slug")
+	group.Post("/collection", requireSlug(ctrl.config.CallbackSlug), ctrl.CollectionCallback)
 }

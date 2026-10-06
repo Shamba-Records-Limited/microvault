@@ -244,10 +244,7 @@ func (a *UserServiceAdapter) EnsureOnChainAccount(ctx context.Context, accountIn
 			Wrapf(fmt.Errorf("%w: %w", account.ErrChainCheckUnavailable, err), "could not check whether the account exists on-chain")
 	}
 	if exists {
-		// Settles rows left pending by a dropped goroutine, marked failed by an
-		// earlier attempt, or unknown because they predate the column.
-		a.confirmChainStatus(ctx, address)
-		return nil
+		return a.adoptExisting(ctx, address)
 	}
 
 	childKP, err := a.deriveChildKeypair(accountIndex)
@@ -299,6 +296,34 @@ func (a *UserServiceAdapter) refuseConflict(ctx context.Context, address string)
 			Wrap(account.ErrDerivationConflict)
 	}
 	return nil
+}
+
+// adoptExisting confirms an already-existing address for confirmed, pending
+// and pre-tracking rows. A failed row means our creation was rejected, so an
+// account at its address is someone else's: it is flagged conflict and refused.
+func (a *UserServiceAdapter) adoptExisting(ctx context.Context, address string) error {
+	if a.accountService == nil {
+		return nil
+	}
+	acct, err := a.accountService.GetByPublicKey(ctx, address)
+	if err != nil {
+		return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).
+			Code(pkgErrors.CodeAccountLoadFailed).
+			Wrapf(fmt.Errorf("%w: %w", account.ErrChainCheckUnavailable, err), "could not load the account to check ownership")
+	}
+	switch acct.ChainStatus {
+	case models.ChainStatusConfirmed:
+		return nil
+	case models.ChainStatusPending, models.ChainStatusUnknown:
+		a.setChainStatus(ctx, acct.ID, models.ChainStatusConfirmed)
+		return nil
+	}
+	a.setChainStatus(ctx, acct.ID, models.ChainStatusConflict)
+	return userAdapterErr("ensure_account").With(pkgErrors.AttrAddress, address).
+		With("chain_status", acct.ChainStatus).
+		Code(pkgErrors.CodeDerivationIndexReused).
+		Hint("Our creation of this address failed yet it exists on-chain; verify ownership or re-issue at a fresh index.").
+		Wrap(account.ErrDerivationConflict)
 }
 
 // confirmChainStatus marks the account behind address as present on-chain. Best
@@ -375,6 +400,10 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(ctx context.Context, us
 		if attempt < attempts {
 			a.backoff(time.Duration(attempt) * 2 * time.Second)
 		}
+	}
+
+	if acct, getErr := a.accountService.GetByPublicKey(ctx, address); getErr == nil && acct != nil && acct.ChainStatus == models.ChainStatusConfirmed {
+		return
 	}
 
 	// Marked before alerting: the durable record is what a reconciler reads,

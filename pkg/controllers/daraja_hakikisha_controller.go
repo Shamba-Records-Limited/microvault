@@ -80,7 +80,7 @@ func (ctrl *DarajaHakikishaController) allowedCIDR(c *fiber.Ctx) error {
 		}
 		return nil
 	}
-	clientIP := c.IP()
+	clientIP := middleware.ClientIP(c)
 	for _, cidr := range ctrl.config.CallbackAllowedCIDRs {
 		if cidrMatch(clientIP, cidr) {
 			return nil
@@ -204,9 +204,10 @@ func (ctrl *DarajaHakikishaController) checkBearer(c *fiber.Ctx) error {
 // Register mounts the Hakikisha routes under the same slug every other
 // Daraja-facing route uses.
 func (ctrl *DarajaHakikishaController) Register(app fiber.Router) {
-	group := app.Group(fmt.Sprintf("/callbacks/daraja/%s/hakikisha", ctrl.config.CallbackSlug))
-	group.Post("/oauth/token", ctrl.Token)
-	group.Post("/resolve", ctrl.Resolve)
+	group := app.Group("/callbacks/daraja/:slug/hakikisha")
+	slug := requireSlug(ctrl.config.CallbackSlug)
+	group.Post("/oauth/token", slug, ctrl.Token)
+	group.Post("/resolve", slug, ctrl.Resolve)
 }
 
 // parseBasicAuth reads the client_credentials pair off the Authorization
