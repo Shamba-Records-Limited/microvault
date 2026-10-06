@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
@@ -26,6 +27,25 @@ import (
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
+
+// dialStringMismatchSubject is the ops alert raised when the gateway's
+// service code differs from the configured dial string.
+const dialStringMismatchSubject = "USSD dial string mismatch"
+
+// checkDialString alerts once per observed service code that differs from the
+// configured dial string, since SMS copy would then send borrowers to a code
+// that does not reach this deployment.
+func (h *USSDHandler) checkDialString(ctx context.Context, serviceCode string) {
+	observed := strings.TrimSpace(serviceCode)
+	if h.dialString == "" || observed == "" || observed == h.dialString {
+		return
+	}
+	if _, seen := h.dialMismatchSeen.LoadOrStore(observed, struct{}{}); seen {
+		return
+	}
+	alerts.Raise(ctx, h.alerts, nil, dialStringMismatchSubject,
+		fmt.Sprintf("USSD session arrived on %s but USSD_DIAL_STRING is %s; SMS copy tells borrowers to dial the configured code.", observed, h.dialString))
+}
 
 // ussdErr starts an error builder for USSD work.
 func ussdErr(op string, session *Session) oops.OopsErrorBuilder {
@@ -129,6 +149,14 @@ type HandlerDeps struct {
 	// MpesaPrompter because the rails are enabled by separate integrations
 	// and either can be live without the other.
 	AirtelPrompter bool
+
+	// DialString is the configured USSD_DIAL_STRING that SMS copy tells
+	// borrowers to dial. A session arriving on a different service code
+	// raises an ops alert once per observed code. Blank disables the check.
+	DialString string
+
+	// Alerts receives the dial-string mismatch alert.
+	Alerts alerts.Service
 }
 
 // NewUSSDHandler builds the handler.
@@ -153,6 +181,8 @@ func NewUSSDHandler(deps HandlerDeps) *USSDHandler {
 		repayPaybill:    deps.RepayPaybill,
 		mpesaPromptOn:   deps.MpesaPrompter,
 		airtelPromptOn:  deps.AirtelPrompter,
+		dialString:      strings.TrimSpace(deps.DialString),
+		alerts:          deps.Alerts,
 	}
 	if deps.MpesaPrompter {
 		h.mpesaPrompter, _ = deps.LoanService.(RepaymentPrompter)
@@ -183,6 +213,7 @@ func (h *USSDHandler) HandleRequest(ctx context.Context, sessionID, phoneNumber,
 
 	// Handle empty input (first request)
 	if input == "" {
+		h.checkDialString(ctx, serviceCode)
 		return h.handleInitialRequest(ctx, session)
 	}
 

@@ -263,6 +263,8 @@ func main() {
 		AccountNotifier: accountNotifier,
 		LoanNotifier:    loanNotifier,
 		RepayPaybill:    repayPaybill,
+		DialString:      cfg.Mobile.USSDDialString,
+		Alerts:          alerts.LogAlerter{Logger: logger},
 	})
 	ussdService := ussd.NewUSSDService(handler)
 
