@@ -155,8 +155,11 @@ rescreen. Only a transition *from* `OnchainStateAbsent` queues a write.
 ## Persistence: three tables, one repository
 
 `CounterpartyRepository` spans all three — one bounded context, mirroring
-how `UserRepository` spans everything user-related. Migration:
-[`000018_compliance_screening.up.sql`](../../platform/database/migrations/000018_compliance_screening.up.sql).
+how `UserRepository` spans everything user-related. Migrations:
+[`000018_compliance_screening.up.sql`](../../platform/database/migrations/000018_compliance_screening.up.sql),
+and [`000022_counterparty_exit_deadline.up.sql`](../../platform/database/migrations/000022_counterparty_exit_deadline.up.sql)
+for the freeze intent (`frozen_by`/`frozen_at`), the mirrored
+`exit_deadline` and `exit_warning_level`.
 
 | Table | Model | Role |
 |---|---|---|
@@ -215,6 +218,43 @@ shares for a screened party, or the reverse.
 Both mean the same thing to a caller; the difference is which layer raised
 it, deposit-side custom logic vs. the OZ allowlist's own transfer gate.
 
+### Exit grace period and freeze
+
+Revocation does not trap a depositor's money, but it does not leave the
+exit open forever either. `disallow_depositor` starts an exit window:
+
+```rust
+disallow_depositor(caller, address)          // also sets exit_deadline = now + grace, if none is set
+freeze_depositor(caller, address)            // compliance role, no timelock: disallow and deadline = now
+extend_exit_deadline(caller, address, ts)    // compliance role: move a deadline later, or lift a freeze
+allow_depositor(caller, address)             // also clears the deadline
+set_withdraw_grace_period(seconds)           // owner only, timelocked; default 30 days, 0 = freeze on revoke
+withdraw_grace_period() -> u64
+exit_deadline(address) -> Option<u64>
+is_frozen(address) -> bool
+```
+
+While enforcement is on and the owner is off the allowlist:
+
+- **Before the deadline** `withdraw`/`redeem` work, and the deposit lock is
+  skipped so the window is always usable.
+- **From the deadline** they fail with `16 ExitWindowClosed`, and
+  `max_withdraw`/`max_redeem` return 0. The shares stay in the vault and
+  keep earning. There is no forced redemption: paying out to a sanctioned
+  address is the wrong move.
+
+Repeating `disallow_depositor` never moves an existing deadline. An address
+revoked before this upgrade has no deadline, and so stays free to exit,
+until it is revoked again. Deadlines do not bind while enforcement is off,
+so **turning enforcement on makes every past deadline bind at once.** A pause
+or thin liquidity can eat into the window; `extend_exit_deadline` is the
+remedy. `17 InvalidExitDeadline` rejects an extension that is not later
+than the current deadline, or for an address with none.
+
+Events: `exit_deadline_set {account (topic), deadline, frozen}`,
+`exit_deadline_cleared {account (topic)}`,
+`withdraw_grace_period_updated {old_period, new_period}`.
+
 `pkg/stellar/soroban/compliance.go` is the Go side:
 `Service.AllowDepositor`/`DisallowDepositor` sign with the compliance role
 key specifically (`requireComplianceRole` — fails loudly rather than
@@ -237,9 +277,16 @@ codebase (`pkg/services/mpesapoller`, `pkg/services/vaultwatch`).
 ```
 processAllows()   addresses WHERE status=approved AND onchain_state=pending
                    → AllowDepositor() → SetOnchainState(approved)
-processRevokes()  addresses WHERE revoked_at IS NOT NULL AND onchain_state != revoked
-                   → DisallowDepositor() → SetOnchainState(revoked)
+processRevokes()  addresses WHERE revoked_at IS NOT NULL AND frozen_at IS NULL
+                         AND onchain_state != revoked
+                   → DisallowDepositor() → SetOnchainState(revoked) → read exit_deadline back
+processFreezes()  addresses WHERE frozen_at IS NOT NULL AND onchain_state != frozen
+                   → FreezeDepositor() → SetOnchainState(frozen) → read exit_deadline back
 ```
+
+`FreezeAddress` records a freeze intent and also sets `revoked_*` if empty.
+`ApproveAddress` clears both the revoke and the freeze intent, so a
+re-approved address is not revoked again on the next tick.
 
 A failed submission leaves the row exactly where it was, retried next tick.
 `AllowList::allow_user` is idempotent on the contract side, so a database
@@ -273,14 +320,26 @@ than quietly still showing a stale "approved" badge.
 
 ## Canary: `pkg/services/vaultwatch.Watcher`
 
-Walks the vault contract's Soroban events (deposit, mint, transfer) on a
-cadence and, for every participant address, checks `IsAllowed` against the
-chain directly. **It is a canary, not a second enforcer** — once the
+Walks the vault contract's Soroban events on a cadence. For deposit, mint
+and transfer events it checks every participant with `IsAllowed` against the
+chain directly. Allow and disallow events are not checked: their address
+changed membership by design. **It is a canary, not a second enforcer** — once the
 contract's own gating is live, an unallowlisted address participating in an
 event should be *impossible*; a mismatch here means the gate itself broke
 (a bug, a bad upgrade, a misconfiguration), which is why a mismatch is
 logged at `Error` level rather than silently corrected. Same
 window-retry-on-failure cursor pattern as the M-Pesa Pull sweep.
+
+It also follows the exit grace period:
+
+- `exit_deadline_set`/`exit_deadline_cleared` events are mirrored into
+  `counterparty_addresses.exit_deadline`, which covers deadlines set by hand.
+- A `withdraw` that lands at or after the owner's deadline, while enforcement
+  is on and the owner is off the allowlist, raises the page alert
+  `Frozen depositor withdrew`. The contract should make that impossible.
+- Each tick it raises the digest alert `Depositor exit window closing` once
+  when a deadline comes within 7 days and once within 1 day, nearest first,
+  so ops can contact the counterparty or extend.
 
 ## Admin UI
 
@@ -321,7 +380,7 @@ but with only a static flash message, never dynamic text, in the URL.
 | `EllipticAPIKey` / `EllipticAPISecret` | Required for the client to function at all |
 | `EllipticBaseURL` | Overrides the client default; tests point it at a stub |
 | `ScreeningValidity` | How long an approval stays current; defaults to 90 days |
-| `ComplianceRoleSecretKey` | Signs `allow_depositor`/`disallow_depositor` — deliberately distinct from the admin/treasury keys, held only by the credit backend's `OnchainWriter` |
+| `ComplianceRoleSecretKey` | Signs `allow_depositor`/`disallow_depositor`/`freeze_depositor`/`extend_exit_deadline` — deliberately distinct from the admin/treasury keys, held only by the credit backend's `OnchainWriter` |
 | `OnchainWriterInterval` | Defaults to 1 minute (fast path) |
 | `RescreenSweepInterval` | Defaults to 1 hour |
 
@@ -338,6 +397,8 @@ but with only a static flash message, never dynamic text, in the URL.
 | On-chain writer (allow/disallow tickers) | Built, tested |
 | Rescreen sweep | Built, tested |
 | Detect-and-quarantine watcher | Built, tested |
+| Exit grace period, freeze and extension (contract, Go bindings, writer freeze pass, watcher sync and alerts) | Built, tested |
+| Admin actions for revoke and freeze | **Not built** — `RevokeAddress`/`FreezeAddress` have no caller yet; until the admin UI grows them, sign `disallow_depositor`/`freeze_depositor` by hand and the watcher mirrors the deadline |
 | Admin UI (counterparties, screening queue, screening detail) | Built, tested |
 | Runtime-configurable score thresholds | **Not built** — `Thresholds{}` is hardcoded zero-valued in `cmd/credit/main.go`, so every scored screening lands in `VerdictReview` |
 | Elliptic webhook consumption | **Not wired** — `VerifyWebhook` exists and is tested; no route calls it |

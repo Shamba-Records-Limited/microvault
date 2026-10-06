@@ -2,7 +2,7 @@
 
 ![Status](https://img.shields.io/badge/status-testnet%20only-yellow)
 ![Audit](https://img.shields.io/badge/audit-not%20yet-red)
-![Soroban SDK](https://img.shields.io/badge/soroban--sdk-25.3.1-blue)
+![Soroban SDK](https://img.shields.io/badge/soroban--sdk-26.1-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
 
 > **Status: testnet only, not audited.** Do not deploy to mainnet without an independent security review.
@@ -13,7 +13,7 @@ SEP-0056 tokenized vault for USDC credit delegation on Stellar, with an OpenZepp
 
 | Path | Crate | Purpose |
 |---|---|---|
-| `contracts/vault/` | `microvault-sep56` | SEP-56 tokenized vault: deposits, share token, treasury credit delegation, kinked-rate interest model |
+| `contracts/vault/` | `microvault-sep56` | SEP-56 tokenized vault: deposits, share token, treasury credit delegation, kinked-rate interest model, compliance allowlist with exit grace period and freeze |
 | `contracts/timelock-controller/` | `microvault-timelock-controller` | Time-delayed governance controller; owns the vault |
 
 ## Prerequisites
@@ -67,7 +67,7 @@ For integration, deploy, and upgrade workflows, see [`../docs/soroban/`](../docs
 
 ## SDK Versions
 
-soroban-sdk 25.3.1, stellar-* 0.7.1. Pin exact versions when bumping (`= 0.7.1`, not `^0.7.1`); structural-hash storage keys make pre-1.0 dependency upgrades risky. See [Operations § Critical Notes](../docs/soroban/operations.md#critical-notes) for the upgrade-safety rules.
+soroban-sdk 26.1, stellar-* 0.7.2. Pin exact versions when bumping (`=0.7.2`, not `^0.7.2`); structural-hash storage keys make pre-1.0 dependency upgrades risky. See [Operations § Critical Notes](../docs/soroban/operations.md#critical-notes) for the upgrade-safety rules.
 
 ## Contributing & License
 

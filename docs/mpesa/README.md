@@ -64,7 +64,7 @@ Only a subset has a consumer:
 |---|---|---|
 | M-Pesa Express (STK push) | `MpesaCollectionAdapter.Prompt` (credit) + `MpesaSTKLoanDriver` poller (credit) | Wired end to end — loan repayment |
 | C2B v2 (paybill) | `DarajaCallbackController.C2BValidation`/`C2BConfirmation` + `PullSweeper` | Wired end to end — passive loan repayment |
-| C2B Hakikisha | `DarajaHakikishaController` | Wired end to end — account-name resolution for Safaricom's confirmation screen |
+| C2B Hakikisha | `DarajaHakikishaController` | Built — account-name resolution for Safaricom's confirmation screen. **Registered in `cmd/microvault` only; `cmd/credit`, the binary testnet runs, does not mount it.** |
 | Pull Transaction | `PullSweeper` (core) | Wired — reconciliation sweep, and the only route to an unmasked payer MSISDN |
 | Account Balance | `BalancePoller` (core) | Wired — ops signal, floor alerts |
 | Mobile Number Validation | `MpesaCollectionAdapter.validateNumber` | Wired, advisory-only — see § Mobile Number Validation |
@@ -135,7 +135,10 @@ short reference as the account number. Two Safaricom-pushed callbacks:
   0**, which is Daraja's signal to accept the payment.
 - **Confirmation** (`C2BConfirmation`) — the settled payment, staged into
   `mpesa_transactions` like every other observation. Still not credited
-  from here.
+  from here. `amount_kes` is stored in **minor units** (cents), the same as
+  every other source in that table: the parsed `TransAmountMinor` goes in
+  unchanged. Rows written before 2026-10-06 were divided by 100 and need a
+  one-time ×100 backfill.
 
 `MpesaConfig.ReferencePrefix` must equal `PaymentsConfig.LoanReferencePrefix`
 — both load from the same `LOAN_REFERENCE_PREFIX` variable, since the
@@ -269,6 +272,13 @@ segment:
 {CallbackBaseURL}/api/v1/callbacks/daraja/{CallbackSlug}/{route}
 ```
 
+The slug is not part of the registered route. The group is mounted at
+`/callbacks/daraja/:slug`, and `requireSlug` compares the parameter in
+constant time, answering 404 on a mismatch. The route template that request
+logs, spans and metrics record is therefore `/callbacks/daraja/:slug/...`,
+and the tracing middleware overwrites `url.path`/`url.full` with it, so the
+secret never reaches OpenObserve.
+
 `DarajaCallbackController.Register` mounts `stk/result`, `c2b/validation`,
 `c2b/confirmation`, `status/{result,timeout}`, `balance/{result,timeout}`,
 `reversal/{result,timeout}`; `DarajaHakikishaController.Register` mounts
@@ -282,7 +292,12 @@ Two independent layers gate an inbound request, neither alone sufficient:
    `MpesaConfig.CallbackAllowedCIDRs` (Safaricom's published egress range).
    Log-only when unset in development; a boot-time misconfiguration in
    production (empty list) fails closed with a 403 on every callback rather
-   than accepting from anywhere.
+   than accepting from anywhere. The caller's IP comes from
+   `middleware.ClientIP`: the TCP peer, or the **rightmost** parsed
+   `X-Forwarded-For` hop when the peer is in `TRUSTED_PROXY_CIDRS`. Behind
+   OutRay, which shares the credit container's network, that is
+   `127.0.0.1/32`, the compose default. It is only sound if OutRay appends
+   the real caller as the last hop; verify that live before relying on it.
 2. **The unguessable slug itself** — Daraja signs nothing, so this and the
    IP allowlist are the only things making a forged callback hard to send.
 

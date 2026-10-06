@@ -58,6 +58,36 @@ shape (interactive SEP-24, driven by a poller rather than webhooks), see
    instead (see
    [moneygram.md § Poller lifecycle](./moneygram.md#poller-lifecycle--what-each-status-does)).
 
+3. **Unwound payouts return the USDC to the Vault, once.** When a payout fails
+   and the crypto comes back, or never left, the borrowed USDC is repaid to
+   the Vault. Every path goes through one entry point in the credit module
+   (`DisbursementStatusAdapter.repayVault`, or `RepayVaultForLoan` for the
+   off-ramp initiate path), which:
+
+   - **claims** the repay with a compare-and-set on `vault_repay_status`
+     (`pending`), so two callers cannot both send it;
+   - **records the signed hash and `validUntil` before submitting**, so a
+     submit that never reports back can be looked up instead of resent;
+   - **caps** attempts at `VAULT_REPAY_MAX_ATTEMPTS` (default 5).
+
+   A submit with no definitive answer becomes `unknown` and keeps its hash; it
+   is never resent blindly. The **vault repay reconciler** (credit backend,
+   every `VAULT_REPAY_RECONCILE_INTERVAL`, default 10 minutes, under a Postgres
+   advisory lock) takes a loan over once `VAULT_REPAY_SETTLEMENT_WINDOW`
+   (default 1 hour) has passed:
+
+   - a recorded hash is settled from the ledger (`ResolveSubmitted`: succeeded,
+     failed, never landed, or outside RPC retention);
+   - a stale claim with no hash is parked as `unknown`;
+   - a `failed` repay is retried every `VAULT_REPAY_RETRY_BACKOFF` (default
+     1 hour).
+
+   Ops alerts on this path include `Vault repay attempts exhausted`,
+   `Vault repay outcome unknown`, `Vault repay outcome unresolvable` and
+   `Vault repay claim stale`, all on the page tier. This covers only the
+   treasury→Vault leg of an unwound disbursement. Borrower repayments,
+   including those settled through the OTC desk, never reach it.
+
 ## Conventions used across these docs
 
 - **Money is stored as whole minor units** (cents for fiat, stroops for USDC).

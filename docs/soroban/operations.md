@@ -27,6 +27,7 @@ export USDC_ID="CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"  # tes
 # Operator addresses (filled in once your identities exist)
 export GUARDIAN="G…"        # emergency-pause address
 export TREASURY="G…"        # credit-delegation wallet
+export COMPLIANCE_ROLE="G…" # allowlist and exit-deadline key (identity name: compliance)
 ```
 
 Now create a funded deployer identity (the bootstrap owner / proposer / executor) and capture its public key:
@@ -420,9 +421,32 @@ Each row below shows just the `--target`, `--function`, and `--args` you slot in
 | Replace the guardian | `$VAULT_ID` | `set_guardian` | `[{"address":"<NEW_GUARDIAN>"}]` |
 | Set the deposit lock period (seconds) | `$VAULT_ID` | `set_lock_period` | `[{"u64":"<SECONDS>"}]` |
 | Resume after a pause | `$VAULT_ID` | `unpause` | `[{"address":"<TIMELOCK_ID>"}]` |
+| Set or rotate the compliance role | `$VAULT_ID` | `set_compliance_role` | `[{"address":"<COMPLIANCE_ROLE>"}]` |
+| Switch allowlist enforcement on (after the depositor backfill) | `$VAULT_ID` | `set_allowlist_enforced` | `[{"bool":true}]` |
+| Set the withdraw grace period (seconds; 30 days = 2592000) | `$VAULT_ID` | `set_withdraw_grace_period` | `[{"u64":"<SECONDS>"}]` |
 | Update the timelock's min_delay | `$TIMELOCK_ID` | `update_delay` | `[{"u32":<NEW_DELAY>}]` |
 
 For the guardian's emergency `pause`, no scheduling is involved; the guardian calls the vault directly. See [Vault § Guardian emergency pause](./vault.md#guardian-emergency-pause).
+
+### Compliance-role calls (no timelock)
+
+The allowlist and exit-deadline changes are signed by the compliance role directly. In normal running the credit backend's on-chain writer sends them; by hand:
+
+```bash
+# Freeze a depositor now (no grace window).
+stellar contract invoke --id $VAULT_ID --source compliance --network-passphrase "$NETWORK" -- \
+  freeze_depositor --caller $COMPLIANCE_ROLE --address <DEPOSITOR>
+
+# Give a revoked or frozen depositor until <UNIX_SECONDS> to withdraw.
+stellar contract invoke --id $VAULT_ID --source compliance --network-passphrase "$NETWORK" -- \
+  extend_exit_deadline --caller $COMPLIANCE_ROLE --address <DEPOSITOR> --deadline <UNIX_SECONDS>
+
+# Check where a depositor stands.
+stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" -- exit_deadline --address <DEPOSITOR>
+stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$NETWORK" -- is_frozen --address <DEPOSITOR>
+```
+
+`disallow_depositor` and `allow_depositor` take the same `--caller`/`--address` pair. **Before switching enforcement on**, list `exit_deadline` for every revoked depositor: past deadlines bind the moment enforcement is on. When revoking a large depositor, also check `max_withdraw` for that owner; if liquidity cannot cover the balance before the deadline, extend it.
 
 ## Cancellation
 
@@ -470,13 +494,13 @@ Watch for `TreasuryUpdated`, `MaxDepositUpdated`, `GuardianUpdated`, `VaultUnpau
 
 ## Critical Notes
 
-- **Delays are ledger sequence counts, not seconds.** Stellar produces roughly one ledger every 5 seconds. `min_delay = 34560` ≈ 48 hours; `min_delay = 120` ≈ 10 minutes. The Vault's `set_lock_period` is a separate axis and is in **seconds**. Do not confuse the two.
+- **Delays are ledger sequence counts, not seconds.** Stellar produces roughly one ledger every 5 seconds. `min_delay = 34560` ≈ 48 hours; `min_delay = 120` ≈ 10 minutes. The Vault's `set_lock_period`, `set_withdraw_grace_period` and exit deadlines are a separate axis and are in **seconds**. Do not confuse the two.
 - **Always upload before scheduling an upgrade.** `schedule_op` for `upgrade` takes a 32-byte WASM hash, not a path. `stellar contract upload` puts the WASM on the ledger and prints the hash; without it there is nothing to point the schedule at.
 - **Argument encoding is checked at simulation.** A typo in `--args` (wrong type tag, malformed JSON) surfaces during `schedule_op`, not at `execute_op`. This is good: you find out before paying the delay.
 - **`--executor` requires double-quote shell wrapping.** The CLI treats it as a JSON-encoded string: `--executor '"GCUU…"'`. A bare `--executor $DEPLOYER` is rejected.
 - **Salts are single-use per `(target, function, args, predecessor)` tuple.** After `execute_op` marks the slot `Done`, scheduling the same tuple again with the same salt traps. Generate a fresh salt every time with `openssl rand -hex 32`.
 - **Predecessor `0x00…00` (32 zero bytes) means "no dependency".** Chain operations by passing a prior op id as `predecessor` if you want the timelock to enforce ordering across multiple queued ops.
 - **The Vault's `unpause` arg expects the caller (owner = timelock).** Pass `[{"address":"<TIMELOCK_ID>"}]`, not the deployer's address. The vault checks `caller.require_auth()` and the auth comes from the controller via `__check_auth` during `execute_op`.
-- **Storage-breaking changes silently strand state on upgrade.** Soroban derives ledger keys from the structural hash of `#[contracttype]` types. Renaming a `DataKey` variant, reordering enum variants, changing a struct field type, or switching storage tier (instance/persistent/temporary) all change the key, and the new code can no longer read pre-upgrade state. Do not bump multiple `stellar-*` crates in a single PR. Pin exact versions (`= 0.7.1`, not `^0.7.1`) in `Cargo.toml`. Run a smoke test that invokes every metadata view and balance read after every upgrade; if any call traps, roll back immediately.
+- **Storage-breaking changes silently strand state on upgrade.** Soroban derives ledger keys from the structural hash of `#[contracttype]` types. Renaming a `DataKey` variant, reordering enum variants, changing a struct field type, or switching storage tier (instance/persistent/temporary) all change the key, and the new code can no longer read pre-upgrade state. Do not bump multiple `stellar-*` crates in a single PR. Pin exact versions (`=0.7.2`, not `^0.7.2`) in `Cargo.toml`. Run a smoke test that invokes every metadata view and balance read after every upgrade; if any call traps, roll back immediately.
 - **Self-administered timelock has no escape hatch.** When the controller is its own admin, lowering `min_delay` or upgrading the controller itself requires a full timelocked round-trip. Plan delay values for the worst case you can tolerate during an incident.
 - **Cancellation cannot rescue a `Done` op.** `cancel_op` works on `Waiting` and `Ready` states; once executed, the change is on-chain. Mistakes are reversed by scheduling a corrective op, not by reverting the previous one.

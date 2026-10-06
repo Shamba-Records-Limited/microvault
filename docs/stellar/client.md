@@ -117,6 +117,34 @@ reserve, so the child still needs no XLM.
 Because today USDC never lands in a child, this is **not** part of the normal
 funding path. It exists for flows that deliberately move USDC through a child.
 
+### Tracking creation: `accounts.chain_status`
+
+Children are derived from the treasury seed by index, and creation is
+dispatched asynchronously at registration, so the database tracks what the
+network has actually confirmed:
+
+| `chain_status` | Meaning |
+|---|---|
+| `pending` | Creation dispatched, not yet observed on the network. |
+| `confirmed` | Observed on the network. The only status a loan is funded against. |
+| `failed` | Creation retries were exhausted. Lending is blocked until it heals. |
+| `unknown` | The row predates the column. |
+| `conflict` | The derived address already existed on-chain but was never ours to confirm: a reused derivation index. Never healed or lent against; re-issue the account at a fresh index. |
+
+`EnsureOnChainAccount` (in `pkg/mobile/ussd/adapters`) runs before a loan is
+funded and fails closed on `conflict`. When the address already exists it
+confirms `pending`/`unknown` rows, but marks a `failed` row `conflict`: our
+own creation was rejected, so an account at that address is someone else's.
+
+The **account chain reconciler** (`pkg/services/accountheal`, run by the
+credit backend) heals `pending`, `failed` and `unknown` rows through the same
+`EnsureOnChainAccount`, with `ACCOUNT_HEAL_*` settings (5 attempts, 15-minute
+spacing, then hourly; pending rows count as stalled after 15 minutes; it
+ticks every 10 minutes). `conflict` rows are never selected. Operators run
+the same heal for one account with `account-heal` (`make heal-account
+ACCOUNT=<id|address|phone> [APPLY=1]` locally, `./account-heal` in the credit
+container on testnet); it reports only, unless `--apply` is passed.
+
 ---
 
 ## Moving USDC
@@ -195,6 +223,31 @@ Every state-changing call follows the same shape:
 distinction that matters: a `PENDING` submission is **not** success, only a polled
 `TransactionStatusSuccess` is. The poller returns typed errors for the failure
 modes: failed-on-ledger, unknown status, context cancelled, and timeout.
+
+The contract-call path (`invokeSigned` in
+[`soroban.go`](../../pkg/stellar/soroban/soroban.go)) adds three rules on top:
+
+- **Record before submit.** A caller may pass an `OnSigned` hook
+  (`types.RepayRequest.OnSigned`). It receives the signed transaction's hash
+  and its `validUntil` (the max time bound, 300 seconds out) before anything
+  is sent. If the hook fails, nothing is submitted. The vault repay path uses
+  this to persist the hash, so an outcome it never heard back about can still
+  be looked up.
+- **Rejected at submission is a known outcome.** `ERROR` returns a
+  `RejectionError` decoded from the result XDR, and `TRY_AGAIN_LATER` returns
+  `ErrStellarCoreOverloaded`. In both cases stellar-core never admitted the
+  transaction, so it can never land and is not polled.
+- **A transport failure on submit is unknown, not failed.** The node may
+  have accepted the transaction before the call broke, so the error wraps
+  `ErrSubmissionUnconfirmed`. Treat it like a poll timeout: never resubmit
+  blindly.
+
+To settle an unknown outcome later, `rpc.Verifier.ResolveSubmitted(hash,
+submittedAfter, validUntil)` returns one of `TxSucceeded`, `TxFailed`,
+`TxUnresolved` (it may still land), `TxNeverLanded` or `TxOutsideRetention`.
+`NOT_FOUND` only counts as "never landed" once the latest ledger closed after
+`validUntil` **and** the RPC's oldest retained ledger closed before
+`submittedAfter`, both by ledger time. Otherwise only an archive can answer.
 
 ---
 

@@ -70,6 +70,10 @@ Two things to read off the diagram:
    `/api/v1/mobile/ussd/:provider`. The route is registered in
    [`internal/core/pkg/routes/public_routes.go`](../../internal/core/pkg/routes/public_routes.go);
    the `:provider` URL param selects the transport. `USSDController.HandleCallback`
+   first checks the `token` query parameter against `USSD_CALLBACK_TOKEN` in
+   constant time and answers `401 END Unauthorized` on a mismatch; an unset
+   token rejects every callback. Configure the gateway's callback URL as
+   `.../api/v1/mobile/ussd/africastalking?token=<USSD_CALLBACK_TOKEN>`. It then
    reads the form into a `map[string]string` and hands it to
    `ussd.USSDService.HandleRequest`.
 
@@ -90,7 +94,10 @@ Two things to read off the diagram:
    `handleInitialRequest` calls `UserService.GetUserWithAccounts` and routes
    to registration (unknown number) or the main menu (registered user). On a
    retry with the same session ID the menu is always reset to `main` to
-   avoid stale state.
+   avoid stale state. A fresh dial also compares the gateway's `serviceCode`
+   with `USSD_DIAL_STRING` and raises the `USSD dial string mismatch` ops
+   alert once per wrong code, since SMS copy tells borrowers to dial the
+   configured code.
 
 5. **Menu dispatch.** `handleMenuInput` looks up `session.CurrentMenu` in the
    `MenuRegistry` and invokes that menu's `MenuHandler` with a `MenuContext`
@@ -122,7 +129,20 @@ interfaces declared in [`pkg/mobile/ussd/types.go`](../../pkg/mobile/ussd/types.
 
 Plus a `contracts.AccountNotifier` for side-effect SMS (registration
 confirmations, PIN warnings, lockout notices). Passing `nil` for the notifier
-substitutes a no-op.
+substitutes a no-op. `HandlerDeps.DialString` and `HandlerDeps.Alerts` feed
+the dial-string check; a blank dial string disables it.
+
+### PIN and recovery attempts
+
+Wrong PINs and wrong security answers share one counter on the user row.
+`pin.Service` claims each attempt with a single `UPDATE ... RETURNING`
+(`UserRepository.ClaimPINAttempt`) **before** comparing, so concurrent
+guesses cannot read the same count, and the update that reaches
+`pin.MaxPINAttempts` also sets `pin_locked_until` for `PIN_LOCKOUT_SECONDS`
+(default 15 minutes). A correct PIN or a correct
+pair of answers resets it (`ResetPINAttempts`). While locked, PIN entry and
+both recovery flows (SIM recovery and PIN recovery) answer with the lockout
+message instead of checking anything.
 
 ### Adding a USSD transport
 

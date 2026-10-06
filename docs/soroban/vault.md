@@ -18,7 +18,7 @@ pub fn __constructor(
 )
 ```
 
-Initial state set on construction: `MaxDeposit` and `MaxWithdraw` default to 1 000 000 USDC (with 7 decimals), `TotalBorrowed` to 0, `BorrowIndex` to `1.0` (WAD-scaled), `LastAccrualTime` to the current ledger timestamp, lock period to 0 (disabled).
+Initial state set on construction: `MaxDeposit` and `MaxWithdraw` default to 1 000 000 USDC (with 7 decimals), `TotalBorrowed` to 0, `BorrowIndex` to `1.0` (WAD-scaled), `LastAccrualTime` to the current ledger timestamp, lock period to 0 (disabled). The compliance role is unset, allowlist enforcement is off and the withdraw grace period reads as 30 days; all three are introduced by upgrade, so the constructor does not take them.
 
 ## Functionality
 
@@ -42,16 +42,22 @@ The public surface is grouped below by who is expected to call each function. Au
 | `get_unlock_time(user)` | `u64` | none | Ledger timestamp at which `user`'s shares become withdrawable. |
 | `is_locked(user)` | `bool` | none | `true` if `user`'s shares are still locked. |
 | `remaining_lock_time(user)` | `u64` | none | Seconds until `user`'s shares unlock; `0` if already unlocked. |
+| `compliance_role()` | `Option<Address>` | none | Address allowed to change the allowlist and exit deadlines, if set. |
+| `allowlist_enforced()` | `bool` | none | Whether deposits, mints and share transfers are gated on the allowlist. Defaults to `false`. |
+| `is_allowed(address)` | `bool` | none | Allowlist membership, independent of enforcement. |
+| `withdraw_grace_period()` | `u64` | none | Seconds a revoked depositor keeps to withdraw. Defaults to 30 days. |
+| `exit_deadline(address)` | `Option<u64>` | none | Ledger timestamp from which a revoked or frozen owner can no longer withdraw. |
+| `is_frozen(address)` | `bool` | none | `true` if the owner's exit deadline binds right now. |
 
-The vault also exposes the standard FungibleVault preview/convert helpers: `convert_to_shares`, `convert_to_assets`, `query_asset`, `total_assets`, `max_deposit`, `max_mint`, `max_withdraw`, `max_redeem`, `preview_deposit`, `preview_mint`, `preview_withdraw`, `preview_redeem`. Each respects the pause flag (returns `0` while paused) and the configured limits.
+The vault also exposes the standard FungibleVault preview/convert helpers: `convert_to_shares`, `convert_to_assets`, `query_asset`, `total_assets`, `max_deposit`, `max_mint`, `max_withdraw`, `max_redeem`, `preview_deposit`, `preview_mint`, `preview_withdraw`, `preview_redeem`. Each respects the pause flag (returns `0` while paused) and the configured limits. `max_withdraw` and `max_redeem` also return `0` for a frozen owner.
 
 ### Depositor Functions
 
-All four are gated by `[when_not_paused]`. `withdraw` and `redeem` additionally check the per-user lock and the per-transaction max-withdraw cap.
+All four are gated by `[when_not_paused]`. `withdraw` and `redeem` additionally check the per-user lock and the per-transaction max-withdraw cap. While allowlist enforcement is on, `deposit` and `mint` require both `from` and `receiver` to be allowlisted, and `withdraw`/`redeem` fail for an owner past their exit deadline; during the grace window the lock is skipped. See [Compliance](../compliance/README.md#exit-grace-period-and-freeze).
 
 | Function | Returns | Description |
 |---|---|---|
-| `deposit(assets, receiver, from, operator)` | `i128` (shares minted) | Pull `assets` of underlying from `from`, mint shares to `receiver`. Updates `receiver`'s lock with a weighted-average unlock time. |
+| `deposit(assets, receiver, from, operator)` | `i128` (shares minted) | Pull `assets` of underlying from `from`, mint shares to `receiver`. Pushes `receiver`'s unlock time to `now + lock_period` if that is later. |
 | `mint(shares, receiver, from, operator)` | `i128` (assets used) | Mint exactly `shares` to `receiver`, pulling whatever assets are required. Updates lock. |
 | `withdraw(assets, receiver, owner, operator)` | `i128` (shares burned) | Burn shares from `owner` to release exactly `assets` of underlying to `receiver`. |
 | `redeem(shares, receiver, owner, operator)` | `i128` (assets returned) | Burn `shares` from `owner`, send the equivalent assets to `receiver`. |
@@ -64,6 +70,8 @@ The treasury identity is stored on-chain; `treasury_caller` must equal that stor
 |---|---|---|
 | `borrow(treasury_caller, recipient, amount)` | `require_auth(treasury_caller)`, `[when_not_paused]` | Transfer `amount` of underlying from the vault to the **treasury wallet** (the treasury then forwards to `recipient` off-chain or in a follow-up call). Accrues interest, then enforces the 80 % utilization cap and the available-liquidity check. |
 | `repay(treasury_caller, amount)` | `require_auth(treasury_caller)`, `[when_not_paused]` | Pull `amount` of underlying from the treasury back into the vault. Accrues interest first. Errors with `RepayExceedsDebt` if `amount > total_borrowed`. |
+| `repay_for(treasury_caller, borrower, amount)` | `require_auth(treasury_caller)`, `[when_not_paused]` | Same as `repay`; `borrower` is carried onto the `Repaid` event for attribution and authorizes nothing. Used by every repayment rail. |
+| `bump_yield(from, amount)` | `require_auth(from)`, `[when_not_paused]` | Contribute assets without minting shares, raising every share's value. Returns interest on loans the vault stopped counting as borrowed. |
 | `accrue()` | none | Force interest accrual immediately. Useful for indexers and for keepers that want to crystallize interest before a snapshot. |
 | `sweep_foreign_asset(current_treasury, token_to_recover, recipient, amount)` | `require_auth(current_treasury)` | Recover tokens accidentally sent to the vault. **Cannot sweep the underlying asset**, guarded by an explicit address check. |
 
@@ -78,6 +86,9 @@ The owner is the TimelockController contract, so every call below is invoked ind
 | `set_lock_period(new_period)` | Update the deposit lock duration in **seconds**. `0` disables locking. Existing user locks are not retroactively shortened or extended; only future deposits use the new value. |
 | `set_guardian(new_guardian)` | Replace the guardian address. |
 | `set_treasury(new_treasury)` | Replace the treasury address. Single call: there is no separate propose/execute/cancel because the timelock already provides that. |
+| `set_compliance_role(new_role)` | Set the compliance role. |
+| `set_allowlist_enforced(enforced)` | Switch allowlist enforcement on or off. Turning it on makes every past exit deadline bind at once. |
+| `set_withdraw_grace_period(new_period)` | Seconds a revoked depositor keeps to withdraw. `0` makes every revocation freeze immediately. Existing deadlines are unchanged. |
 | `upgrade(new_wasm_hash)` | Swap the contract WASM. State is preserved; see the storage-layout warning in [Critical notes](#critical-notes). |
 | `unpause(caller)` | Resume operations after a pause. Only owner can unpause, even though guardian can pause. |
 
@@ -86,6 +97,17 @@ The owner is the TimelockController contract, so every call below is invoked ind
 | Function | Auth | Description |
 |---|---|---|
 | `pause(caller)` | `require_auth(caller)` and `caller` must equal the owner **or** the guardian | Halt all `[when_not_paused]` operations immediately, with no timelock delay. Designed for rapid emergency response. |
+
+### Compliance Role Functions
+
+Signed by the configured compliance role, with **no timelock**: a sanctions hit cannot wait out the delay. Each errors with `ComplianceRoleNotSet` before `set_compliance_role`, and `Unauthorized` for any other caller.
+
+| Function | Description |
+|---|---|
+| `allow_depositor(caller, address)` | Add to the allowlist and clear any exit deadline. |
+| `disallow_depositor(caller, address)` | Remove from the allowlist and, if none is set, start the exit window: deadline = now + grace period. |
+| `freeze_depositor(caller, address)` | Remove from the allowlist and set the deadline to now. |
+| `extend_exit_deadline(caller, address, deadline)` | Move an existing deadline later; also how a freeze is lifted without re-allowing. |
 
 ## Events
 
@@ -102,11 +124,17 @@ Every event is published with `.publish(e)` and can be subscribed to with `stell
 | `VaultPaused` | `by` | `pause` succeeds. |
 | `VaultUnpaused` | `by` | `unpause` succeeds. |
 | `Borrowed` | `treasury`, `recipient`, `amount`, `total_borrowed` | `borrow` succeeds. |
-| `Repaid` | `treasury`, `amount`, `total_borrowed` | `repay` succeeds. |
+| `Repaid` | `treasury`, `borrower` (`None` for `repay`), `amount`, `total_borrowed` | `repay` or `repay_for` succeeds. |
+| `YieldBumped` | `from`, `amount`, `total_managed` | `bump_yield` succeeds. |
+| `ComplianceRoleUpdated` | `old_role` (`Option`), `new_role` | `set_compliance_role` succeeds. |
+| `AllowlistEnforcementUpdated` | `old_enforced`, `new_enforced` | `set_allowlist_enforced` succeeds. |
+| `WithdrawGracePeriodUpdated` | `old_period`, `new_period` | `set_withdraw_grace_period` succeeds. |
+| `ExitDeadlineSet` | `account` (topic), `deadline`, `frozen` | A revoke starts a window, or a freeze or extension moves it. |
+| `ExitDeadlineCleared` | `account` (topic) | `allow_depositor` removes a deadline. |
 | `InterestAccrued` | `interest_amount`, `new_total_borrowed`, `utilization_rate` | Compound interest is added to `total_borrowed` (only when `interest_amount > 0`). |
 | `ForeignAssetSwept` | `token`, `recipient`, `amount` | `sweep_foreign_asset` succeeds. |
 
-The vault also emits the standard `Transfer` / `Mint` / `Burn` events from the FungibleToken trait on every share-balance change.
+The vault also emits the standard `Transfer` / `Mint` / `Burn` events from the FungibleToken trait on every share-balance change, OpenZeppelin's `Deposit` / `Withdraw` vault events, and `UserAllowed` / `UserDisallowed` from the allowlist.
 
 ## Error Codes
 
@@ -114,7 +142,7 @@ Errors are returned as `MicroVaultError` (`#[contracterror]`, `#[repr(u32)]`). D
 
 | Code | Name | Meaning |
 |---|---|---|
-| 1 | `Unauthorized` | Caller is not the configured treasury. |
+| 1 | `Unauthorized` | Caller is not the configured treasury, or not the compliance role. |
 | 2 | `CannotSweepUnderlyingAsset` | `sweep_foreign_asset` was called with the underlying asset. |
 | 3 | `InvalidAmount` | Amount is `<= 0`, or total managed assets are 0 during a borrow. |
 | 4 | `ExceedsMaxDeposit` | Deposit exceeds `MaxDeposit`. |
@@ -123,7 +151,14 @@ Errors are returned as `MicroVaultError` (`#[contracterror]`, `#[repr(u32)]`). D
 | 9 | `ExceedsUtilizationCap` | Borrow would push utilization above 80 %. |
 | 10 | `InsufficientLiquidity` | Borrow exceeds `available_liquidity()`. |
 | 11 | `RepayExceedsDebt` | Repayment exceeds outstanding `total_borrowed`. |
-| 12 | `SharesLocked` | Withdraw or redeem attempted while user's shares are locked. |
+| 12 | `SharesLocked` | Share `transfer`/`transfer_from` while the sender's shares are locked. `withdraw`/`redeem` on locked shares panic with the message `Shares are locked` instead, as do their per-transaction cap and liquidity checks. |
+| 13 | `ExceedsMaxRedeem` | Declared, not currently raised. |
+| 14 | `AddressNotAllowed` | `deposit`/`mint` with `from` or `receiver` off the allowlist while enforcement is on. |
+| 15 | `ComplianceRoleNotSet` | A compliance-role function was called before `set_compliance_role`. |
+| 16 | `ExitWindowClosed` | `withdraw`/`redeem` by an owner past their exit deadline. |
+| 17 | `InvalidExitDeadline` | `extend_exit_deadline` to a time not later than the current deadline, or for an address with none. |
+
+A share `transfer`/`transfer_from` to or from an address off the allowlist fails with OpenZeppelin's `113 UserNotAllowed` instead of `14`; both mean "not allowlisted".
 
 Codes 7 (`TimelockNotExpired`) and 8 (`NoPendingUpdate`) existed in earlier versions of the manual treasury timelock and were removed when ownership migrated to the standalone TimelockController.
 
@@ -140,6 +175,7 @@ Codes 7 (`TimelockNotExpired`) and 8 (`NoPendingUpdate`) existed in earlier vers
 | `SLOPE1` | `0.075e18` (WAD) | Per-100 %-utilization slope below the kink. |
 | `SLOPE2` | `5.0e18` (WAD) | Per-100 %-utilization slope above the kink (steep penalty curve). |
 | `SECONDS_PER_YEAR` | `31_536_000` | Used to convert APR to a per-second rate for compounding. |
+| `DEFAULT_WITHDRAW_GRACE_PERIOD` | `2_592_000` | 30 days. Adjustable via `set_withdraw_grace_period`. |
 
 The interest rate at utilization `u` (WAD-scaled) is:
 
@@ -268,7 +304,9 @@ stellar contract invoke --id $VAULT_ID --source deployer --network-passphrase "$
 
 ## Critical Notes
 
-- **Owner is the TimelockController.** Every `[only_owner]` function (`set_max_deposit`, `set_max_withdraw`, `set_lock_period`, `set_guardian`, `set_treasury`, `upgrade`, `unpause`) must be invoked via `schedule_op` to `execute_op` on the timelock. A direct call signed by a deployer key will trap on the owner check.
+- **Owner is the TimelockController.** Every `[only_owner]` function (`set_max_deposit`, `set_max_withdraw`, `set_lock_period`, `set_guardian`, `set_treasury`, `set_compliance_role`, `set_allowlist_enforced`, `set_withdraw_grace_period`, `upgrade`, `unpause`) must be invoked via `schedule_op` to `execute_op` on the timelock. A direct call signed by a deployer key will trap on the owner check.
+- **The compliance role bypasses the timelock on purpose.** `allow_depositor`, `disallow_depositor`, `freeze_depositor` and `extend_exit_deadline` take effect the moment the compliance key signs. Keep that key apart from the owner and treasury keys.
+- **`withdraw`/`redeem` errors arrive raw.** They are trait methods, so a frozen owner surfaces as `Error(Contract, #16)` through the generic contract error rather than a typed `MicrovaultError`.
 - **Lock period is in seconds, not ledgers.** `set_lock_period(604_800)` = 7 days. Do not confuse this with the TimelockController's `delay`, which is measured in ledger sequence counts.
 - **Decimals offset is 6.** Share-token amounts are scaled by `1e13` (USDC's 7 + offset 6). Trust the `preview_deposit`/`preview_redeem` helpers for conversion. Do not multiply manually.
 - **Utilization cap is hard-enforced at 80 %.** A borrow that would push utilization above the cap reverts with `ExceedsUtilizationCap`. The rate curve above 80 % is intentionally steep (slope-2 = 500 %) to discourage probing the cap.

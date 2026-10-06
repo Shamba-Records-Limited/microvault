@@ -21,8 +21,10 @@ https://drive.google.com/file/d/1vPvQThVGg2bDMLYC4Yd_cYwavyDlSrsj/view?usp=shari
 
 ## Documentation
 
-Full developer documentation lives in **[docs/](docs/README.md)** — covering the
-Soroban contracts, the Stellar Go client, and the off-ramp.
+Full developer documentation lives in **[docs/](docs/README.md)**, covering the
+Soroban contracts, the Stellar Go client, the off-ramp and on-ramp providers,
+the payment relay, mobile (USSD/SMS), M-Pesa, Airtel Money, compliance, and
+observability and alerting.
 
 ## Contributing
 

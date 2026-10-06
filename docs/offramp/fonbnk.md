@@ -72,8 +72,9 @@ An off-ramp is a **crypto deposit** (our treasury pays in) and a **fiat payout**
 That last row is deliberate. Once the treasury has paid, the disbursement has
 happened, and Fonbnk detects incoming payments on its own, confirm only
 accelerates settlement. Returning an error there would throw away the order
-reference for a step that was never load-bearing. It logs `CRITICAL` and flags
-the payload rather than hiding it.
+reference for a step that was never load-bearing. It raises the
+`Fonbnk deposit not confirmed` ops alert and flags the payload rather than
+hiding it.
 
 ---
 
@@ -216,7 +217,7 @@ handling in our settlement path yet.**
 | Symptom | Meaning | Action |
 |---|---|---|
 | `merchant_not_permitted` | create-users not enabled on the account | Contact Fonbnk support; nothing local will fix it |
-| `CRITICAL: USDC sent to fonbnk but the deposit could not be confirmed` | Funds left the treasury, confirm call failed | Usually self-heals. Fonbnk detects the payment. Verify the order reached `payout_successful`. |
+| `Fonbnk deposit not confirmed` alert | Funds left the treasury, confirm call failed | Usually self-heals. Fonbnk detects the payment. Verify the order reached `payout_successful`. |
 | `corridor_unavailable` | No provider can price the pair right now | Transient; re-read available currencies |
 | Order stuck at `deposit_awaiting` | Treasury send never landed | Check the on-chain transaction; the order expires on its own |
 | `401 Signature is invalid` | The query string signed differs from the one sent | A re-serialised query, build it once with `url.Values.Encode()` |

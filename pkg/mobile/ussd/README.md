@@ -59,7 +59,9 @@ Two things to read off the diagram:
 
 ## Request lifecycle
 
-1. **Transport in.** The telecom gateway POSTs to the HTTP endpoint. The
+1. **Transport in.** The telecom gateway POSTs to the HTTP endpoint, which
+   rejects the call with 401 unless its `token` query parameter matches
+   `USSD_CALLBACK_TOKEN`. The
    route resolves a `USSDProvider` by name from `USSDService` and calls
    `ParseRequest`, which normalizes the gateway's form fields into a
    `USSDRequest` (session ID, phone, service code, network code, current

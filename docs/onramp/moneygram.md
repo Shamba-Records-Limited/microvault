@@ -92,7 +92,8 @@ The background half:
 
 > If step 4 fails after step 3 succeeded, the deposit exists at MoneyGram and we
 > have no record of it. The poller will never drive it, and a borrower who pays
-> is unreconciled. That branch logs `CRITICAL` for exactly this reason.
+> is unreconciled. That branch raises the `Repayment deposit not recorded` page
+> alert for exactly this reason.
 
 ### Two memos, two jobs
 
@@ -224,13 +225,25 @@ for attribution only.
 
 If `repay_for` lands but `MarkSettled` fails, the chain moved and the row did
 not. The next tick sees `funds_received` again and **could repay a second time**.
-That branch logs `CRITICAL` and alerts ops with an explicit "do not let this loan
-be repaid again".
+That branch raises the `Repayment settled on-chain but not recorded` page alert
+with an explicit "do not let this loan be repaid again".
+
+### An unknown outcome is parked, not retried
+
+A submit can end without a definitive answer: the RPC timed out, the status
+was never confirmed, or the context was cancelled. The transaction may still
+land. Retrying it would risk the same double repay, so `handleCompleted` treats
+these errors (`ErrSubmissionUnconfirmed`, `ErrTransactionTimeout`,
+`ErrUnknownTransactionStatus`, `ErrContextCancelled`) separately from a plain
+failure. It sets `repayment_status=vault_unknown`, which takes the loan out of
+the poller's due set, and raises the `Repayment vault leg outcome unknown` page
+alert. Nothing resubmits it automatically.
 
 ### The vault leg never gives up
 
-The borrower's USDC is already on the treasury, so there is no state in which
-abandoning the leg is correct. `DepositVaultMaxAttempts` (default 10) decides
+This covers definite failures only; see the previous section for unknown
+outcomes. The borrower's USDC is already on the treasury, so there is no state
+in which abandoning the leg is correct. `DepositVaultMaxAttempts` (default 10) decides
 when a *human is told*, not when to stop. Past the ceiling the retry slows to
 `DepositVaultRetryBackoff` (default 1h), because by then the cause is unlikely
 to clear on its own and hammering a broken RPC every two minutes helps nobody.
@@ -329,6 +342,8 @@ defaults in place rather than config restating them.
 |---|---|---|
 | `Repayment instructions not delivered` alert | The pay-instructions SMS failed and the marker is already spent. The borrower will never be told how to pay. | **Manual**, clear `repayment_reference_sent_at` on the loan; the next tick resends. |
 | `Repayment settled on-chain but not recorded` | `repay_for` landed but the row did not update. | **Urgent, manual**, record the settlement by hand. Do not let the loan be repaid again. |
+| `Repayment vault leg outcome unknown` | `repay_for` ended without a definitive result and the loan is parked at `repayment_status=vault_unknown`. | **Manual**, look up the treasury's `repay_for` for this borrower on-chain. If it landed, record the settlement with its tx hash. If it did not, set `repayment_status` back to `funds_received` so the next tick retries. |
+| `Repayment deposit not recorded` | The SEP-24 deposit opened at MoneyGram but the quote lock was not written. The poller will never drive it. | **Manual**, write the `repayment_*` columns from the MoneyGram transaction, or cancel it with MoneyGram. |
 | `Repayment vault leg stuck` | `repay_for` has failed 10 times. Borrower paid, their USDC is on the treasury, loan still open. | Investigate the RPC / vault. The retry continues on its own at 1h. |
 | `Repayment deposit short of the quoted payoff` | MoneyGram credited less than quoted; the treasury is absorbing the difference. | See [§ The fee discrepancy](#the-fee-discrepancy--open-question). Collect evidence before changing behaviour. |
 | `Repayment missing borrower address` / `missing locked payoff` | Funds received but the vault leg cannot be attributed or sized. | **Manual**, backfill the loan row; the next tick proceeds. |

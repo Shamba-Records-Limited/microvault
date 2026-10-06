@@ -45,7 +45,7 @@ For the authoritative reference on each crate, see its crates.io page (linked ab
 
 | Doc | Read this when you want to… |
 |---|---|
-| [Vault](./vault.md) | Integrate as a depositor, treasury operator, or wallet. Full surface of the Vault contract: deposit/withdraw, borrow/repay, views, events, errors, constants. |
+| [Vault](./vault.md) | Integrate as a depositor, treasury operator, or wallet. Full surface of the Vault contract: deposit/withdraw, borrow/repay, the compliance allowlist and exit grace period, views, events, errors, constants. |
 | [TimelockController](./timelock-controller.md) | Propose, execute, or cancel governance operations. Operation lifecycle, role model, scheduling and execution semantics. |
 | [Operations](./operations.md) | Build, deploy, upgrade, or run admin workflows. Copy-pasteable `stellar` CLI commands for the schedule ----> wait ----> execute pattern. |
 
