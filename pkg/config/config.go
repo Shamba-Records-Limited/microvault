@@ -590,6 +590,11 @@ func New() (*Config, error) {
 		return nil, err
 	}
 
+	airtelSwitch, err := envBool("ENABLE_AIRTEL_MONEY_SWITCH")
+	if err != nil {
+		return nil, err
+	}
+
 	roundAnchor, err := envBool("ROUND_ANCHOR_AMOUNTS")
 	if err != nil {
 		return nil, err
@@ -961,6 +966,7 @@ func New() (*Config, error) {
 			Airtel: AirtelConfig{
 				ClientID:             os.Getenv("AIRTEL_CLIENT_ID"),
 				ClientSecret:         os.Getenv("AIRTEL_CLIENT_SECRET"),
+				EnableSwitch:         airtelSwitch,
 				Environment:          airtelEnvironment,
 				Country:              airtelCountry,
 				Currency:             airtelCurrency,
@@ -1454,6 +1460,12 @@ type AirtelConfig struct {
 	ClientID     string
 	ClientSecret string
 
+	// EnableSwitch offers the rail to borrowers for new repayments. Off hides it
+	// from the repay menu while the pollers and callback keep settling any
+	// repayment already in flight. From ENABLE_AIRTEL_MONEY_SWITCH; unset is
+	// off.
+	EnableSwitch bool
+
 	// Environment selects the Airtel deployment: staging or production.
 	Environment airtel.Environment
 
@@ -1544,6 +1556,10 @@ func (c AirtelConfig) AirtelCallbackURL() string {
 // Enabled reports whether the Airtel rail is configured at all. Every Airtel
 // code path is wired behind it.
 func (c AirtelConfig) Enabled() bool { return c.ClientID != "" && c.ClientSecret != "" }
+
+// Offered reports whether new repayments may use the rail: configured and
+// switched on.
+func (c AirtelConfig) Offered() bool { return c.Enabled() && c.EnableSwitch }
 
 // Validate checks the Airtel settings, requiring in production what may be
 // absent in development.

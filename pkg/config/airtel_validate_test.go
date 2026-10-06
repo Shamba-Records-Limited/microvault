@@ -235,4 +235,36 @@ func TestAirtelConfig_LoaderDefaultsAreValid(t *testing.T) {
 	assert.Equal(t, "KES", airtelCfg.Currency)
 	assert.Zero(t, airtelCfg.PromptAmountKES, "the staging override must default off")
 	assert.False(t, airtelCfg.SigningEnabled, "signing must default off; it has to match Airtel's own toggle")
+	assert.False(t, airtelCfg.EnableSwitch, "the rail must not be offered until switched on")
+}
+
+func TestAirtelConfig_Offered(t *testing.T) {
+	cases := map[string]struct {
+		cfg  AirtelConfig
+		want bool
+	}{
+		"configured and switched on": {cfg: AirtelConfig{ClientID: "a", ClientSecret: "b", EnableSwitch: true}, want: true},
+		"configured, switch off":     {cfg: AirtelConfig{ClientID: "a", ClientSecret: "b"}},
+		"switch on, no credentials":  {cfg: AirtelConfig{EnableSwitch: true}},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.cfg.Offered())
+		})
+	}
+}
+
+func TestAirtelConfig_SwitchLoadsFromEnv(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("SERVER_ENVIRONMENT", "development")
+	t.Setenv("ENABLE_AIRTEL_MONEY_SWITCH", "true")
+
+	cfg, err := New()
+	require.NoError(t, err)
+	assert.True(t, cfg.Payments.Airtel.EnableSwitch)
+
+	t.Setenv("ENABLE_AIRTEL_MONEY_SWITCH", "maybe")
+	_, err = New()
+	require.ErrorContains(t, err, "ENABLE_AIRTEL_MONEY_SWITCH")
 }

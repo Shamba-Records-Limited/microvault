@@ -43,8 +43,8 @@ func carrierSvc() *carrierLoanSvc {
 	return svc
 }
 
-// The borrower picks their network. Both prompt rails are offered by name,
-// so nothing is inferred from their MSISDN.
+// With no network reported and no recognisable prefix, both prompt rails are
+// offered by name and the borrower picks.
 func TestRepayRails_OffersBothCarriersByName(t *testing.T) {
 	svc := carrierSvc()
 	h := newCarrierHarness(t, svc, "247247")
@@ -180,5 +180,51 @@ func TestRepayRailStrings_AreGSM7(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func railKeys(rails []repayRail) []string {
+	keys := make([]string, 0, len(rails))
+	for _, r := range rails {
+		keys = append(keys, r.key)
+	}
+	return keys
+}
+
+func TestRepayRails_RoutesByReportedNetwork(t *testing.T) {
+	h := newCarrierHarness(t, carrierSvc(), "247247")
+	cases := map[string]struct {
+		networkCode string
+		phone       string
+		want        []string
+	}{
+		"safaricom sim gets only the mpesa prompt":            {"63902", "254733000111", []string{"mpesa", "paybill"}},
+		"airtel sim gets only the airtel prompt":              {"63903", "254722000111", []string{"airtel", "paybill"}},
+		"telkom sim gets no prompt":                           {"63907", "254772000111", []string{"paybill"}},
+		"equitel sim gets no prompt":                          {"63999", "254764000111", []string{"paybill"}},
+		"no network code: airtel prefix is listed first":      {"", "254733000111", []string{"airtel", "mpesa", "paybill"}},
+		"no network code: safaricom prefix keeps mpesa first": {"", "254722000111", []string{"mpesa", "airtel", "paybill"}},
+		"sandbox code falls back to the prefix":               {"99999", "254733000111", []string{"airtel", "mpesa", "paybill"}},
+		"foreign network code falls back to the prefix":       {"64101", "254722000111", []string{"mpesa", "airtel", "paybill"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			session := &Session{Data: map[string]any{}, NetworkCode: tc.networkCode, PhoneNumber: tc.phone}
+			got := railKeys(h.mobileRepayRails(session))
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("rails = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRepayRails_ReportedAirtelWithRailOffShowsPaybillOnly(t *testing.T) {
+	h := newCarrierHarness(t, carrierSvc(), "247247")
+	h.carrierPrompter = nil
+
+	got := railKeys(h.mobileRepayRails(&Session{Data: map[string]any{}, NetworkCode: "63903", PhoneNumber: "254733000111"}))
+
+	if strings.Join(got, ",") != "paybill" {
+		t.Fatalf("rails = %v, want only paybill", got)
 	}
 }

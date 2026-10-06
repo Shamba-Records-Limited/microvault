@@ -132,6 +132,16 @@ confirmations, PIN warnings, lockout notices). Passing `nil` for the notifier
 substitutes a no-op. `HandlerDeps.DialString` and `HandlerDeps.Alerts` feed
 the dial-string check; a blank dial string disables it.
 
+### Which repayment prompt is offered
+
+A repayment prompt (M-Pesa STK push or Airtel Money push) only reaches a
+wallet on the network the borrower is dialing from. The repay menu therefore
+reads the session's `networkCode` (`63902` Safaricom, `63903` Airtel) and
+offers only the matching prompt; on another Kenyan network it offers none.
+The paybill is always listed. When the gateway sends no usable code, the
+number's prefix allocation orders the prompts but hides neither, since
+ported numbers keep their old prefix. See [Airtel Money](../airtel/README.md).
+
 ### PIN and recovery attempts
 
 Wrong PINs and wrong security answers share one counter on the user row.

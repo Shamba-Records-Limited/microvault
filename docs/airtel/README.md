@@ -10,6 +10,16 @@ Airtel developer account yet. With no `AIRTEL_*` variables set, nothing is
 constructed, the repay menu does not offer Airtel, and the config validates
 in every environment.
 
+Two gates, like the YellowCard/Fonbnk relay:
+
+- **Credentials** (`AIRTEL_CLIENT_ID` + `AIRTEL_CLIENT_SECRET`,
+  `AirtelConfig.Enabled()`) construct the client, the collection adapter, the
+  prompt loan poller and the summary sweeper.
+- **`ENABLE_AIRTEL_MONEY_SWITCH`** (`AirtelConfig.Offered()`, unset is off)
+  offers the rail to borrowers in the repay menu. Switching it off hides the
+  rail for new repayments only; the pollers and the callback keep settling
+  any repayment already in flight.
+
 ## What's wired
 
 | Piece | Where | Status |
@@ -20,8 +30,8 @@ in every environment.
 | Collection adapter (push only) | `AirtelCollectionAdapter` in the credit module | Wired in `cmd/credit` behind `AirtelConfig.Enabled()` |
 | Prompt loan poller (enquiry-driven settlement) | `AirtelPromptLoanDriver` in the credit module | Wired in `cmd/credit` behind `Enabled()` |
 | Summary sweeper (missed-callback reconciliation) | [`pkg/services/airtelpoller`](../../pkg/services/airtelpoller) | Wired in `cmd/credit` behind `Enabled()` |
-| USSD repay menu option | `HandlerDeps.AirtelPrompter` | Shown only when `Enabled()` |
-| Collection callback `POST /api/v1/callbacks/airtel/:slug/collection` | `AirtelCallbackController` | **Registered in `cmd/microvault` only, not in `cmd/credit`**, which is the binary testnet runs. Settlement does not depend on it (see below). |
+| USSD repay menu option | `HandlerDeps.AirtelPrompter` | Shown only when `Offered()`, and only to borrowers on the Airtel network (see below) |
+| Collection callback `POST /api/v1/callbacks/airtel/:slug/collection` | `AirtelCallbackController` | Mounted in `cmd/credit` and `cmd/microvault` whenever `AIRTEL_CALLBACK_SLUG` is set, independent of the switch |
 
 `Enabled()` means `AIRTEL_CLIENT_ID` and `AIRTEL_CLIENT_SECRET` are both set.
 
@@ -43,10 +53,18 @@ in every environment.
    Airtel's documented three-minute floor.
 4. **Push only.** Airtel Collection has no paybill equivalent, so
    `Collect` refuses and every collection is a USSD push.
-5. **The borrower picks the network.** The repay menu offers Airtel Money
-   explicitly and pins the provider. The cash-in registry's generic prompt
-   method still points at M-Pesa: guessing a carrier from the MSISDN prefix
-   goes stale as ranges are reallocated.
+5. **The network the borrower dials from picks the prompt.** A prompt can only
+   reach a wallet on the SIM's own network. Africa's Talking sends a
+   `networkCode` (MCC+MNC) with every USSD request: `63902` Safaricom,
+   `63903` Airtel, `63907` Telkom, `63999` Equitel. That code is the network
+   the SIM is on, so it is right for ported numbers too. On Safaricom the
+   menu offers only the M-Pesa prompt, on Airtel only the Airtel push, and on
+   any other Kenyan network neither; the paybill is always offered. Without a
+   usable code (missing, the `99999` simulator, a foreign network), the
+   number's prefix allocation (`phone.KenyaOperatorByPrefix`) is used as a
+   hint: both prompts stay, with the guessed network first, because numbers
+   have been portable since 2011. The provider is pinned by the menu choice;
+   the cash-in registry's generic prompt method still points at M-Pesa.
 
 ## Flow
 
@@ -81,7 +99,8 @@ egress range**; production is blocked until their support supplies it.
 
 | Variable | Notes |
 |---|---|
-| `AIRTEL_CLIENT_ID` / `AIRTEL_CLIENT_SECRET` | Both set = rail enabled |
+| `AIRTEL_CLIENT_ID` / `AIRTEL_CLIENT_SECRET` | Both set = rail constructed |
+| `ENABLE_AIRTEL_MONEY_SWITCH` | Offer the rail in the repay menu; unset is off |
 | `AIRTEL_ENVIRONMENT` | `staging` or `production` |
 | `AIRTEL_COUNTRY` / `AIRTEL_CURRENCY` | Default `KE` / `KES` |
 | `AIRTEL_SIGNING_ENABLED` | Collection v2 message signing |

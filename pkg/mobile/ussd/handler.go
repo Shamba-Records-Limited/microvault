@@ -1439,19 +1439,54 @@ func anyRepaymentOpen(session *Session) bool {
 // order: the prompt first (it is the one-tap path), the passive paybill
 // always. An open repayment — any provider — empties the list: the open rail
 // must settle or lapse before another is offered.
+//
+// A prompt can only reach a wallet on the network the borrower is dialing
+// from, so a network the gateway reports narrows the prompts to that one. A
+// network guessed from the number's prefix only orders them, since a ported
+// number keeps its old prefix.
 func (h *USSDHandler) mobileRepayRails(session *Session) []repayRail {
 	if anyRepaymentOpen(session) {
 		return nil
 	}
-	var rails []repayRail
-	if h.mpesaPrompter != nil {
-		rails = append(rails, repayRail{key: "mpesa", label: "repay_rail_mpesa"})
+	network, reported := promptNetwork(session)
+	mpesa := repayRail{key: "mpesa", label: "repay_rail_mpesa"}
+	airtel := repayRail{key: "airtel", label: "repay_rail_airtel"}
+	prompts := []repayRail{mpesa, airtel}
+	if network == phone.OperatorAirtel {
+		prompts = []repayRail{airtel, mpesa}
 	}
-	if h.carrierPrompter != nil {
-		rails = append(rails, repayRail{key: "airtel", label: "repay_rail_airtel"})
+
+	var rails []repayRail
+	for _, rail := range prompts {
+		switch {
+		case rail.key == "mpesa" && h.mpesaPrompter == nil,
+			rail.key == "airtel" && h.carrierPrompter == nil,
+			reported && rail.key == "mpesa" && network != phone.OperatorSafaricom,
+			reported && rail.key == "airtel" && network != phone.OperatorAirtel:
+			continue
+		}
+		rails = append(rails, rail)
 	}
 	rails = append(rails, repayRail{key: "paybill", label: "repay_mobile_paybill"})
 	return rails
+}
+
+// promptNetwork returns the operator a repayment prompt for this session
+// would reach, and whether the gateway reported it. The session's network
+// code is the network the SIM is on, so it holds for ported numbers; without
+// one, the number's prefix allocation is the best guess.
+func promptNetwork(session *Session) (phone.KenyaOperator, bool) {
+	if m, ok := NetworkMappings[session.NetworkCode]; ok && m.Country == "KE" && m.MomoNetworkCode != "SANDBOX" {
+		switch m.MomoNetworkCode {
+		case "MPESA":
+			return phone.OperatorSafaricom, true
+		case "AIRTEL":
+			return phone.OperatorAirtel, true
+		default:
+			return phone.OperatorUnknown, true
+		}
+	}
+	return phone.KenyaOperatorByPrefix(session.PhoneNumber), false
 }
 
 // showRepayRailMenu offers the ways this particular loan can be repaid.
