@@ -682,6 +682,13 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Shared callback token",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
                         "description": "Session ID",
                         "name": "sessionId",
                         "in": "formData",
@@ -717,6 +724,12 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "USSD response (CON/END)",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "END Unauthorized",
                         "schema": {
                             "type": "string"
                         }

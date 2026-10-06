@@ -879,6 +879,11 @@ paths:
         name: provider
         required: true
         type: string
+      - description: Shared callback token
+        in: query
+        name: token
+        required: true
+        type: string
       - description: Session ID
         in: formData
         name: sessionId
@@ -907,6 +912,10 @@ paths:
       responses:
         "200":
           description: USSD response (CON/END)
+          schema:
+            type: string
+        "401":
+          description: END Unauthorized
           schema:
             type: string
         "500":
