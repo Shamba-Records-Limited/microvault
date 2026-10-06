@@ -161,7 +161,7 @@ func main() {
 	// the rows still record. AccountIndexBase covers what the rows cannot: a
 	// database rebuilt from scratch while the on-chain accounts persisted.
 	if cfg.Stellar.AccountIndexBase <= 0 && cfg.Server.ServerEnvironment != "development" {
-		log.Fatalf("STELLAR_ACCOUNT_INDEX_BASE must be set outside development: " +
+		log.Fatalf("ACCOUNT_INDEX_BASE must be set outside development: " +
 			"without it a rebuilt database re-derives keypairs whose Stellar accounts already exist")
 	}
 	nextIndex, err := repos.Account.EnsureAccountIndexIntegrity(context.Background(), cfg.Stellar.AccountIndexBase)

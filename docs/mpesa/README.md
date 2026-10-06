@@ -64,7 +64,7 @@ Only a subset has a consumer:
 |---|---|---|
 | M-Pesa Express (STK push) | `MpesaCollectionAdapter.Prompt` (credit) + `MpesaSTKLoanDriver` poller (credit) | Wired end to end — loan repayment |
 | C2B v2 (paybill) | `DarajaCallbackController.C2BValidation`/`C2BConfirmation` + `PullSweeper` | Wired end to end — passive loan repayment |
-| C2B Hakikisha | `DarajaHakikishaController` | Built — account-name resolution for Safaricom's confirmation screen. **Registered in `cmd/microvault` only; `cmd/credit`, the binary testnet runs, does not mount it.** |
+| C2B Hakikisha | `DarajaHakikishaController` | Wired end to end — account-name resolution for Safaricom's confirmation screen. Mounted in `cmd/credit` and `cmd/microvault` once all three `MPESA_HAKIKISHA_*` variables are set. |
 | Pull Transaction | `PullSweeper` (core) | Wired — reconciliation sweep, and the only route to an unmasked payer MSISDN |
 | Account Balance | `BalancePoller` (core) | Wired — ops signal, floor alerts |
 | Mobile Number Validation | `MpesaCollectionAdapter.validateNumber` | Wired, advisory-only — see § Mobile Number Validation |
@@ -335,7 +335,7 @@ worth knowing beyond their doc comments:
 | Field | Env var pattern | Notes |
 |---|---|---|
 | `CollectionShortcode` / `DisbursementShortcode` | — | Split because the two products can sit on separate shortcodes; setting both equal is valid when one shortcode carries both |
-| `STKPollInterval` | `MPESA_STK_POLL_INTERVAL` | **Seconds** — parsed as a `time.Duration` via the standard `<n>s`/`<n>m` suffix, not a bare integer of minutes |
+| `STKPollInterval` | `MPESA_STK_POLL_INTERVAL` | A bare positive integer of **seconds** (`envSeconds`); a `30s`-style suffix is rejected at boot |
 | `STKMaxAttempts` | `MPESA_STK_MAX_ATTEMPTS` | Poll rounds, not borrower-visible time; defaults to 3 |
 | `PromptAmountKES` | `MPESA_PROMPT_AMOUNT_KES` | Sandbox-only override; a boot error in production |
 | `SettlementMode` | `MPESA_SETTLEMENT_MODE` | `"otc"` only; `"provider_sweep"` is named but rejected everywhere |

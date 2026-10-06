@@ -372,7 +372,7 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(ctx context.Context, us
 		a.alertOps(ctx, "Stellar derivation index reused",
 			fmt.Sprintf("User %s account %s derived %s, which already exists on-chain. "+
 				"account_index_seq has been rewound: two users now derive one keypair. "+
-				"Do not retry — re-arm STELLAR_ACCOUNT_INDEX_BASE above the on-chain "+
+				"Do not retry — re-arm ACCOUNT_INDEX_BASE above the on-chain "+
 				"high-water mark and re-issue this account.", userID, accountID, address))
 		return
 	}
