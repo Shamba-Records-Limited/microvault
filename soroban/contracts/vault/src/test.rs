@@ -2397,8 +2397,8 @@ fn test_revocation_blocks_deposits_but_not_redemption() {
     let transfer_result = share_client.try_transfer(&user, &recipient, &shares);
     assert!(transfer_result.is_err());
 
-    // Redemption still works: revocation stops new exposure, it does not
-    // freeze the position.
+    // Redemption still works inside the grace window: revocation stops new
+    // exposure and only freezes the position once the window closes.
     let assets_before = token_client.balance(&user);
     client.redeem(&shares, &user, &user, &user);
     assert!(token_client.balance(&user) > assets_before);
@@ -2422,4 +2422,362 @@ fn test_disabling_enforcement_restores_open_access() {
     client.set_allowlist_enforced(&false);
     assert!(!client.allowlist_enforced());
     assert!(client.deposit(&1_000_000i128, &user, &user, &user) > 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Exit Grace Period and Freeze
+// ─────────────────────────────────────────────────────────────────────
+
+const GRACE: u64 = 30 * 24 * 60 * 60;
+
+/// `withdraw`/`redeem` are trait methods, so their client surfaces the raw
+/// contract error rather than `MicrovaultError`.
+fn exit_closed() -> soroban_sdk::Error {
+    soroban_sdk::Error::from_contract_error(MicrovaultError::ExitWindowClosed as u32)
+}
+
+/// Enables the allowlist, allows `user`, deposits `amount` and returns the
+/// compliance role and the minted shares.
+fn enforced_deposit(
+    env: &Env,
+    client: &MicrovaultContractClient,
+    user: &Address,
+    amount: i128,
+) -> (Address, i128) {
+    let role = Address::generate(env);
+    enable_allowlist(client, &role);
+    client.allow_depositor(&role, user);
+    let shares = client.deposit(&amount, user, user, user);
+    (role, shares)
+}
+
+#[test]
+fn test_grace_period_defaults_to_30_days() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, ..) = setup_vault(&env);
+
+    assert_eq!(client.withdraw_grace_period(), GRACE);
+}
+
+#[test]
+fn test_revoke_starts_grace_then_freezes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, shares) = enforced_deposit(&env, &client, &user, 2_000_000);
+    env.ledger().set_timestamp(1_000);
+
+    client.disallow_depositor(&role, &user);
+    assert_eq!(client.exit_deadline(&user), Some(1_000 + GRACE));
+    assert!(!client.is_frozen(&user));
+
+    client.withdraw(&500_000i128, &user, &user, &user);
+
+    env.ledger().set_timestamp(1_000 + GRACE);
+    assert!(client.is_frozen(&user));
+    assert_eq!(client.max_withdraw(&user), 0);
+    assert_eq!(client.max_redeem(&user), 0);
+    assert_eq!(
+        client.try_redeem(&(shares / 4), &user, &user, &user),
+        Err(Ok(exit_closed()))
+    );
+    assert_eq!(
+        client.try_withdraw(&100_000i128, &user, &user, &user),
+        Err(Ok(exit_closed()))
+    );
+}
+
+#[test]
+fn test_grace_skips_deposit_lock() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    client.set_lock_period(&(90 * 24 * 60 * 60));
+    let (role, shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    assert!(client.is_locked(&user));
+    assert!(client.try_redeem(&shares, &user, &user, &user).is_err());
+
+    client.disallow_depositor(&role, &user);
+
+    client.redeem(&shares, &user, &user, &user);
+    let share_client = token::Client::new(&env, &client.address);
+    assert_eq!(share_client.balance(&user), 0);
+}
+
+#[test]
+fn test_repeat_revoke_keeps_deadline() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, _shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    env.ledger().set_timestamp(1_000);
+    client.disallow_depositor(&role, &user);
+
+    env.ledger().set_timestamp(1_000 + GRACE - 1);
+    client.disallow_depositor(&role, &user);
+
+    assert_eq!(client.exit_deadline(&user), Some(1_000 + GRACE));
+}
+
+#[test]
+fn test_freeze_depositor_is_immediate() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    env.ledger().set_timestamp(5_000);
+
+    client.freeze_depositor(&role, &user);
+
+    assert!(!client.is_allowed(&user));
+    assert!(client.is_frozen(&user));
+    assert_eq!(client.exit_deadline(&user), Some(5_000));
+    assert_eq!(client.max_redeem(&user), 0);
+    assert_eq!(
+        client.try_redeem(&shares, &user, &user, &user),
+        Err(Ok(exit_closed()))
+    );
+}
+
+#[test]
+fn test_freeze_during_grace_pulls_deadline_in() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, _shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    env.ledger().set_timestamp(1_000);
+    client.disallow_depositor(&role, &user);
+
+    env.ledger().set_timestamp(2_000);
+    client.freeze_depositor(&role, &user);
+
+    assert_eq!(client.exit_deadline(&user), Some(2_000));
+    assert!(client.is_frozen(&user));
+}
+
+#[test]
+fn test_extend_exit_deadline_lifts_freeze() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    env.ledger().set_timestamp(1_000);
+    client.freeze_depositor(&role, &user);
+
+    client.extend_exit_deadline(&role, &user, &(1_000 + 7 * 24 * 60 * 60));
+
+    assert!(!client.is_frozen(&user));
+    assert!(!client.is_allowed(&user));
+    client.redeem(&shares, &user, &user, &user);
+}
+
+#[test]
+fn test_extend_exit_deadline_rejects_earlier_or_missing() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, _shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+
+    assert_eq!(
+        client.try_extend_exit_deadline(&role, &user, &10_000),
+        Err(Ok(MicrovaultError::InvalidExitDeadline))
+    );
+
+    env.ledger().set_timestamp(1_000);
+    client.disallow_depositor(&role, &user);
+    assert_eq!(
+        client.try_extend_exit_deadline(&role, &user, &(1_000 + GRACE)),
+        Err(Ok(MicrovaultError::InvalidExitDeadline))
+    );
+    assert_eq!(
+        client.try_extend_exit_deadline(&role, &user, &500),
+        Err(Ok(MicrovaultError::InvalidExitDeadline))
+    );
+}
+
+#[test]
+fn test_allow_depositor_clears_deadline_and_restores_lock() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    client.set_lock_period(&(90 * 24 * 60 * 60));
+    let (role, shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    client.freeze_depositor(&role, &user);
+
+    client.allow_depositor(&role, &user);
+
+    assert_eq!(client.exit_deadline(&user), None);
+    assert!(!client.is_frozen(&user));
+    assert!(client.try_redeem(&shares, &user, &user, &user).is_err());
+    assert!(client.is_locked(&user));
+}
+
+#[test]
+fn test_deadline_binds_only_while_enforced() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, shares) = enforced_deposit(&env, &client, &user, 2_000_000);
+    client.freeze_depositor(&role, &user);
+
+    client.set_allowlist_enforced(&false);
+    assert!(!client.is_frozen(&user));
+    client.redeem(&(shares / 2), &user, &user, &user);
+
+    client.set_allowlist_enforced(&true);
+    assert!(client.is_frozen(&user));
+    assert_eq!(
+        client.try_redeem(&(shares / 2), &user, &user, &user),
+        Err(Ok(exit_closed()))
+    );
+}
+
+#[test]
+fn test_spender_cannot_withdraw_for_frozen_owner() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    let spender = Address::generate(&env);
+    let share_client = token::Client::new(&env, &client.address);
+    share_client.approve(&user, &spender, &shares, &1_000);
+    client.freeze_depositor(&role, &user);
+
+    assert_eq!(
+        client.try_redeem(&shares, &spender, &user, &spender),
+        Err(Ok(exit_closed()))
+    );
+}
+
+#[test]
+fn test_zero_grace_freezes_on_revoke() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, _shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+
+    client.set_withdraw_grace_period(&0);
+    client.disallow_depositor(&role, &user);
+
+    assert_eq!(client.withdraw_grace_period(), 0);
+    assert!(client.is_frozen(&user));
+}
+
+#[test]
+fn test_set_withdraw_grace_period_requires_owner() {
+    let env = Env::default();
+    let (client, ..) = setup_vault(&env);
+
+    assert!(client.try_set_withdraw_grace_period(&0).is_err());
+}
+
+#[test]
+fn test_exit_mutators_require_compliance_role() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (_role, _shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    let stranger = Address::generate(&env);
+
+    assert_eq!(
+        client.try_freeze_depositor(&stranger, &user),
+        Err(Ok(MicrovaultError::Unauthorized))
+    );
+    assert_eq!(
+        client.try_extend_exit_deadline(&stranger, &user, &u64::MAX),
+        Err(Ok(MicrovaultError::Unauthorized))
+    );
+    assert_eq!(client.exit_deadline(&user), None);
+}
+
+#[test]
+fn test_exit_deadline_events() {
+    use crate::{ExitDeadlineCleared, ExitDeadlineSet, WithdrawGracePeriodUpdated};
+    use soroban_sdk::{testutils::Events, Event};
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, _shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    env.ledger().set_timestamp(1_000);
+
+    client.disallow_depositor(&role, &user);
+    let set = ExitDeadlineSet {
+        account: user.clone(),
+        deadline: 1_000 + GRACE,
+        frozen: false,
+    };
+    assert!(env
+        .events()
+        .all()
+        .events()
+        .contains(&set.to_xdr(&env, &client.address)));
+
+    client.freeze_depositor(&role, &user);
+    let frozen = ExitDeadlineSet {
+        account: user.clone(),
+        deadline: 1_000,
+        frozen: true,
+    };
+    assert!(env
+        .events()
+        .all()
+        .events()
+        .contains(&frozen.to_xdr(&env, &client.address)));
+
+    client.allow_depositor(&role, &user);
+    let cleared = ExitDeadlineCleared {
+        account: user.clone(),
+    };
+    assert!(env
+        .events()
+        .all()
+        .events()
+        .contains(&cleared.to_xdr(&env, &client.address)));
+
+    client.set_withdraw_grace_period(&86_400);
+    let updated = WithdrawGracePeriodUpdated {
+        old_period: GRACE,
+        new_period: 86_400,
+    };
+    assert!(env
+        .events()
+        .all()
+        .events()
+        .contains(&updated.to_xdr(&env, &client.address)));
+}
+
+#[test]
+fn test_pre_existing_revocation_has_no_deadline_until_revoked_again() {
+    // Mirrors an address revoked under the previous WASM: disallowed with no
+    // deadline. It exits freely until revoked again, which starts the window.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _asset, _token, _admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+    let (role, _shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    env.as_contract(&client.address, || {
+        stellar_tokens::fungible::allowlist::AllowList::disallow_user(&env, &user);
+    });
+    assert!(!client.is_allowed(&user));
+    assert_eq!(client.exit_deadline(&user), None);
+    assert!(!client.is_frozen(&user));
+
+    env.ledger().set_timestamp(1_000);
+    client.disallow_depositor(&role, &user);
+    assert_eq!(client.exit_deadline(&user), Some(1_000 + GRACE));
 }

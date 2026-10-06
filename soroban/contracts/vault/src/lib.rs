@@ -25,7 +25,10 @@ use stellar_contract_utils::math::wad::{Wad, WAD_SCALE};
 use stellar_contract_utils::pausable::{self as pausable_mod, Pausable};
 use stellar_macros::{only_owner, when_not_paused};
 use stellar_tokens::{
-    fungible::{allowlist::AllowList, Base, FungibleToken},
+    fungible::{
+        allowlist::AllowList, Base, FungibleToken, ALLOW_BLOCK_EXTEND_AMOUNT,
+        ALLOW_BLOCK_TTL_THRESHOLD,
+    },
     vault::{FungibleVault, Vault},
 };
 
@@ -46,6 +49,8 @@ pub enum MicrovaultError {
     ExceedsMaxRedeem = 13,
     AddressNotAllowed = 14,
     ComplianceRoleNotSet = 15,
+    ExitWindowClosed = 16,
+    InvalidExitDeadline = 17,
 }
 
 /// Emitted when the treasury address is changed.
@@ -179,6 +184,31 @@ pub struct AllowlistEnforcementUpdated {
     pub new_enforced: bool,
 }
 
+/// Emitted when the post-revocation withdraw grace period is changed.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WithdrawGracePeriodUpdated {
+    pub old_period: u64,
+    pub new_period: u64,
+}
+
+/// Emitted when a depositor's exit deadline is set or moved. `frozen` is true
+/// when the deadline already binds, as after `freeze_depositor`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExitDeadlineSet {
+    pub account: Address,
+    pub deadline: u64,
+    pub frozen: bool,
+}
+
+/// Emitted when a depositor's exit deadline is removed by re-allowing them.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExitDeadlineCleared {
+    pub account: Address,
+}
+
 #[soroban_sdk::contracttype]
 pub enum DataKey {
     Treasury,
@@ -192,6 +222,16 @@ pub enum DataKey {
     BorrowIndex, // Cumulative debt index
     ComplianceRole,
     AllowlistEnforced,
+    WithdrawGracePeriod,
+    ExitDeadline(Address),
+}
+
+/// Where a share owner stands on exiting the vault after revocation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExitState {
+    Normal,
+    Grace,
+    Frozen,
 }
 
 /// Default maximum deposit limit (1M USDC with 7 decimals).
@@ -205,6 +245,9 @@ const DECIMALS_OFFSET: u32 = 6;
 
 /// Default lock period — 0 disables locking.
 const DEFAULT_LOCK_PERIOD: u64 = 0;
+
+/// Default window a revoked depositor has to withdraw: 30 days.
+const DEFAULT_WITHDRAW_GRACE_PERIOD: u64 = 30 * 24 * 60 * 60;
 
 /// Utilization cap: 80% in WAD (0.8 * 10^18).
 const UTILIZATION_CAP: i128 = 800_000_000_000_000_000;
@@ -621,14 +664,20 @@ impl MicrovaultContract {
     ) -> Result<(), MicrovaultError> {
         Self::require_compliance_role(e, &caller)?;
         AllowList::allow_user(e, &address);
+        let key = DataKey::ExitDeadline(address.clone());
+        if e.storage().persistent().has(&key) {
+            e.storage().persistent().remove(&key);
+            ExitDeadlineCleared { account: address }.publish(e);
+        }
         Ok(())
     }
 
     /// Remove `address` from the allowlist. Compliance role only.
     ///
-    /// Blocks further deposits, mints and share transfers involving `address`.
-    /// It does not touch existing balances and does not block `withdraw` or
-    /// `redeem`; see the source design doc's §17 Q5 on configurable freezing.
+    /// Blocks further deposits, mints and share transfers involving `address`,
+    /// and starts its exit window: `withdraw` and `redeem` keep working for
+    /// [`Self::withdraw_grace_period`], then freeze. An existing deadline is
+    /// left as is, so repeating the call cannot extend the window.
     pub fn disallow_depositor(
         e: &Env,
         caller: Address,
@@ -636,7 +685,130 @@ impl MicrovaultContract {
     ) -> Result<(), MicrovaultError> {
         Self::require_compliance_role(e, &caller)?;
         AllowList::disallow_user(e, &address);
+        if Self::exit_deadline(e, address.clone()).is_none() {
+            let deadline = e
+                .ledger()
+                .timestamp()
+                .saturating_add(Self::withdraw_grace_period(e));
+            Self::write_exit_deadline(e, &address, deadline);
+        }
         Ok(())
+    }
+
+    /// Disallow `address` and freeze its shares now, with no grace window.
+    /// Compliance role only, not timelocked.
+    pub fn freeze_depositor(
+        e: &Env,
+        caller: Address,
+        address: Address,
+    ) -> Result<(), MicrovaultError> {
+        Self::require_compliance_role(e, &caller)?;
+        AllowList::disallow_user(e, &address);
+        Self::write_exit_deadline(e, &address, e.ledger().timestamp());
+        Ok(())
+    }
+
+    /// Move an existing exit deadline later. Compliance role only.
+    ///
+    /// Covers grace lost to a pause or to thin liquidity, and lifts a freeze
+    /// without re-allowing the address.
+    pub fn extend_exit_deadline(
+        e: &Env,
+        caller: Address,
+        address: Address,
+        deadline: u64,
+    ) -> Result<(), MicrovaultError> {
+        Self::require_compliance_role(e, &caller)?;
+        match Self::exit_deadline(e, address.clone()) {
+            Some(current) if deadline > current => {
+                Self::write_exit_deadline(e, &address, deadline);
+                Ok(())
+            }
+            _ => Err(MicrovaultError::InvalidExitDeadline),
+        }
+    }
+
+    /// Returns the post-revocation withdraw window in seconds.
+    pub fn withdraw_grace_period(e: &Env) -> u64 {
+        e.storage()
+            .instance()
+            .get(&DataKey::WithdrawGracePeriod)
+            .unwrap_or(DEFAULT_WITHDRAW_GRACE_PERIOD)
+    }
+
+    /// Returns the ledger timestamp from which `address` can no longer
+    /// withdraw, if it has been revoked or frozen.
+    pub fn exit_deadline(e: &Env, address: Address) -> Option<u64> {
+        let key = DataKey::ExitDeadline(address);
+        let deadline = e.storage().persistent().get(&key);
+        if deadline.is_some() {
+            e.storage().persistent().extend_ttl(
+                &key,
+                ALLOW_BLOCK_TTL_THRESHOLD,
+                ALLOW_BLOCK_EXTEND_AMOUNT,
+            );
+        }
+        deadline
+    }
+
+    /// Returns `true` if `address`'s shares are frozen right now.
+    pub fn is_frozen(e: &Env, address: Address) -> bool {
+        Self::exit_state(e, &address) == ExitState::Frozen
+    }
+
+    /// Set the post-revocation withdraw window in seconds. Owner only
+    /// (timelocked). 0 makes every revocation freeze immediately. Deadlines
+    /// already set are not changed.
+    #[only_owner]
+    pub fn set_withdraw_grace_period(e: &Env, new_period: u64) {
+        let old_period = Self::withdraw_grace_period(e);
+        e.storage()
+            .instance()
+            .set(&DataKey::WithdrawGracePeriod, &new_period);
+        WithdrawGracePeriodUpdated {
+            old_period,
+            new_period,
+        }
+        .publish(e);
+    }
+
+    fn write_exit_deadline(e: &Env, address: &Address, deadline: u64) {
+        let key = DataKey::ExitDeadline(address.clone());
+        e.storage().persistent().set(&key, &deadline);
+        e.storage().persistent().extend_ttl(
+            &key,
+            ALLOW_BLOCK_TTL_THRESHOLD,
+            ALLOW_BLOCK_EXTEND_AMOUNT,
+        );
+        ExitDeadlineSet {
+            account: address.clone(),
+            deadline,
+            frozen: deadline <= e.ledger().timestamp(),
+        }
+        .publish(e);
+    }
+
+    /// Deadlines bind only while enforcement is on and the owner is off the
+    /// allowlist, matching the deposit and transfer gates.
+    fn exit_state(e: &Env, owner: &Address) -> ExitState {
+        if !Self::allowlist_enforced(e) || AllowList::allowed(e, owner) {
+            return ExitState::Normal;
+        }
+        match Self::exit_deadline(e, owner.clone()) {
+            None => ExitState::Normal,
+            Some(deadline) if e.ledger().timestamp() < deadline => ExitState::Grace,
+            Some(_) => ExitState::Frozen,
+        }
+    }
+
+    /// Panic if `owner` is frozen. Returns whether the deposit lock applies:
+    /// it is skipped during grace so the window is always usable.
+    fn check_exit(e: &Env, owner: &Address) -> bool {
+        match Self::exit_state(e, owner) {
+            ExitState::Frozen => panic_with_error!(e, MicrovaultError::ExitWindowClosed),
+            ExitState::Grace => false,
+            ExitState::Normal => true,
+        }
     }
 
     /// Set the compliance role address. Owner only (timelocked).
@@ -1093,7 +1265,9 @@ impl FungibleVault for MicrovaultContract {
         owner: Address,
         operator: Address,
     ) -> i128 {
-        if MicrovaultContract::is_locked(e, owner.clone()) {
+        if MicrovaultContract::check_exit(e, &owner)
+            && MicrovaultContract::is_locked(e, owner.clone())
+        {
             panic!("Shares are locked");
         }
 
@@ -1116,7 +1290,9 @@ impl FungibleVault for MicrovaultContract {
 
     #[when_not_paused]
     fn redeem(e: &Env, shares: i128, receiver: Address, owner: Address, operator: Address) -> i128 {
-        if MicrovaultContract::is_locked(e, owner.clone()) {
+        if MicrovaultContract::check_exit(e, &owner)
+            && MicrovaultContract::is_locked(e, owner.clone())
+        {
             panic!("Shares are locked");
         }
 
@@ -1177,7 +1353,7 @@ impl FungibleVault for MicrovaultContract {
     }
 
     fn max_withdraw(e: &Env, owner: Address) -> i128 {
-        if pausable_mod::paused(e) {
+        if pausable_mod::paused(e) || MicrovaultContract::is_frozen(e, owner.clone()) {
             return 0;
         }
         let limit: i128 = e
@@ -1191,7 +1367,7 @@ impl FungibleVault for MicrovaultContract {
     }
 
     fn max_redeem(e: &Env, owner: Address) -> i128 {
-        if pausable_mod::paused(e) {
+        if pausable_mod::paused(e) || MicrovaultContract::is_frozen(e, owner.clone()) {
             return 0;
         }
         let owner_max_shares = Vault::max_redeem(e, owner);
