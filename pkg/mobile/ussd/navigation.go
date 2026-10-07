@@ -139,6 +139,14 @@ func (h *USSDHandler) handleNavigation(ctx context.Context, session *Session, in
 			delete(session.Data, k)
 		}
 		target := navBackTargets[menuID]
+		// With mobile money off the payout menu is never shown, so stepping
+		// back from confirmation lands on the amount.
+		if target == "payout_method" && h.mobileMoneyBorrowOff {
+			for _, k := range navBackClears[target] {
+				delete(session.Data, k)
+			}
+			target = "loan_amount"
+		}
 		session.CurrentMenu = target
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", true, sessionSaveErr(session, err)

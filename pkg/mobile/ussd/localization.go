@@ -364,6 +364,31 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Kuchukua pesa kunaruhusu kiwango cha juu cha %s %.0f. Chagua pesa ya simu badala yake:",
 			"fr": "Le retrait en espèces autorise au plus %s %.0f. Choisissez plutot mobile money:",
 		},
+		"loan_cash_pickup_min_amount": {
+			"en": "Cash pickup needs at least %s %.0f. Enter a new amount:",
+			"sw": "Kuchukua pesa kunahitaji angalau %s %.0f. Weka kiasi kipya:",
+			"fr": "Le retrait en espèces exige au moins %s %.0f. Entrez un nouveau montant:",
+		},
+		"loan_cash_pickup_max_amount": {
+			"en": "Cash pickup allows at most %s %.0f. Enter a new amount:",
+			"sw": "Kuchukua pesa kunaruhusu kiwango cha juu cha %s %.0f. Weka kiasi kipya:",
+			"fr": "Le retrait en espèces autorise au plus %s %.0f. Entrez un nouveau montant:",
+		},
+		"pilot_closed": {
+			"en": "This service is in a closed pilot and this number is not approved. Contact support to join.",
+			"sw": "Huduma hii iko kwenye majaribio ya faragha na namba hii haijaidhinishwa. Wasiliana na msaada ili ujiunge.",
+			"fr": "Ce service est en pilote fermé et ce numéro n'est pas approuvé. Contactez le support pour rejoindre.",
+		},
+		"pilot_id_mismatch": {
+			"en": "This ID does not match the approval for this number. Enter your national ID:",
+			"sw": "Kitambulisho hiki hakilingani na idhini ya namba hii. Weka kitambulisho chako:",
+			"fr": "Cette pièce ne correspond pas à l'approbation de ce numéro. Entrez votre pièce d'identité:",
+		},
+		"pilot_suspended": {
+			"en": "Your access has been suspended. Please contact support.",
+			"sw": "Huduma yako imesimamishwa. Tafadhali wasiliana na msaada.",
+			"fr": "Votre accès a été suspendu. Veuillez contacter le support.",
+		},
 		// The terms and the PIN gate share one screen: entering the PIN is the
 		// act of accepting what is displayed above it. The back and home hints
 		// are appended by withNavHint rather than spelled out here.

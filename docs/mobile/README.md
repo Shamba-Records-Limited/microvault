@@ -142,6 +142,28 @@ The paybill is always listed. When the gateway sends no usable code, the
 number's prefix allocation orders the prompts but hides neither, since
 ported numbers keep their old prefix. See [Airtel Money](../airtel/README.md).
 
+### Pilot access gate
+
+While `ENABLE_PILOT_ACCESS_GATE` is on, `HandlerDeps.PilotGate` (a
+[`pilot.Gate`](../../pkg/pilot/pilot.go) over the `pilot_users` table) limits
+the service to approved people. A person is approved by **phone number and
+national ID**; the name is only used to greet them in the invite SMS.
+
+| Point | Check | On failure |
+|---|---|---|
+| First dial, unregistered number | Phone has an active row | END `pilot_closed` |
+| National ID step, before the "already registered" check | ID matches the row for this phone | CON `pilot_id_mismatch`; END after 2 misses |
+| `completeRegistration` | Phone and ID still match | END `pilot_closed`, no account created |
+| First dial, registered user | Their current phone and ID match an active row | END `pilot_suspended` |
+
+A failed lookup ends the session rather than letting the number through.
+A new SIM has to be approved too: list the new number with the same national
+ID and the borrower recovers onto it through the usual `recover_offer` flow.
+Revoking acts on every row sharing the national ID, and the credit module
+refuses loans to a revoked borrower as well; repayments are always accepted.
+`nil` (the gate off) skips every check. The list is managed with
+`pilot-users` in the credit module (`make pilot-*`).
+
 ### PIN and recovery attempts
 
 Wrong PINs and wrong security answers share one counter on the user row.

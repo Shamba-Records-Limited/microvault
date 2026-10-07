@@ -10,6 +10,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
+	"github.com/Shamba-Records-Limited/microvault/pkg/pilot"
 	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
 )
 
@@ -92,6 +93,9 @@ type USSDHandler struct {
 	dialString       string
 	alerts           alerts.Service
 	dialMismatchSeen sync.Map
+
+	pilotGate            pilot.Gate
+	mobileMoneyBorrowOff bool
 }
 
 //

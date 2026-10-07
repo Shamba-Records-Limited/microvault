@@ -33,6 +33,7 @@ import (
 	ussdadapters "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
 	ussdAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/providers/africastalking"
 	mvnotifications "github.com/Shamba-Records-Limited/microvault/pkg/notifications"
+	"github.com/Shamba-Records-Limited/microvault/pkg/pilot"
 	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
@@ -255,6 +256,16 @@ func main() {
 	if cfg.Payments.Mpesa.CollectionShortcode > 0 {
 		repayPaybill = strconv.FormatUint(uint64(cfg.Payments.Mpesa.CollectionShortcode), 10)
 	}
+	var pilotGate pilot.Gate
+	if cfg.Mobile.PilotAccessGate {
+		store, err := pilot.NewStore(db)
+		if err != nil {
+			log.Fatalf("Failed to build pilot store: %v", err)
+		}
+		pilotGate = store
+		slog.Info("pilot access gate on")
+	}
+
 	handler := ussd.NewUSSDHandler(ussd.HandlerDeps{
 		SessionManager:  sessionMgr,
 		MenuRegistry:    menuRegistry,
@@ -265,6 +276,7 @@ func main() {
 		RepayPaybill:    repayPaybill,
 		DialString:      cfg.Mobile.USSDDialString,
 		Alerts:          alerts.LogAlerter{Logger: logger},
+		PilotGate:       pilotGate,
 	})
 	ussdService := ussd.NewUSSDService(handler)
 

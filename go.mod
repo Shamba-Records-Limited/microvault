@@ -1,11 +1,11 @@
 module github.com/Shamba-Records-Limited/microvault
 
-go 1.26.0
+go 1.26.8
 
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/alicebob/miniredis/v2 v2.39.0
-	github.com/dubinc/dub-go v0.23.19
+	github.com/dubinc/dub-go v0.24.0
 	github.com/go-playground/validator/v10 v10.30.5
 	github.com/gofiber/contrib/otelfiber/v2 v2.2.3
 	github.com/gofiber/fiber/v2 v2.52.15
@@ -94,7 +94,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spyzhov/ajson v0.9.6 // indirect
-	github.com/stellar/go-xdr v0.0.0-20260828180817-2b1309f8a5a6 // indirect
+	github.com/stellar/go-xdr v0.0.0-20261006161258-213301bde556 // indirect
 	github.com/swaggo/files/v2 v2.0.2 // indirect
 	github.com/tinylib/msgp v1.6.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

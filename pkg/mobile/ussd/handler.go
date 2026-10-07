@@ -21,6 +21,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/phone"
+	"github.com/Shamba-Records-Limited/microvault/pkg/pilot"
 	pinPkg "github.com/Shamba-Records-Limited/microvault/pkg/pin"
 
 	"github.com/samber/oops"
@@ -157,6 +158,14 @@ type HandlerDeps struct {
 
 	// Alerts receives the dial-string mismatch alert.
 	Alerts alerts.Service
+
+	// PilotGate restricts registration and access to approved pilot users.
+	// nil leaves both open.
+	PilotGate pilot.Gate
+
+	// DisableMobileMoneyBorrow drops mobile money as a loan payout rail, so
+	// new loans go straight to cash pickup.
+	DisableMobileMoneyBorrow bool
 }
 
 // NewUSSDHandler builds the handler.
@@ -183,6 +192,9 @@ func NewUSSDHandler(deps HandlerDeps) *USSDHandler {
 		airtelPromptOn:  deps.AirtelPrompter,
 		dialString:      strings.TrimSpace(deps.DialString),
 		alerts:          deps.Alerts,
+
+		pilotGate:            deps.PilotGate,
+		mobileMoneyBorrowOff: deps.DisableMobileMoneyBorrow,
 	}
 	if deps.MpesaPrompter {
 		h.mpesaPrompter, _ = deps.LoanService.(RepaymentPrompter)
@@ -231,6 +243,9 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 	// Check if user is registered
 	user, _, err := h.userService.GetUserWithAccounts(ctx, session.PhoneNumber)
 	if err != nil || user == nil {
+		if body, stop := h.pilotPhoneGate(ctx, session); stop {
+			return body, nil
+		}
 		// New user — choose language first, then register in that language.
 		session.CurrentMenu = "language_select"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
@@ -246,6 +261,10 @@ func (h *USSDHandler) handleInitialRequest(ctx context.Context, session *Session
 		if id, ok := userMap["id"].(string); ok {
 			session.UserID = id
 		}
+	}
+
+	if body, stop := h.pilotUserGate(ctx, session); stop {
+		return body, nil
 	}
 
 	// Self-heal: a registered user with no PIN can't use the account and would
@@ -489,6 +508,10 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 	nationalID := strings.TrimSpace(input)
 	if nationalID == "" {
 		return h.conNav(session, "reg_national_id_required"), nil
+	}
+
+	if body, stop, err := h.pilotIDGate(ctx, session, nationalID); stop || err != nil {
+		return body, err
 	}
 
 	// Reject an already-registered national ID up front, before the user spends
@@ -801,6 +824,17 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 	nationalID, _ := session.Data["national_id"].(string)
 	pinHash, _ := session.Data["pin_hash"].(string)
 
+	if h.pilotGate != nil {
+		ok, err := h.pilotGate.Matches(ctx, session.PhoneNumber, nationalID)
+		if err != nil {
+			slog.ErrorContext(ctx, "completeRegistration: pilot check failed", slog.String("phone_number", phone.Redact(session.PhoneNumber)), slog.Any("error", err))
+			return h.formatError(session.Language, "error"), nil
+		}
+		if !ok {
+			return h.formatResponse(session.Language, "END", "pilot_closed"), nil
+		}
+	}
+
 	regReq := &RegisterUserRequest{
 		MobileNumber:      session.PhoneNumber,
 		NetworkCode:       session.NetworkCode,
@@ -916,6 +950,9 @@ func (h *USSDHandler) handleLoanAmount(ctx context.Context, session *Session, in
 	session.Data["loan_duration"] = cfg.DurationDays
 	session.Data["repayment_schedule"] = cfg.RepaymentSchedule
 	session.Data["product_id"] = cfg.ProductID
+	if h.mobileMoneyBorrowOff {
+		return h.cashPickupOnly(ctx, session)
+	}
 	session.CurrentMenu = "payout_method"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", sessionSaveErr(session, err)
@@ -950,34 +987,46 @@ func (h *USSDHandler) handlePayoutMethod(ctx context.Context, session *Session, 
 // payoutOptionCashPickup is the payout menu key for the MoneyGram rail.
 const payoutOptionCashPickup = "1"
 
+// cashPickupOnly sends a loan straight to cash pickup when mobile money is
+// switched off. An amount outside the anchor's corridor re-prompts the amount
+// with the bound, since there is no other rail to offer.
+func (h *USSDHandler) cashPickupOnly(ctx context.Context, session *Session) (string, error) {
+	if isMax, limitLocal, out := h.cashPickupLimit(ctx, session); out {
+		for _, k := range navBackClears["payout_method"] {
+			delete(session.Data, k)
+		}
+		currency, _ := session.Data["local_currency"].(string)
+		key := "loan_cash_pickup_min_amount"
+		if isMax {
+			key = "loan_cash_pickup_max_amount"
+		}
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", sessionSaveErr(session, err)
+		}
+		return "CON " + h.withNavHint(session, "loan_amount", Format(session.Language, key, currency, limitLocal)), nil
+	}
+	session.Data["payout_method"] = "cash_pickup"
+	session.CurrentMenu = "loan_confirm"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", sessionSaveErr(session, err)
+	}
+	return h.showLoanConfirmation(ctx, session)
+}
+
 // cashPickupOutOfRange reports whether the pending loan converts to an amount
 // outside the anchor's withdraw corridor, returning the payout menu re-rendered
 // without the cash-pickup option so the borrower can switch rails instead of
 // losing the session. Leaving the option on screen would just loop them back
 // here.
 func (h *USSDHandler) cashPickupOutOfRange(ctx context.Context, session *Session) (string, bool) {
-	if h.rateService == nil {
+	isMax, limitLocal, out := h.cashPickupLimit(ctx, session)
+	if !out {
 		return "", false
 	}
 	currency, _ := session.Data["local_currency"].(string)
-	rate, err := h.rateService.GetExchangeRate(ctx, currency)
-	if err != nil || rate <= 0 {
-		slog.ErrorContext(ctx, "cashPickupOutOfRange: exchange rate unavailable", slog.String("currency", currency), slog.Any("error", err))
-		return "", false
-	}
-
-	fiatAmount := float64(toInt64(session.Data["loan_amount_local"])) / 100.0
-	usdAmount := fiatAmount / rate
-
 	msgKey := "loan_cash_pickup_min"
-	limitUSD := moneygram.MinWithdrawUSD
-	switch {
-	case usdAmount < moneygram.MinWithdrawUSD:
-	case usdAmount > moneygram.MaxWithdrawUSD:
+	if isMax {
 		msgKey = "loan_cash_pickup_max"
-		limitUSD = moneygram.MaxWithdrawUSD
-	default:
-		return "", false
 	}
 
 	menu, err := h.menuRegistry.Get("payout_method")
@@ -996,14 +1045,38 @@ func (h *USSDHandler) cashPickupOutOfRange(ctx context.Context, session *Session
 		remaining.Options = append(remaining.Options, opt)
 	}
 
-	// Floor rounds up and ceiling rounds down, so the figure shown is always
-	// one the borrower can actually transact.
-	limitLocal := math.Ceil(limitUSD * rate)
-	if msgKey == "loan_cash_pickup_max" {
-		limitLocal = math.Floor(limitUSD * rate)
-	}
 	msg := Format(session.Language, msgKey, currency, limitLocal)
 	return "CON " + h.withNavHint(session, "payout_method", msg+"\n"+remaining.Render(session.Language)), true
+}
+
+// cashPickupLimit reports whether the pending loan converts to an amount
+// outside the anchor's withdraw corridor, and if so which bound it breaks and
+// that bound in local currency. An unavailable rate reports in range; the
+// anchor enforces the corridor again at payout.
+func (h *USSDHandler) cashPickupLimit(ctx context.Context, session *Session) (isMax bool, limitLocal float64, out bool) {
+	if h.rateService == nil {
+		return false, 0, false
+	}
+	currency, _ := session.Data["local_currency"].(string)
+	rate, err := h.rateService.GetExchangeRate(ctx, currency)
+	if err != nil || rate <= 0 {
+		slog.ErrorContext(ctx, "cashPickupLimit: exchange rate unavailable", slog.String("currency", currency), slog.Any("error", err))
+		return false, 0, false
+	}
+
+	fiatAmount := float64(toInt64(session.Data["loan_amount_local"])) / 100.0
+	usdAmount := fiatAmount / rate
+
+	// Floor rounds up and ceiling rounds down, so the figure shown is always
+	// one the borrower can actually transact.
+	switch {
+	case usdAmount < moneygram.MinWithdrawUSD:
+		return false, math.Ceil(moneygram.MinWithdrawUSD * rate), true
+	case usdAmount > moneygram.MaxWithdrawUSD:
+		return true, math.Floor(moneygram.MaxWithdrawUSD * rate), true
+	default:
+		return false, 0, false
+	}
 }
 
 // handleLoanConfirm accepts the PIN entered on the confirmation screen. The

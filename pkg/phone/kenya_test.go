@@ -30,3 +30,21 @@ func TestKenyaOperatorByPrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestKenyaE164(t *testing.T) {
+	cases := map[string]string{
+		"+254722000111": "+254722000111",
+		"254722000111":  "+254722000111",
+		"0722 000 111":  "+254722000111",
+		"0110-000-111":  "+254110000111",
+		"722000111":     "+254722000111",
+		"+256772000111": "",
+		"0722":          "",
+		"":              "",
+	}
+	for number, want := range cases {
+		if got := KenyaE164(number); got != want {
+			t.Errorf("KenyaE164(%q) = %q, want %q", number, got, want)
+		}
+	}
+}

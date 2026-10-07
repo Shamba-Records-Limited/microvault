@@ -29,6 +29,8 @@ type AccountTemplates struct {
 	PINReset AccountMessage
 	// PINResetFailed alerts on an unsuccessful reset.
 	PINResetFailed AccountMessage
+	// PilotInvite invites an approved pilot user to register.
+	PilotInvite AccountMessage
 }
 
 // DefaultAccountTemplates returns brand-free English account and PIN copy.
@@ -64,6 +66,10 @@ func DefaultAccountTemplates() *AccountTemplates {
 			return fmt.Sprintf("A PIN reset attempt on your account failed. Reason: %s. "+
 				"Please try again or contact support.", n.Reason)
 		},
+		PilotInvite: func(n contracts.AccountNotification) string {
+			return fmt.Sprintf("Hi %s, you have been approved for the pilot. "+
+				"Dial the service code from this number and register with your national ID.", n.FullName)
+		},
 	}
 }
 
@@ -98,6 +104,10 @@ func swahiliAccountTemplates() *AccountTemplates {
 		PINResetFailed: func(n contracts.AccountNotification) string {
 			return fmt.Sprintf("Jaribio la kuweka upya PIN kwenye akaunti yako limeshindwa. Sababu: %s. "+
 				"Tafadhali jaribu tena au wasiliana na msaada.", n.Reason)
+		},
+		PilotInvite: func(n contracts.AccountNotification) string {
+			return fmt.Sprintf("Habari %s, umeidhinishwa kwa majaribio. "+
+				"Piga namba ya huduma kutoka kwa namba hii na ujisajili kwa namba yako ya kitambulisho.", n.FullName)
 		},
 	}
 }
@@ -135,6 +145,10 @@ func frenchAccountTemplates() *AccountTemplates {
 		PINResetFailed: func(n contracts.AccountNotification) string {
 			return fmt.Sprintf("Une tentative de réinitialisation de PIN sur votre compte a échoué. Raison: %s. "+
 				"Veuillez réessayer ou contacter le support.", n.Reason)
+		},
+		PilotInvite: func(n contracts.AccountNotification) string {
+			return fmt.Sprintf("Bonjour %s, vous etes accepté dans le pilote. "+
+				"Composez le code du service depuis ce numéro et inscrivez-vous avec votre numéro d'identité.", n.FullName)
 		},
 	}
 }

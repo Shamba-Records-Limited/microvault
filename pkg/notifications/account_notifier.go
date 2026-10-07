@@ -106,6 +106,11 @@ func (s *SMSAccountNotifier) NotifyPINResetFailed(ctx context.Context, n contrac
 	return s.send(ctx, n, "PIN reset failed", s.tmpl(ctx, n).PINResetFailed)
 }
 
+// NotifyPilotInvite invites an approved pilot user to register.
+func (s *SMSAccountNotifier) NotifyPilotInvite(ctx context.Context, n contracts.AccountNotification) error {
+	return s.send(ctx, n, "pilot invite", s.tmpl(ctx, n).PilotInvite)
+}
+
 // NoOpAccountNotifier silently discards all account notifications. It is useful
 // for testing and environments where SMS delivery is not configured.
 type NoOpAccountNotifier struct{}
@@ -138,6 +143,10 @@ func (*NoOpAccountNotifier) NotifyPINChangeFailed(context.Context, contracts.Acc
 }
 
 func (*NoOpAccountNotifier) NotifyPINReset(context.Context, contracts.AccountNotification) error {
+	return nil
+}
+
+func (*NoOpAccountNotifier) NotifyPilotInvite(context.Context, contracts.AccountNotification) error {
 	return nil
 }
 

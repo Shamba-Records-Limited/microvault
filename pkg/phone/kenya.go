@@ -47,6 +47,33 @@ var kenyaRanges = []kenyaRange{
 // under their old operator. Treat it as a hint and prefer the network the
 // gateway reports for a live session.
 func KenyaOperatorByPrefix(number string) KenyaOperator {
+	national := kenyaNational(number)
+	if national == "" {
+		return OperatorUnknown
+	}
+	prefix := int(national[0]-'0')*100 + int(national[1]-'0')*10 + int(national[2]-'0')
+	for _, r := range kenyaRanges {
+		if prefix >= r.from && prefix <= r.to {
+			return r.operator
+		}
+	}
+	return OperatorUnknown
+}
+
+// KenyaE164 returns a Kenyan mobile number as +254 followed by nine digits,
+// accepting +254…, 254… and 0… forms with separators, or "" when the input
+// is not a Kenyan mobile number in one of those forms.
+func KenyaE164(number string) string {
+	national := kenyaNational(number)
+	if national == "" {
+		return ""
+	}
+	return "+254" + national
+}
+
+// kenyaNational returns the nine subscriber digits after the trunk zero or
+// country code, or "" when the input has any other shape.
+func kenyaNational(number string) string {
 	digits := make([]byte, 0, len(number))
 	for i := 0; i < len(number); i++ {
 		if c := number[i]; c >= '0' && c <= '9' {
@@ -61,13 +88,7 @@ func KenyaOperatorByPrefix(number string) KenyaOperator {
 		national = national[1:]
 	}
 	if len(national) != 9 {
-		return OperatorUnknown
+		return ""
 	}
-	prefix := int(national[0]-'0')*100 + int(national[1]-'0')*10 + int(national[2]-'0')
-	for _, r := range kenyaRanges {
-		if prefix >= r.from && prefix <= r.to {
-			return r.operator
-		}
-	}
-	return OperatorUnknown
+	return national
 }

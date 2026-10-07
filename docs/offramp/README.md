@@ -25,7 +25,11 @@ service treats them uniformly. The docs here describe each provider's own quirks
 Two decisions, in order.
 
 **The borrower picks the rail.** Mobile money or cash pickup, at the USSD menu.
-That is a rail choice, not a price one, and nothing overrides it.
+That is a rail choice, not a price one, and nothing overrides it. With
+`ENABLE_MOBILE_MONEY_BORROW=false` (unset is on) the menu is skipped and every
+new loan goes to cash pickup; an amount outside MoneyGram's corridor re-prompts
+the amount, and the loan adapter refuses a `mobile_money` request with
+`payout_rail_disabled`. Mobile-money loans already in flight keep running.
 
 **The relay picks the provider within mobile money.** When
 `ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH` is on, YellowCard and Fonbnk are quoted

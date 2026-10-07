@@ -346,6 +346,12 @@ type PaymentsConfig struct {
 	// sent on-chain. From ROUND_ANCHOR_AMOUNTS; unset is off.
 	RoundAnchorAmounts bool
 
+	// MobileMoneyBorrow offers mobile money (YellowCard/Fonbnk) as a loan
+	// payout rail. Off leaves cash pickup as the only rail for new loans; loans
+	// already in flight are unaffected. From ENABLE_MOBILE_MONEY_BORROW; unset
+	// is on.
+	MobileMoneyBorrow bool
+
 	// LoanReferencePrefix is the 2-character namespace prefix on generated loan
 	// references, defaulting to loanref.DefaultPrefix. From
 	// LOAN_REFERENCE_PREFIX. The check character is derived over the prefix, so
@@ -393,6 +399,10 @@ type MobileConfig struct {
 	// USSDCallbackToken is the shared secret the USSD gateway sends as the
 	// token query parameter. From USSD_CALLBACK_TOKEN; empty rejects all callbacks.
 	USSDCallbackToken string
+
+	// PilotAccessGate restricts registration and account access to active
+	// pilot_users rows. From ENABLE_PILOT_ACCESS_GATE; unset is off.
+	PilotAccessGate bool
 }
 
 type AuthConfig struct {
@@ -596,6 +606,16 @@ func New() (*Config, error) {
 	}
 
 	roundAnchor, err := envBool("ROUND_ANCHOR_AMOUNTS")
+	if err != nil {
+		return nil, err
+	}
+
+	mobileMoneyBorrow, err := envBoolDefault("ENABLE_MOBILE_MONEY_BORROW", true)
+	if err != nil {
+		return nil, err
+	}
+
+	pilotAccessGate, err := envBool("ENABLE_PILOT_ACCESS_GATE")
 	if err != nil {
 		return nil, err
 	}
@@ -932,6 +952,7 @@ func New() (*Config, error) {
 			EntryFXBufferPct:          entryFXBuffer,
 			EnableProviderRelaySwitch: enableRelaySwitch,
 			RoundAnchorAmounts:        roundAnchor,
+			MobileMoneyBorrow:         mobileMoneyBorrow,
 			LoanReferencePrefix:       loanRefPrefix,
 			Mpesa: MpesaConfig{
 				ConsumerKey:           mpesaConsumerKey,
@@ -1037,6 +1058,7 @@ func New() (*Config, error) {
 			SessionTimeout:    ussdSessionTimeout,
 			USSDDialString:    ussdDialString,
 			USSDCallbackToken: os.Getenv("USSD_CALLBACK_TOKEN"),
+			PilotAccessGate:   pilotAccessGate,
 		},
 		Auth: AuthConfig{
 			JWTSecret:           jwtSecret,
@@ -1078,6 +1100,14 @@ func envBool(key string) (bool, error) {
 		return false, fmt.Errorf("error parsing %s: expected a boolean, got %q", key, raw)
 	}
 	return v, nil
+}
+
+// envBoolDefault reads a boolean, def when unset.
+func envBoolDefault(key string, def bool) (bool, error) {
+	if os.Getenv(key) == "" {
+		return def, nil
+	}
+	return envBool(key)
 }
 
 func envSeconds(key string) (time.Duration, error) {

@@ -36,6 +36,10 @@ type AccountNotifier interface {
 	// NotifyPINResetFailed alerts a user that a PIN reset attempt failed,
 	// along with the reason.
 	NotifyPINResetFailed(ctx context.Context, n AccountNotification) error
+
+	// NotifyPilotInvite tells an approved pilot user, who has no account yet,
+	// that they may register.
+	NotifyPilotInvite(ctx context.Context, n AccountNotification) error
 }
 
 // AccountNotification carries the data needed to notify a user about

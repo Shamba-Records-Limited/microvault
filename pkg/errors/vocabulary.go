@@ -145,6 +145,14 @@ const (
 	// message.
 	CodeAccountLocked = "account_locked"
 
+	// CodePilotAccessDenied is a borrower without an active pilot_users row
+	// while the pilot access gate is on.
+	CodePilotAccessDenied = "pilot_access_denied"
+
+	// CodePayoutRailDisabled is a loan asking for a payout rail that is
+	// switched off for new loans.
+	CodePayoutRailDisabled = "payout_rail_disabled"
+
 	// CodeHTTPError is a non-2xx from a provider; CodeTransportFailed is a
 	// request that never completed.
 	CodeHTTPError       = "http_error"
