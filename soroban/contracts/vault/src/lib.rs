@@ -51,6 +51,7 @@ pub enum MicrovaultError {
     ComplianceRoleNotSet = 15,
     ExitWindowClosed = 16,
     InvalidExitDeadline = 17,
+    GuardianNotSet = 18,
 }
 
 /// Emitted when the treasury address is changed.
@@ -479,6 +480,9 @@ impl MicrovaultContract {
     /// Set the per-transaction maximum deposit limit. Owner only.
     #[only_owner]
     pub fn set_max_deposit(e: &Env, new_limit: i128) {
+        if new_limit <= 0 {
+            panic_with_error!(e, MicrovaultError::InvalidAmount)
+        }
         let old_limit: i128 = e
             .storage()
             .instance()
@@ -495,6 +499,9 @@ impl MicrovaultContract {
     /// Set the per-transaction maximum withdrawal limit. Owner only.
     #[only_owner]
     pub fn set_max_withdraw(e: &Env, new_limit: i128) {
+        if new_limit <= 0 {
+            panic_with_error!(e, MicrovaultError::InvalidAmount)
+        }
         let old_limit: i128 = e
             .storage()
             .instance()
@@ -541,7 +548,7 @@ impl MicrovaultContract {
             .storage()
             .instance()
             .get(&DataKey::Guardian)
-            .unwrap_or_else(|| panic!("Guardian not set"));
+            .unwrap_or_else(|| panic_with_error!(e, MicrovaultError::GuardianNotSet));
         e.storage()
             .instance()
             .set(&DataKey::Guardian, &new_guardian);
@@ -613,7 +620,7 @@ impl MicrovaultContract {
             .storage()
             .instance()
             .get(&DataKey::Treasury)
-            .unwrap_or_else(|| panic!("Treasury not set"));
+            .unwrap_or_else(|| panic_with_error!(e, MicrovaultError::TreasuryNotSet));
         e.storage()
             .instance()
             .set(&DataKey::Treasury, &new_treasury);
@@ -793,7 +800,7 @@ impl MicrovaultContract {
     /// Deadlines bind only while enforcement is on and the owner is off the
     /// allowlist, matching the deposit and transfer gates.
     fn exit_state(e: &Env, owner: &Address) -> ExitState {
-        if !Self::allowlist_enforced(e) || AllowList::allowed(e, owner) {
+        if Self::address_allowed(e, owner) {
             return ExitState::Normal;
         }
         match Self::exit_deadline(e, owner.clone()) {
@@ -810,6 +817,16 @@ impl MicrovaultContract {
             ExitState::Frozen => panic_with_error!(e, MicrovaultError::ExitWindowClosed),
             ExitState::Grace => false,
             ExitState::Normal => true,
+        }
+    }
+
+    /// Non-panicking form of the `check_exit` + lock gate on withdraw/redeem,
+    /// for the `max_*` views.
+    fn exit_blocked(e: &Env, owner: &Address) -> bool {
+        match Self::exit_state(e, owner) {
+            ExitState::Frozen => true,
+            ExitState::Grace => false,
+            ExitState::Normal => Self::is_locked(e, owner.clone()),
         }
     }
 
@@ -860,8 +877,12 @@ impl MicrovaultContract {
 
     /// Panic with [`MicrovaultError::AddressNotAllowed`] if `address` is not on
     /// the allowlist. No-op while enforcement is switched off.
+    fn address_allowed(e: &Env, address: &Address) -> bool {
+        !Self::allowlist_enforced(e) || AllowList::allowed(e, address)
+    }
+
     fn require_allowed(e: &Env, address: &Address) {
-        if Self::allowlist_enforced(e) && !AllowList::allowed(e, address) {
+        if !Self::address_allowed(e, address) {
             panic_with_error!(e, MicrovaultError::AddressNotAllowed);
         }
     }
@@ -1192,15 +1213,18 @@ impl FungibleToken for MicrovaultContract {
     /// bypass the lock by transferring shares to a clean address and redeeming
     /// there.
     ///
-    /// While allowlist enforcement is on, the transfer is routed through
-    /// `AllowList::transfer`, which requires both `from` and `to` to be allowed
-    /// and panics `FungibleTokenError::UserNotAllowed` (#113) otherwise. The
-    /// lock check stays here because `AllowList` has no concept of it.
+    /// While allowlist enforcement is on, both `from` and `to` must be allowed,
+    /// raising `AddressNotAllowed` (#14) like the deposit path; the check runs
+    /// before `AllowList::transfer` so its `UserNotAllowed` (#113) is never
+    /// reached. The lock check stays here because `AllowList` has no concept
+    /// of it.
     fn transfer(e: &Env, from: Address, to: MuxedAddress, amount: i128) {
         if MicrovaultContract::is_locked(e, from.clone()) {
             panic_with_error!(e, MicrovaultError::SharesLocked);
         }
         if MicrovaultContract::allowlist_enforced(e) {
+            MicrovaultContract::require_allowed(e, &from);
+            MicrovaultContract::require_allowed(e, &to.address());
             AllowList::transfer(e, &from, &to, amount);
         } else {
             Base::transfer(e, &from, &to, amount);
@@ -1215,6 +1239,8 @@ impl FungibleToken for MicrovaultContract {
             panic_with_error!(e, MicrovaultError::SharesLocked);
         }
         if MicrovaultContract::allowlist_enforced(e) {
+            MicrovaultContract::require_allowed(e, &from);
+            MicrovaultContract::require_allowed(e, &to);
             AllowList::transfer_from(e, &spender, &from, &to, amount);
         } else {
             Base::transfer_from(e, &spender, &from, &to, amount);
@@ -1232,13 +1258,8 @@ impl FungibleVault for MicrovaultContract {
         MicrovaultContract::require_allowed(e, &from);
         MicrovaultContract::require_allowed(e, &receiver);
 
-        let max_deposit: i128 = e
-            .storage()
-            .instance()
-            .get(&DataKey::MaxDeposit)
-            .unwrap_or(DEFAULT_MAX_DEPOSIT);
-        if assets > max_deposit {
-            panic!("Deposit exceeds maximum limit");
+        if assets > MicrovaultContract::get_max_deposit(e) {
+            panic_with_error!(e, MicrovaultError::ExceedsMaxDeposit)
         }
 
         let existing_shares = Base::balance(e, &receiver);
@@ -1247,11 +1268,16 @@ impl FungibleVault for MicrovaultContract {
         new_shares
     }
 
-    /// Same two-sided allowlist gate as `deposit`.
+    /// Same two-sided allowlist gate as `deposit`, and the same per-transaction
+    /// cap applied to the assets the minted shares cost.
     #[when_not_paused]
     fn mint(e: &Env, shares: i128, receiver: Address, from: Address, operator: Address) -> i128 {
         MicrovaultContract::require_allowed(e, &from);
         MicrovaultContract::require_allowed(e, &receiver);
+
+        if Vault::preview_mint(e, shares) > MicrovaultContract::get_max_deposit(e) {
+            panic_with_error!(e, MicrovaultError::ExceedsMaxDeposit)
+        }
 
         let existing_shares = Base::balance(e, &receiver);
         let assets_used = Vault::mint(e, shares, receiver.clone(), from, operator);
@@ -1270,21 +1296,16 @@ impl FungibleVault for MicrovaultContract {
         if MicrovaultContract::check_exit(e, &owner)
             && MicrovaultContract::is_locked(e, owner.clone())
         {
-            panic!("Shares are locked");
+            panic_with_error!(e, MicrovaultError::SharesLocked)
         }
 
-        let max_withdraw: i128 = e
-            .storage()
-            .instance()
-            .get(&DataKey::MaxWithdraw)
-            .unwrap_or(DEFAULT_MAX_WITHDRAW);
-        if assets > max_withdraw {
-            panic!("Withdrawal exceeds maximum limit");
+        if assets > MicrovaultContract::get_max_withdraw(e) {
+            panic_with_error!(e, MicrovaultError::ExceedsMaxWithdraw)
         }
 
         let available = MicrovaultContract::available_liquidity(e);
         if assets > available {
-            panic!("Insufficient liquidity for withdrawal");
+            panic_with_error!(e, MicrovaultError::InsufficientLiquidity)
         }
 
         Vault::withdraw(e, assets, receiver, owner, operator)
@@ -1295,25 +1316,20 @@ impl FungibleVault for MicrovaultContract {
         if MicrovaultContract::check_exit(e, &owner)
             && MicrovaultContract::is_locked(e, owner.clone())
         {
-            panic!("Shares are locked");
+            panic_with_error!(e, MicrovaultError::SharesLocked)
         }
 
         let assets_to_receive = Vault::preview_redeem(e, shares);
 
         // Enforce the per-transaction withdrawal cap on the asset equivalent of
         // the redeemed shares.
-        let max_withdraw: i128 = e
-            .storage()
-            .instance()
-            .get(&DataKey::MaxWithdraw)
-            .unwrap_or(DEFAULT_MAX_WITHDRAW);
-        if assets_to_receive > max_withdraw {
-            panic!("Redemption exceeds maximum limit");
+        if assets_to_receive > MicrovaultContract::get_max_withdraw(e) {
+            panic_with_error!(e, MicrovaultError::ExceedsMaxRedeem)
         }
 
         let available = MicrovaultContract::available_liquidity(e);
         if assets_to_receive > available {
-            panic!("Insufficient liquidity for redemption");
+            panic_with_error!(e, MicrovaultError::InsufficientLiquidity)
         }
 
         Vault::redeem(e, shares, receiver, owner, operator)
@@ -1337,42 +1353,37 @@ impl FungibleVault for MicrovaultContract {
         MicrovaultContract::total_managed_assets(e)
     }
 
-    fn max_deposit(e: &Env, _receiver: Address) -> i128 {
-        if pausable_mod::paused(e) {
+    fn max_deposit(e: &Env, receiver: Address) -> i128 {
+        if pausable_mod::paused(e) || !MicrovaultContract::address_allowed(e, &receiver) {
             return 0;
         }
-        e.storage()
-            .instance()
-            .get(&DataKey::MaxDeposit)
-            .unwrap_or(DEFAULT_MAX_DEPOSIT)
+        MicrovaultContract::get_max_deposit(e)
     }
 
     fn max_mint(e: &Env, receiver: Address) -> i128 {
-        if pausable_mod::paused(e) {
+        if pausable_mod::paused(e) || !MicrovaultContract::address_allowed(e, &receiver) {
             return 0;
         }
-        Vault::max_mint(e, receiver)
+        Vault::convert_to_shares(e, MicrovaultContract::get_max_deposit(e))
     }
 
     fn max_withdraw(e: &Env, owner: Address) -> i128 {
-        if pausable_mod::paused(e) || MicrovaultContract::is_frozen(e, owner.clone()) {
+        if pausable_mod::paused(e) || MicrovaultContract::exit_blocked(e, &owner) {
             return 0;
         }
-        let limit: i128 = e
-            .storage()
-            .instance()
-            .get(&DataKey::MaxWithdraw)
-            .unwrap_or(DEFAULT_MAX_WITHDRAW);
         let owner_max = Vault::max_withdraw(e, owner);
         let available = MicrovaultContract::available_liquidity(e);
-        owner_max.min(limit).min(available)
+        owner_max
+            .min(MicrovaultContract::get_max_withdraw(e))
+            .min(available)
     }
 
     fn max_redeem(e: &Env, owner: Address) -> i128 {
-        if pausable_mod::paused(e) || MicrovaultContract::is_frozen(e, owner.clone()) {
+        if pausable_mod::paused(e) || MicrovaultContract::exit_blocked(e, &owner) {
             return 0;
         }
-        let owner_max_shares = Vault::max_redeem(e, owner);
+        let cap_shares = Vault::convert_to_shares(e, MicrovaultContract::get_max_withdraw(e));
+        let owner_max_shares = Vault::max_redeem(e, owner).min(cap_shares);
         let owner_max_assets = Vault::preview_redeem(e, owner_max_shares);
         let available = MicrovaultContract::available_liquidity(e);
         if owner_max_assets <= available {
@@ -1424,7 +1435,7 @@ impl Pausable for MicrovaultContract {
             .map(|g: Address| g == caller)
             .unwrap_or(false);
         if !is_owner && !is_guardian {
-            panic!("Unauthorized: caller is not owner or guardian");
+            panic_with_error!(e, MicrovaultError::Unauthorized)
         }
 
         pausable_mod::pause(e);

@@ -147,7 +147,7 @@ fn test_deposit() {
 }
 
 #[test]
-#[should_panic(expected = "Deposit exceeds maximum limit")]
+#[should_panic(expected = "Error(Contract, #4)")]
 fn test_deposit_exceeds_max_limit() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1305,7 +1305,7 @@ fn test_lock_applied_on_deposit() {
 }
 
 #[test]
-#[should_panic(expected = "Shares are locked")]
+#[should_panic(expected = "Error(Contract, #12)")]
 fn test_withdraw_blocked_when_locked() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1335,7 +1335,7 @@ fn test_withdraw_blocked_when_locked() {
 }
 
 #[test]
-#[should_panic(expected = "Shares are locked")]
+#[should_panic(expected = "Error(Contract, #12)")]
 fn test_redeem_blocked_when_locked() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1796,7 +1796,7 @@ fn test_transfer_allowed_when_lock_period_is_zero() {
 }
 
 #[test]
-#[should_panic(expected = "Redemption exceeds maximum limit")]
+#[should_panic(expected = "Error(Contract, #13)")]
 fn test_redeem_enforces_max_withdraw_cap() {
     let env = Env::default();
     env.mock_all_auths();
@@ -2297,11 +2297,10 @@ fn test_mint_blocked_when_not_allowed() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #113)")]
+#[should_panic(expected = "Error(Contract, #14)")]
 fn test_transfer_blocked_when_recipient_not_allowed() {
-    // Routed through `AllowList::transfer`, so the error is OZ's
-    // `FungibleTokenError::UserNotAllowed` (#113), not `AddressNotAllowed`
-    // (#14). Both mean "not allowlisted"; the deposit path raises the latter.
+    // Same `AddressNotAllowed` (#14) as the deposit path; OZ's
+    // `UserNotAllowed` (#113) from `AllowList::transfer` is never reached.
     let env = Env::default();
     env.mock_all_auths();
 
@@ -2320,7 +2319,7 @@ fn test_transfer_blocked_when_recipient_not_allowed() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #113)")]
+#[should_panic(expected = "Error(Contract, #14)")]
 fn test_transfer_from_blocked_when_recipient_not_allowed() {
     let env = Env::default();
     env.mock_all_auths();
@@ -2780,4 +2779,165 @@ fn test_pre_existing_revocation_has_no_deadline_until_revoked_again() {
     env.ledger().set_timestamp(1_000);
     client.disallow_depositor(&role, &user);
     assert_eq!(client.exit_deadline(&user), Some(1_000 + GRACE));
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// max_* views match the spend paths; typed limit errors; one allowlist
+// error code
+// ─────────────────────────────────────────────────────────────────────
+
+fn contract_err(err: MicrovaultError) -> soroban_sdk::Error {
+    soroban_sdk::Error::from_contract_error(err as u32)
+}
+
+#[test]
+fn test_max_redeem_default_cap_does_not_clamp() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _t, _ta, _o, _tr, _g, user) = setup_vault_with_user(&env, 50_000_000);
+    client.deposit(&50_000_000i128, &user, &user, &user);
+    assert_eq!(client.max_redeem(&user), client.balance(&user));
+}
+
+#[test]
+fn test_redeem_of_max_redeem_succeeds_under_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _t, _ta, _o, _tr, _g, user) = setup_vault_with_user(&env, 50_000_000);
+    client.deposit(&50_000_000i128, &user, &user, &user);
+    for cap in [1i128, 1_000, 10_000_000, 49_999_999] {
+        client.set_max_withdraw(&cap);
+        let max = client.max_redeem(&user);
+        assert!(client.preview_redeem(&max) <= cap);
+        assert!(client.try_redeem(&max, &user, &user, &user).is_ok());
+    }
+}
+
+#[test]
+fn test_max_redeem_agrees_with_max_withdraw() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _t, _ta, _o, _tr, _g, user) = setup_vault_with_user(&env, 50_000_000);
+    client.deposit(&50_000_000i128, &user, &user, &user);
+    client.set_max_withdraw(&10_000_000i128);
+    let max = client.max_redeem(&user);
+    assert_eq!(client.preview_redeem(&max), client.max_withdraw(&user));
+}
+
+#[test]
+fn test_set_limits_reject_non_positive() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, ..) = setup_vault(&env);
+    for bad in [0i128, -1] {
+        assert_eq!(
+            client.try_set_max_deposit(&bad),
+            Err(Ok(contract_err(MicrovaultError::InvalidAmount)))
+        );
+        assert_eq!(
+            client.try_set_max_withdraw(&bad),
+            Err(Ok(contract_err(MicrovaultError::InvalidAmount)))
+        );
+    }
+    client.set_max_deposit(&i128::MAX);
+    client.set_max_withdraw(&i128::MAX);
+    assert_eq!(client.get_max_deposit(), i128::MAX);
+    assert_eq!(client.get_max_withdraw(), i128::MAX);
+}
+
+#[test]
+fn test_withdraw_over_cap_is_typed() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _t, _ta, _o, _tr, _g, user) = setup_vault_with_user(&env, 50_000_000);
+    client.deposit(&50_000_000i128, &user, &user, &user);
+    client.set_max_withdraw(&1_000_000i128);
+    assert_eq!(
+        client.try_withdraw(&2_000_000i128, &user, &user, &user),
+        Err(Ok(contract_err(MicrovaultError::ExceedsMaxWithdraw)))
+    );
+}
+
+#[test]
+fn test_mint_enforces_max_deposit_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _t, _ta, _o, _tr, _g, user) = setup_vault_with_user(&env, 50_000_000);
+    client.set_max_deposit(&1_000_000i128);
+    let shares = client.preview_deposit(&40_000_000i128);
+    assert_eq!(
+        client.try_mint(&shares, &user, &user, &user),
+        Err(Ok(contract_err(MicrovaultError::ExceedsMaxDeposit)))
+    );
+}
+
+#[test]
+fn test_mint_of_max_mint_succeeds_under_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _t, _ta, _o, _tr, _g, user) = setup_vault_with_user(&env, 50_000_000);
+    client.set_max_deposit(&1_000_000i128);
+    let max = client.max_mint(&user);
+    assert!(client.preview_mint(&max) <= 1_000_000);
+    assert!(client.try_mint(&max, &user, &user, &user).is_ok());
+}
+
+#[test]
+fn test_max_withdraw_and_redeem_zero_while_locked() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _t, _ta, _o, _tr, _g, user) = setup_vault_with_user(&env, 50_000_000);
+    client.set_lock_period(&86_400u64);
+    client.deposit(&50_000_000i128, &user, &user, &user);
+    assert!(client.is_locked(&user));
+    assert_eq!(client.max_withdraw(&user), 0);
+    assert_eq!(client.max_redeem(&user), 0);
+
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + 86_400);
+    assert!(!client.is_locked(&user));
+    assert_eq!(client.max_redeem(&user), client.balance(&user));
+}
+
+#[test]
+fn test_max_redeem_open_during_grace_despite_lock() {
+    // Grace skips the deposit lock in redeem, so the view must too.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _t, _ta, _o, _tr, _g, user) = setup_vault_with_user(&env, 10_000_000);
+    client.set_lock_period(&86_400u64);
+    let (role, shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    assert!(client.is_locked(&user));
+    client.disallow_depositor(&role, &user);
+    let max = client.max_redeem(&user);
+    assert_eq!(max, shares);
+    assert!(client.try_redeem(&max, &user, &user, &user).is_ok());
+}
+
+#[test]
+fn test_max_deposit_and_mint_zero_for_disallowed_receiver() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _t, _ta, _o, _tr, _g, user) = setup_vault_with_user(&env, 10_000_000);
+    let role = Address::generate(&env);
+    enable_allowlist(&client, &role);
+    assert_eq!(client.max_deposit(&user), 0);
+    assert_eq!(client.max_mint(&user), 0);
+    client.allow_depositor(&role, &user);
+    assert!(client.max_deposit(&user) > 0);
+    assert!(client.max_mint(&user) > 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_transfer_from_disallowed_sender_is_address_not_allowed() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _t, _ta, _o, _tr, _g, user) = setup_vault_with_user(&env, 10_000_000);
+    let (role, shares) = enforced_deposit(&env, &client, &user, 1_000_000);
+    let recipient = Address::generate(&env);
+    client.allow_depositor(&role, &recipient);
+    client.disallow_depositor(&role, &user);
+    let share_client = token::Client::new(&env, &client.address);
+    share_client.transfer(&user, &recipient, &shares);
 }

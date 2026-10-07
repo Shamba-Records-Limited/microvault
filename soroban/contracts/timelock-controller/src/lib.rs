@@ -75,6 +75,9 @@ impl CustomAccountInterface for TimelockController {
         context_meta: Vec<OperationMeta>,
         auth_contexts: Vec<Context>,
     ) -> Result<(), Self::Error> {
+        if auth_contexts.len() != context_meta.len() {
+            return Err(TimelockError::Unauthorized);
+        }
         for (context, meta) in auth_contexts.iter().zip(context_meta) {
             match context.clone() {
                 Context::Contract(ContractContext {
@@ -97,7 +100,9 @@ impl CustomAccountInterface for TimelockController {
                         )
                             .into_val(&e);
 
-                        let executor = meta.executor.expect("Executor must be present");
+                        let Some(executor) = meta.executor else {
+                            return Err(TimelockError::Unauthorized);
+                        };
                         ensure_role(&e, &EXECUTOR_ROLE, &executor);
                         executor.require_auth_for_args(args_for_auth);
                     }

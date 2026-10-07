@@ -131,6 +131,8 @@ func MapContractError(code uint32) *ContractError {
 		return &ContractError{code, "ExitWindowClosed", "Depositor's exit window has closed; shares are frozen", "microvault"}
 	case 17:
 		return &ContractError{code, "InvalidExitDeadline", "Exit deadline must be later than the current one", "microvault"}
+	case 18:
+		return &ContractError{code, "GuardianNotSet", "Guardian has not been configured", "microvault"}
 
 	// FungibleTokenError (100-114)
 	case 100:

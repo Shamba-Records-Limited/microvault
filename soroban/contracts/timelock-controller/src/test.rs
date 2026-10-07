@@ -4,13 +4,14 @@
 //! execution, cancellation, state transitions, salt uniqueness, role
 //! enforcement, and view functions.
 
-use crate::{TimelockController, TimelockControllerClient};
+use crate::{OperationMeta, TimelockController, TimelockControllerClient};
 use soroban_sdk::{
+    auth::{Context, ContractContext},
     symbol_short,
     testutils::{Address as _, Ledger, LedgerInfo},
     Address, BytesN, Env, IntoVal, Symbol, Val, Vec,
 };
-use stellar_governance::timelock::OperationState;
+use stellar_governance::timelock::{OperationState, TimelockError};
 
 /// Deploys a timelock controller with one proposer, one executor, and an
 /// explicit admin. Returns `(client, proposer, executor, admin)`.
@@ -437,4 +438,68 @@ fn test_get_min_delay() {
 
     let (client, _proposer, _executor, _admin) = setup_timelock(&env, 86400);
     assert_eq!(client.get_min_delay(), 86400);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// __check_auth
+// ─────────────────────────────────────────────────────────────────────
+
+fn self_admin_timelock(env: &Env) -> Address {
+    let proposers = Vec::from_array(env, [Address::generate(env)]);
+    let executors = Vec::from_array(env, [Address::generate(env)]);
+    env.register(
+        TimelockController,
+        (100u32, proposers, executors, Option::<Address>::None),
+    )
+}
+
+fn update_delay_context(env: &Env, contract: &Address) -> Context {
+    Context::Contract(ContractContext {
+        contract: contract.clone(),
+        fn_name: Symbol::new(env, "update_delay"),
+        args: Vec::from_array(env, [999u32.into_val(env)]),
+    })
+}
+
+#[test]
+fn test_check_auth_rejects_empty_context_meta() {
+    let env = Env::default();
+    let contract_id = self_admin_timelock(&env);
+    let contexts = Vec::from_array(&env, [update_delay_context(&env, &contract_id)]);
+    let meta: Vec<OperationMeta> = Vec::new(&env);
+
+    let result = env.try_invoke_contract_check_auth::<TimelockError>(
+        &contract_id,
+        &BytesN::from_array(&env, &[0u8; 32]),
+        meta.into_val(&env),
+        &contexts,
+    );
+    assert_eq!(result, Err(Ok(TimelockError::Unauthorized)));
+    assert_eq!(
+        TimelockControllerClient::new(&env, &contract_id).get_min_delay(),
+        100
+    );
+}
+
+#[test]
+fn test_check_auth_rejects_missing_executor() {
+    let env = Env::default();
+    let contract_id = self_admin_timelock(&env);
+    let contexts = Vec::from_array(&env, [update_delay_context(&env, &contract_id)]);
+    let meta = Vec::from_array(
+        &env,
+        [OperationMeta {
+            predecessor: zero_predecessor(&env),
+            salt: random_salt(&env),
+            executor: None,
+        }],
+    );
+
+    let result = env.try_invoke_contract_check_auth::<TimelockError>(
+        &contract_id,
+        &BytesN::from_array(&env, &[0u8; 32]),
+        meta.into_val(&env),
+        &contexts,
+    );
+    assert_eq!(result, Err(Ok(TimelockError::Unauthorized)));
 }
