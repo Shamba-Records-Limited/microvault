@@ -46,6 +46,11 @@ func (f *acctRepo) Restore(context.Context, string) error                       
 func (f *acctRepo) Delete(context.Context, string) error                              { return nil }
 
 func (f *acctRepo) RecordChainCheck(context.Context, string, int, time.Time) error { return nil }
+
+func (f *acctRepo) ReissueConflict(context.Context, string, func(int) (string, error)) (*models.Account, error) {
+	return nil, repository.ErrAccountNotConflict
+}
+
 func (f *acctRepo) GetDueChainHeals(context.Context, repository.ChainHealDue, int) ([]*models.Account, error) {
 	return nil, nil
 }

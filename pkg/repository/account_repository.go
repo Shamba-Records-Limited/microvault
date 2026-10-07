@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
@@ -21,6 +22,7 @@ var (
 	ErrFailedToGetNextIndex      = errors.New("failed to get next account index")
 	ErrFailedToUpdateAccount     = errors.New("failed to update account")
 	ErrAccountChainConflict      = errors.New("account chain status is conflict")
+	ErrAccountNotConflict        = errors.New("account chain status is not conflict")
 	ErrFailedToDeleteAccount     = errors.New("failed to delete account")
 	ErrFailedToRestoreAccount    = errors.New("failed to restore account")
 )
@@ -56,6 +58,11 @@ type AccountRepository interface {
 	UpdateChainStatus(ctx context.Context, id string, chainStatus string) error
 	// RecordChainCheck stores the reconciler's attempt count and check time.
 	RecordChainCheck(ctx context.Context, id string, attempts int, checkedAt time.Time) error
+	// ReissueConflict moves a conflict account to a fresh index from
+	// account_index_seq and the address derive returns for it, resetting the
+	// row to pending with no attempts. Only a conflict row is moved; anything
+	// else returns ErrAccountNotConflict. The old index stays spent.
+	ReissueConflict(ctx context.Context, id string, derive func(index int) (string, error)) (*models.Account, error)
 	Restore(ctx context.Context, id string) error
 
 	// Delete operations
@@ -352,6 +359,57 @@ func (r *accountRepository) RecordChainCheck(ctx context.Context, id string, att
 		return ErrAccountNotFound
 	}
 	return nil
+}
+
+// ReissueConflict implements AccountRepository. The row is locked for the
+// whole move, and nextval is consumed even if the move rolls back, so a
+// failed re-issue burns its index rather than handing it out twice.
+func (r *accountRepository) ReissueConflict(ctx context.Context, id string, derive func(index int) (string, error)) (*models.Account, error) {
+	var out models.Account
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var acct models.Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND deleted_at IS NULL", id).
+			Take(&acct).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrAccountNotFound
+			}
+			return err
+		}
+		if acct.ChainStatus != models.ChainStatusConflict {
+			return ErrAccountNotConflict
+		}
+
+		index, err := r.GetNextAccountIndexWithTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		address, err := derive(index)
+		if err != nil {
+			return err
+		}
+
+		if err := tx.Model(&models.Account{}).
+			Where("id = ?", id).
+			Updates(map[string]interface{}{
+				"account_index":    index,
+				"public_key":       address,
+				"chain_status":     models.ChainStatusPending,
+				"chain_attempts":   0,
+				"chain_checked_at": nil,
+				"updated_at":       time.Now(),
+			}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Take(&out).Error
+	})
+	if err != nil {
+		if !errors.Is(err, ErrAccountNotFound) && !errors.Is(err, ErrAccountNotConflict) {
+			slog.ErrorContext(ctx, "ReissueConflict: database error", slog.Any("error", err))
+		}
+		return nil, err
+	}
+	return &out, nil
 }
 
 // UpdateChainStatus sets only the on-chain lifecycle state. Kept separate from

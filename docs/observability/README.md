@@ -126,7 +126,7 @@ run them with `docker exec <credit container> ./<cmd>` on testnet. Locally,
 
 | Command | Does |
 |---|---|
-| `account-heal --account <id\|address\|phone> [--apply]` (`make heal-account`) | Reports on one borrower's child account (stored vs derived address, on-chain existence); `--apply` runs the same heal as the account reconciler. Refuses `conflict` accounts. |
+| `account-heal --account <id\|address\|phone> [--apply] [--reissue]` (`make heal-account [APPLY=1] [REISSUE=1]`) | Reports on one borrower's child account (stored vs derived address, on-chain existence); `--apply` runs the same heal as the account reconciler. Refuses `conflict` accounts; `--reissue --apply` moves one to the next free index (floored at `ACCOUNT_INDEX_BASE` and the highest recorded index), creates the new address on-chain, and refuses if the user has open loans or the new address is also taken. |
 | `mpesa-settle settle <loan-id> [--confirm]` | Writes the vault leg (`repay_for`) for an M-Pesa repayment settled by hand at the OTC desk, once the USDC is verified on the treasury. Amount and borrower come from the loan row. |
 | `pilot-users <add\|list\|unlisted\|revoke\|restore\|invite>` (`make pilot-*`) | Manages the pilot access list: approve a phone + national ID, revoke or restore a person (every row for their ID), list registered users the gate would lock out, and send the invite SMS (`--dry-run` prints it). Run `--help` for flags. |
 | `vault-backfill [--confirm]` (core) | Finds every address that ever deposited, minted or transferred vault shares and allowlists the missing ones, before allowlist enforcement is switched on. |
