@@ -115,6 +115,11 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Huna mikopo ya kulipa",
 			"fr": "Vous n'avez pas de prets actifs à rembourser",
 		},
+		"loan_outstanding": {
+			"en": "You already have a loan. Repay it before requesting another.",
+			"sw": "Tayari una mkopo. Lipa kwanza kabla ya kuomba mwingine.",
+			"fr": "Vous avez déjà un pret. Remboursez-le avant d'en demander un autre.",
+		},
 		"no_loans": {
 			"en": "You have no loans",
 			"sw": "Huna mikopo",

@@ -394,6 +394,16 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 func (h *USSDHandler) handleMainMenu(ctx context.Context, session *Session, input string) (string, error) {
 	switch input {
 	case "1": // Request Loan
+		if h.loanService != nil {
+			outstanding, err := h.loanService.HasOutstandingLoan(ctx, session.UserID)
+			if err != nil {
+				slog.ErrorContext(ctx, "outstanding loan check failed", slog.String("user_id", session.UserID), slog.Any("error", err))
+				return h.formatError(session.Language, "error"), nil
+			}
+			if outstanding {
+				return h.formatResponse(session.Language, "END", "loan_outstanding"), nil
+			}
+		}
 		session.CurrentMenu = "request_loan"
 		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 			return "", sessionSaveErr(session, err)

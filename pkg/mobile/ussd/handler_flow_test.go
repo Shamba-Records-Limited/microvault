@@ -42,8 +42,10 @@ func (fakeRateSvc) GetExchangeRate(context.Context, string) (float64, error) { r
 
 type fakeLoanSvc struct{}
 
-func (fakeLoanSvc) GetUserLoans(context.Context, string) ([]any, error)    { return nil, nil }
-func (fakeLoanSvc) RequestLoan(context.Context, *LoanRequest) (any, error) { return nil, nil }
+func (fakeLoanSvc) GetUserLoans(context.Context, string) ([]any, error)      { return nil, nil }
+func (fakeLoanSvc) RequestLoan(context.Context, *LoanRequest) (any, error)   { return nil, nil }
+func (fakeLoanSvc) HasOutstandingLoan(context.Context, string) (bool, error) { return false, nil }
+
 func (fakeLoanSvc) CheckLoanEligibility(context.Context, string, int64, int) (*LoanApproval, error) {
 	return nil, nil
 }

@@ -195,6 +195,10 @@ type LoanService interface {
 	// RequestLoan orchestrates the full loan disbursement cycle.
 	RequestLoan(ctx context.Context, req *LoanRequest) (any, error)
 
+	// HasOutstandingLoan reports whether the user has a loan in progress, owed,
+	// or defaulted, which stops them borrowing again.
+	HasOutstandingLoan(ctx context.Context, userID string) (bool, error)
+
 	// CheckLoanEligibility checks whether the user qualifies for the requested amount.
 	CheckLoanEligibility(ctx context.Context, userID string, amount int64, duration int) (*LoanApproval, error)
 

@@ -153,6 +153,10 @@ const (
 	// switched off for new loans.
 	CodePayoutRailDisabled = "payout_rail_disabled"
 
+	// CodeLoanOutstanding is a loan request from a borrower who already has a
+	// loan in progress, owed, or defaulted.
+	CodeLoanOutstanding = "loan_outstanding"
+
 	// CodeHTTPError is a non-2xx from a provider; CodeTransportFailed is a
 	// request that never completed.
 	CodeHTTPError       = "http_error"
