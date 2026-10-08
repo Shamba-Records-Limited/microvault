@@ -8,3 +8,11 @@ target
 # Soroban test snapshots
 test_snapshots/
 **/test_snapshots/
+
+# Komet test artifacts - ignore generated test data
+# Ignore .hypothesis directories (hypothesis test data)
+contracts/komet_tests/test_token/.hypothesis/
+contracts/komet_tests/test_vault/.hypothesis/
+contracts/komet_tests/test_vault_probe/.hypothesis/
+# Ignore proof-out directories (proof artifacts)
+contracts/komet_tests/test_vault/proof-out/
