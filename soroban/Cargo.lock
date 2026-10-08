@@ -1112,6 +1112,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "microvault-test-token"
+version = "0.0.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "microvault-test-vault"
+version = "0.0.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "microvault-test-vault-probe"
+version = "0.0.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "microvault-timelock-controller"
 version = "0.0.0"
 dependencies = [

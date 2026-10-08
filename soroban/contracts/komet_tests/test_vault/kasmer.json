@@ -1,0 +1,3 @@
+{
+  "contracts": ["../vault", "../test_token"]
+}

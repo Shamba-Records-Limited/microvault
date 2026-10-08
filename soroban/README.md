@@ -15,6 +15,7 @@ SEP-0056 tokenized vault for USDC credit delegation on Stellar, with an OpenZepp
 |---|---|---|
 | `contracts/vault/` | `microvault-sep56` | SEP-56 tokenized vault: deposits, share token, treasury credit delegation, kinked-rate interest model, compliance allowlist with exit grace period and freeze |
 | `contracts/timelock-controller/` | `microvault-timelock-controller` | Time-delayed governance controller; owns the vault |
+| `contracts/komet_tests/` | — | Komet-based test contracts for property-based and formal verification (see [README](contracts/komet_tests/README.md)) |
 
 ## Prerequisites
 
