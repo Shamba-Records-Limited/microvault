@@ -8,6 +8,45 @@
 //! Built on the OpenZeppelin Stellar Contracts library:
 //! <https://docs.openzeppelin.com/stellar-contracts>
 //!
+//! # Roles
+//!
+//! | Role | Calls |
+//! |---|---|
+//! | Owner (typically the `TimelockController`) | `set_*` limits and roles, `unpause`, `upgrade` |
+//! | Guardian | `pause` |
+//! | Treasury | `borrow`, `repay`, `repay_for`, `sweep_foreign_asset` |
+//! | Compliance role | `allow_depositor`, `disallow_depositor`, `freeze_depositor`, `extend_exit_deadline` |
+//! | Depositor | `deposit`, `mint`, `withdraw`, `redeem`, share transfers |
+//! | Anyone | `accrue`, `bump_yield`, views |
+//!
+//! # Lifecycle
+//!
+//! 1. Deposit: `deposit` or `mint` takes USDC from `from` and mints shares to `receiver`.
+//!    With a lock period set, the receiver's whole balance re-locks.
+//! 2. Borrow: the treasury draws USDC while utilization stays at or below 80%.
+//! 3. Accrue: debt compounds per second at 2% APR plus 7.5% per unit of utilization
+//!    (8% at the 80% kink), plus 500% per unit above it.
+//! 4. Repay: the treasury returns principal and interest; `bump_yield` adds yield
+//!    without minting shares.
+//! 5. Exit: `withdraw` or `redeem` burns unlocked shares, capped per transaction and
+//!    by idle liquidity.
+//!
+//! Pausing halts deposits, exits, borrows and repayments. The owner or guardian can
+//! pause; only the owner can unpause.
+//!
+//! # Revocation
+//!
+//! While allowlist enforcement is on, both sides of a deposit, mint or transfer must
+//! be allowlisted. `disallow_depositor` opens a withdraw grace window (default 30 days)
+//! in which the lock is waived; at its deadline the shares freeze. `freeze_depositor`
+//! sets the deadline to now, `extend_exit_deadline` moves it later, and
+//! `allow_depositor` clears it.
+//!
+//! # Units
+//!
+//! Amounts are in the underlying asset's base units (USDC has 7 decimals). Rates and
+//! utilization are WAD-scaled (1e18 = 100%). Times are ledger timestamps in seconds.
+//!
 //! # Authors
 //!
 //!
@@ -32,25 +71,43 @@ use stellar_tokens::{
     vault::{FungibleVault, Vault},
 };
 
+/// Contract error codes. Codes 7 and 8 belonged to the retired in-contract
+/// timelock and must not be reused.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum MicrovaultError {
+    /// The caller is not the treasury, compliance role, owner or guardian the call requires.
     Unauthorized = 1,
+    /// `sweep_foreign_asset` targeted the vault's underlying asset.
     CannotSweepUnderlyingAsset = 2,
+    /// An amount or limit is not positive, or there are no assets to borrow against.
     InvalidAmount = 3,
+    /// The deposit, or the cost of the minted shares, exceeds the per-transaction limit.
     ExceedsMaxDeposit = 4,
+    /// The withdrawal exceeds the per-transaction limit.
     ExceedsMaxWithdraw = 5,
+    /// No treasury address is stored.
     TreasuryNotSet = 6,
+    /// The borrow would take utilization above 80%.
     ExceedsUtilizationCap = 9,
+    /// The vault holds too little idle USDC for the borrow or exit.
     InsufficientLiquidity = 10,
+    /// The repayment is larger than the outstanding debt.
     RepayExceedsDebt = 11,
+    /// The owner's shares are still inside the deposit lock period.
     SharesLocked = 12,
+    /// The redeemed shares are worth more than the per-transaction withdrawal limit.
     ExceedsMaxRedeem = 13,
+    /// An address is not on the allowlist while enforcement is on.
     AddressNotAllowed = 14,
+    /// No compliance role address is stored.
     ComplianceRoleNotSet = 15,
+    /// The owner's post-revocation exit deadline has passed.
     ExitWindowClosed = 16,
+    /// The new exit deadline is not later than the current one, or none is set.
     InvalidExitDeadline = 17,
+    /// No guardian address is stored.
     GuardianNotSet = 18,
 }
 
@@ -58,7 +115,9 @@ pub enum MicrovaultError {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TreasuryUpdated {
+    /// Previous treasury.
     pub old_treasury: Address,
+    /// New treasury.
     pub new_treasury: Address,
 }
 
@@ -66,8 +125,11 @@ pub struct TreasuryUpdated {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ForeignAssetSwept {
+    /// Token contract recovered.
     pub token: Address,
+    /// Address the tokens were sent to.
     pub recipient: Address,
+    /// Amount in the token's base units.
     pub amount: i128,
 }
 
@@ -75,7 +137,9 @@ pub struct ForeignAssetSwept {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MaxDepositUpdated {
+    /// Previous limit, in base units.
     pub old_limit: i128,
+    /// New limit, in base units.
     pub new_limit: i128,
 }
 
@@ -83,7 +147,9 @@ pub struct MaxDepositUpdated {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MaxWithdrawUpdated {
+    /// Previous limit, in base units.
     pub old_limit: i128,
+    /// New limit, in base units.
     pub new_limit: i128,
 }
 
@@ -91,6 +157,7 @@ pub struct MaxWithdrawUpdated {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VaultPaused {
+    /// Owner or guardian that paused.
     pub by: Address,
 }
 
@@ -98,6 +165,7 @@ pub struct VaultPaused {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VaultUnpaused {
+    /// Owner that unpaused.
     pub by: Address,
 }
 
@@ -105,7 +173,9 @@ pub struct VaultUnpaused {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GuardianUpdated {
+    /// Previous guardian.
     pub old_guardian: Address,
+    /// New guardian.
     pub new_guardian: Address,
 }
 
@@ -113,9 +183,13 @@ pub struct GuardianUpdated {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Borrowed {
+    /// Treasury that borrowed and received the USDC.
     pub treasury: Address,
+    /// Borrower the loan is attributed to; receives nothing on-chain.
     pub recipient: Address,
+    /// Amount borrowed, in base units.
     pub amount: i128,
+    /// Outstanding debt after the borrow, in base units.
     pub total_borrowed: i128,
 }
 
@@ -126,9 +200,13 @@ pub struct Borrowed {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Repaid {
+    /// Treasury that paid.
     pub treasury: Address,
+    /// Borrower the repayment is attributed to, if any.
     pub borrower: Option<Address>,
+    /// Amount repaid, in base units.
     pub amount: i128,
+    /// Outstanding debt after the repayment, in base units.
     pub total_borrowed: i128,
 }
 
@@ -136,8 +214,11 @@ pub struct Repaid {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct YieldBumped {
+    /// Contributor.
     pub from: Address,
+    /// Amount contributed, in base units.
     pub amount: i128,
+    /// Total managed assets after the contribution, in base units.
     pub total_managed: i128,
 }
 
@@ -145,8 +226,11 @@ pub struct YieldBumped {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InterestAccrued {
+    /// Interest added to the debt, in base units.
     pub interest_amount: i128,
+    /// Outstanding debt after accrual, in base units.
     pub new_total_borrowed: i128,
+    /// Utilization the rate was priced at, WAD-scaled.
     pub utilization_rate: i128,
 }
 
@@ -154,7 +238,9 @@ pub struct InterestAccrued {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LockPeriodUpdated {
+    /// Previous lock period, in seconds.
     pub old_period: u64,
+    /// New lock period, in seconds.
     pub new_period: u64,
 }
 
@@ -162,7 +248,9 @@ pub struct LockPeriodUpdated {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UserLockUpdated {
+    /// Share holder.
     pub user: Address,
+    /// Ledger timestamp at which the shares unlock.
     pub unlock_time: u64,
 }
 
@@ -173,7 +261,9 @@ pub struct UserLockUpdated {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComplianceRoleUpdated {
+    /// Previous compliance role, if any.
     pub old_role: Option<Address>,
+    /// New compliance role.
     pub new_role: Address,
 }
 
@@ -181,7 +271,9 @@ pub struct ComplianceRoleUpdated {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AllowlistEnforcementUpdated {
+    /// Previous setting.
     pub old_enforced: bool,
+    /// New setting.
     pub new_enforced: bool,
 }
 
@@ -189,7 +281,9 @@ pub struct AllowlistEnforcementUpdated {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WithdrawGracePeriodUpdated {
+    /// Previous grace period, in seconds.
     pub old_period: u64,
+    /// New grace period, in seconds.
     pub new_period: u64,
 }
 
@@ -199,8 +293,11 @@ pub struct WithdrawGracePeriodUpdated {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExitDeadlineSet {
     #[topic]
+    /// Revoked or frozen share holder.
     pub account: Address,
+    /// Ledger timestamp from which exits are refused.
     pub deadline: u64,
+    /// Whether the deadline has already passed.
     pub frozen: bool,
 }
 
@@ -209,23 +306,38 @@ pub struct ExitDeadlineSet {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExitDeadlineCleared {
     #[topic]
+    /// Re-allowed share holder.
     pub account: Address,
 }
 
+/// Storage keys. Variant order is the on-chain encoding; append only.
 #[soroban_sdk::contracttype]
 pub enum DataKey {
+    /// Instance: treasury address.
     Treasury,
+    /// Instance: guardian address.
     Guardian,
+    /// Instance: per-transaction deposit limit.
     MaxDeposit,
+    /// Instance: per-transaction withdrawal limit.
     MaxWithdraw,
+    /// Instance: outstanding debt including accrued interest.
     TotalBorrowed,
+    /// Instance: ledger timestamp of the last accrual.
     LastAccrualTime,
+    /// Instance: deposit lock period in seconds.
     LockPeriod,
+    /// Persistent: a holder's unlock timestamp.
     UserUnlockTime(Address),
-    BorrowIndex, // Cumulative debt index
+    /// Instance: cumulative borrow index, WAD-scaled.
+    BorrowIndex,
+    /// Instance: compliance role address.
     ComplianceRole,
+    /// Instance: whether allowlist enforcement is on.
     AllowlistEnforced,
+    /// Instance: post-revocation withdraw grace period in seconds.
     WithdrawGracePeriod,
+    /// Persistent: a revoked holder's exit deadline.
     ExitDeadline(Address),
 }
 
@@ -323,6 +435,10 @@ impl MicrovaultContract {
     // ─────────────────────────────────────────────────────────────────────
 
     /// Returns the treasury address.
+    ///
+    /// # Errors
+    ///
+    /// `TreasuryNotSet`.
     pub fn treasury(e: &Env) -> Result<Address, MicrovaultError> {
         e.storage()
             .instance()
@@ -611,7 +727,7 @@ impl MicrovaultContract {
 
     /// Update the treasury address. Owner only.
     ///
-    /// When the vault owner is a [`TimelockController`], this function is
+    /// When the vault owner is a `TimelockController`, this function is
     /// invoked via `execute_op` after a time delay, providing on-chain
     /// transparency before the change takes effect.
     #[only_owner]
@@ -644,7 +760,7 @@ impl MicrovaultContract {
     ///
     /// Defaults to `false` so that an upgrade from a pre-allowlist WASM does not
     /// lock out existing depositors before they have been backfilled onto the
-    /// list. Switch on with [`Self::set_allowlist_enforced`] once the backfill
+    /// list. Switch on with `set_allowlist_enforced` once the backfill
     /// is complete.
     pub fn allowlist_enforced(e: &Env) -> bool {
         e.storage()
@@ -655,7 +771,7 @@ impl MicrovaultContract {
 
     /// Returns `true` if `address` is on the allowlist.
     ///
-    /// Independent of [`Self::allowlist_enforced`] — this reports list
+    /// Independent of `allowlist_enforced` — this reports list
     /// membership, not whether membership is currently being enforced.
     pub fn is_allowed(e: &Env, address: Address) -> bool {
         AllowList::allowed(e, &address)
@@ -666,6 +782,10 @@ impl MicrovaultContract {
     /// Deliberately not `#[only_owner]`. Like the guardian's `pause`, this is a
     /// fast path that takes effect the moment the compliance key signs, with no
     /// timelock delay — a sanctions hit cannot wait days.
+    ///
+    /// # Errors
+    ///
+    /// `Unauthorized`, `ComplianceRoleNotSet`.
     pub fn allow_depositor(
         e: &Env,
         caller: Address,
@@ -685,8 +805,12 @@ impl MicrovaultContract {
     ///
     /// Blocks further deposits, mints and share transfers involving `address`,
     /// and starts its exit window: `withdraw` and `redeem` keep working for
-    /// [`Self::withdraw_grace_period`], then freeze. An existing deadline is
+    /// `withdraw_grace_period`, then freeze. An existing deadline is
     /// left as is, so repeating the call cannot extend the window.
+    ///
+    /// # Errors
+    ///
+    /// `Unauthorized`, `ComplianceRoleNotSet`.
     pub fn disallow_depositor(
         e: &Env,
         caller: Address,
@@ -706,6 +830,10 @@ impl MicrovaultContract {
 
     /// Disallow `address` and freeze its shares now, with no grace window.
     /// Compliance role only, not timelocked.
+    ///
+    /// # Errors
+    ///
+    /// `Unauthorized`, `ComplianceRoleNotSet`.
     pub fn freeze_depositor(
         e: &Env,
         caller: Address,
@@ -721,6 +849,10 @@ impl MicrovaultContract {
     ///
     /// Covers grace lost to a pause or to thin liquidity, and lifts a freeze
     /// without re-allowing the address.
+    ///
+    /// # Errors
+    ///
+    /// `Unauthorized`, `ComplianceRoleNotSet`, `InvalidExitDeadline`.
     pub fn extend_exit_deadline(
         e: &Env,
         caller: Address,
@@ -875,12 +1007,12 @@ impl MicrovaultContract {
         Ok(())
     }
 
-    /// Panic with [`MicrovaultError::AddressNotAllowed`] if `address` is not on
-    /// the allowlist. No-op while enforcement is switched off.
+    /// Whether `address` passes the allowlist gate; always true while enforcement is off.
     fn address_allowed(e: &Env, address: &Address) -> bool {
         !Self::allowlist_enforced(e) || AllowList::allowed(e, address)
     }
 
+    /// Panic with [`MicrovaultError::AddressNotAllowed`] if `address` fails the allowlist gate.
     fn require_allowed(e: &Env, address: &Address) {
         if !Self::address_allowed(e, address) {
             panic_with_error!(e, MicrovaultError::AddressNotAllowed);
@@ -894,6 +1026,10 @@ impl MicrovaultContract {
     /// Recover foreign tokens mistakenly sent to the vault. Treasury only.
     ///
     /// Cannot be used to sweep the underlying asset (e.g. USDC).
+    ///
+    /// # Errors
+    ///
+    /// `Unauthorized`, `TreasuryNotSet`, `CannotSweepUnderlyingAsset`, `InvalidAmount`.
     pub fn sweep_foreign_asset(
         e: &Env,
         current_treasury: Address,
@@ -1021,10 +1157,16 @@ impl MicrovaultContract {
             .set(&DataKey::LastAccrualTime, &current_time);
     }
 
-    /// Borrow funds from the vault and transfer to `recipient`. Treasury only.
+    /// Lend `amount` to the treasury. Treasury only.
     ///
     /// Accrues interest before processing. Enforces the 80% utilization cap
-    /// and checks available liquidity.
+    /// and checks available liquidity. The USDC goes to the treasury;
+    /// `recipient` is recorded on the `Borrowed` event only.
+    ///
+    /// # Errors
+    ///
+    /// `Unauthorized`, `TreasuryNotSet`, `InvalidAmount`, `ExceedsUtilizationCap`,
+    /// `InsufficientLiquidity`.
     #[when_not_paused]
     pub fn borrow(
         e: &Env,
@@ -1087,8 +1229,11 @@ impl MicrovaultContract {
 
     /// Repay borrowed funds to the vault. Treasury only.
     ///
-    /// Accrues interest before processing. Panics if `amount` exceeds
-    /// outstanding debt.
+    /// Accrues interest before processing.
+    ///
+    /// # Errors
+    ///
+    /// `Unauthorized`, `TreasuryNotSet`, `InvalidAmount`, `RepayExceedsDebt`.
     #[when_not_paused]
     pub fn repay(e: &Env, treasury_caller: Address, amount: i128) -> Result<(), MicrovaultError> {
         Self::repay_inner(e, treasury_caller, None, amount)
@@ -1100,6 +1245,10 @@ impl MicrovaultContract {
     /// carried onto the `Repaid` event, giving the repayment the same on-chain
     /// attribution `borrow` already gives disbursement. `borrower` does not
     /// authorize anything — the treasury remains the payer.
+    ///
+    /// # Errors
+    ///
+    /// `Unauthorized`, `TreasuryNotSet`, `InvalidAmount`, `RepayExceedsDebt`.
     #[when_not_paused]
     pub fn repay_for(
         e: &Env,
@@ -1120,6 +1269,10 @@ impl MicrovaultContract {
     /// A plain transfer to the contract has the same effect on share price;
     /// this entrypoint exists so the contribution is attributable and countable
     /// rather than indistinguishable from an accident.
+    ///
+    /// # Errors
+    ///
+    /// `InvalidAmount`.
     #[when_not_paused]
     pub fn bump_yield(e: &Env, from: Address, amount: i128) -> Result<(), MicrovaultError> {
         from.require_auth();
@@ -1253,6 +1406,10 @@ impl FungibleVault for MicrovaultContract {
     /// Both `from` (debited) and `receiver` (credited with shares) must be
     /// allowlisted while enforcement is on. Constraining one side only would
     /// let unscreened money buy shares for a screened party, or the reverse.
+    ///
+    /// # Errors
+    ///
+    /// `AddressNotAllowed`, `ExceedsMaxDeposit`.
     #[when_not_paused]
     fn deposit(e: &Env, assets: i128, receiver: Address, from: Address, operator: Address) -> i128 {
         MicrovaultContract::require_allowed(e, &from);
@@ -1270,6 +1427,10 @@ impl FungibleVault for MicrovaultContract {
 
     /// Same two-sided allowlist gate as `deposit`, and the same per-transaction
     /// cap applied to the assets the minted shares cost.
+    ///
+    /// # Errors
+    ///
+    /// `AddressNotAllowed`, `ExceedsMaxDeposit`.
     #[when_not_paused]
     fn mint(e: &Env, shares: i128, receiver: Address, from: Address, operator: Address) -> i128 {
         MicrovaultContract::require_allowed(e, &from);
@@ -1285,6 +1446,11 @@ impl FungibleVault for MicrovaultContract {
         assets_used
     }
 
+    /// Burn the owner's shares for `assets` of USDC. The lock is waived during a revocation grace window.
+    ///
+    /// # Errors
+    ///
+    /// `ExitWindowClosed`, `SharesLocked`, `ExceedsMaxWithdraw`, `InsufficientLiquidity`.
     #[when_not_paused]
     fn withdraw(
         e: &Env,
@@ -1311,6 +1477,11 @@ impl FungibleVault for MicrovaultContract {
         Vault::withdraw(e, assets, receiver, owner, operator)
     }
 
+    /// Burn `shares` for their USDC value. The lock is waived during a revocation grace window.
+    ///
+    /// # Errors
+    ///
+    /// `ExitWindowClosed`, `SharesLocked`, `ExceedsMaxRedeem`, `InsufficientLiquidity`.
     #[when_not_paused]
     fn redeem(e: &Env, shares: i128, receiver: Address, owner: Address, operator: Address) -> i128 {
         if MicrovaultContract::check_exit(e, &owner)
@@ -1321,8 +1492,6 @@ impl FungibleVault for MicrovaultContract {
 
         let assets_to_receive = Vault::preview_redeem(e, shares);
 
-        // Enforce the per-transaction withdrawal cap on the asset equivalent of
-        // the redeemed shares.
         if assets_to_receive > MicrovaultContract::get_max_withdraw(e) {
             panic_with_error!(e, MicrovaultError::ExceedsMaxRedeem)
         }
@@ -1424,6 +1593,10 @@ impl Pausable for MicrovaultContract {
     /// This is intentionally not gated by `#[only_owner]` so that the
     /// guardian can trigger an immediate emergency pause without going
     /// through the TimelockController delay.
+    ///
+    /// # Errors
+    ///
+    /// `Unauthorized`.
     fn pause(e: &Env, caller: Address) {
         caller.require_auth();
 

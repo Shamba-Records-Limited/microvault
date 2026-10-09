@@ -41,8 +41,11 @@ const CANCELLER_ROLE: Symbol = symbol_short!("canceler");
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct OperationMeta {
+    /// Operation that must be `Done` first, or all zeros for none.
     pub predecessor: BytesN<32>,
+    /// Disambiguates otherwise identical operations.
     pub salt: BytesN<32>,
+    /// Executor authorizing the call; required while any executor role exists.
     pub executor: Option<Address>,
 }
 
@@ -199,6 +202,12 @@ impl TimelockController {
     ///
     /// If executors are configured, `executor` must be `Some` and hold the
     /// executor role. If no executors exist, anyone can call this function.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an executor is required but `executor` is `None` or lacks the
+    /// executor role, or if the operation is not `Ready` or its predecessor is
+    /// not `Done`.
     pub fn execute_op(
         e: &Env,
         target: Address,
