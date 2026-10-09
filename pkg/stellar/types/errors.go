@@ -24,6 +24,7 @@ var (
 	ErrInvalidTransactionAmount  = errors.New("invalid transaction amount")
 	ErrFailedToValidateTrustline = errors.New("failed to validate trustline")
 	ErrMissingTrustline          = errors.New("destination account does not have required trustline")
+	ErrInvalidMemo               = errors.New("invalid transaction memo")
 
 	// Transaction status errors
 	ErrTransactionRejected = errors.New("transaction rejected by stellar-core")

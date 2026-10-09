@@ -494,8 +494,14 @@ func New() (*Config, error) {
 
 	mpesaConsumerKey := os.Getenv("MPESA_CONSUMER_KEY")
 	mpesaConsumerSecret := os.Getenv("MPESA_CONSUMER_SECRET")
-	mpesaCollectionShortcode, _ := strconv.ParseUint(os.Getenv("MPESA_COLLECTION_SHORTCODE"), 10, 64)
-	mpesaDisbursementShortcode, _ := strconv.ParseUint(os.Getenv("MPESA_DISBURSEMENT_SHORTCODE"), 10, 64)
+	mpesaCollectionShortcode, err := envPositiveInt("MPESA_COLLECTION_SHORTCODE")
+	if err != nil {
+		return nil, err
+	}
+	mpesaDisbursementShortcode, err := envPositiveInt("MPESA_DISBURSEMENT_SHORTCODE")
+	if err != nil {
+		return nil, err
+	}
 	mpesaPasskey := os.Getenv("MPESA_PASSKEY")
 	mpesaInitiatorName := os.Getenv("MPESA_INITIATOR_NAME")
 	mpesaInitiatorPassword := os.Getenv("MPESA_INITIATOR_PASSWORD")
@@ -739,20 +745,25 @@ func New() (*Config, error) {
 		}
 	}
 
-	// Handle non-required vars with defaults
-	redisDBNum, _ := strconv.Atoi(os.Getenv("REDIS_DB_NUMBER"))
-
-	// Parse idempotency TTL in seconds, default to 24 hours (86400 seconds)
-	idempotencyTTL := 24 * time.Hour
-	if ttlSeconds, err := strconv.Atoi(os.Getenv("REDIS_IDEMPOTENCY_TTL")); err == nil && ttlSeconds > 0 {
-		idempotencyTTL = time.Duration(ttlSeconds) * time.Second
+	redisDBNum, err := envNonNegativeInt64("REDIS_DB_NUMBER")
+	if err != nil {
+		return nil, err
 	}
-
-	// Parse USSD session timeout in seconds, default to 5 minutes (300 seconds)
-	ussdSessionTimeout := 5 * time.Minute
-	if secs, err := strconv.Atoi(os.Getenv("USSD_SESSION_TIMEOUT")); err == nil && secs > 0 {
-		ussdSessionTimeout = time.Duration(secs) * time.Second
+	idempotencyTTL, err := envSeconds("REDIS_IDEMPOTENCY_TTL")
+	if err != nil {
+		return nil, err
 	}
+	idempotencyTTL = firstNonZeroDuration(idempotencyTTL, 24*time.Hour)
+	ussdSessionTimeout, err := envSeconds("USSD_SESSION_TIMEOUT")
+	if err != nil {
+		return nil, err
+	}
+	ussdSessionTimeout = firstNonZeroDuration(ussdSessionTimeout, 5*time.Minute)
+	pinLockout, err := envSeconds("PIN_LOCKOUT_SECONDS")
+	if err != nil {
+		return nil, err
+	}
+	pinLockout = firstNonZeroDuration(pinLockout, 15*time.Minute)
 
 	ycBaseURL := firstNonEmpty(os.Getenv("YELLOW_CARD_BASE_URL"), os.Getenv("YELLOWCARD_BASE_URL"))
 	if ycBaseURL == "" {
@@ -761,7 +772,10 @@ func New() (*Config, error) {
 
 	fonbnkBaseURL := os.Getenv("FONBNK_BASE_URL")
 	if fonbnkBaseURL == "" {
-		fonbnkBaseURL = "https.sandbox-api.fonbnk.com"
+		if serverEnvironment == "production" {
+			return nil, fmt.Errorf("FONBNK_BASE_URL must be set in production; the default is the Fonbnk sandbox")
+		}
+		fonbnkBaseURL = "https://sandbox-api.fonbnk.com"
 	}
 
 	mobileSandboxMode, err := strconv.ParseBool(os.Getenv("AT_SANDBOX_MODE"))
@@ -902,7 +916,7 @@ func New() (*Config, error) {
 			Host:           redisHost,
 			Port:           redisPort,
 			Password:       redisPassword,
-			DBNumber:       redisDBNum,
+			DBNumber:       int(redisDBNum),
 			IdempotencyTTL: idempotencyTTL,
 		},
 		Server: ServerConfig{
@@ -1065,7 +1079,7 @@ func New() (*Config, error) {
 			JWTExpiration:       time.Hour * 24,
 			JWTRefreshWindow:    time.Hour * 1,
 			ChallengeExpiration: time.Hour * 5,
-			PINLockoutDuration:  parsePINLockout(),
+			PINLockoutDuration:  pinLockout,
 		},
 		Compliance: ComplianceConfig{
 			EllipticAPIKey:          ellipticAPIKey,
@@ -1077,15 +1091,6 @@ func New() (*Config, error) {
 			RescreenSweepInterval:   firstNonZeroDuration(rescreenSweepInterval, time.Hour),
 		},
 	}, nil
-}
-
-// parsePINLockout reads PIN_LOCKOUT_SECONDS from the environment.
-// Defaults to 900 (15 minutes) if unset or invalid.
-func parsePINLockout() time.Duration {
-	if s, err := strconv.Atoi(os.Getenv("PIN_LOCKOUT_SECONDS")); err == nil && s > 0 {
-		return time.Duration(s) * time.Second
-	}
-	return 15 * time.Minute
 }
 
 // envBool reads a boolean, false when unset. Unlike the multi-sig flags this

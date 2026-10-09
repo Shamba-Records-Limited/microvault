@@ -389,7 +389,7 @@ func (a *YellowCardOffRampAdapter) tryDirectSettlement(ctx context.Context, p *d
 		"amount_usdc", float64(amountStroops)/1e7,
 	)
 
-	txHash, err := a.treasury.SendUSDC(ctx, stellarAddr, stellarMemo, amountStroops)
+	txHash, err := a.treasury.SendUSDC(ctx, stellarAddr, offramp.TextMemo(stellarMemo), amountStroops)
 	if err != nil {
 		return nil, ycAdapterErr("direct_settlement").Code(pkgErrors.CodeSubmitFailed).With(pkgErrors.AttrLoanID, loanID).With("destination", stellarAddr).With("memo", stellarMemo).With(pkgErrors.AttrAmountStroops, amountStroops).Wrapf(err, "USDC transfer to the YellowCard wallet failed")
 	}

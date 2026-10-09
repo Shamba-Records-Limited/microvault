@@ -14,6 +14,10 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
+
+	"github.com/samber/oops"
+
+	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
 // LoanRecord is the projection of a loan row the poller needs to drive
@@ -173,6 +177,8 @@ type PollerConfig struct {
 	DepositVaultRetryBackoff time.Duration
 }
 
+const maxWithdrawalPollInterval = payoutSendWindow / 3
+
 // Deposit-side defaults, named so reschedule can fall back to one without
 // reaching for a literal.
 const (
@@ -288,6 +294,12 @@ func NewPoller(deps PollerDeps) (*Poller, error) {
 
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = 30 * time.Second
+	}
+	if cfg.PollInterval > maxWithdrawalPollInterval {
+		return nil, oops.In(errDomain).Code(pkgErrors.CodeInvalidConfig).
+			With(pkgErrors.AttrDirection, direction).
+			With("poll_interval", cfg.PollInterval).With("max", maxWithdrawalPollInterval).
+			Errorf("poll interval leaves too little of MoneyGram's payout send window")
 	}
 	if cfg.MaxBatch <= 0 {
 		cfg.MaxBatch = 100

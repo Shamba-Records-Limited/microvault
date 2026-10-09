@@ -2,6 +2,7 @@ package classic
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -446,4 +447,33 @@ func TestMockCallTracking(t *testing.T) {
 	assert.Equal(t, keys.TreasuryPublic, mockClient.LoadAccountCalls[0])
 	assert.Len(t, mockClient.SendTransactionCalls, 1)
 	assert.Len(t, mockClient.GetTransactionCalls, 1)
+}
+
+func TestPaymentMemo(t *testing.T) {
+	hashBytes := [32]byte{1, 2, 3}
+	hash := base64.StdEncoding.EncodeToString(hashBytes[:])
+
+	tests := []struct {
+		name, value, kind string
+		want              txnbuild.Memo
+		ok                bool
+	}{
+		{"text", "memo-42", "text", txnbuild.MemoText("memo-42"), true},
+		{"id", "4242", "id", txnbuild.MemoID(4242), true},
+		{"hash", hash, "hash", txnbuild.MemoHash(hashBytes), true},
+		{"id not numeric", "MG-4242", "id", nil, false},
+		{"missing type", "4242", "", nil, false},
+		{"text over limit", "12345678901234567890123456789", "text", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := paymentMemo(tt.value, tt.kind)
+			if !tt.ok {
+				assert.ErrorIs(t, err, types.ErrInvalidMemo)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

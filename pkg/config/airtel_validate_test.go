@@ -204,6 +204,7 @@ func TestAirtelConfig_UnsetRailBootsInEveryEnvironment(t *testing.T) {
 		t.Run(env, func(t *testing.T) {
 			setRequiredEnv(t)
 			t.Setenv("SERVER_ENVIRONMENT", env)
+			t.Setenv("FONBNK_BASE_URL", "https://api.fonbnk.com")
 
 			cfg, err := New()
 			require.NoError(t, err, "config load must not fail with no AIRTEL_* variables set")
