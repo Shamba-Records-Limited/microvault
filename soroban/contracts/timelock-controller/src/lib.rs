@@ -18,7 +18,8 @@ use soroban_sdk::{
     auth::{Context, ContractContext, CustomAccountInterface},
     contract, contractimpl, contracttype,
     crypto::Hash,
-    panic_with_error, symbol_short, Address, BytesN, Env, IntoVal, Symbol, Val, Vec,
+    panic_with_error, symbol_short, Address, BytesN, ContractExecutable, Env, IntoVal, Symbol, Val,
+    Vec,
 };
 use stellar_access::access_control::{
     ensure_role, get_role_member_count, grant_role_no_auth, set_admin, AccessControl,
@@ -262,7 +263,8 @@ impl TimelockController {
     /// the delay, then execute it (validated by `__check_auth`).
     #[only_admin]
     pub fn upgrade(e: &Env, new_wasm_hash: BytesN<32>) {
-        e.deployer().update_current_contract_wasm(new_wasm_hash);
+        e.deployer()
+            .update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
     }
 
     /// Returns the minimum delay (in ledger sequence counts) for new operations.

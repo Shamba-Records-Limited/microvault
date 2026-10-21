@@ -59,6 +59,16 @@ probe utilization_rate
 probe borrow_apr
 probe paused
 
+echo "  share supply"
+probe total_assets
+assets=$(tr -d '"' </tmp/smoke.out)
+probe total_supply
+supply=$(tr -d '"' </tmp/smoke.out)
+if [[ "$assets" != "0" && "$supply" == "0" ]]; then
+  red "  total_supply is 0 while total_assets is $assets: run migrate_total_supply (OZ 0.7.x -> 0.8.x)"
+  exit 1
+fi
+
 echo "  governance"
 probe treasury
 probe get_owner
