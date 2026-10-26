@@ -27,12 +27,20 @@ probe() {
   local fn=$1
   shift || true
   printf '  %-32s ' "$fn"
-  if stellar contract invoke \
-        --id "$CONTRACT_ID" \
-        --network "$NETWORK" \
-        --is-view \
-        --send=no \
-        -- "$fn" "$@" >/tmp/smoke.out 2>/tmp/smoke.err
+  local attempt ok=1
+  for attempt in 1 2 3; do
+    if stellar contract invoke \
+          --id "$CONTRACT_ID" \
+          --network "$NETWORK" \
+          --send=no \
+          -- "$fn" "$@" >/tmp/smoke.out 2>/tmp/smoke.err
+    then
+      ok=0
+      break
+    fi
+    sleep 3
+  done
+  if [[ $ok -eq 0 ]]
   then
     green "OK"
   else
@@ -51,13 +59,23 @@ probe symbol
 probe decimals
 
 echo "  vault state"
-probe asset
+probe query_asset
 probe total_managed_assets
 probe total_borrowed
 probe available_liquidity
 probe utilization_rate
 probe borrow_apr
 probe paused
+
+echo "  share supply"
+probe total_assets
+assets=$(tr -d '"' </tmp/smoke.out)
+probe total_supply
+supply=$(tr -d '"' </tmp/smoke.out)
+if [[ "$assets" != "0" && "$supply" == "0" ]]; then
+  red "  total_supply is 0 while total_assets is $assets: run migrate_total_supply (OZ 0.7.x -> 0.8.x)"
+  exit 1
+fi
 
 echo "  governance"
 probe treasury
@@ -67,7 +85,7 @@ probe guardian
 if [[ -n "${HOLDER:-}" ]]; then
   echo "  holder probe"
   probe balance --account "$HOLDER"
-  probe max_withdraw --account "$HOLDER"
+  probe max_withdraw --owner "$HOLDER"
 fi
 
 green "All vault views OK."

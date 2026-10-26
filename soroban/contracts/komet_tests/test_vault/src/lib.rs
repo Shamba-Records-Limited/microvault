@@ -11,12 +11,12 @@ mod komet;
 
 mod vault {
     soroban_sdk::contractimport!(
-        file = "../../target/wasm32v1-none/release/microvault_sep56.wasm"
+        file = "../../../target/wasm32v1-none/release/microvault_sep56.wasm"
     );
 }
 mod token {
     soroban_sdk::contractimport!(
-        file = "../../target/wasm32v1-none/release/microvault_test_token.wasm"
+        file = "../target/wasm32v1-none/release/microvault_test_token.wasm"
     );
 }
 

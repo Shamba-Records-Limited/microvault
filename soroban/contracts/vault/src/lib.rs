@@ -56,8 +56,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, panic_with_error, Address, BytesN, Env,
-    MuxedAddress, String,
+    contract, contracterror, contractevent, contractimpl, panic_with_error, Address, BytesN,
+    ContractExecutable, Env, MuxedAddress, String,
 };
 use stellar_access::ownable::{self, Ownable};
 use stellar_contract_utils::math::wad::{Wad, WAD_SCALE};
@@ -65,8 +65,10 @@ use stellar_contract_utils::pausable::{self as pausable_mod, Pausable};
 use stellar_macros::{only_owner, when_not_paused};
 use stellar_tokens::{
     fungible::{
-        allowlist::AllowList, Base, FungibleToken, ALLOW_BLOCK_EXTEND_AMOUNT,
-        ALLOW_BLOCK_TTL_THRESHOLD,
+        allowlist::AllowList,
+        combinations::Compose,
+        total_supply::{self, FungibleTotalSupply, TotalSupply},
+        Base, FungibleToken, ALLOW_BLOCK_EXTEND_AMOUNT, ALLOW_BLOCK_TTL_THRESHOLD,
     },
     vault::{FungibleVault, Vault},
 };
@@ -678,7 +680,18 @@ impl MicrovaultContract {
     /// Upgrade the contract WASM. Owner only.
     #[only_owner]
     pub fn upgrade(e: &Env, new_wasm_hash: BytesN<32>) {
-        e.deployer().update_current_contract_wasm(new_wasm_hash);
+        e.deployer()
+            .update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
+    }
+
+    /// Move the share supply from the OZ 0.7.x instance entry to its
+    /// persistent entry. Owner only.
+    ///
+    /// Run once, immediately after upgrading from a 0.7.x-built wasm. Returns
+    /// the migrated supply, or `0` once nothing is left to migrate.
+    #[only_owner]
+    pub fn migrate_total_supply(e: &Env) -> i128 {
+        total_supply::migrate_total_supply(e)
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1074,7 +1087,7 @@ impl MicrovaultContract {
     // ─────────────────────────────────────────────────────────────────────
 
     /// Accrue compound interest on the outstanding borrow using per-second
-    /// compounding via `Wad::pow`.
+    /// compounding via `Wad::powi`.
     fn accrue_interest(e: &Env) {
         let last_accrual: u64 = e
             .storage()
@@ -1118,7 +1131,7 @@ impl MicrovaultContract {
         } else {
             time_elapsed as u32
         };
-        let compound_factor = base.pow(e, exponent);
+        let compound_factor = base.powi(e, exponent);
 
         let new_total_borrowed = compound_factor
             .checked_mul_int(total_borrowed)
@@ -1353,7 +1366,7 @@ impl MicrovaultContract {
 
 #[contractimpl(contracttrait)]
 impl FungibleToken for MicrovaultContract {
-    type ContractType = Vault;
+    type ContractType = Compose<(Vault, TotalSupply)>;
 
     fn decimals(e: &Env) -> u32 {
         Vault::decimals(e)
@@ -1400,6 +1413,9 @@ impl FungibleToken for MicrovaultContract {
         }
     }
 }
+
+#[contractimpl(contracttrait)]
+impl FungibleTotalSupply for MicrovaultContract {}
 
 #[contractimpl]
 impl FungibleVault for MicrovaultContract {
@@ -1526,7 +1542,7 @@ impl FungibleVault for MicrovaultContract {
         if pausable_mod::paused(e) || !MicrovaultContract::address_allowed(e, &receiver) {
             return 0;
         }
-        MicrovaultContract::get_max_deposit(e)
+        MicrovaultContract::get_max_deposit(e).min(Vault::max_deposit(e, receiver))
     }
 
     fn max_mint(e: &Env, receiver: Address) -> i128 {
@@ -1534,6 +1550,7 @@ impl FungibleVault for MicrovaultContract {
             return 0;
         }
         Vault::convert_to_shares(e, MicrovaultContract::get_max_deposit(e))
+            .min(Vault::max_mint(e, receiver))
     }
 
     fn max_withdraw(e: &Env, owner: Address) -> i128 {

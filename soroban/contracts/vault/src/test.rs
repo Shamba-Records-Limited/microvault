@@ -10,6 +10,7 @@ use soroban_sdk::{
     token::{self, StellarAssetClient, TokenClient},
     Address, Env, String,
 };
+use stellar_tokens::fungible::total_supply::TotalSupplyStorageKey;
 
 /// Registers a Stellar asset contract and returns its address, token client,
 /// and admin client.
@@ -999,7 +1000,7 @@ fn test_interest_accrual() {
     // Advance time by 1 year (for significant interest accrual)
     env.ledger().set(LedgerInfo {
         timestamp: 31_536_000, // 1 year in seconds
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1184,7 +1185,7 @@ fn test_full_credit_delegation_lifecycle() {
     // 3. Time passes, interest accrues
     env.ledger().set(LedgerInfo {
         timestamp: 2_592_000, // 30 days
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1279,7 +1280,7 @@ fn test_lock_applied_on_deposit() {
     // Set initial timestamp
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1312,7 +1313,7 @@ fn test_withdraw_blocked_when_locked() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1342,7 +1343,7 @@ fn test_redeem_blocked_when_locked() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1371,7 +1372,7 @@ fn test_withdraw_allowed_after_lock_expires() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1393,7 +1394,7 @@ fn test_withdraw_allowed_after_lock_expires() {
     // Advance time past lock period
     env.ledger().set(LedgerInfo {
         timestamp: 1000 + seven_days + 1,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1428,7 +1429,7 @@ fn test_deposit_resets_lock_to_full_period() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 0,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1452,7 +1453,7 @@ fn test_deposit_resets_lock_to_full_period() {
     let six_days: u64 = 518400;
     env.ledger().set(LedgerInfo {
         timestamp: six_days,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1486,7 +1487,7 @@ fn test_deposit_does_not_shorten_existing_longer_lock() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 0,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1509,7 +1510,7 @@ fn test_deposit_does_not_shorten_existing_longer_lock() {
     let one_day: u64 = 86400;
     env.ledger().set(LedgerInfo {
         timestamp: one_day,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1537,7 +1538,7 @@ fn test_small_deposit_on_large_balance_locks_full_period() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 0,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1559,7 +1560,7 @@ fn test_small_deposit_on_large_balance_locks_full_period() {
     // Advance well past expiry.
     env.ledger().set(LedgerInfo {
         timestamp: seven_days + 1,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1586,7 +1587,7 @@ fn test_lock_after_expiry_creates_new_lock() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 0,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1608,7 +1609,7 @@ fn test_lock_after_expiry_creates_new_lock() {
     // Advance past lock expiry (10 days)
     env.ledger().set(LedgerInfo {
         timestamp: 864000, // 10 days
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1637,7 +1638,7 @@ fn test_mint_also_applies_lock() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1670,7 +1671,7 @@ fn test_transfer_blocked_while_sender_locked() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1703,7 +1704,7 @@ fn test_transfer_from_blocked_while_owner_locked() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1738,7 +1739,7 @@ fn test_transfer_allowed_after_lock_expires() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1758,7 +1759,7 @@ fn test_transfer_allowed_after_lock_expires() {
     // Advance past the lock.
     env.ledger().set(LedgerInfo {
         timestamp: 1000 + seven_days + 1,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1844,7 +1845,7 @@ fn test_is_locked_consistent_with_unlock_time() {
 
     env.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1864,7 +1865,7 @@ fn test_is_locked_consistent_with_unlock_time() {
     let halfway = 1000 + seven_days / 2;
     env.ledger().set(LedgerInfo {
         timestamp: halfway,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1883,7 +1884,7 @@ fn test_is_locked_consistent_with_unlock_time() {
     // One ledger before expiry: still locked, remaining == 1.
     env.ledger().set(LedgerInfo {
         timestamp: unlock_time - 1,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 201,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1897,7 +1898,7 @@ fn test_is_locked_consistent_with_unlock_time() {
     // At expiry: unlocked, remaining == 0.
     env.ledger().set(LedgerInfo {
         timestamp: unlock_time,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 202,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1972,7 +1973,7 @@ fn test_borrow_index_increases_with_interest() {
     // Advance 30 days
     env.ledger().set(LedgerInfo {
         timestamp: 2_592_000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -2012,7 +2013,7 @@ fn test_borrow_index_monotonically_increases() {
     // Advance 30 days, get index
     env.ledger().set(LedgerInfo {
         timestamp: 2_592_000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -2025,7 +2026,7 @@ fn test_borrow_index_monotonically_increases() {
     // Advance to 60 days, get index
     env.ledger().set(LedgerInfo {
         timestamp: 5_184_000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 200,
         network_id: Default::default(),
         base_reserve: 10,
@@ -2038,7 +2039,7 @@ fn test_borrow_index_monotonically_increases() {
     // Advance to 365 days, get index
     env.ledger().set(LedgerInfo {
         timestamp: 31_536_000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 300,
         network_id: Default::default(),
         base_reserve: 10,
@@ -2081,7 +2082,7 @@ fn test_borrow_index_stable_without_borrows() {
     // Advance 1 year
     env.ledger().set(LedgerInfo {
         timestamp: 31_536_000,
-        protocol_version: 26,
+        protocol_version: 28,
         sequence_number: 100,
         network_id: Default::default(),
         base_reserve: 10,
@@ -2121,6 +2122,62 @@ fn test_upgrade_function_exists() {
     // Verify contract is functional before any hypothetical upgrade
     assert_eq!(client.total_assets(), 0);
     assert!(!client.paused());
+}
+
+/// Recreates the OZ 0.7.x layout: supply in the instance entry, no
+/// persistent entry.
+fn move_supply_to_legacy_entry(env: &Env, vault: &Address) {
+    env.as_contract(vault, || {
+        let key = TotalSupplyStorageKey::TotalSupply;
+        let supply: i128 = env.storage().persistent().get(&key).unwrap();
+        env.storage().persistent().remove(&key);
+        env.storage().instance().set(&key, &supply);
+    });
+}
+
+#[test]
+fn test_migrate_total_supply_restores_legacy_supply() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    let shares = client.deposit(&1_000_000, &user, &user, &user);
+    let assets_before = client.preview_redeem(&shares);
+    move_supply_to_legacy_entry(&env, &client.address);
+    assert_eq!(client.total_supply(), 0);
+
+    assert_eq!(client.migrate_total_supply(), shares);
+    assert_eq!(client.total_supply(), shares);
+    assert_eq!(client.preview_redeem(&shares), assets_before);
+    assert_eq!(client.migrate_total_supply(), 0);
+    assert_eq!(client.total_supply(), shares);
+
+    assert_eq!(client.redeem(&shares, &user, &user, &user), assets_before);
+    assert_eq!(client.total_supply(), 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #104)")]
+fn test_unmigrated_supply_blocks_redeem() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _asset, _token_client, _token_admin, _owner, _treasury, _guardian, user) =
+        setup_vault_with_user(&env, 10_000_000);
+
+    client.deposit(&1_000_000, &user, &user, &user);
+    move_supply_to_legacy_entry(&env, &client.address);
+    client.redeem(&1_000, &user, &user, &user);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_migrate_total_supply_owner_only() {
+    let env = Env::default();
+    let (client, ..) = setup_vault(&env);
+    client.migrate_total_supply();
 }
 
 // ─────────────────────────────────────────────────────────────────────

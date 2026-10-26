@@ -140,7 +140,7 @@ const CONTRACT_ERRORS: Record<number, ContractError> = {
     source: "FungibleToken",
   },
 
-  // VaultTokenError (400-410)
+  // VaultTokenError (400-412)
   400: {
     code: 400,
     name: "VaultAssetAddressNotSet",
@@ -187,6 +187,18 @@ const CONTRACT_ERRORS: Record<number, ContractError> = {
     code: 410,
     name: "MathOverflow",
     message: "Arithmetic overflow in vault calculation",
+    source: "Vault",
+  },
+  411: {
+    code: 411,
+    name: "VaultZeroShares",
+    message: "Deposit is too small to mint any shares",
+    source: "Vault",
+  },
+  412: {
+    code: 412,
+    name: "VaultZeroAssets",
+    message: "Redeem is too small to return any assets",
     source: "Vault",
   },
 

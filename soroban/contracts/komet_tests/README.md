@@ -17,10 +17,18 @@ Komet-based test contracts used for property-based and formal verification of th
 
 ## Build
 
+`komet_tests/` is its own Cargo workspace, kept out of the contracts workspace so `cargo test` there never needs these wasm-only crates. Its `soroban-sdk` pin must match `soroban/Cargo.toml`. `test_vault` and `test_vault_probe` import the vault wasm from `soroban/target`, so build the contracts first:
+
+```bash
+(cd ../.. && stellar contract build)
+```
+
+`.cargo/config.toml` links with `--allow-undefined`, because the `kasmer_*` cheatcodes are host imports that only Komet provides.
+
 ### Build with Stellar CLI
 
 ```bash
-# Build all komet test crates
+# Build all komet test crates (run from komet_tests/)
 stellar contract build
 
 # Build a single crate
@@ -41,31 +49,31 @@ WASM artifacts land at `target/wasm32v1-none/release/<crate_name>.wasm`.
 
 ## Run Komet Tests
 
+Komet builds the harness and the contracts listed in `kasmer.json` itself, so run it from the harness directory:
+
 ```bash
-# Run all tests in a crate
-cargo test --package microvault-test-vault
-cargo test --package microvault-test-vault-probe
-
-# Run a specific test
-cargo test --package microvault-test-vault test_no_deposit_when_disallowed
-
-# Run with output
-cargo test --package microvault-test-vault -- --nocapture
-
-# Run with log output
-RUST_LOG=debug cargo test --package microvault-test-vault
-
-# Run all komet tests across crates
-cargo test --package microvault-test-vault --package microvault-test-vault-probe
+cd test_vault
+komet test                                   # fuzz every test_* property (100 examples each)
+komet test --id test_no_deposit_when_disallowed
+komet test --max-examples 500
+komet prove run                              # symbolic proof
 ```
+
+### Tooling compatibility (Komet 0.1.89)
+
+| Issue | Cause | Workaround |
+|---|---|---|
+| `KeyError: 'type_'` | stellar-cli 28 renamed the interface JSON key `type_` to `type` | Wrap `stellar` so `contract info interface --output json` renames the key back |
+| `ParseError: Invalid section id: 0xc` | The CLI's wasm optimizer emits a DataCount section that Komet's parser rejects | Build with `stellar contract build --optimize=false` |
+| Every vault-touching property fails on its first example | Vault built on soroban-sdk 28 / OZ 0.8 imports host functions Komet doesn't implement (`sparse_map_*_linear_memory`, `u256/i256_checked_*`, `u256_rem_euclid`) | None; needs a Komet release with protocol 28 support |
 
 ## Proof Artifacts
 
 ### Generate proofs
 
 ```bash
-# Run komet tests with proof output
-cargo test --package microvault-test-vault -- --proof-output
+# Run komet proofs (from test_vault/)
+komet prove run
 
 # Output lands in proof-out/
 ```
