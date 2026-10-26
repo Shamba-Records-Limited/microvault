@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 
 	"github.com/Shamba-Records-Limited/microvault/platform/cache"
@@ -39,13 +39,13 @@ func NewCheckerWithoutStellar(dbName string, cacheName string) *Checker {
 
 // LivenessProbe returns true if the application is alive
 // This should always return true if the app is running
-func (h *Checker) LivenessProbe(c *fiber.Ctx) bool {
+func (h *Checker) LivenessProbe(c fiber.Ctx) bool {
 	return true
 }
 
 // ReadinessProbe returns true if all critical services are ready
-func (h *Checker) ReadinessProbe(c *fiber.Ctx) bool {
-	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Second)
+func (h *Checker) ReadinessProbe(c fiber.Ctx) bool {
+	ctx, cancel := context.WithTimeout(c.Context(), 3*time.Second)
 	defer cancel()
 
 	databaseReady := database.Ready(ctx, h.dbName)
@@ -76,7 +76,7 @@ func (h *Checker) checkStellar(ctx context.Context) bool {
 	return true
 }
 
-func (h *Checker) HealthHandler(c *fiber.Ctx) error {
+func (h *Checker) HealthHandler(c fiber.Ctx) error {
 	if h.LivenessProbe(c) {
 		return c.Status(fiber.StatusOK).JSON(fiber.Map{
 			"status":    "alive",
@@ -89,7 +89,7 @@ func (h *Checker) HealthHandler(c *fiber.Ctx) error {
 	})
 }
 
-func (h *Checker) ReadyHandler(c *fiber.Ctx) error {
+func (h *Checker) ReadyHandler(c fiber.Ctx) error {
 	// Use the existing ReadinessProbe method
 	if h.ReadinessProbe(c) {
 		if h.stellarClient == nil {
@@ -113,7 +113,7 @@ func (h *Checker) ReadyHandler(c *fiber.Ctx) error {
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(c.UserContext(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(c.Context(), 1*time.Second)
 	defer cancel()
 
 	// If not ready, provide detailed status for debugging

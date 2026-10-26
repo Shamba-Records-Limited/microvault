@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -21,23 +21,23 @@ import (
 
 func newApp(buf *bytes.Buffer) *fiber.App {
 	logger := logging.New(buf, slog.LevelInfo)
-	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	app := fiber.New(fiber.Config{})
 	app.Use(middleware.RequestID(), middleware.Tracing("/health"), middleware.AccessLog(logger, "/health", "/static/"))
-	app.Get("/loans/:id", func(c *fiber.Ctx) error {
-		logger.InfoContext(c.UserContext(), "inside handler")
+	app.Get("/loans/:id", func(c fiber.Ctx) error {
+		logger.InfoContext(c.Context(), "inside handler")
 		return c.SendString("ok")
 	})
-	app.Get("/boom", func(*fiber.Ctx) error { return errors.New("boom") })
-	app.Get("/masked", func(c *fiber.Ctx) error {
+	app.Get("/boom", func(fiber.Ctx) error { return errors.New("boom") })
+	app.Get("/masked", func(c fiber.Ctx) error {
 		middleware.NoteError(c, errors.New("redis timeout"))
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to generate challenge")
 	})
-	app.Get("/handled", func(c *fiber.Ctx) error {
+	app.Get("/handled", func(c fiber.Ctx) error {
 		middleware.NoteError(c, errors.New("db down"))
 		return c.SendString("could not load")
 	})
-	app.Get("/health", func(c *fiber.Ctx) error { return c.SendString("ok") })
-	app.Get("/static/*", func(c *fiber.Ctx) error { return c.SendString("asset") })
+	app.Get("/health", func(c fiber.Ctx) error { return c.SendString("ok") })
+	app.Get("/static/*", func(c fiber.Ctx) error { return c.SendString("asset") })
 	return app
 }
 

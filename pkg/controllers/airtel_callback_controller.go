@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/samber/lo"
 	"gorm.io/datatypes"
 
@@ -61,10 +61,10 @@ func NewAirtelCallbackController(repo repository.AirtelTransactionRepository, cf
 // expected state in development and a misconfiguration in production. The
 // rule matches the Daraja controller's, including failing closed rather than
 // defaulting permissive.
-func (ctrl *AirtelCallbackController) allowedCIDR(c *fiber.Ctx) error {
+func (ctrl *AirtelCallbackController) allowedCIDR(c fiber.Ctx) error {
 	if len(ctrl.config.CallbackAllowedCIDRs) == 0 {
 		if ctrl.serverEnv == "production" {
-			ctrl.logger.WarnContext(c.UserContext(), "rejecting airtel callback: no CIDR allowlist configured in production",
+			ctrl.logger.WarnContext(c.Context(), "rejecting airtel callback: no CIDR allowlist configured in production",
 				"route", c.Route().Path)
 			return fiber.NewError(fiber.StatusForbidden, "callback allowlist not configured")
 		}
@@ -77,7 +77,7 @@ func (ctrl *AirtelCallbackController) allowedCIDR(c *fiber.Ctx) error {
 			return nil
 		}
 	}
-	ctrl.logger.WarnContext(c.UserContext(), "rejecting airtel callback: source not in the allowlist",
+	ctrl.logger.WarnContext(c.Context(), "rejecting airtel callback: source not in the allowlist",
 		"route", c.Route().Path, "client_ip", clientIP, "x_forwarded_for", c.Get(fiber.HeaderXForwardedFor),
 		"allowed_cidrs", ctrl.config.CallbackAllowedCIDRs)
 	return fiber.NewError(fiber.StatusForbidden, "source not permitted")
@@ -96,7 +96,7 @@ func (ctrl *AirtelCallbackController) allowedCIDR(c *fiber.Ctx) error {
 // @Failure 403 {object} fiber.Error "Source not permitted, or the hash did not verify"
 // @Failure 500 {object} fiber.Error "Failed to record the observation"
 // @Router /api/v1/callbacks/airtel/{slug}/collection [post]
-func (ctrl *AirtelCallbackController) CollectionCallback(c *fiber.Ctx) error {
+func (ctrl *AirtelCallbackController) CollectionCallback(c fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func (ctrl *AirtelCallbackController) CollectionCallback(c *fiber.Ctx) error {
 		tx.AirtelMoneyID = lo.ToPtr(callback.Transaction.AirtelMoneyID)
 	}
 
-	if err := ctrl.repo.RecordCallback(c.UserContext(), &tx); err != nil {
+	if err := ctrl.repo.RecordCallback(c.Context(), &tx); err != nil {
 		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusInternalServerError, "could not record the observation")
 	}
