@@ -80,18 +80,18 @@ func Setup(ctx context.Context) (func(context.Context) error, error) {
 	}, nil
 }
 
-// boundedServerMetrics drops server.address from the HTTP server metrics:
-// otelfiber takes it from the Host header, which the caller controls, so it
-// would let any client mint new series.
+// boundedServerMetrics drops server.address and server.port from the HTTP
+// server metrics: the Fiber otel middleware takes them from the Host header,
+// which the caller controls, so they would let any client mint new series.
 func boundedServerMetrics(inst sdkmetric.Instrument) (sdkmetric.Stream, bool) {
-	if inst.Scope.Name != "github.com/gofiber/contrib/otelfiber" {
+	if inst.Scope.Name != "github.com/gofiber/contrib/v3/otel" {
 		return sdkmetric.Stream{}, false
 	}
 	return sdkmetric.Stream{
 		Name:            inst.Name,
 		Description:     inst.Description,
 		Unit:            inst.Unit,
-		AttributeFilter: attribute.NewDenyKeysFilter("server.address"),
+		AttributeFilter: attribute.NewDenyKeysFilter("server.address", "server.port"),
 	}, true
 }
 

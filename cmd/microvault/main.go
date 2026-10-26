@@ -15,8 +15,8 @@ import (
 
 	_ "github.com/Shamba-Records-Limited/microvault/cmd/microvault/docs"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/swagger"
+	swagger "github.com/gofiber/contrib/v3/swaggo"
+	"github.com/gofiber/fiber/v3"
 	_ "github.com/joho/godotenv/autoload"
 
 	routes "github.com/Shamba-Records-Limited/microvault/internal/core/pkg/routes"
@@ -295,9 +295,10 @@ func main() {
 	// hop: without the trusted-proxy check, any client reaching the port could
 	// set X-Forwarded-For and choose the address the Daraja allowlist sees.
 	app := fiber.New(fiber.Config{
-		ProxyHeader:             fiber.HeaderXForwardedFor,
-		EnableTrustedProxyCheck: true,
-		TrustedProxies:          cfg.Server.TrustedProxyCIDRs,
+		ProxyHeader:          fiber.HeaderXForwardedFor,
+		TrustProxy:           true,
+		TrustProxyConfig:     fiber.TrustProxyConfig{Proxies: cfg.Server.TrustedProxyCIDRs},
+		DisableFlashMessages: true,
 	})
 
 	// Initialize health checker middleware
@@ -318,7 +319,7 @@ func main() {
 	}))
 
 	// Serve redoc.html at the root route
-	app.Get("/", func(c *fiber.Ctx) error {
+	app.Get("/", func(c fiber.Ctx) error {
 		return c.SendFile("./cmd/microvault/docs/redoc-static.html")
 	})
 
@@ -375,7 +376,7 @@ func main() {
 	// Run the server in a separate goroutine
 	go func() {
 		slog.Info("starting core server", slog.String("core_addr", cfg.Server.CoreAddr()))
-		if err := app.Listen(cfg.Server.CoreAddr()); err != nil {
+		if err := app.Listen(cfg.Server.CoreAddr(), fiber.ListenConfig{DisableStartupMessage: true}); err != nil {
 			slog.Error("Server Listen error", slog.Any("error", err))
 		}
 	}()

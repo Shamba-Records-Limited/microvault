@@ -7,9 +7,9 @@ require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/dubinc/dub-go v0.24.0
 	github.com/go-playground/validator/v10 v10.30.5
-	github.com/gofiber/contrib/otelfiber/v2 v2.2.3
-	github.com/gofiber/fiber/v2 v2.52.16
-	github.com/gofiber/swagger v1.1.1
+	github.com/gofiber/contrib/v3/otel v1.3.1
+	github.com/gofiber/contrib/v3/swaggo v1.0.14
+	github.com/gofiber/fiber/v3 v3.6.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/uuid v1.6.0
@@ -49,7 +49,6 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/creachadair/jrpc2 v1.3.6 // indirect
 	github.com/creachadair/mds v0.31.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
@@ -69,6 +68,8 @@ require (
 	github.com/go-playground/locales v0.14.2 // indirect
 	github.com/go-playground/universal-translator v0.18.2 // indirect
 	github.com/go-sql-driver/mysql v1.10.1 // indirect
+	github.com/gofiber/schema v1.9.0 // indirect
+	github.com/gofiber/utils/v2 v2.6.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
@@ -84,7 +85,6 @@ require (
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-colorable v0.1.16 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mattn/go-runewidth v0.0.31 // indirect
 	github.com/molecule-man/go-brrr v1.3.1 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect

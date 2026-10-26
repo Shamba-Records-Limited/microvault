@@ -3,7 +3,7 @@ package controllers
 import (
 	"crypto/subtle"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
@@ -38,7 +38,7 @@ func NewUSSDController(ussdService *ussd.USSDService, callbackToken string) *USS
 // @Failure 401 {string} string "END Unauthorized"
 // @Failure 500 {string} string "END An error occurred. Please try again."
 // @Router /api/v1/mobile/ussd/{provider} [post]
-func (ctrl *USSDController) HandleCallback(c *fiber.Ctx) error {
+func (ctrl *USSDController) HandleCallback(c fiber.Ctx) error {
 	if ctrl.callbackToken == "" || subtle.ConstantTimeCompare([]byte(c.Query("token")), []byte(ctrl.callbackToken)) != 1 {
 		return c.Status(fiber.StatusUnauthorized).SendString("END Unauthorized")
 	}
@@ -47,7 +47,7 @@ func (ctrl *USSDController) HandleCallback(c *fiber.Ctx) error {
 	for key, value := range c.Request().PostArgs().All() {
 		data[string(key)] = string(value)
 	}
-	resp, err := ctrl.ussdService.HandleRequest(c.UserContext(), provider, data)
+	resp, err := ctrl.ussdService.HandleRequest(c.Context(), provider, data)
 	if err != nil {
 		middleware.NoteError(c, err)
 		return c.Status(fiber.StatusInternalServerError).SendString("END An error occurred. Please try again.")

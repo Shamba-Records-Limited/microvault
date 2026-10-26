@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
 )
@@ -34,10 +34,10 @@ func NewSMSCallbackController(handler *sms.DeliveryReportHandler) *SMSCallbackCo
 // @Success 200 {string} string "ok"
 // @Failure 400 {object} fiber.Error "Invalid callback payload"
 // @Router /api/v1/mobile/sms/{provider}/delivery [post]
-func (ctrl *SMSCallbackController) HandleDeliveryReport(c *fiber.Ctx) error {
+func (ctrl *SMSCallbackController) HandleDeliveryReport(c fiber.Ctx) error {
 	provider := c.Params("provider")
 
-	slog.InfoContext(c.UserContext(), "sms callback: delivery report received",
+	slog.InfoContext(c.Context(), "sms callback: delivery report received",
 		slog.String("provider", provider),
 	)
 
@@ -53,7 +53,7 @@ func (ctrl *SMSCallbackController) HandleDeliveryReport(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "missing required fields: id and status")
 	}
 
-	go ctrl.handler.HandleReport(context.WithoutCancel(c.UserContext()), report)
+	go ctrl.handler.HandleReport(context.WithoutCancel(c.Context()), report)
 
 	return c.SendString("ok")
 }

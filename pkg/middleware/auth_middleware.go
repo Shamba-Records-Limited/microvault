@@ -3,7 +3,7 @@ package middleware
 import (
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
@@ -27,7 +27,7 @@ func NewAuthMiddleware(jwtService *auth.JWTService, config *config.StellarConfig
 
 // RequireAuth is a middleware that validates JWT tokens from cookies
 func (m *AuthMiddleware) RequireAuth() fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		// Get token from cookie
 		token := c.Cookies("admin_token")
 		if token == "" {
@@ -65,7 +65,7 @@ func (m *AuthMiddleware) RequireAuth() fiber.Handler {
 }
 
 // setCookie sets the admin_token cookie with secure flags
-func (m *AuthMiddleware) setCookie(c *fiber.Ctx, token string, expiresAt time.Time) {
+func (m *AuthMiddleware) setCookie(c fiber.Ctx, token string, expiresAt time.Time) {
 	c.Cookie(&fiber.Cookie{
 		Name:     "admin_token",
 		Value:    token,
@@ -78,7 +78,7 @@ func (m *AuthMiddleware) setCookie(c *fiber.Ctx, token string, expiresAt time.Ti
 }
 
 // clearCookie removes the admin_token cookie
-func (m *AuthMiddleware) clearCookie(c *fiber.Ctx) {
+func (m *AuthMiddleware) clearCookie(c fiber.Ctx) {
 	c.Cookie(&fiber.Cookie{
 		Name:     "admin_token",
 		Value:    "",
@@ -91,7 +91,7 @@ func (m *AuthMiddleware) clearCookie(c *fiber.Ctx) {
 }
 
 // GetAdminClaims retrieves admin claims from the Fiber context
-func GetAdminClaims(c *fiber.Ctx) *auth.Claims {
+func GetAdminClaims(c fiber.Ctx) *auth.Claims {
 	claims, _ := c.Locals(AdminClaimsKey).(*auth.Claims)
 	return claims
 }

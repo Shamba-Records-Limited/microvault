@@ -1,7 +1,7 @@
 package routes
 
 import (
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/controllers"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"

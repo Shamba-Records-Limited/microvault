@@ -7,7 +7,7 @@ import (
 	"encoding/base64"
 	"log/slog"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/yellowcard"
@@ -44,7 +44,7 @@ func NewWebhookController(eventHandler webhook.WebhookEventHandler, apiKey, secr
 // @Failure 401 {object} fiber.Error "Signature verification failed"
 // @Failure 500 {object} fiber.Error "Failed to process webhook"
 // @Router /api/v1/webhooks/yellowcard [post]
-func (ctrl *WebhookController) HandleYellowCardWebhook(c *fiber.Ctx) error {
+func (ctrl *WebhookController) HandleYellowCardWebhook(c fiber.Ctx) error {
 	// 1. Verify HMAC signature if the secret key is configured.
 	if ctrl.secretKey != "" {
 		signature := c.Get("X-YC-Signature")
@@ -57,20 +57,20 @@ func (ctrl *WebhookController) HandleYellowCardWebhook(c *fiber.Ctx) error {
 		expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
 		if !hmac.Equal([]byte(signature), []byte(expected)) {
-			slog.ErrorContext(c.UserContext(), "yellowcard webhook: signature mismatch")
+			slog.ErrorContext(c.Context(), "yellowcard webhook: signature mismatch")
 			return fiber.NewError(fiber.StatusUnauthorized, "invalid webhook signature")
 		}
 	}
 
 	// 2. Parse the webhook event.
 	var event yellowcard.WebhookEvent
-	if err := c.BodyParser(&event); err != nil {
+	if err := c.Bind().Body(&event); err != nil {
 		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusBadRequest, "invalid webhook payload")
 	}
 
 	if ctrl.apiKey != "" && event.APIKey != ctrl.apiKey {
-		slog.InfoContext(c.UserContext(), "yellowcard webhook: unrecognised apiKey")
+		slog.InfoContext(c.Context(), "yellowcard webhook: unrecognised apiKey")
 		return fiber.NewError(fiber.StatusUnauthorized, "unrecognised apiKey")
 	}
 
@@ -80,11 +80,11 @@ func (ctrl *WebhookController) HandleYellowCardWebhook(c *fiber.Ctx) error {
 
 	// 3. Process the event asynchronously (return 200 quickly to YC).
 	if ctrl.eventHandler == nil {
-		slog.InfoContext(c.UserContext(), "yellowcard webhook: no event handler configured", slog.String("event", event.Event), slog.String("payment_id", event.PaymentID))
+		slog.InfoContext(c.Context(), "yellowcard webhook: no event handler configured", slog.String("event", event.Event), slog.String("payment_id", event.PaymentID))
 		return c.SendString("ok")
 	}
 
-	ctx := context.WithoutCancel(c.UserContext())
+	ctx := context.WithoutCancel(c.Context())
 	go func() {
 		if err := ctrl.eventHandler.ProcessYellowCardEvent(ctx, event); err != nil {
 			slog.ErrorContext(ctx, "yellowcard webhook: failed to process event", slog.String("event", event.Event), slog.String("payment_id", event.PaymentID), slog.Any("error", err))

@@ -3,7 +3,7 @@ package controllers
 import (
 	"errors"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/auth"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
@@ -47,8 +47,8 @@ type ChallengeResponse struct {
 // @Success 200 {object} ChallengeResponse "Challenge generated successfully"
 // @Failure 500 {object} middleware.Response "Failed to generate challenge"
 // @Router /api/v1/auth/challenge [get]
-func (ctrl *AuthController) GetChallenge(c *fiber.Ctx) error {
-	challenge, err := ctrl.challengeService.GenerateChallenge(c.UserContext())
+func (ctrl *AuthController) GetChallenge(c fiber.Ctx) error {
+	challenge, err := ctrl.challengeService.GenerateChallenge(c.Context())
 	if err != nil {
 		middleware.NoteError(c, err)
 		c.Locals("error", err.Error())
@@ -95,10 +95,10 @@ type VerifyResponse struct {
 // @Failure 404 {object} middleware.Response "Challenge not found"
 // @Failure 500 {object} middleware.Response "Failed to generate token"
 // @Router /api/v1/auth/verify [post]
-func (ctrl *AuthController) VerifyChallenge(c *fiber.Ctx) error {
+func (ctrl *AuthController) VerifyChallenge(c fiber.Ctx) error {
 	// Parse request body
 	requestBody := new(VerifyRequest)
-	if err := c.BodyParser(&requestBody); err != nil {
+	if err := c.Bind().Body(requestBody); err != nil {
 		middleware.NoteError(c, err)
 		c.Locals("error", "invalid request body")
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
@@ -118,7 +118,7 @@ func (ctrl *AuthController) VerifyChallenge(c *fiber.Ctx) error {
 	}
 
 	// Verify the signed challenge
-	if err := ctrl.challengeService.VerifySignedChallenge(c.UserContext(), requestBody.ChallengeID, requestBody.SignedTransaction); err != nil {
+	if err := ctrl.challengeService.VerifySignedChallenge(c.Context(), requestBody.ChallengeID, requestBody.SignedTransaction); err != nil {
 		middleware.NoteError(c, err)
 		// Map service errors to HTTP status codes
 		switch {

@@ -4,15 +4,15 @@ import (
 	"net"
 	"strings"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // ClientIP returns the TCP peer address, or the rightmost X-Forwarded-For hop
 // when the peer is a configured trusted proxy. Unparseable hops fall back to
 // the peer.
-func ClientIP(c *fiber.Ctx) string {
-	peer := c.Context().RemoteIP().String()
-	if !c.App().Config().EnableTrustedProxyCheck || !c.IsProxyTrusted() {
+func ClientIP(c fiber.Ctx) string {
+	peer := c.RequestCtx().RemoteIP().String()
+	if !c.App().Config().TrustProxy || !c.IsProxyTrusted() {
 		return peer
 	}
 	xff := c.Get(fiber.HeaderXForwardedFor)

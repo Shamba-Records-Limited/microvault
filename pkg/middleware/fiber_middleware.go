@@ -4,12 +4,12 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/favicon"
-	"github.com/gofiber/fiber/v2/middleware/helmet"
-	"github.com/gofiber/fiber/v2/middleware/limiter"
-	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/favicon"
+	"github.com/gofiber/fiber/v3/middleware/helmet"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
+	"github.com/gofiber/fiber/v3/middleware/recover"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/health"
 )
@@ -30,10 +30,10 @@ func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.L
 	}
 
 	corsConfig := cors.Config{
-		AllowOrigins:     "http://localhost:3000,http://localhost:8080,http://localhost:8081",
+		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:8080", "http://localhost:8081"},
 		AllowCredentials: true,
-		AllowHeaders:     "Origin,Content-Type,Accept,Authorization",
-		AllowMethods:     "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
 	}
 
 	a.Use(

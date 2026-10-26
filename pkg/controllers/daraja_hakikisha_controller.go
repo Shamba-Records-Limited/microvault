@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
@@ -73,7 +73,7 @@ func (r hakikishaResolver) ResolveAccount(ctx context.Context, accountNumber str
 
 // allowedCIDR mirrors DarajaCallbackController's. Safaricom is the caller on
 // this route too, even though the auth model differs from every other one.
-func (ctrl *DarajaHakikishaController) allowedCIDR(c *fiber.Ctx) error {
+func (ctrl *DarajaHakikishaController) allowedCIDR(c fiber.Ctx) error {
 	if len(ctrl.config.CallbackAllowedCIDRs) == 0 {
 		if ctrl.serverEnv == "production" {
 			return fiber.NewError(fiber.StatusForbidden, "callback allowlist not configured")
@@ -101,7 +101,7 @@ func (ctrl *DarajaHakikishaController) allowedCIDR(c *fiber.Ctx) error {
 // @Failure 401 {object} map[string]string "errorCode, errorMessage"
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Router /api/v1/callbacks/daraja/{slug}/hakikisha/oauth/token [post]
-func (ctrl *DarajaHakikishaController) Token(c *fiber.Ctx) error {
+func (ctrl *DarajaHakikishaController) Token(c fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func (ctrl *DarajaHakikishaController) Token(c *fiber.Ctx) error {
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Failure 422 {object} fiber.Error "Undecodable request"
 // @Router /api/v1/callbacks/daraja/{slug}/hakikisha/resolve [post]
-func (ctrl *DarajaHakikishaController) Resolve(c *fiber.Ctx) error {
+func (ctrl *DarajaHakikishaController) Resolve(c fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func (ctrl *DarajaHakikishaController) Resolve(c *fiber.Ctx) error {
 		return c.JSON(mpesa.AccountNotFound(req.AccountNumber))
 	}
 
-	_, found, err := ctrl.resolver.ResolveAccount(c.UserContext(), req.AccountNumber)
+	_, found, err := ctrl.resolver.ResolveAccount(c.Context(), req.AccountNumber)
 	if err != nil || !found {
 		return c.JSON(mpesa.AccountNotFound(req.AccountNumber))
 	}
@@ -182,7 +182,7 @@ func (ctrl *DarajaHakikishaController) Resolve(c *fiber.Ctx) error {
 }
 
 // checkBearer validates the token minted by Token.
-func (ctrl *DarajaHakikishaController) checkBearer(c *fiber.Ctx) error {
+func (ctrl *DarajaHakikishaController) checkBearer(c fiber.Ctx) error {
 	header := c.Get("Authorization")
 	const prefix = "Bearer "
 	if !strings.HasPrefix(header, prefix) {
@@ -213,7 +213,7 @@ func (ctrl *DarajaHakikishaController) Register(app fiber.Router) {
 // parseBasicAuth reads the client_credentials pair off the Authorization
 // header. Deliberately not net/http's ParseBasicAuth, which the fiber
 // context does not expose directly.
-func parseBasicAuth(c *fiber.Ctx) (username, password string, ok bool) {
+func parseBasicAuth(c fiber.Ctx) (username, password string, ok bool) {
 	header := c.Get("Authorization")
 	const prefix = "Basic "
 	if !strings.HasPrefix(header, prefix) {
@@ -237,7 +237,7 @@ func constantTimeEqual(a, b string) bool {
 }
 
 // hakikishaAuthError writes Daraja's documented issuer error shape.
-func hakikishaAuthError(c *fiber.Ctx, code, message string) error {
+func hakikishaAuthError(c fiber.Ctx, code, message string) error {
 	return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 		"errorCode":    code,
 		"errorMessage": message,

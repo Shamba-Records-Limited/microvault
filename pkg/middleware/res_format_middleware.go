@@ -3,7 +3,7 @@ package middleware
 import (
 	"errors"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // Response represents the response format
@@ -20,7 +20,7 @@ type Response struct {
 
 // FormatResponse middleware formats the response to a standard format.
 func FormatResponse() fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		// Call the next handler and get the data
 		err := c.Next()
 

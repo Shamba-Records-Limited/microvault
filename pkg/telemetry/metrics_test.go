@@ -36,17 +36,20 @@ func TestServerMetricsDropHostHeaderAddress(t *testing.T) {
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader), sdkmetric.WithView(boundedServerMetrics))
 	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
 
-	attrs := metric.WithAttributes(attribute.String("server.address", "attacker-chosen.example"), attribute.String("http.route", "/loans/:id"))
-	h, _ := mp.Meter("github.com/gofiber/contrib/otelfiber").Float64Histogram("http.server.duration")
+	attrs := metric.WithAttributes(attribute.String("server.address", "attacker-chosen.example"), attribute.Int("server.port", 31337), attribute.String("http.route", "/loans/:id"))
+	h, _ := mp.Meter("github.com/gofiber/contrib/v3/otel").Float64Histogram("http.server.request.duration")
 	h.Record(context.Background(), 1, attrs)
 	other, _ := mp.Meter("other").Float64Histogram("http.client.duration")
 	other.Record(context.Background(), 1, attrs)
 
 	rm := collect(t, reader)
-	server, _ := find(rm, "http.server.duration")
+	server, _ := find(rm, "http.server.request.duration")
 	for _, dp := range server.Data.(metricdata.Histogram[float64]).DataPoints {
 		if _, ok := dp.Attributes.Value("server.address"); ok {
 			t.Fatal("server metric kept server.address")
+		}
+		if _, ok := dp.Attributes.Value("server.port"); ok {
+			t.Fatal("server metric kept server.port")
 		}
 		if _, ok := dp.Attributes.Value("http.route"); !ok {
 			t.Fatal("server metric lost http.route")

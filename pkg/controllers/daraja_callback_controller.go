@@ -10,7 +10,7 @@ import (
 
 	"gorm.io/datatypes"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/config"
 	"github.com/Shamba-Records-Limited/microvault/pkg/loanref"
@@ -82,7 +82,7 @@ func (ctrl *DarajaCallbackController) EnableBalanceTracking(balances repository.
 // allowedCIDR checks the source address against the configured egress ranges.
 // An empty list is log-only — safaricom egress is a configuration detail we do
 // not fail on in development, but must fail on in production.
-func (ctrl *DarajaCallbackController) allowedCIDR(c *fiber.Ctx) error {
+func (ctrl *DarajaCallbackController) allowedCIDR(c fiber.Ctx) error {
 	if ctrl.logger == nil {
 		ctrl.logger = slog.Default()
 	}
@@ -90,7 +90,7 @@ func (ctrl *DarajaCallbackController) allowedCIDR(c *fiber.Ctx) error {
 		if ctrl.serverEnv == "production" {
 			// Fail closed: a production callback with no allowlist configured is
 			// a misconfiguration, not a permissive default.
-			ctrl.logger.WarnContext(c.UserContext(), "rejecting daraja callback: no CIDR allowlist configured in production",
+			ctrl.logger.WarnContext(c.Context(), "rejecting daraja callback: no CIDR allowlist configured in production",
 				"route", c.Route().Path)
 			return fiber.NewError(fiber.StatusForbidden, "callback allowlist not configured")
 		}
@@ -106,7 +106,7 @@ func (ctrl *DarajaCallbackController) allowedCIDR(c *fiber.Ctx) error {
 	// incident: what IP the app saw. If TrustedProxyCIDRs or the tunnel's
 	// X-Forwarded-For handling is wrong, this is the tunnel's own address,
 	// not Safaricom's — indistinguishable from a real mismatch without it.
-	ctrl.logger.WarnContext(c.UserContext(), "rejecting daraja callback: source not in the allowlist",
+	ctrl.logger.WarnContext(c.Context(), "rejecting daraja callback: source not in the allowlist",
 		"route", c.Route().Path, "client_ip", clientIP, "x_forwarded_for", c.Get(fiber.HeaderXForwardedFor),
 		"allowed_cidrs", ctrl.config.CallbackAllowedCIDRs)
 	return fiber.NewError(fiber.StatusForbidden, "source not permitted")
@@ -146,7 +146,7 @@ func cidrMatch(ip, cidr string) bool {
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Failure 500 {object} fiber.Error "Failed to record the observation"
 // @Router /api/v1/callbacks/daraja/{slug}/stk/result [post]
-func (ctrl *DarajaCallbackController) STKCallback(c *fiber.Ctx) error {
+func (ctrl *DarajaCallbackController) STKCallback(c fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
 	}
@@ -178,7 +178,7 @@ func (ctrl *DarajaCallbackController) STKCallback(c *fiber.Ctx) error {
 		NextPollAt: ptrTime(ctrl.now().Add(ctrl.config.STKPollInterval)),
 	}
 
-	if err := ctrl.repo.Record(c.UserContext(), &tx); err != nil {
+	if err := ctrl.repo.Record(c.Context(), &tx); err != nil {
 		if errors.Is(err, repository.ErrMpesaConflict) {
 			return c.SendStatus(fiber.StatusOK)
 		}
@@ -201,7 +201,7 @@ func (ctrl *DarajaCallbackController) STKCallback(c *fiber.Ctx) error {
 // @Failure 400 {object} fiber.Error "Undecodable notification"
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Router /api/v1/callbacks/daraja/{slug}/c2b/validation [post]
-func (ctrl *DarajaCallbackController) C2BValidation(c *fiber.Ctx) error {
+func (ctrl *DarajaCallbackController) C2BValidation(c fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func (ctrl *DarajaCallbackController) C2BValidation(c *fiber.Ctx) error {
 	// An unresolved reference is the payer's mistake (C2B00012); an internal
 	// failure is ours (C2B00016). Neither may ever answer 0, which would
 	// accept the payment.
-	loanID, err := ctrl.resolveLoan(c.UserContext(), notification.BillRefNumber)
+	loanID, err := ctrl.resolveLoan(c.Context(), notification.BillRefNumber)
 	if err != nil {
 		middleware.NoteError(c, err)
 		return c.JSON(mpesa.RejectPayment(mpesa.ValidationOtherError))
@@ -251,7 +251,7 @@ func (ctrl *DarajaCallbackController) C2BValidation(c *fiber.Ctx) error {
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Failure 500 {object} fiber.Error "Failed to record the observation"
 // @Router /api/v1/callbacks/daraja/{slug}/c2b/confirmation [post]
-func (ctrl *DarajaCallbackController) C2BConfirmation(c *fiber.Ctx) error {
+func (ctrl *DarajaCallbackController) C2BConfirmation(c fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
 	}
@@ -273,7 +273,7 @@ func (ctrl *DarajaCallbackController) C2BConfirmation(c *fiber.Ctx) error {
 		ThirdPartyTransID: &notification.ThirdPartyTransID,
 		RawPayload:        datatypes.JSON(c.Body()),
 	}
-	if err := ctrl.repo.Record(c.UserContext(), &tx); err != nil {
+	if err := ctrl.repo.Record(c.Context(), &tx); err != nil {
 		if errors.Is(err, repository.ErrMpesaConflict) {
 			return c.SendStatus(fiber.StatusOK)
 		}
@@ -299,7 +299,7 @@ func (ctrl *DarajaCallbackController) C2BConfirmation(c *fiber.Ctx) error {
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Failure 500 {object} fiber.Error "Failed to record the observation"
 // @Router /api/v1/callbacks/daraja/{slug}/{kind}/result [post]
-func (ctrl *DarajaCallbackController) AsyncResult(c *fiber.Ctx) error {
+func (ctrl *DarajaCallbackController) AsyncResult(c fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
 	}
@@ -322,14 +322,14 @@ func (ctrl *DarajaCallbackController) AsyncResult(c *fiber.Ctx) error {
 // @Failure 403 {object} fiber.Error "Source not permitted"
 // @Failure 500 {object} fiber.Error "Failed to record the observation"
 // @Router /api/v1/callbacks/daraja/{slug}/{kind}/timeout [post]
-func (ctrl *DarajaCallbackController) AsyncTimeout(c *fiber.Ctx) error {
+func (ctrl *DarajaCallbackController) AsyncTimeout(c fiber.Ctx) error {
 	if err := ctrl.allowedCIDR(c); err != nil {
 		return err
 	}
 	return ctrl.async(c, mpesa.CallbackTimeout)
 }
 
-func (ctrl *DarajaCallbackController) async(c *fiber.Ctx, kind mpesa.CallbackKind) error {
+func (ctrl *DarajaCallbackController) async(c fiber.Ctx, kind mpesa.CallbackKind) error {
 	callback, err := mpesa.ParseCallback(kind, c.Body())
 	if err != nil {
 		middleware.NoteError(c, err)
@@ -347,7 +347,7 @@ func (ctrl *DarajaCallbackController) async(c *fiber.Ctx, kind mpesa.CallbackKin
 		tx.NextPollAt = ptrTime(ctrl.now().Add(ctrl.config.STKPollInterval))
 	}
 
-	if err := ctrl.repo.Record(c.UserContext(), &tx); err != nil {
+	if err := ctrl.repo.Record(c.Context(), &tx); err != nil {
 		if errors.Is(err, repository.ErrMpesaConflict) {
 			return c.SendStatus(fiber.StatusOK)
 		}
@@ -356,7 +356,7 @@ func (ctrl *DarajaCallbackController) async(c *fiber.Ctx, kind mpesa.CallbackKin
 	}
 
 	if ctrl.balances != nil && kind == mpesa.CallbackResult && c.Params("kind") == "balance" {
-		ctrl.recordBalances(c.UserContext(), callback)
+		ctrl.recordBalances(c.Context(), callback)
 	}
 
 	return c.SendStatus(fiber.StatusOK)
@@ -419,7 +419,7 @@ func (ctrl *DarajaCallbackController) Register(app fiber.Router) {
 // requireSlug answers 404 unless the :slug path parameter equals slug, so the
 // secret stays out of the route template that logs, spans and metrics carry.
 func requireSlug(slug string) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		if slug == "" || subtle.ConstantTimeCompare([]byte(c.Params("slug")), []byte(slug)) != 1 {
 			return fiber.ErrNotFound
 		}

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/contrib/otelfiber/v2"
-	"github.com/gofiber/fiber/v2"
+	otelfiber "github.com/gofiber/contrib/v3/otel"
+	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
@@ -24,7 +24,7 @@ const handledErrorLocal = "access_log_handled_error"
 // NoteError records an error the handler dealt with itself — rendered into a
 // page or turned into a response — so AccessLog reports it on the request's
 // line instead of the handler logging it separately.
-func NoteError(c *fiber.Ctx, err error) {
+func NoteError(c fiber.Ctx, err error) {
 	if err != nil {
 		c.Locals(handledErrorLocal, err)
 	}
@@ -35,13 +35,13 @@ var validRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 // RequestID adopts a well-formed inbound X-Request-ID or generates one, echoes
 // it on the response and attaches it to the request's user context.
 func RequestID() fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		id := c.Get(RequestIDHeader)
 		if !validRequestID.MatchString(id) {
 			id = uuid.NewString()
 		}
 		c.Set(RequestIDHeader, id)
-		c.SetUserContext(logging.With(c.UserContext(), slog.String("request_id", id)))
+		c.SetContext(logging.With(c.Context(), slog.String("request_id", id)))
 		return c.Next()
 	}
 }
@@ -53,7 +53,7 @@ func RequestID() fiber.Handler {
 // error and a non-5xx status logs at warn. A path equal to an entry in skip is not logged; an
 // entry ending in "/" skips every path under it.
 func AccessLog(logger *slog.Logger, skip ...string) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		if skipped(c.Path(), skip) {
 			return c.Next()
 		}
@@ -85,7 +85,7 @@ func AccessLog(logger *slog.Logger, skip ...string) fiber.Handler {
 		if reqErr != nil {
 			attrs = append(attrs, slog.Any("error", reqErr))
 		}
-		logger.LogAttrs(c.UserContext(), level, "http request", attrs...)
+		logger.LogAttrs(c.Context(), level, "http request", attrs...)
 		return nil
 	}
 }
@@ -106,8 +106,8 @@ func skipped(path string, skip []string) bool {
 // trace headers are ignored and none are written back. Paths are skipped as in
 // AccessLog.
 func Tracing(skip ...string) fiber.Handler {
-	return otelfiber.Middleware(
-		otelfiber.WithNext(func(c *fiber.Ctx) bool { return skipped(c.Path(), skip) }),
+	return otelfiber.New(
+		otelfiber.WithNext(func(c fiber.Ctx) bool { return skipped(c.Path(), skip) }),
 		otelfiber.WithPropagators(propagation.NewCompositeTextMapPropagator()),
 		otelfiber.WithSpanNameFormatter(spanName),
 	)
@@ -115,8 +115,8 @@ func Tracing(skip ...string) fiber.Handler {
 
 // spanName names the server span by method and route, and replaces the raw
 // url.path and url.full with the route so path-borne secrets are not exported.
-func spanName(c *fiber.Ctx) string {
+func spanName(c fiber.Ctx) string {
 	route := c.Route().Path
-	trace.SpanFromContext(c.UserContext()).SetAttributes(semconv.URLPath(route), semconv.URLFull(route))
+	trace.SpanFromContext(c.Context()).SetAttributes(semconv.URLPath(route), semconv.URLFull(route))
 	return c.Method() + " " + route
 }
