@@ -173,6 +173,13 @@ func TestRepaymentReminderBranches(t *testing.T) {
 		t.Errorf("overdue msg = %q", fn.msg)
 	}
 
+	dueToday := base
+	dueToday.DueDate = ptr(time.Now().Add(6 * time.Hour))
+	_ = n.NotifyRepaymentReminder(context.Background(), dueToday)
+	if !strings.Contains(fn.msg, "due today") {
+		t.Errorf("due-today msg = %q, must not read as overdue before the due time", fn.msg)
+	}
+
 	soon := base
 	soon.DueDate = ptr(time.Now().Add(50 * time.Hour))
 	_ = n.NotifyRepaymentReminder(context.Background(), soon)

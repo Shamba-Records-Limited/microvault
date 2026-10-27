@@ -36,10 +36,11 @@ type LoanTemplates struct {
 	// not yet confirmed).
 	Repaid            LoanMessage
 	RepaymentReceived LoanMessage
-	// RepaymentOverdue, RepaymentSoon and RepaymentUpcoming are selected by
-	// [SMSLoanNotifier.NotifyRepaymentReminder] from the days remaining; use
-	// [DaysUntilDue] to render that count.
+	// RepaymentOverdue, RepaymentDueToday, RepaymentSoon and RepaymentUpcoming
+	// are selected by [SMSLoanNotifier.NotifyRepaymentReminder] from the time
+	// remaining; use [DaysUntilDue] to render the day count.
 	RepaymentOverdue  LoanMessage
+	RepaymentDueToday LoanMessage
 	RepaymentSoon     LoanMessage
 	RepaymentUpcoming LoanMessage
 	// RepaymentInitiated carries the MoneyGram interactive URL for a
@@ -177,6 +178,10 @@ func DefaultLoanTemplates() *LoanTemplates {
 				"Please pay immediately to avoid penalties.",
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 		},
+		RepaymentDueToday: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Reminder: Your loan payment of %s %.2f is due today (Ref: %s).",
+				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
+		},
 		RepaymentSoon: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Reminder: Your loan payment of %s %.2f is due in %d days (Ref: %s).",
 				n.DisplayCurrency, n.DisplayAmount, DaysUntilDue(n), n.LoanReference)
@@ -278,6 +283,10 @@ func swahiliLoanTemplates() *LoanTemplates {
 				"Tafadhali lipa mara moja kuepuka adhabu.",
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 		},
+		RepaymentDueToday: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Kumbusho: Malipo yako ya mkopo ya %s %.2f yanastahili leo (Kumb: %s).",
+				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
+		},
 		RepaymentSoon: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("Kumbusho: Malipo yako ya mkopo ya %s %.2f yanastahili kwa siku %d (Kumb: %s).",
 				n.DisplayCurrency, n.DisplayAmount, DaysUntilDue(n), n.LoanReference)
@@ -377,6 +386,10 @@ func frenchLoanTemplates() *LoanTemplates {
 		RepaymentOverdue: func(n contracts.LoanNotification) string {
 			return fmt.Sprintf("URGENT: Votre paiement de pret de %s %.2f est en retard (Réf: %s). "+
 				"Veuillez payer immédiatement pour éviter des pénalités.",
+				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
+		},
+		RepaymentDueToday: func(n contracts.LoanNotification) string {
+			return fmt.Sprintf("Rappel: Votre paiement de pret de %s %.2f est à payer aujourd'hui (Réf: %s).",
 				n.DisplayCurrency, n.DisplayAmount, n.LoanReference)
 		},
 		RepaymentSoon: func(n contracts.LoanNotification) string {

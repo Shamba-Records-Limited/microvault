@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 )
@@ -148,10 +149,12 @@ func (s *SMSLoanNotifier) NotifyRepaymentReminder(ctx context.Context, n contrac
 
 	t := s.tmpl(ctx, n)
 	var msg string
-	switch days := DaysUntilDue(n); {
-	case days <= 0:
+	switch until := time.Until(*n.DueDate); {
+	case until <= 0:
 		msg = t.RepaymentOverdue(n)
-	case days <= 3:
+	case until <= 24*time.Hour:
+		msg = t.RepaymentDueToday(n)
+	case DaysUntilDue(n) <= 3:
 		msg = t.RepaymentSoon(n)
 	default:
 		msg = t.RepaymentUpcoming(n)
