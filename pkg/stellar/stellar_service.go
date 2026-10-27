@@ -27,6 +27,8 @@ type (
 	RepayResponse                       = types.RepayResponse
 	BumpYieldRequest                    = types.BumpYieldRequest
 	BumpYieldResponse                   = types.BumpYieldResponse
+	ProcessQueueResponse                = types.ProcessQueueResponse
+	I128                                = types.I128
 	VaultStatus                         = types.VaultStatus
 	ContractError                       = types.ContractError
 )
@@ -63,8 +65,13 @@ var (
 	ErrInsufficientBalance           = types.ErrInsufficientBalance
 )
 
-// Re-export function
-var MapContractError = types.MapContractError
+// Re-export functions
+var (
+	MapContractError = types.MapContractError
+	NewI128          = types.NewI128
+	ParseI128        = types.ParseI128
+	DebtAtIndex      = types.DebtAtIndex
+)
 
 // Service composes both classic and soroban services
 type Service interface {
@@ -127,8 +134,24 @@ func (s *service) GetBorrowAPR(ctx context.Context) (int64, error) {
 	return s.sorobanService.GetBorrowAPR(ctx)
 }
 
-func (s *service) GetBorrowIndex(ctx context.Context) (int64, error) {
+func (s *service) GetBorrowIndex(ctx context.Context) (I128, error) {
 	return s.sorobanService.GetBorrowIndex(ctx)
+}
+
+func (s *service) GetQueuedShares(ctx context.Context) (I128, error) {
+	return s.sorobanService.GetQueuedShares(ctx)
+}
+
+func (s *service) GetQueuedAssets(ctx context.Context) (int64, error) {
+	return s.sorobanService.GetQueuedAssets(ctx)
+}
+
+func (s *service) GetMinQueueAssets(ctx context.Context) (int64, error) {
+	return s.sorobanService.GetMinQueueAssets(ctx)
+}
+
+func (s *service) GetMaxBorrowRate(ctx context.Context) (*I128, error) {
+	return s.sorobanService.GetMaxBorrowRate(ctx)
 }
 
 func (s *service) IsUserLocked(ctx context.Context, userAddress string) (bool, error) {
@@ -190,6 +213,10 @@ func (s *service) BumpYield(ctx context.Context, req BumpYieldRequest) (*BumpYie
 
 func (s *service) AccrueInterest(ctx context.Context) error {
 	return s.sorobanService.AccrueInterest(ctx)
+}
+
+func (s *service) ProcessQueue(ctx context.Context, maxEntries uint32) (*ProcessQueueResponse, error) {
+	return s.sorobanService.ProcessQueue(ctx, maxEntries)
 }
 
 // Soroban admin method delegation

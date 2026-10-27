@@ -153,6 +153,10 @@ const (
 	// switched off for new loans.
 	CodePayoutRailDisabled = "payout_rail_disabled"
 
+	// CodeLendingPaused is a loan refused because lender redemptions are
+	// queued in the vault, which refuses new borrows until the queue drains.
+	CodeLendingPaused = "lending_paused"
+
 	// CodeLoanOutstanding is a loan request from a borrower who already has a
 	// loan in progress, owed, or defaulted.
 	CodeLoanOutstanding = "loan_outstanding"

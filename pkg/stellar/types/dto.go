@@ -83,7 +83,7 @@ type BorrowResponse struct {
 	AmountBorrowed   int64
 	RecipientAddress string
 	EventRecipient   string // Child account address extracted from the on-chain Borrowed event
-	BorrowIndex      int64  // Borrow index at time of borrow (WAD scale, 1e18 = 1.0)
+	BorrowIndex      I128   // Borrow index at time of borrow (WAD scale, 1e18 = 1.0); zero if it could not be read
 	Ledger           int64
 	Status           string
 	ContractID       string
@@ -119,6 +119,13 @@ type RepayResponse struct {
 	Status           string
 	ContractID       string
 	ContractFunction string
+}
+
+// ProcessQueueResponse represents the result of filling the withdrawal queue.
+type ProcessQueueResponse struct {
+	TxHash  string
+	Touched uint32 // Requests filled, returned or skipped
+	Ledger  int64
 }
 
 // BumpYieldRequest represents a request to contribute assets to the vault

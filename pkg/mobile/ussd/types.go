@@ -12,6 +12,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
 	"github.com/Shamba-Records-Limited/microvault/pkg/pilot"
 	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
+	stellartypes "github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
 //
@@ -263,12 +264,12 @@ const (
 // borrower payments against (with ±2 % tolerance).
 type RepaymentQuote struct {
 	LoanID             string
-	AmountUSDCStroops  int64   // What the borrower owes in USDC, stroops.
-	AmountLocalCents   int64   // Same, converted at the FX rate below.
-	LocalCurrency      string  // ISO 4217 (e.g. "KES").
-	BorrowIndexAtQuote int64   // WAD scale (1e18).
-	FXRate             float64 // local-per-USD at quote time.
-	QuoteSource        string  // "mg_primary" | "yc_fallback" | "stale_cache".
+	AmountUSDCStroops  int64             // What the borrower owes in USDC, stroops.
+	AmountLocalCents   int64             // Same, converted at the FX rate below.
+	LocalCurrency      string            // ISO 4217 (e.g. "KES").
+	BorrowIndexAtQuote stellartypes.I128 // WAD scale (1e18).
+	FXRate             float64           // local-per-USD at quote time.
+	QuoteSource        string            // "mg_primary" | "yc_fallback" | "stale_cache".
 	AsOf               time.Time
 }
 

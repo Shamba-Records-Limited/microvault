@@ -98,7 +98,7 @@ func (r *fakeRepaymentRecorder) MarkFundsReceived(_ context.Context, loanID stri
 	return nil
 }
 
-func (r *fakeRepaymentRecorder) MarkSettled(_ context.Context, loanID, hash string) error {
+func (r *fakeRepaymentRecorder) MarkSettled(_ context.Context, loanID, hash string, _ int64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.settledErr != nil {
@@ -147,24 +147,23 @@ type fakeVaultRepayer struct {
 	calls []struct {
 		loanID   string
 		borrower string
-		amount   int64
 	}
 	hash string
+	debt int64
 	err  error
 }
 
-func (v *fakeVaultRepayer) RepayForBorrower(_ context.Context, loanID, borrower string, amount int64) (string, error) {
+func (v *fakeVaultRepayer) RepayForBorrower(_ context.Context, loanID, borrower string) (string, int64, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.calls = append(v.calls, struct {
 		loanID   string
 		borrower string
-		amount   int64
-	}{loanID, borrower, amount})
+	}{loanID, borrower})
 	if v.err != nil {
-		return "", v.err
+		return "", 0, v.err
 	}
-	return v.hash, nil
+	return v.hash, v.debt, nil
 }
 
 func (v *fakeVaultRepayer) count() int {
@@ -328,11 +327,10 @@ func TestDeposit_Completed_SettlesViaRepayFor(t *testing.T) {
 	assert.Equal(t, []string{"loan-1"}, h.recorder.fundsReceived)
 	assert.Equal(t, []string{"loan-1"}, h.notifier.received)
 
-	// Vault leg attributed to the borrower, for the locked payoff.
+	// Vault leg attributed to the borrower; the repayer sizes it from the debt.
 	require.Equal(t, 1, h.vault.count())
 	assert.Equal(t, "loan-1", h.vault.calls[0].loanID)
 	assert.Equal(t, "GDLGMIMK7MM6YHJIPPRAVZSCFYJWE735GJ3BONBWROGW3LFGXSYL3RLB", h.vault.calls[0].borrower)
-	assert.Equal(t, int64(500000000), h.vault.calls[0].amount)
 
 	assert.Equal(t, "vault-repay-hash", h.recorder.settled["loan-1"])
 }
@@ -852,7 +850,7 @@ func TestDeposit_Committed_WithoutReference_SendsNothing(t *testing.T) {
 // on a 23.40 deposit in the sandbox. If that holds at settlement the treasury
 // receives less than the borrower was quoted, and repaying the quoted figure
 // drains it a little on every repayment.
-func TestDeposit_ShortCredit_AlertsButStillRepaysQuotedPayoff(t *testing.T) {
+func TestDeposit_ShortCredit_AlertsButStillRepaysTheVault(t *testing.T) {
 	h := newTestDepositDriver(t)
 	// Quoted 50 USDC, credited 47 — a 3 USDC fee.
 	h.srv.setTransactionJSON(depositTxJSON(stellaranchor.StatusCompleted, `,"amount_out":"47.0000000"`))
@@ -863,10 +861,8 @@ func TestDeposit_ShortCredit_AlertsButStillRepaysQuotedPayoff(t *testing.T) {
 	require.NotEmpty(t, h.alerts.calls, "a silent treasury drain must page ops")
 	assert.Contains(t, h.alerts.calls[0], "short of the quoted payoff")
 
-	// Unchanged until a completed deposit settles the question.
+	// The treasury owes the vault the debt whatever the anchor credited.
 	require.Len(t, h.vault.calls, 1)
-	assert.Equal(t, int64(500000000), h.vault.calls[0].amount,
-		"the quoted payoff is still what closes the loan")
 }
 
 func TestDeposit_FullCredit_DoesNotAlert(t *testing.T) {

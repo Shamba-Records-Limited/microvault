@@ -107,6 +107,15 @@ func scValToI128(val xdr.ScVal) (int64, error) {
 	return int64(val.I128.Lo), nil
 }
 
+// scValToExactI128 decodes an i128 without truncating it to int64.
+func scValToExactI128(val xdr.ScVal) (types.I128, error) {
+	if val.Type != xdr.ScValTypeScvI128 {
+		return types.I128{}, decodeErr("sc_val_i128").With("got_type", val.Type.String()).
+			Errorf("expected i128")
+	}
+	return types.I128FromParts(int64(val.I128.Hi), uint64(val.I128.Lo)), nil
+}
+
 // scValToBool extracts bool from ScVal
 func scValToBool(val xdr.ScVal) (bool, error) {
 	if val.Type != xdr.ScValTypeScvBool {
@@ -123,6 +132,35 @@ func scValToU64(val xdr.ScVal) (uint64, error) {
 			Errorf("expected u64")
 	}
 	return uint64(*val.U64), nil
+}
+
+// extractReturnValue returns the invoked function's return value from the
+// transaction result metadata.
+func extractReturnValue(resultMetaXDR string) (xdr.ScVal, error) {
+	errb := decodeErr("extract_return_value")
+
+	var meta xdr.TransactionMeta
+	if err := xdr.SafeUnmarshalBase64(resultMetaXDR, &meta); err != nil {
+		return xdr.ScVal{}, errb.Wrapf(err, "failed to decode result meta")
+	}
+
+	switch meta.V {
+	case 3:
+		v3 := meta.MustV3()
+		if v3.SorobanMeta == nil {
+			return xdr.ScVal{}, errb.Errorf("no soroban metadata in V3 transaction")
+		}
+		return v3.SorobanMeta.ReturnValue, nil
+	case 4:
+		v4 := meta.MustV4()
+		if v4.SorobanMeta == nil || v4.SorobanMeta.ReturnValue == nil {
+			return xdr.ScVal{}, errb.Errorf("no return value in V4 transaction")
+		}
+		return *v4.SorobanMeta.ReturnValue, nil
+	default:
+		return xdr.ScVal{}, errb.With("meta_version", meta.V).
+			Errorf("unsupported transaction meta version")
+	}
 }
 
 // extractEventField parses the transaction result metadata XDR and returns the

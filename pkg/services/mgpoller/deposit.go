@@ -89,9 +89,9 @@ type RepaymentRecorder interface {
 	// USDC. loans.status deliberately does not move until the vault leg lands.
 	MarkFundsReceived(ctx context.Context, loanID string, tx *stellaranchor.Transaction) error
 
-	// MarkSettled records the confirmed treasury-to-vault leg. This is the
-	// transition that flips loans.status to repaid.
-	MarkSettled(ctx context.Context, loanID string, vaultTxHash string) error
+	// MarkSettled records the confirmed treasury-to-vault leg and the amount
+	// it repaid. This is the transition that flips loans.status to repaid.
+	MarkSettled(ctx context.Context, loanID string, vaultTxHash string, vaultAmountStroops int64) error
 
 	// MarkExpired releases the quote lock after the cash-in window elapsed
 	// without the borrower paying, returning the loan to its prior status.
@@ -126,9 +126,11 @@ type RepaymentRecorder interface {
 }
 
 // VaultRepayer settles the on-chain leg, treasury to vault, attributed to the
-// borrower.
+// borrower. It repays the loan's debt at the current borrow index, not the
+// borrower's quoted payoff: the service fee and any quote surplus stay with
+// the treasury.
 type VaultRepayer interface {
-	RepayForBorrower(ctx context.Context, loanID, borrowerAddress string, amountStroops int64) (txHash string, err error)
+	RepayForBorrower(ctx context.Context, loanID, borrowerAddress string) (txHash string, amountStroops int64, err error)
 }
 
 // RepaymentNotifier sends the borrower-facing messages for the cash-in rail.
@@ -449,11 +451,11 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 		return
 	}
 
-	// Record what arrived versus what was quoted. The repay still uses the
-	// quoted payoff — whether amount_out is net of the fee is unconfirmed.
+	// Record what arrived versus what was quoted. The vault leg repays the
+	// loan's debt, which the treasury owes whatever arrived.
 	d.checkDepositShortfall(ctx, rec, tx)
 
-	hash, err := d.vault.RepayForBorrower(ctx, rec.LoanID, rec.BorrowerAddress, rec.PayoffStroops)
+	hash, repaid, err := d.vault.RepayForBorrower(ctx, rec.LoanID, rec.BorrowerAddress)
 	if outcomeUnknown(err) {
 		d.vaultOutcomeUnknown(ctx, rec, err)
 		return
@@ -463,7 +465,7 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 		return
 	}
 
-	if err := d.recorder.MarkSettled(ctx, rec.LoanID, hash); err != nil {
+	if err := d.recorder.MarkSettled(ctx, rec.LoanID, hash, repaid); err != nil {
 		// The chain moved but the row did not. Loud, because the next tick
 		// would see funds_received again and could repay a second time.
 		d.logger.ErrorContext(ctx, "vault repay_for succeeded but settlement was not recorded",
@@ -476,7 +478,8 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 	d.logger.InfoContext(ctx, "repayment settled",
 		"loan_id", rec.LoanID,
 		"borrower", rec.BorrowerAddress,
-		"amount_stroops", rec.PayoffStroops,
+		"payoff_stroops", rec.PayoffStroops,
+		"vault_repaid_stroops", repaid,
 		"vault_tx_hash", hash)
 
 	d.notify("repaid", rec, func(n RepaymentNotifier) error {

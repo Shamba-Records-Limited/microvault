@@ -133,6 +133,14 @@ func MapContractError(code uint32) *ContractError {
 		return &ContractError{code, "InvalidExitDeadline", "Exit deadline must be later than the current one", "microvault"}
 	case 18:
 		return &ContractError{code, "GuardianNotSet", "Guardian has not been configured", "microvault"}
+	case 19:
+		return &ContractError{code, "QueueNotEmpty", "Redemption requests are waiting; instant exits and borrows are refused", "microvault"}
+	case 20:
+		return &ContractError{code, "QueueRequestTooSmall", "Queued shares are worth less than the minimum request", "microvault"}
+	case 21:
+		return &ContractError{code, "QueueEntryNotFound", "No open redemption request has that id", "microvault"}
+	case 22:
+		return &ContractError{code, "MathOverflow", "Interest accrual overflowed", "microvault"}
 
 	// FungibleTokenError (100-114)
 	case 100:
@@ -189,6 +197,10 @@ func MapContractError(code uint32) *ContractError {
 		return &ContractError{code, "VaultMaxDecimalsOffsetExceeded", "Maximum decimals offset exceeded", "Vault"}
 	case 410:
 		return &ContractError{code, "MathOverflow", "Mathematical overflow in vault operation", "Vault"}
+	case 411:
+		return &ContractError{code, "VaultZeroShares", "Deposit would mint zero shares", "Vault"}
+	case 412:
+		return &ContractError{code, "VaultZeroAssets", "Redeem would pay zero assets", "Vault"}
 
 	// PausableError (1000-1001)
 	case 1000:

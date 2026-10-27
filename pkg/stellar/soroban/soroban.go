@@ -56,7 +56,11 @@ type Service interface {
 	GetTotalManagedAssets(ctx context.Context) (int64, error)
 	GetUtilizationRate(ctx context.Context) (int64, error)
 	GetBorrowAPR(ctx context.Context) (int64, error)
-	GetBorrowIndex(ctx context.Context) (int64, error)
+	GetBorrowIndex(ctx context.Context) (types.I128, error)
+	GetQueuedShares(ctx context.Context) (types.I128, error)
+	GetQueuedAssets(ctx context.Context) (int64, error)
+	GetMinQueueAssets(ctx context.Context) (int64, error)
+	GetMaxBorrowRate(ctx context.Context) (*types.I128, error)
 	IsUserLocked(ctx context.Context, userAddress string) (bool, error)
 	IsAllowed(ctx context.Context, userAddress string) (bool, error)
 	// ComplianceRole returns the address authorized to call
@@ -81,6 +85,8 @@ type Service interface {
 	RepayForVault(ctx context.Context, req types.RepayForRequest) (*types.RepayResponse, error)
 	BumpYield(ctx context.Context, req types.BumpYieldRequest) (*types.BumpYieldResponse, error)
 	AccrueInterest(ctx context.Context) error
+	// ProcessQueue is permissionless on-chain; it signs with the admin key.
+	ProcessQueue(ctx context.Context, maxEntries uint32) (*types.ProcessQueueResponse, error)
 
 	// Admin Operations
 	PauseVault(ctx context.Context) error

@@ -134,12 +134,57 @@ func (s *service) GetBorrowAPR(ctx context.Context) (int64, error) {
 }
 
 // GetBorrowIndex returns the cumulative borrow index from the vault (WAD scale)
-func (s *service) GetBorrowIndex(ctx context.Context) (int64, error) {
+func (s *service) GetBorrowIndex(ctx context.Context) (types.I128, error) {
 	result, err := s.callView(ctx, "get_borrow_index", nil)
+	if err != nil {
+		return types.I128{}, err
+	}
+	return scValToExactI128(result)
+}
+
+// GetQueuedShares returns the shares held in escrow for queued redemptions.
+// Non-zero means instant exits and borrows are refused.
+func (s *service) GetQueuedShares(ctx context.Context) (types.I128, error) {
+	result, err := s.callView(ctx, "queued_shares", nil)
+	if err != nil {
+		return types.I128{}, err
+	}
+	return scValToExactI128(result)
+}
+
+// GetQueuedAssets returns the current value of all queued shares, in stroops.
+func (s *service) GetQueuedAssets(ctx context.Context) (int64, error) {
+	result, err := s.callView(ctx, "queued_assets", nil)
 	if err != nil {
 		return 0, err
 	}
 	return scValToI128(result)
+}
+
+// GetMinQueueAssets returns the smallest redemption request, in stroops.
+func (s *service) GetMinQueueAssets(ctx context.Context) (int64, error) {
+	result, err := s.callView(ctx, "min_queue_assets", nil)
+	if err != nil {
+		return 0, err
+	}
+	return scValToI128(result)
+}
+
+// GetMaxBorrowRate returns the borrow rate ceiling (WAD scale), or nil when
+// the vault is uncapped.
+func (s *service) GetMaxBorrowRate(ctx context.Context) (*types.I128, error) {
+	result, err := s.callView(ctx, "max_borrow_rate", nil)
+	if err != nil {
+		return nil, err
+	}
+	if result.Type == xdr.ScValTypeScvVoid {
+		return nil, nil
+	}
+	rate, err := scValToExactI128(result)
+	if err != nil {
+		return nil, err
+	}
+	return &rate, nil
 }
 
 // IsUserLocked checks if a user's vault shares are locked

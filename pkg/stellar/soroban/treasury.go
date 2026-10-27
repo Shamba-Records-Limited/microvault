@@ -81,7 +81,7 @@ func (s *service) BorrowFromVault(ctx context.Context, req types.BorrowRequest) 
 		// Non-fatal: borrow succeeded, index is supplementary data.
 	}
 
-	s.logger.InfoContext(ctx, "BorrowFromVault: borrowed", slog.Int64("amount", req.Amount), slog.String("recipient_address", req.RecipientAddress), slog.String("tx_hash", txResp.TransactionHash), slog.String("event_recipient", eventRecipient), slog.Int64("borrow_index", borrowIndex))
+	s.logger.InfoContext(ctx, "BorrowFromVault: borrowed", slog.Int64("amount", req.Amount), slog.String("recipient_address", req.RecipientAddress), slog.String("tx_hash", txResp.TransactionHash), slog.String("event_recipient", eventRecipient), slog.String("borrow_index", borrowIndex.String()))
 
 	contractID, functionName := s.contractInfoOrFallback(txResp.EnvelopeXDR, fnName)
 
@@ -233,6 +233,44 @@ func (s *service) BumpYield(ctx context.Context, req types.BumpYieldRequest) (*t
 		Status:             txResp.Status,
 		ContractID:         contractID,
 		ContractFunction:   functionName,
+	}, nil
+}
+
+// ProcessQueue fills queued redemptions from idle liquidity, oldest first,
+// touching at most maxEntries requests. The contract call is permissionless,
+// so it is signed with the admin key rather than the treasury key.
+func (s *service) ProcessQueue(ctx context.Context, maxEntries uint32) (*types.ProcessQueueResponse, error) {
+	const fnName = "process_queue"
+
+	errb := treasuryErr(fnName).With("max_entries", maxEntries)
+	if maxEntries == 0 {
+		return nil, errb.Code(pkgErrors.CodeInvalidAmount).Errorf("max entries must be positive")
+	}
+
+	adminKP := keypair.MustParseFull(s.adminPrivateKey)
+	maxVal := xdr.Uint32(maxEntries)
+	args := []xdr.ScVal{{Type: xdr.ScValTypeScvU32, U32: &maxVal}}
+
+	txResp, err := s.invokeSigned(ctx, adminKP, fnName, args, errb)
+	if err != nil {
+		return nil, err
+	}
+
+	var touched uint32
+	if txResp.ResultMetaXDR != "" {
+		if ret, err := extractReturnValue(txResp.ResultMetaXDR); err == nil && ret.Type == xdr.ScValTypeScvU32 {
+			touched = uint32(*ret.U32)
+		} else if err != nil {
+			s.logger.WarnContext(ctx, "ProcessQueue: could not read the touched count", slog.Any("error", err))
+		}
+	}
+
+	s.logger.InfoContext(ctx, "ProcessQueue: filled", slog.String("tx_hash", txResp.TransactionHash), slog.Any("touched", touched))
+
+	return &types.ProcessQueueResponse{
+		TxHash:  txResp.TransactionHash,
+		Touched: touched,
+		Ledger:  int64(txResp.Ledger),
 	}, nil
 }
 
