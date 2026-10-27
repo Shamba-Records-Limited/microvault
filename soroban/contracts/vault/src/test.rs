@@ -6,7 +6,9 @@
 
 extern crate std;
 
-use crate::{DataKey, MicrovaultContract, MicrovaultContractClient, MicrovaultError};
+use crate::{
+    DataKey, MicrovaultContract, MicrovaultContractClient, MicrovaultError, WriteOffEntry,
+};
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo, MockAuth, MockAuthInvoke},
     token::{self, StellarAssetClient, TokenClient},
@@ -3577,4 +3579,97 @@ fn test_process_queue_respects_max_entries_and_pause() {
     assert_eq!(client.process_queue(&10), 2);
     assert_eq!(client.queued_shares(), 0);
     assert_eq!(client.queue_length(), 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Write-off batches
+// ─────────────────────────────────────────────────────────────────────
+
+fn entry(borrower: &Address, principal: i128, origin_index: i128) -> WriteOffEntry {
+    WriteOffEntry {
+        borrower: borrower.clone(),
+        principal,
+        origin_index,
+    }
+}
+
+#[test]
+fn test_write_off_batch_matches_single_write_offs() {
+    let env = Env::default();
+    let (client, _t, _ta, treasury, guardian, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.deposit(&(10_000 * USDC), a, a, a);
+    let (b1, b2, b3) = (
+        Address::generate(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+    );
+    let origin = client.get_borrow_index();
+    client.borrow(&treasury, &b1, &(1_000 * USDC));
+    client.borrow(&treasury, &b2, &(2_000 * USDC));
+    client.borrow(&treasury, &b3, &(3_000 * USDC));
+    advance(&env, 120 * 86_400);
+
+    let index = client.get_borrow_index();
+    let owed = |p: i128| (p * index + origin - 1) / origin;
+    let debt_before = client.total_borrowed();
+
+    client.pause(&guardian);
+    let total = client.write_off_batch(&soroban_sdk::vec![
+        &env,
+        entry(&b1, 1_000 * USDC, origin),
+        entry(&b2, 2_000 * USDC, origin),
+    ]);
+
+    assert_eq!(total, owed(1_000 * USDC) + owed(2_000 * USDC));
+    assert_eq!(client.total_borrowed(), debt_before - total);
+}
+
+#[test]
+fn test_write_off_batch_rejects_empty_and_oversized() {
+    let env = Env::default();
+    let (client, ..) = setup_lenders(&env, 0, 0);
+    let invalid: soroban_sdk::Error = MicrovaultError::InvalidAmount.into();
+    assert_eq!(
+        client
+            .try_write_off_batch(&soroban_sdk::vec![&env])
+            .err()
+            .unwrap()
+            .unwrap(),
+        invalid
+    );
+
+    let index = client.get_borrow_index();
+    let mut many = soroban_sdk::Vec::new(&env);
+    for _ in 0..51 {
+        many.push_back(entry(&Address::generate(&env), USDC, index));
+    }
+    assert_eq!(
+        client.try_write_off_batch(&many).err().unwrap().unwrap(),
+        invalid
+    );
+}
+
+#[test]
+fn test_write_off_batch_reverts_whole_on_an_invalid_entry() {
+    let env = Env::default();
+    let (client, _t, _ta, treasury, _g, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.deposit(&(10_000 * USDC), a, a, a);
+    let origin = client.get_borrow_index();
+    client.borrow(&treasury, &Address::generate(&env), &(1_000 * USDC));
+    let debt = client.total_borrowed();
+
+    let result = client.try_write_off_batch(&soroban_sdk::vec![
+        &env,
+        entry(&Address::generate(&env), 500 * USDC, origin),
+        entry(
+            &Address::generate(&env),
+            500 * USDC,
+            origin + 1_000_000_000_000_000_000
+        ),
+    ]);
+
+    assert!(result.is_err());
+    assert_eq!(client.total_borrowed(), debt);
 }

@@ -12,7 +12,7 @@
 //!
 //! | Role | Calls |
 //! |---|---|
-//! | Owner (typically the `TimelockController`) | `set_*` limits and roles, `write_off`, `unpause`, `upgrade` |
+//! | Owner (typically the `TimelockController`) | `set_*` limits and roles, `write_off`, `write_off_batch`, `unpause`, `upgrade` |
 //! | Guardian | `pause` |
 //! | Treasury | `borrow`, `repay`, `repay_for`, `sweep_foreign_asset` |
 //! | Compliance role | `allow_depositor`, `disallow_depositor`, `freeze_depositor`, `extend_exit_deadline` |
@@ -65,7 +65,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, panic_with_error, Address, BytesN,
-    ContractExecutable, Env, MuxedAddress, String,
+    ContractExecutable, Env, MuxedAddress, String, Vec,
 };
 use stellar_access::ownable::{self, Ownable};
 use stellar_contract_utils::math::i128_fixed_point::{
@@ -429,6 +429,18 @@ pub struct RedeemReturned {
     pub shares: i128,
 }
 
+/// One loan in a `write_off_batch`.
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WriteOffEntry {
+    /// Borrower the debt is attributed to.
+    pub borrower: Address,
+    /// Principal to write off, in base units at `origin_index`.
+    pub principal: i128,
+    /// Borrow index when the principal was drawn, WAD-scaled.
+    pub origin_index: i128,
+}
+
 /// A queued redemption.
 #[soroban_sdk::contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -525,6 +537,10 @@ const SLOPE1: i128 = 75_000_000_000_000_000;
 /// Slope 2: 500% per 100% utilization (above optimal). Creates a steep
 /// penalty curve that discourages utilization beyond the optimal point.
 const SLOPE2: i128 = 5_000_000_000_000_000_000;
+
+/// Most loans one `write_off_batch` may carry, to stay inside a transaction's
+/// resource limits.
+const MAX_WRITE_OFF_BATCH: u32 = 50;
 
 /// Default smallest redemption request: 10 USDC.
 const DEFAULT_MIN_QUEUE_ASSETS: i128 = 100_000_000;
@@ -1521,6 +1537,31 @@ impl MicrovaultContract {
     #[only_owner]
     pub fn write_off(e: &Env, borrower: Address, principal: i128, origin_index: i128) -> i128 {
         Self::accrue_interest(e);
+        Self::write_off_one(e, borrower, principal, origin_index)
+    }
+
+    /// Write off several loans in one owner call, so a write-off batch is a
+    /// single timelock operation. Owner only (timelocked); callable while
+    /// paused. Each entry is computed and capped as in `write_off`, in order,
+    /// and emits its own `WrittenOff`. Returns the total removed.
+    ///
+    /// # Errors
+    ///
+    /// `InvalidAmount` for an empty batch, more than 50 entries, or any
+    /// invalid entry (the whole batch reverts).
+    #[only_owner]
+    pub fn write_off_batch(e: &Env, entries: Vec<WriteOffEntry>) -> i128 {
+        if entries.is_empty() || entries.len() > MAX_WRITE_OFF_BATCH {
+            panic_with_error!(e, MicrovaultError::InvalidAmount)
+        }
+        Self::accrue_interest(e);
+        entries.iter().fold(0i128, |total, entry| {
+            total + Self::write_off_one(e, entry.borrower, entry.principal, entry.origin_index)
+        })
+    }
+
+    /// Shared body of `write_off` and `write_off_batch`; the caller accrues.
+    fn write_off_one(e: &Env, borrower: Address, principal: i128, origin_index: i128) -> i128 {
         let index: i128 = e
             .storage()
             .instance()
