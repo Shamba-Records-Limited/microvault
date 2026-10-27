@@ -4,13 +4,17 @@
 //! management, credit delegation (borrow/repay), interest accrual, lock
 //! periods, operator patterns, and contract upgrades.
 
-use crate::{MicrovaultContract, MicrovaultContractClient, MicrovaultError};
+extern crate std;
+
+use crate::{DataKey, MicrovaultContract, MicrovaultContractClient, MicrovaultError};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger, LedgerInfo},
+    testutils::{Address as _, Ledger, LedgerInfo, MockAuth, MockAuthInvoke},
     token::{self, StellarAssetClient, TokenClient},
-    Address, Env, String,
+    Address, Env, IntoVal, String,
 };
+use stellar_contract_utils::math::Rounding;
 use stellar_tokens::fungible::total_supply::TotalSupplyStorageKey;
+use stellar_tokens::vault::Vault;
 
 /// Registers a Stellar asset contract and returns its address, token client,
 /// and admin client.
@@ -2997,4 +3001,580 @@ fn test_transfer_from_disallowed_sender_is_address_not_allowed() {
     client.disallow_depositor(&role, &user);
     let share_client = token::Client::new(&env, &client.address);
     share_client.transfer(&user, &recipient, &shares);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Share pricing counts outstanding debt
+// ─────────────────────────────────────────────────────────────────────
+
+const USDC: i128 = 10_000_000;
+
+/// Deploys a vault and funds `n` fresh lenders with `balance` each.
+fn setup_lenders<'a>(
+    env: &'a Env,
+    n: usize,
+    balance: i128,
+) -> (
+    MicrovaultContractClient<'a>,
+    TokenClient<'a>,
+    StellarAssetClient<'a>,
+    Address,
+    Address,
+    std::vec::Vec<Address>,
+) {
+    env.mock_all_auths();
+    let (client, _asset, token_client, token_admin, _owner, treasury, guardian) = setup_vault(env);
+    let lenders = (0..n)
+        .map(|_| {
+            let lender = Address::generate(env);
+            token_admin.mint(&lender, &balance);
+            lender
+        })
+        .collect();
+    (
+        client,
+        token_client,
+        token_admin,
+        treasury,
+        guardian,
+        lenders,
+    )
+}
+
+fn advance(env: &Env, seconds: u64) {
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + seconds);
+}
+
+fn assert_close(actual: i128, expected: i128, tolerance: i128) {
+    assert!(
+        (actual - expected).abs() <= tolerance,
+        "{actual} is not within {tolerance} of {expected}"
+    );
+}
+
+#[test]
+fn test_pricing_matches_oz_when_nothing_is_borrowed() {
+    let env = Env::default();
+    let (client, _t, token_admin, _treasury, _g, lenders) = setup_lenders(&env, 2, 100_000 * USDC);
+    client.deposit(&(12_345 * USDC + 7), &lenders[0], &lenders[0], &lenders[0]);
+    token_admin.mint(&lenders[1], &(3_333 * USDC));
+    client.bump_yield(&lenders[1], &(3_333 * USDC));
+
+    env.as_contract(&client.address, || {
+        for amount in [0i128, 1, 7, 999_999, 1_000_000_001, 55_555 * USDC] {
+            for ceil in [false, true] {
+                let rounding = || {
+                    if ceil {
+                        Rounding::Ceil
+                    } else {
+                        Rounding::Floor
+                    }
+                };
+                assert_eq!(
+                    MicrovaultContract::to_shares(&env, amount, rounding()),
+                    Vault::convert_to_shares_with_rounding(&env, amount, rounding())
+                );
+                assert_eq!(
+                    MicrovaultContract::to_assets(&env, amount, rounding()),
+                    Vault::convert_to_assets_with_rounding(&env, amount, rounding())
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn test_borrow_does_not_mark_lenders_down() {
+    let env = Env::default();
+    let (client, _t, _ta, treasury, _g, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.deposit(&(10_000 * USDC), a, a, a);
+    let before = client.preview_redeem(&client.balance(a));
+    client.borrow(&treasury, &Address::generate(&env), &(8_000 * USDC));
+    assert_close(client.preview_redeem(&client.balance(a)), before, 1);
+    assert_close(
+        client.total_assets(),
+        client.convert_to_assets(&client.total_supply()),
+        1,
+    );
+}
+
+#[test]
+fn test_deposit_while_borrowed_gets_fair_shares() {
+    let env = Env::default();
+    let (client, _t, token_admin, treasury, _g, lenders) = setup_lenders(&env, 2, 10_000 * USDC);
+    let (a, b) = (&lenders[0], &lenders[1]);
+    client.deposit(&(10_000 * USDC), a, a, a);
+    client.borrow(&treasury, &Address::generate(&env), &(8_000 * USDC));
+
+    client.deposit(&(2_000 * USDC), b, b, b);
+    assert_close(client.balance(b) * 5, client.balance(a), 5 * 1_000_000);
+
+    token_admin.mint(&treasury, &(8_000 * USDC));
+    client.repay(&treasury, &(8_000 * USDC));
+    assert_close(client.preview_redeem(&client.balance(a)), 10_000 * USDC, 2);
+    assert_close(client.preview_redeem(&client.balance(b)), 2_000 * USDC, 2);
+}
+
+#[test]
+fn test_previews_match_execution_with_debt_outstanding() {
+    let env = Env::default();
+    let (client, _t, _ta, treasury, _g, lenders) = setup_lenders(&env, 2, 50_000 * USDC);
+    let (a, b) = (&lenders[0], &lenders[1]);
+    client.deposit(&(20_000 * USDC), a, a, a);
+    client.borrow(&treasury, &Address::generate(&env), &(15_000 * USDC));
+    advance(&env, 90 * 86_400);
+
+    let expected_shares = client.preview_deposit(&(1_234 * USDC + 5));
+    assert_eq!(
+        client.deposit(&(1_234 * USDC + 5), b, b, b),
+        expected_shares
+    );
+
+    let expected_assets = client.preview_mint(&1_000_000_000);
+    assert_eq!(client.mint(&1_000_000_000, b, b, b), expected_assets);
+
+    let shares = client.balance(b) / 3;
+    let expected_out = client.preview_redeem(&shares);
+    assert_eq!(client.redeem(&shares, b, b, b), expected_out);
+
+    let expected_burn = client.preview_withdraw(&(100 * USDC));
+    assert_eq!(client.withdraw(&(100 * USDC), b, b, b), expected_burn);
+}
+
+#[test]
+fn test_round_trip_never_profits_with_debt_outstanding() {
+    let env = Env::default();
+    let (client, token_client, _ta, treasury, _g, lenders) = setup_lenders(&env, 2, 50_000 * USDC);
+    let (a, b) = (&lenders[0], &lenders[1]);
+    client.deposit(&(20_000 * USDC), a, a, a);
+    client.borrow(&treasury, &Address::generate(&env), &(10_000 * USDC));
+    advance(&env, 30 * 86_400);
+
+    for amount in [333i128, 7 * USDC + 3, 5_000 * USDC] {
+        let before = token_client.balance(b);
+        let shares = client.deposit(&amount, b, b, b);
+        client.redeem(&shares, b, b, b);
+        assert!(token_client.balance(b) <= before);
+    }
+}
+
+#[test]
+fn test_interest_raises_share_value_before_repayment() {
+    let env = Env::default();
+    let (client, _t, _ta, treasury, _g, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.deposit(&(10_000 * USDC), a, a, a);
+    client.borrow(&treasury, &Address::generate(&env), &(8_000 * USDC));
+    advance(&env, 365 * 86_400);
+    client.accrue();
+    let interest = client.total_borrowed() - 8_000 * USDC;
+    assert!(interest > 0);
+    assert_close(
+        client.preview_redeem(&client.balance(a)),
+        10_000 * USDC + interest,
+        2,
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// A deposit in someone else's name needs their consent
+// ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_third_party_deposit_needs_receiver_auth() {
+    let env = Env::default();
+    let (client, token_client, token_admin, _treasury, _g, lenders) =
+        setup_lenders(&env, 1, 10_000 * USDC);
+    let victim = &lenders[0];
+    let attacker = Address::generate(&env);
+    token_admin.mint(&attacker, &10);
+    client.set_lock_period(&604_800u64);
+    client.deposit(&(1_000 * USDC), victim, victim, victim);
+    let unlock = client.get_unlock_time(victim);
+
+    advance(&env, 604_000);
+    let deposit_args = (1i128, victim.clone(), attacker.clone(), attacker.clone()).into_val(&env);
+    let transfer = MockAuthInvoke {
+        contract: &token_client.address,
+        fn_name: "transfer",
+        args: (attacker.clone(), client.address.clone(), 1i128).into_val(&env),
+        sub_invokes: &[],
+    };
+    let attacker_auth = MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "deposit",
+            args: deposit_args,
+            sub_invokes: core::slice::from_ref(&transfer),
+        },
+    };
+
+    let result = client
+        .mock_auths(&[attacker_auth])
+        .try_deposit(&1, victim, &attacker, &attacker);
+    assert!(result.is_err());
+    assert_eq!(client.get_unlock_time(victim), unlock);
+
+    let victim_invoke = MockAuthInvoke {
+        contract: &client.address,
+        fn_name: "deposit",
+        args: (1i128, victim.clone(), attacker.clone(), attacker.clone()).into_val(&env),
+        sub_invokes: &[],
+    };
+    let attacker_invoke = MockAuthInvoke {
+        contract: &client.address,
+        fn_name: "deposit",
+        args: (1i128, victim.clone(), attacker.clone(), attacker.clone()).into_val(&env),
+        sub_invokes: core::slice::from_ref(&transfer),
+    };
+    client
+        .mock_auths(&[
+            MockAuth {
+                address: &attacker,
+                invoke: &attacker_invoke,
+            },
+            MockAuth {
+                address: victim,
+                invoke: &victim_invoke,
+            },
+        ])
+        .deposit(&1, victim, &attacker, &attacker);
+    assert!(client.get_unlock_time(victim) > unlock);
+}
+
+#[test]
+fn test_self_deposit_needs_one_signature() {
+    let env = Env::default();
+    let (client, _t, _ta, _treasury, _g, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.deposit(&(1_000 * USDC), a, a, a);
+    let signers: std::vec::Vec<Address> = env.auths().into_iter().map(|(who, _)| who).collect();
+    assert_eq!(signers, std::vec![a.clone()]);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Accrual overflow and the rate ceiling
+// ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_accrual_overflow_panics_instead_of_dropping_interest() {
+    let env = Env::default();
+    let (client, _t, _ta, _treasury, _g, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.deposit(&(1_000 * USDC), a, a, a);
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalBorrowed, &(i128::MAX / 2));
+    });
+    advance(&env, 365 * 86_400);
+    assert_eq!(
+        client.try_accrue().err().unwrap().unwrap(),
+        MicrovaultError::MathOverflow.into()
+    );
+}
+
+#[test]
+fn test_max_borrow_rate_caps_the_curve() {
+    let env = Env::default();
+    let (client, _t, _ta, treasury, _g, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.deposit(&(10_000 * USDC), a, a, a);
+    client.borrow(&treasury, &Address::generate(&env), &(8_000 * USDC));
+    client.withdraw(&(1_500 * USDC), a, a, a);
+
+    let ceiling = 300_000_000_000_000_000i128;
+    assert_eq!(client.max_borrow_rate(), None);
+    assert!(client.borrow_apr() > ceiling);
+    client.set_max_borrow_rate(&ceiling);
+    assert_eq!(client.max_borrow_rate(), Some(ceiling));
+    assert_eq!(client.borrow_apr(), ceiling);
+}
+
+#[test]
+fn test_max_borrow_rate_must_be_positive() {
+    let env = Env::default();
+    let (client, ..) = setup_lenders(&env, 0, 0);
+    assert_eq!(
+        client.try_set_max_borrow_rate(&0).err().unwrap().unwrap(),
+        MicrovaultError::InvalidAmount.into()
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Write-offs
+// ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_write_off_marks_lenders_down_by_debt_with_interest() {
+    let env = Env::default();
+    let (client, _t, _ta, treasury, _g, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    let borrower = Address::generate(&env);
+    client.deposit(&(10_000 * USDC), a, a, a);
+
+    let origin = client.get_borrow_index();
+    client.borrow(&treasury, &borrower, &(2_000 * USDC));
+    client.borrow(&treasury, &Address::generate(&env), &(3_000 * USDC));
+    advance(&env, 180 * 86_400);
+
+    let index = client.get_borrow_index();
+    let owed = (2_000 * USDC * index + origin - 1) / origin;
+    let debt_before = client.total_borrowed();
+    let value_before = client.preview_redeem(&client.balance(a));
+
+    assert_eq!(client.write_off(&borrower, &(2_000 * USDC), &origin), owed);
+    assert_eq!(client.total_borrowed(), debt_before - owed);
+    assert_close(
+        client.preview_redeem(&client.balance(a)),
+        value_before - owed,
+        2,
+    );
+}
+
+#[test]
+fn test_write_off_is_capped_at_outstanding_debt() {
+    let env = Env::default();
+    let (client, _t, _ta, treasury, _g, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.deposit(&(10_000 * USDC), a, a, a);
+    let origin = client.get_borrow_index();
+    client.borrow(&treasury, &Address::generate(&env), &(1_000 * USDC));
+    let debt = client.total_borrowed();
+    assert_eq!(
+        client.write_off(&Address::generate(&env), &(5_000 * USDC), &origin),
+        debt
+    );
+    assert_eq!(client.total_borrowed(), 0);
+}
+
+#[test]
+fn test_write_off_rejects_an_index_from_the_future() {
+    let env = Env::default();
+    let (client, ..) = setup_lenders(&env, 0, 0);
+    let index = client.get_borrow_index();
+    assert_eq!(
+        client
+            .try_write_off(&Address::generate(&env), &USDC, &(index + 1))
+            .err()
+            .unwrap()
+            .unwrap(),
+        MicrovaultError::InvalidAmount.into()
+    );
+}
+
+#[test]
+fn test_write_off_and_cushion_run_while_paused() {
+    let env = Env::default();
+    let (client, _t, token_admin, treasury, guardian, lenders) =
+        setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.deposit(&(10_000 * USDC), a, a, a);
+    let origin = client.get_borrow_index();
+    client.borrow(&treasury, &Address::generate(&env), &(1_000 * USDC));
+    let value_before = client.preview_redeem(&client.balance(a));
+
+    client.pause(&guardian);
+    let lost = client.write_off(&Address::generate(&env), &(1_000 * USDC), &origin);
+    token_admin.mint(&treasury, &lost);
+    client.bump_yield(&treasury, &lost);
+    assert_close(client.preview_redeem(&client.balance(a)), value_before, 2);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Withdrawal queue
+// ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_queue_fills_oldest_first_and_blocks_instant_exits() {
+    let env = Env::default();
+    let (client, token_client, token_admin, treasury, _g, lenders) =
+        setup_lenders(&env, 3, 10_000 * USDC);
+    let (a, b, c) = (&lenders[0], &lenders[1], &lenders[2]);
+    client.deposit(&(6_000 * USDC), a, a, a);
+    client.deposit(&(4_000 * USDC), b, b, b);
+    client.deposit(&(100 * USDC), c, c, c);
+    client.borrow(&treasury, &Address::generate(&env), &(8_000 * USDC));
+
+    let a_shares = client.balance(a);
+    let a_id = client.request_redeem(a, a, &a_shares);
+    let b_id = client.request_redeem(b, b, &client.balance(b));
+    assert_eq!((a_id, b_id), (0, 1));
+    assert_eq!(client.balance(a), 0);
+    assert_eq!(client.queue_length(), 2);
+
+    let queued: soroban_sdk::Error = MicrovaultError::QueueNotEmpty.into();
+    assert_eq!(
+        client.try_redeem(&USDC, c, c, c).err().unwrap().unwrap(),
+        queued
+    );
+    assert_eq!(
+        client.try_withdraw(&USDC, c, c, c).err().unwrap().unwrap(),
+        queued
+    );
+    assert_eq!(
+        client
+            .try_borrow(&treasury, &Address::generate(&env), &USDC)
+            .err()
+            .unwrap()
+            .unwrap(),
+        MicrovaultError::QueueNotEmpty
+    );
+    assert_eq!(client.max_redeem(c), 0);
+    assert_eq!(client.max_withdraw(c), 0);
+
+    let a_before = token_client.balance(a);
+    assert_eq!(client.process_queue(&10), 1);
+    let first_fill = token_client.balance(a) - a_before;
+    assert_close(first_fill, 2_100 * USDC, 2);
+    assert_eq!(
+        client.queue_entry(&b_id).unwrap().shares,
+        client.queued_shares() - client.queue_entry(&a_id).unwrap().shares
+    );
+    assert_eq!(token_client.balance(b), 6_000 * USDC);
+
+    token_admin.mint(&treasury, &(8_000 * USDC));
+    client.repay(&treasury, &(8_000 * USDC));
+    client.process_queue(&10);
+    assert_close(token_client.balance(a) - a_before, 6_000 * USDC, 2);
+    assert_close(token_client.balance(b), 10_000 * USDC, 2);
+    assert_eq!(client.queued_shares(), 0);
+    assert_eq!(client.queue_length(), 0);
+
+    assert!(client.try_redeem(&client.balance(c), c, c, c).is_ok());
+}
+
+#[test]
+fn test_queued_shares_bear_a_write_off_before_they_are_filled() {
+    let env = Env::default();
+    let (client, token_client, token_admin, treasury, _g, lenders) =
+        setup_lenders(&env, 2, 10_000 * USDC);
+    let (a, b) = (&lenders[0], &lenders[1]);
+    client.deposit(&(6_000 * USDC), a, a, a);
+    client.deposit(&(4_000 * USDC), b, b, b);
+    let origin = client.get_borrow_index();
+    client.borrow(&treasury, &Address::generate(&env), &(8_000 * USDC));
+
+    client.request_redeem(a, a, &client.balance(a));
+    client.write_off(&Address::generate(&env), &(4_000 * USDC), &origin);
+    token_admin.mint(&treasury, &(4_000 * USDC));
+    client.repay(&treasury, &(4_000 * USDC));
+
+    let before = token_client.balance(a);
+    client.process_queue(&10);
+    assert_close(token_client.balance(a) - before, 3_600 * USDC, 2);
+}
+
+#[test]
+fn test_cancel_returns_shares_and_the_queue_skips_the_hole() {
+    let env = Env::default();
+    let (client, token_client, _ta, treasury, _g, lenders) = setup_lenders(&env, 3, 10_000 * USDC);
+    let (a, b, c) = (&lenders[0], &lenders[1], &lenders[2]);
+    for lender in [a, b, c] {
+        client.deposit(&(1_000 * USDC), lender, lender, lender);
+    }
+    client.borrow(&treasury, &Address::generate(&env), &(1_500 * USDC));
+    let ids: std::vec::Vec<u64> = [a, b, c]
+        .iter()
+        .map(|lender| client.request_redeem(lender, lender, &client.balance(lender)))
+        .collect();
+
+    let b_shares = client.queue_entry(&ids[1]).unwrap().shares;
+    client.cancel_redeem(&ids[1]);
+    assert_eq!(client.balance(b), b_shares);
+    assert!(client.queue_entry(&ids[1]).is_none());
+
+    let c_shares = client.queue_entry(&ids[2]).unwrap().shares;
+    let before = token_client.balance(c);
+    client.process_queue(&10);
+    assert!(client.queue_entry(&ids[0]).is_none());
+    assert!(client.queue_entry(&ids[2]).unwrap().shares < c_shares);
+    assert_close(token_client.balance(c) - before, 500 * USDC, 2);
+    assert_eq!(client.queue_head(), ids[2]);
+}
+
+#[test]
+fn test_frozen_owner_gets_queued_shares_back_unpaid() {
+    let env = Env::default();
+    let (client, token_client, _ta, treasury, _g, lenders) = setup_lenders(&env, 2, 10_000 * USDC);
+    let (a, b) = (&lenders[0], &lenders[1]);
+    let role = Address::generate(&env);
+    enable_allowlist(&client, &role);
+    client.allow_depositor(&role, a);
+    client.allow_depositor(&role, b);
+    client.deposit(&(1_000 * USDC), a, a, a);
+    client.deposit(&(1_000 * USDC), b, b, b);
+    client.borrow(&treasury, &Address::generate(&env), &(1_600 * USDC));
+
+    let a_shares = client.balance(a);
+    client.request_redeem(a, a, &a_shares);
+    client.request_redeem(b, b, &client.balance(b));
+    client.freeze_depositor(&role, a);
+
+    let a_cash = token_client.balance(a);
+    let b_cash = token_client.balance(b);
+    client.process_queue(&10);
+    assert_eq!(client.balance(a), a_shares);
+    assert_eq!(token_client.balance(a), a_cash);
+    assert!(token_client.balance(b) > b_cash);
+}
+
+#[test]
+fn test_request_below_minimum_is_rejected() {
+    let env = Env::default();
+    let (client, _t, _ta, _treasury, _g, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.deposit(&(9 * USDC), a, a, a);
+    assert_eq!(client.min_queue_assets(), 10 * USDC);
+    assert_eq!(
+        client
+            .try_request_redeem(a, a, &client.balance(a))
+            .err()
+            .unwrap()
+            .unwrap(),
+        MicrovaultError::QueueRequestTooSmall.into()
+    );
+    client.set_min_queue_assets(&USDC);
+    assert!(client.try_request_redeem(a, a, &client.balance(a)).is_ok());
+}
+
+#[test]
+fn test_locked_owner_cannot_queue() {
+    let env = Env::default();
+    let (client, _t, _ta, _treasury, _g, lenders) = setup_lenders(&env, 1, 10_000 * USDC);
+    let a = &lenders[0];
+    client.set_lock_period(&86_400u64);
+    client.deposit(&(100 * USDC), a, a, a);
+    assert_eq!(
+        client
+            .try_request_redeem(a, a, &client.balance(a))
+            .err()
+            .unwrap()
+            .unwrap(),
+        MicrovaultError::SharesLocked.into()
+    );
+}
+
+#[test]
+fn test_process_queue_respects_max_entries_and_pause() {
+    let env = Env::default();
+    let (client, _t, _ta, _treasury, guardian, lenders) = setup_lenders(&env, 3, 10_000 * USDC);
+    for lender in &lenders {
+        client.deposit(&(100 * USDC), lender, lender, lender);
+        client.request_redeem(lender, lender, &client.balance(lender));
+    }
+
+    client.pause(&guardian);
+    assert!(client.try_process_queue(&10).is_err());
+    client.cancel_redeem(&2);
+    client.unpause(&client.get_owner().unwrap());
+
+    assert_eq!(client.process_queue(&1), 1);
+    assert_eq!(client.queue_head(), 1);
+    assert_eq!(client.process_queue(&10), 2);
+    assert_eq!(client.queued_shares(), 0);
+    assert_eq!(client.queue_length(), 0);
 }

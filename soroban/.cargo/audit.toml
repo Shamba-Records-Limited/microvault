@@ -1,0 +1,4 @@
+[advisories]
+# crypto-bigint 0.5.5 comes in only through soroban-env-host (the native test host), never the contract WASM.
+# Fixing it needs elliptic-curve 0.14, which waits on OpenZeppelin moving past soroban-sdk 28.
+ignore = ["RUSTSEC-2026-0387"]
