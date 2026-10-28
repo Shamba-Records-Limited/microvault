@@ -263,14 +263,20 @@ const (
 // is the figure to show on USSD screens, in SMS reminders, and to validate
 // borrower payments against (with ±2 % tolerance).
 type RepaymentQuote struct {
-	LoanID             string
-	AmountUSDCStroops  int64             // What the borrower owes in USDC, stroops.
-	AmountLocalCents   int64             // Same, converted at the FX rate below.
-	LocalCurrency      string            // ISO 4217 (e.g. "KES").
-	BorrowIndexAtQuote stellartypes.I128 // WAD scale (1e18).
-	FXRate             float64           // local-per-USD at quote time.
-	QuoteSource        string            // "mg_primary" | "yc_fallback" | "stale_cache".
-	AsOf               time.Time
+	LoanID            string
+	AmountUSDCStroops int64 // What the borrower owes in USDC, stroops.
+	// The parts of AmountUSDCStroops by destination: the vault, the reserve
+	// (penalty, after the legal cap) and the treasury (fees).
+	VaultDebtStroops     int64
+	PenaltyStroops       int64
+	PenaltyWaivedStroops int64 // Removed by the legal cap; not owed.
+	ServiceFeeStroops    int64
+	AmountLocalCents     int64             // Same, converted at the FX rate below.
+	LocalCurrency        string            // ISO 4217 (e.g. "KES").
+	BorrowIndexAtQuote   stellartypes.I128 // WAD scale (1e18).
+	FXRate               float64           // local-per-USD at quote time.
+	QuoteSource          string            // "mg_primary" | "yc_fallback" | "stale_cache".
+	AsOf                 time.Time
 }
 
 // LoanProductConfig provides loan product parameters for the USSD flow.

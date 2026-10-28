@@ -105,8 +105,11 @@ type PromptRequest struct {
 	// so later settlement compares against the figure that was actually
 	// quoted, not a value re-derived after interest has kept accruing.
 	AmountUSDCStroops int64
-	AccountReference  string
-	CallbackURL       string
+	// PenaltyStroops is the penalty part of AmountUSDCStroops, locked with it
+	// so settlement can route it to the reserve.
+	PenaltyStroops   int64
+	AccountReference string
+	CallbackURL      string
 }
 
 // ProviderRef identifies an in-flight transaction enough to look it up.

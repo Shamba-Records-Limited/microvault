@@ -402,6 +402,11 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Mkopo wa %s %.0f kwa siku %d\nWeka PIN kuthibitisha:",
 			"fr": "Pret de %s %.0f pour %d jours\nEntrez PIN pour confirmer:",
 		},
+		"loan_confirm_summary_fee": {
+			"en": "Loan of %s %.0f for %d days\nFee %s %.0f, you receive %s %.0f\nEnter PIN to confirm:",
+			"sw": "Mkopo wa %s %.0f kwa siku %d\nAda %s %.0f, utapokea %s %.0f\nWeka PIN kuthibitisha:",
+			"fr": "Pret de %s %.0f pour %d jours\nFrais %s %.0f, vous recevez %s %.0f\nEntrez PIN pour confirmer:",
+		},
 		"loan_confirm_pin_format": {
 			"en": "Enter your 4-digit PIN.",
 			"sw": "Weka PIN yako ya tarakimu 4.",

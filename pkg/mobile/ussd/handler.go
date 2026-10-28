@@ -1077,11 +1077,18 @@ func (h *USSDHandler) cashPickupLimit(ctx context.Context, session *Session) (is
 	fiatAmount := float64(toInt64(session.Data["loan_amount_local"])) / 100.0
 	usdAmount := fiatAmount / rate
 
+	// The origination fee is deducted from the payout, so the floor applies
+	// to what is left after it.
+	netShare := 1.0
+	if cfg := h.loanService.GetProductConfig(); cfg != nil && cfg.OriginationFeeBps > 0 {
+		netShare = 1 - float64(cfg.OriginationFeeBps)/10_000
+	}
+
 	// Floor rounds up and ceiling rounds down, so the figure shown is always
 	// one the borrower can actually transact.
 	switch {
-	case usdAmount < moneygram.MinWithdrawUSD:
-		return false, math.Ceil(moneygram.MinWithdrawUSD * rate), true
+	case usdAmount*netShare < moneygram.MinWithdrawUSD:
+		return false, math.Ceil(moneygram.MinWithdrawUSD / netShare * rate), true
 	case usdAmount > moneygram.MaxWithdrawUSD:
 		return true, math.Floor(moneygram.MaxWithdrawUSD * rate), true
 	default:
@@ -1938,8 +1945,9 @@ func (h *USSDHandler) renderAccountMenu(session *Session) (string, error) {
 	return menu.Render(session.Language), nil
 }
 
-// showLoanConfirmation displays the terms — principal amount and duration only
-// — above the PIN prompt that accepts them. APR, estimated total, and exchange
+// showLoanConfirmation displays the terms — principal amount and duration, plus
+// the origination fee and net payout when the product charges one — above the
+// PIN prompt that accepts them. APR, estimated total, and exchange
 // rate are intentionally omitted: the repayment total is computed later and the
 // APR is dynamic.
 func (h *USSDHandler) showLoanConfirmation(ctx context.Context, session *Session) (string, error) {
@@ -1960,6 +1968,11 @@ func (h *USSDHandler) showLoanConfirmationWith(_ context.Context, session *Sessi
 	duration := cfg.DurationDays
 
 	body := Format(session.Language, "loan_confirm_summary", cfg.Currency, localAmount, duration)
+	if cfg.OriginationFeeBps > 0 {
+		fee := math.Ceil(localAmount * float64(cfg.OriginationFeeBps) / 10_000)
+		body = Format(session.Language, "loan_confirm_summary_fee", cfg.Currency, localAmount, duration,
+			cfg.Currency, fee, cfg.Currency, localAmount-fee)
+	}
 	if notice != "" {
 		body = notice + "\n" + body
 	}
