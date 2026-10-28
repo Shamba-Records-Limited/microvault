@@ -220,3 +220,38 @@ func TestVerify_TransactionMismatch(t *testing.T) {
 		t.Errorf("err = %v, want ErrTransactionMismatch", err)
 	}
 }
+
+func TestChallengeFor_TheNamedAccountMustSign(t *testing.T) {
+	svc, admin := newChallengeSvc(t, newMemStore())
+	operator, err := keypair.Random()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := svc.GenerateChallengeFor(context.Background(), operator.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.VerifySignedChallengeFor(context.Background(), c.ID, signChallenge(t, c.Transaction, admin)); err != ErrInvalidSignature {
+		t.Fatalf("admin signing an operator's challenge: got %v, want ErrInvalidSignature", err)
+	}
+
+	c, err = svc.GenerateChallengeFor(context.Background(), operator.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := svc.VerifySignedChallengeFor(context.Background(), c.ID, signChallenge(t, c.Transaction, operator))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signer != operator.Address() {
+		t.Errorf("signer = %s, want %s", signer, operator.Address())
+	}
+}
+
+func TestChallengeFor_RejectsAnInvalidAccount(t *testing.T) {
+	svc, _ := newChallengeSvc(t, newMemStore())
+	if _, err := svc.GenerateChallengeFor(context.Background(), "not-an-address"); err == nil {
+		t.Fatal("expected an error for an invalid account")
+	}
+}

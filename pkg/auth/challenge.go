@@ -35,6 +35,15 @@ type ChallengeService interface {
 	// VerifySignedChallenge validates that the provided transaction was signed by the correct
 	// keypair and matches the original challenge. Challenges are single-use and deleted after verification.
 	VerifySignedChallenge(ctx context.Context, challengeID, signedTxB64 string) error
+
+	// GenerateChallengeFor is GenerateChallenge for a named account, so more
+	// than one signer can authenticate. Whether that account may do anything
+	// is the caller's decision.
+	GenerateChallengeFor(ctx context.Context, account string) (*Challenge, error)
+
+	// VerifySignedChallengeFor is VerifySignedChallenge returning the account
+	// that signed.
+	VerifySignedChallengeFor(ctx context.Context, challengeID, signedTxB64 string) (string, error)
 }
 
 type challengeService struct {
@@ -70,6 +79,17 @@ func NewChallengeService(authConfig *config.AuthConfig, stellarConfig *config.St
 // The generated transaction contains a random nonce and must be signed by the admin's
 // private key to prove ownership. The transaction is never submitted to the network.
 func (s *challengeService) GenerateChallenge(ctx context.Context) (*Challenge, error) {
+	return s.GenerateChallengeFor(ctx, s.stellarConfig.AdminPublicKey)
+}
+
+// GenerateChallengeFor creates a challenge that account must sign.
+func (s *challengeService) GenerateChallengeFor(ctx context.Context, account string) (*Challenge, error) {
+	if _, err := keypair.ParseAddress(account); err != nil {
+		return nil, challengeErr("generate").Code(pkgErrors.CodeInvalidAddress).Wrapf(err, "account is not a valid Stellar address")
+	}
+	if account == s.serverKP.Address() {
+		return nil, challengeErr("generate").Code(pkgErrors.CodePermissionDenied).Errorf("the server key cannot authenticate")
+	}
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, challengeErr("generate").Code(pkgErrors.CodeBuildFailed).Wrapf(err, "could not generate a nonce")
@@ -99,7 +119,7 @@ func (s *challengeService) GenerateChallenge(ctx context.Context) (*Challenge, e
 			IncrementSequenceNum: false,
 			Operations: []txnbuild.Operation{
 				&txnbuild.ManageData{
-					SourceAccount: s.stellarConfig.AdminPublicKey,
+					SourceAccount: account,
 					Name:          "auth",
 					Value:         []byte(nonceB64),
 				},
@@ -133,6 +153,7 @@ func (s *challengeService) GenerateChallenge(ctx context.Context) (*Challenge, e
 		Transaction: txeB64,
 		CreatedAt:   now,
 		ExpiresAt:   now.Add(s.authConfig.ChallengeExpiration),
+		Account:     account,
 	}
 
 	if err := s.store.Store(ctx, challengeIDStr, challenge); err != nil {
@@ -148,67 +169,78 @@ func (s *challengeService) GenerateChallenge(ctx context.Context) (*Challenge, e
 //  2. The transaction matches the original challenge
 //  3. The transaction is signed by the admin's private key
 func (s *challengeService) VerifySignedChallenge(ctx context.Context, challengeID, signedTxB64 string) error {
+	_, err := s.VerifySignedChallengeFor(ctx, challengeID, signedTxB64)
+	return err
+}
+
+// VerifySignedChallengeFor validates a signed challenge and returns the
+// account that signed it.
+func (s *challengeService) VerifySignedChallengeFor(ctx context.Context, challengeID, signedTxB64 string) (string, error) {
 	challenge, err := s.store.Get(ctx, challengeID)
 	if err != nil {
 		// Only a genuinely absent challenge is a client error. A store that
 		// cannot be read is ours, and collapsing the two reported every Redis
 		// outage to the caller as a 404.
 		if errors.Is(err, ErrChallengeNotFound) {
-			return ErrChallengeNotFound
+			return "", ErrChallengeNotFound
 		}
-		return challengeErr("verify").With("challenge_id", challengeID).
+		return "", challengeErr("verify").With("challenge_id", challengeID).
 			Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the challenge")
 	}
 
 	if time.Now().After(challenge.ExpiresAt) {
 		_ = s.store.Delete(ctx, challengeID) // Ignore error on cleanup
-		return ErrChallengeExpired
+		return "", ErrChallengeExpired
 	}
 
 	var envelope xdr.TransactionEnvelope
 	err = xdr.SafeUnmarshalBase64(signedTxB64, &envelope)
 	if err != nil {
-		return ErrInvalidTransaction
+		return "", ErrInvalidTransaction
 	}
 
 	genericTx, err := txnbuild.TransactionFromXDR(signedTxB64)
 	if err != nil {
-		return ErrInvalidTransaction
+		return "", ErrInvalidTransaction
 	}
 
 	tx, ok := genericTx.Transaction()
 	if !ok {
-		return ErrInvalidTransaction
+		return "", ErrInvalidTransaction
 	}
 
 	// Verify the transaction matches our original challenge
 	originalTxB64 := challenge.Transaction
 	var originalEnvelope xdr.TransactionEnvelope
 	if err := xdr.SafeUnmarshalBase64(originalTxB64, &originalEnvelope); err != nil {
-		return challengeErr("verify").Code(pkgErrors.CodeDecodeFailed).Wrapf(ErrInvalidTransaction, "could not parse the original challenge")
+		return "", challengeErr("verify").Code(pkgErrors.CodeDecodeFailed).Wrapf(ErrInvalidTransaction, "could not parse the original challenge")
 	}
 
 	// Compare transaction hashes (excluding signatures)
 	signedHash, err := tx.Hash(s.stellarConfig.NetworkPassphrase)
 	if err != nil {
-		return challengeErr("verify").Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not hash the signed transaction")
+		return "", challengeErr("verify").Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not hash the signed transaction")
 	}
 
 	originalTx, _ := txnbuild.TransactionFromXDR(originalTxB64)
 	originalTransaction, _ := originalTx.Transaction()
 	originalHash, err := originalTransaction.Hash(s.stellarConfig.NetworkPassphrase)
 	if err != nil {
-		return challengeErr("verify").Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not hash the original transaction")
+		return "", challengeErr("verify").Code(pkgErrors.CodeEncodeFailed).Wrapf(err, "could not hash the original transaction")
 	}
 
 	if signedHash != originalHash {
-		return ErrTransactionMismatch
+		return "", ErrTransactionMismatch
 	}
 
-	// Verify the admin's signature is present, ignoring the server's own countersignature.
-	adminKP, err := keypair.ParseAddress(s.stellarConfig.AdminPublicKey)
+	// Verify the account's signature is present, ignoring the server's own countersignature.
+	account := challenge.Account
+	if account == "" {
+		account = s.stellarConfig.AdminPublicKey
+	}
+	adminKP, err := keypair.ParseAddress(account)
 	if err != nil {
-		return challengeErr("verify").Code(pkgErrors.CodeInvalidAddress).Wrapf(err, "admin public key is not a valid Stellar key")
+		return "", challengeErr("verify").Code(pkgErrors.CodeInvalidAddress).Wrapf(err, "challenge account is not a valid Stellar key")
 	}
 
 	signatures := envelope.Signatures()
@@ -225,11 +257,11 @@ func (s *challengeService) VerifySignedChallenge(ctx context.Context, challengeI
 	}
 
 	if !adminSigned {
-		return ErrInvalidSignature
+		return "", ErrInvalidSignature
 	}
 
 	// Delete challenge to prevent reuse ignore error on cleanup
 	_ = s.store.Delete(ctx, challengeID)
 
-	return nil
+	return account, nil
 }

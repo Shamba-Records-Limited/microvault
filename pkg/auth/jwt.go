@@ -16,8 +16,13 @@ import (
 // It embeds the standard JWT registered claims and adds the admin's Stellar public key.
 type Claims struct {
 	AdminPublicKey string `json:"admin_pk"`
+	// Role is the signer's role; empty on tokens for the configured admin.
+	Role string `json:"role,omitempty"`
 	jwt.RegisteredClaims
 }
+
+// RoleAdmin is the role of the configured admin key.
+const RoleAdmin = "admin"
 
 // JWTService provides JWT token generation and validation functionality.
 // It uses HMAC-SHA256 signing and includes configurable expiration and refresh windows.
@@ -34,11 +39,17 @@ func NewJWTService(config *config.AuthConfig) *JWTService {
 // The token is signed using HMAC-SHA256 and includes standard claims (issuer, subject, timestamps).
 // Returns the signed token string, expiration time, and any error encountered during generation.
 func (s *JWTService) GenerateToken(adminPublicKey string) (string, time.Time, error) {
+	return s.GenerateTokenWithRole(adminPublicKey, "")
+}
+
+// GenerateTokenWithRole is GenerateToken for a signer with a role.
+func (s *JWTService) GenerateTokenWithRole(adminPublicKey, role string) (string, time.Time, error) {
 	now := time.Now()
 	expiresAt := now.Add(s.config.JWTExpiration)
 
 	claims := &Claims{
 		AdminPublicKey: adminPublicKey,
+		Role:           role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),

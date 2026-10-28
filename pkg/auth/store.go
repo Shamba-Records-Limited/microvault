@@ -22,6 +22,8 @@ type Challenge struct {
 	Transaction string    `json:"transaction"` // Base64-encoded Stellar transaction envelope
 	CreatedAt   time.Time `json:"created_at"`  // Timestamp when the challenge was created
 	ExpiresAt   time.Time `json:"expires_at"`  // Timestamp when the challenge expires
+	// Account must sign the challenge; empty means the configured admin key.
+	Account string `json:"account,omitempty"`
 }
 
 // ChallengeStore defines the interface for storing and retrieving authentication challenges.
