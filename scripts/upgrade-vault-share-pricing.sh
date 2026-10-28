@@ -20,6 +20,9 @@
 #   ./scripts/upgrade-vault-share-pricing.sh unpause     # execute C, only if verify passed
 #   ./scripts/upgrade-vault-share-pricing.sh rollback    # schedule upgrade(OLD_HASH); only while still paused
 #   ./scripts/upgrade-vault-share-pricing.sh rollback-exec
+#
+# After a rollback, C stays Ready (cancel_op only works while Waiting) and must
+# never run; unpause refuses unless the vault runs the verified wasm.
 
 set -euo pipefail
 
@@ -162,6 +165,10 @@ snapshot)
 	;;
 upload)
 	stellar contract build --manifest-path "$SOROBAN_DIR/Cargo.toml" --package microvault-sep56
+	exports=$(stellar contract info interface --wasm "$WASM" --output json-formatted)
+	for fn in write_off_batch request_redeem process_queue set_max_borrow_rate bump_yield; do
+		grep -q "\"name\": \"$fn\"" <<<"$exports" || die "built wasm has no $fn; check out the release branch"
+	done
 	H=$(stellar contract upload --wasm "$WASM" --source-account "$DEPLOYER_ALIAS" --network "$NETWORK" | unquote)
 	is_hash "$H" || die "upload returned '$H'"
 	save H "$H"
@@ -245,6 +252,7 @@ verify)
 unpause)
 	need B C SC H
 	[[ "${VERIFIED:-}" == "$H" ]] || die "verify has not passed for wasm $H — run verify first; stay paused"
+	[[ "$(current_wasm_hash)" == "$H" ]] || die "vault is not running $H (rolled back?); C must never run — stay paused"
 	[[ "$(state_of "$C")" == *Done* ]] || require_ready "$C"
 	ensure_done "$C" unpause "$ARGS_UNPAUSE" "$B" "$SC"
 	echo "paused: $(vv paused)"
@@ -261,6 +269,7 @@ rollback-exec)
 	require_paused
 	[[ "$(state_of "$R")" == *Done* ]] || require_ready "$R"
 	ensure_done "$R" upgrade "$(args_upgrade "$OLD_HASH")" "$ZERO" "$SR"
+	save VERIFIED ""
 	echo "vault wasm: $(current_wasm_hash)"
 	;;
 *)
