@@ -39,7 +39,8 @@ var navBackTargets = map[string]string{
 	"bio_edit":                 "my_details",
 	"loan_amount":              "main",
 	"payout_method":            "loan_amount",
-	"loan_confirm":             "payout_method",
+	"loan_terms":               "payout_method",
+	"loan_confirm":             "loan_terms",
 	"pin_verify_loan":          "loan_confirm",
 	// repay_loan renders a live list of loans rather than a registered menu,
 	// so stepping back off the rail screen returns to main rather than
@@ -62,7 +63,7 @@ var navBackClears = map[string][]string{
 	"pin_change_confirm":   {"new_pin"},
 	"bio_edit":             {"bio_field"},
 	"payout_method":        {"loan_amount_local", "local_currency", "loan_duration", "repayment_schedule", "product_id"},
-	"loan_confirm":         {"payout_method"},
+	"loan_terms":           {"payout_method"},
 }
 
 // navFlowKeys are the in-flight keys discarded when a user jumps home. Anything
@@ -177,6 +178,8 @@ func (h *USSDHandler) renderMenu(ctx context.Context, session *Session, menuID s
 		return h.conWithNav(session, "register_national_id", "reg_enter_national_id"), nil
 	case "loan_amount":
 		return h.showLoanAmountMenu(session)
+	case "loan_terms":
+		return h.backToLoanTerms(ctx, session)
 	case "loan_confirm":
 		return h.showLoanConfirmation(ctx, session)
 	default:

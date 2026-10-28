@@ -374,6 +374,8 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 		return h.handleLoanAmount(ctx, session, input)
 	case "payout_method":
 		return h.handlePayoutMethod(ctx, session, input)
+	case "loan_terms":
+		return h.handleLoanTerms(ctx, session, input)
 	case "loan_confirm":
 		return h.handleLoanConfirm(ctx, session, input)
 	case "my_loans":
@@ -987,11 +989,7 @@ func (h *USSDHandler) handlePayoutMethod(ctx context.Context, session *Session, 
 	default:
 		return h.showMenu(session, "payout_method")
 	}
-	session.CurrentMenu = "loan_confirm"
-	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", sessionSaveErr(session, err)
-	}
-	return h.showLoanConfirmation(ctx, session)
+	return h.toLoanTerms(ctx, session)
 }
 
 // payoutOptionCashPickup is the payout menu key for the MoneyGram rail.
@@ -1016,11 +1014,7 @@ func (h *USSDHandler) cashPickupOnly(ctx context.Context, session *Session) (str
 		return "CON " + h.withNavHint(session, "loan_amount", Format(session.Language, key, currency, limitLocal)), nil
 	}
 	session.Data["payout_method"] = "cash_pickup"
-	session.CurrentMenu = "loan_confirm"
-	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-		return "", sessionSaveErr(session, err)
-	}
-	return h.showLoanConfirmation(ctx, session)
+	return h.toLoanTerms(ctx, session)
 }
 
 // cashPickupOutOfRange reports whether the pending loan converts to an amount
@@ -1094,6 +1088,90 @@ func (h *USSDHandler) cashPickupLimit(ctx context.Context, session *Session) (is
 	default:
 		return false, 0, false
 	}
+}
+
+// toLoanTerms moves a loan with a chosen payout method to the terms screen.
+func (h *USSDHandler) toLoanTerms(ctx context.Context, session *Session) (string, error) {
+	session.CurrentMenu = "loan_terms"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", sessionSaveErr(session, err)
+	}
+	return h.showLoanTerms(ctx, session)
+}
+
+// loanTerms returns the borrower policy terms to disclose, or nil when the
+// loan service has none.
+func (h *USSDHandler) loanTerms(ctx context.Context) (*LoanTerms, error) {
+	provider, ok := h.loanService.(LoanTermsProvider)
+	if !ok {
+		return nil, nil
+	}
+	return provider.GetLoanTerms(ctx)
+}
+
+// showLoanTerms discloses the maximum APR, the most the borrower could repay
+// by the due date, and the late-payment tiers before the PIN screen. With no
+// borrower policy in force there is nothing to disclose and the flow goes
+// straight to confirmation.
+func (h *USSDHandler) showLoanTerms(ctx context.Context, session *Session) (string, error) {
+	terms, err := h.loanTerms(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "loan terms unavailable", slog.Any("error", err))
+		return h.formatError(session.Language, "error"), nil
+	}
+	if terms == nil {
+		session.CurrentMenu = "loan_confirm"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", sessionSaveErr(session, err)
+		}
+		return h.showLoanConfirmation(ctx, session)
+	}
+	cfg := h.loanService.GetProductConfig()
+	if cfg == nil {
+		return h.formatError(session.Language, "error"), nil
+	}
+	body := LoanTermsText(session.Language, cfg.Currency, float64(toInt64(session.Data["loan_amount_local"]))/100,
+		cfg.DurationDays, time.Now(), *terms)
+	return "CON " + h.withNavHint(session, "loan_terms", body), nil
+}
+
+// backToLoanTerms is the back step from confirmation. With no terms to
+// disclose the terms step was skipped, so back continues to the payout menu.
+func (h *USSDHandler) backToLoanTerms(ctx context.Context, session *Session) (string, error) {
+	terms, err := h.loanTerms(ctx)
+	if err == nil && terms != nil {
+		return h.showLoanTerms(ctx, session)
+	}
+	for _, k := range navBackClears["loan_terms"] {
+		delete(session.Data, k)
+	}
+	if h.mobileMoneyBorrowOff {
+		for _, k := range navBackClears["payout_method"] {
+			delete(session.Data, k)
+		}
+		session.CurrentMenu = "loan_amount"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", sessionSaveErr(session, err)
+		}
+		return h.showLoanAmountMenu(session)
+	}
+	session.CurrentMenu = "payout_method"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", sessionSaveErr(session, err)
+	}
+	return h.showMenu(session, "payout_method")
+}
+
+// handleLoanTerms accepts the terms and moves to the PIN screen.
+func (h *USSDHandler) handleLoanTerms(ctx context.Context, session *Session, input string) (string, error) {
+	if input != "1" {
+		return h.showLoanTerms(ctx, session)
+	}
+	session.CurrentMenu = "loan_confirm"
+	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+		return "", sessionSaveErr(session, err)
+	}
+	return h.showLoanConfirmation(ctx, session)
 }
 
 // handleLoanConfirm accepts the PIN entered on the confirmation screen. The

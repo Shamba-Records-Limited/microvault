@@ -402,6 +402,21 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Mkopo wa %s %.0f kwa siku %d\nWeka PIN kuthibitisha:",
 			"fr": "Pret de %s %.0f pour %d jours\nEntrez PIN pour confirmer:",
 		},
+		"loan_terms_rate": {
+			"en": "Interest up to %s%%/yr. Repay at most %s %.0f by %s.",
+			"sw": "Riba hadi %s%%/mwaka. Lipa hadi %s %.0f kufikia %s.",
+			"fr": "Interet max %s%%/an. Remboursez max %s %.0f avant le %s.",
+		},
+		"loan_terms_late": {
+			"en": "Late: +%s%%/yr at day %s; +%s%%/yr more at day %d.",
+			"sw": "Kuchelewa: +%s%%/mwaka siku %s; +%s%%/mwaka zaidi siku %d.",
+			"fr": "Retard: +%s%%/an aux jours %s; +%s%%/an de plus au jour %d.",
+		},
+		"loan_terms_accept": {
+			"en": "1. Accept",
+			"sw": "1. Kubali",
+			"fr": "1. Accepter",
+		},
 		"loan_confirm_summary_fee": {
 			"en": "Loan of %s %.0f for %d days\nFee %s %.0f, you receive %s %.0f\nEnter PIN to confirm:",
 			"sw": "Mkopo wa %s %.0f kwa siku %d\nAda %s %.0f, utapokea %s %.0f\nWeka PIN kuthibitisha:",

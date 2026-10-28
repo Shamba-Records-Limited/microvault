@@ -292,6 +292,22 @@ type LoanProductConfig struct {
 	OriginationFeeBps int32  // One-off fee in bps (1 bps = 0.01 %). Zero when product has none.
 }
 
+// LoanTerms are the borrower policy terms disclosed before a loan is accepted.
+// Rates are annual, in basis points; every tier day but the last adds
+// LateFeeBps, the last adds DefaultPenaltyBps.
+type LoanTerms struct {
+	MaxAPRBps         int32
+	LateFeeBps        int32
+	DefaultPenaltyBps int32
+	PenaltyTierDays   []int32
+}
+
+// LoanTermsProvider is implemented by a LoanService that has a borrower policy
+// to disclose. GetLoanTerms returns nil when no borrower policy is in force.
+type LoanTermsProvider interface {
+	GetLoanTerms(ctx context.Context) (*LoanTerms, error)
+}
+
 // PINService defines the interface for PIN management operations used by the
 // USSD handler. It is satisfied by [pin.Service].
 type PINService interface {

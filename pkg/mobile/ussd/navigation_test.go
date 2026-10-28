@@ -9,6 +9,7 @@ import (
 // pulling from the registry, so they are legitimately absent from it.
 var runtimeRenderedMenus = map[string]bool{
 	"register_national_id": true,
+	"loan_terms":           true,
 	"loan_confirm":         true,
 	"my_details":           true,
 }
