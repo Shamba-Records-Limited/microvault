@@ -36,11 +36,11 @@ GUARDIAN_ALIAS="${GUARDIAN_ALIAS:-guardian}"
 HOLDER="${HOLDER:-GCU7KVTYEPCUZOQPJ6RLNWW64FS3IBHGZTEFWERO7ZZVDQYHMG7W5B6M}"
 # Borrow rate ceiling, WAD-scaled APR (1e18 = 100%). No default: it is the
 # disclosed maximum and must be chosen deliberately. 36% = 360000000000000000.
-MAX_BORROW_RATE="${MAX_BORROW_RATE:-}"
+MAX_BORROW_RATE="${MAX_BORROW_RATE:-240000000000000000}"
 STATE="${STATE:-$HOME/.microvault-vault-share-pricing-$NETWORK.state}"
 # Delay for every op this run schedules, in ledgers (~5s each). Empty = the timelock's min_delay.
 # e.g. 120 ≈ 10 min, 720 ≈ 1 h, 17280 ≈ 24 h, 34560 ≈ 48 h. Must be >= min_delay.
-DELAY="${DELAY:-}"
+DELAY="${DELAY:-120}"
 # -----------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
