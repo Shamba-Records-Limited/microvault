@@ -405,7 +405,7 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 		"loan_terms_rate": {
 			"en": "Interest up to %s%%/yr. Repay at most %s %.0f by %s.",
 			"sw": "Riba hadi %s%%/mwaka. Lipa hadi %s %.0f kufikia %s.",
-			"fr": "Interet max %s%%/an. Remboursez max %s %.0f avant le %s.",
+			"fr": "Taux max %s%%/an. Remboursez max %s %.0f avant le %s.",
 		},
 		"loan_terms_late": {
 			"en": "Late: +%s%%/yr at day %s; +%s%%/yr more at day %d.",

@@ -178,7 +178,7 @@ func (s *service) GetMaxBorrowRate(ctx context.Context) (*types.I128, error) {
 		return nil, err
 	}
 	if result.Type == xdr.ScValTypeScvVoid {
-		return nil, nil
+		return nil, nil //nolint:nilnil // documented contract: nil means the vault is uncapped
 	}
 	rate, err := scValToExactI128(result)
 	if err != nil {

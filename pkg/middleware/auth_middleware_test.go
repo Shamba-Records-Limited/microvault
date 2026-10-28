@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -32,13 +33,13 @@ func newOperatorApp(t *testing.T, lookup OperatorLookup) (*fiber.App, *auth.JWTS
 	return app, jwtSvc
 }
 
-func get(t *testing.T, app *fiber.App, jwtSvc *auth.JWTService, signer string) (int, string) {
+func get(t *testing.T, app *fiber.App, jwtSvc *auth.JWTService, signer string) (status int, role string) {
 	t.Helper()
 	token, _, err := jwtSvc.GenerateTokenWithRole(signer, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.Header.Set("Cookie", "admin_token="+token)
 	resp, err := app.Test(req)
 	if err != nil {

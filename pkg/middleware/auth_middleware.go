@@ -80,7 +80,7 @@ func (m *AuthMiddleware) RequireAuth() fiber.Handler {
 }
 
 // authorize returns the signer's current role, or a non-zero HTTP status.
-func (m *AuthMiddleware) authorize(ctx context.Context, address string) (string, int) {
+func (m *AuthMiddleware) authorize(ctx context.Context, address string) (role string, status int) {
 	if address == m.config.AdminPublicKey {
 		return auth.RoleAdmin, 0
 	}

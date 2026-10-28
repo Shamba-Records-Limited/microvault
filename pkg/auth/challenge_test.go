@@ -232,7 +232,7 @@ func TestChallengeFor_TheNamedAccountMustSign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.VerifySignedChallengeFor(context.Background(), c.ID, signChallenge(t, c.Transaction, admin)); err != ErrInvalidSignature {
+	if _, err := svc.VerifySignedChallengeFor(context.Background(), c.ID, signChallenge(t, c.Transaction, admin)); !errors.Is(err, ErrInvalidSignature) {
 		t.Fatalf("admin signing an operator's challenge: got %v, want ErrInvalidSignature", err)
 	}
 

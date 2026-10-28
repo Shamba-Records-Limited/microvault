@@ -1104,7 +1104,7 @@ func (h *USSDHandler) toLoanTerms(ctx context.Context, session *Session) (string
 func (h *USSDHandler) loanTerms(ctx context.Context) (*LoanTerms, error) {
 	provider, ok := h.loanService.(LoanTermsProvider)
 	if !ok {
-		return nil, nil
+		return nil, nil //nolint:nilnil // no provider means no borrower policy to disclose
 	}
 	return provider.GetLoanTerms(ctx)
 }

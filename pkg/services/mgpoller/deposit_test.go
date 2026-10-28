@@ -153,7 +153,7 @@ type fakeVaultRepayer struct {
 	err  error
 }
 
-func (v *fakeVaultRepayer) RepayForBorrower(_ context.Context, loanID, borrower string) (string, int64, error) {
+func (v *fakeVaultRepayer) RepayForBorrower(_ context.Context, loanID, borrower string) (txHash string, repaid int64, err error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.calls = append(v.calls, struct {
