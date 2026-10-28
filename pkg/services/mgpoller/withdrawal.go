@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
@@ -29,6 +31,10 @@ const (
 	statusRefundPending  = "refund_pending"
 	statusRefundReceived = "refund_received"
 )
+
+const payoutSendWindow = 30 * time.Minute
+
+const subjectPayoutBlocked = "MoneyGram payout blocked before send"
 
 // refundAssetCode is the asset a MoneyGram refund must arrive in. A payment in
 // any other asset is not a settlement of this loan.
@@ -135,6 +141,10 @@ func (p *Poller) driveLoan(ctx context.Context, rec LoanRecord) {
 	}
 }
 
+func withdrawMemo(tx *stellaranchor.Transaction) offramp.Memo {
+	return offramp.Memo{Value: tx.WithdrawMemo, Type: offramp.MemoType(tx.WithdrawMemoType)}
+}
+
 // handlePendingUserTransferStart sends treasury USDC to MG's anchor account
 // using the memo MG provided. Idempotency is best-effort; see doc.go.
 func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
@@ -152,11 +162,23 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 	if tx.WithdrawAnchorAccount == "" {
 		p.logger.ErrorContext(ctx, "pending_user_transfer_start without withdraw_anchor_account",
 			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID)
+		p.alertPayoutBlocked(ctx, rec, "MoneyGram returned no withdraw_anchor_account")
 		return
 	}
 	if rec.PrincipalStroops <= 0 {
 		p.logger.ErrorContext(ctx, "loan has no principal_stroops to send",
 			"loan_id", rec.LoanID)
+		p.alertPayoutBlocked(ctx, rec, "the loan has no principal_stroops to send")
+		return
+	}
+	memo := withdrawMemo(tx)
+	if err := memo.Validate(); err != nil {
+		p.logger.ErrorContext(ctx, "withdraw memo cannot be sent as its declared type; refusing to send",
+			"loan_id", rec.LoanID, "mg_tx_id", rec.MoneyGramTxID,
+			"withdraw_memo", tx.WithdrawMemo, "withdraw_memo_type", tx.WithdrawMemoType,
+			"error", err)
+		p.alertPayoutBlocked(ctx, rec, fmt.Sprintf("withdraw memo %q cannot be sent as type %q: %v",
+			tx.WithdrawMemo, tx.WithdrawMemoType, err))
 		return
 	}
 
@@ -165,17 +187,19 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 	if err := p.recorder.RecordSendAttempt(ctx, rec.LoanID); err != nil {
 		p.logger.ErrorContext(ctx, "could not claim send attempt; refusing to send",
 			"loan_id", rec.LoanID, "error", err)
+		p.alertPayoutBlocked(ctx, rec, fmt.Sprintf("the send claim could not be written: %v", err))
 		return
 	}
 
 	p.logger.InfoContext(ctx, "sending USDC to MoneyGram anchor",
 		"loan_id", rec.LoanID,
 		"destination", tx.WithdrawAnchorAccount,
-		"memo", tx.WithdrawMemo,
+		"memo", memo.Value,
+		"memo_type", memo.Type,
 		"amount_stroops", rec.PrincipalStroops,
 	)
 
-	txHash, err := p.treasury.SendUSDC(ctx, tx.WithdrawAnchorAccount, tx.WithdrawMemo, rec.PrincipalStroops)
+	txHash, err := p.treasury.SendUSDC(ctx, tx.WithdrawAnchorAccount, memo, rec.PrincipalStroops)
 	if err != nil {
 		p.logger.ErrorContext(ctx, "SendUSDC failed",
 			"loan_id", rec.LoanID, "error", err)
@@ -209,6 +233,13 @@ func (p *Poller) handlePendingUserTransferStart(ctx context.Context, rec LoanRec
 		p.logger.WarnContext(ctx, "failed to record SendUSDC tx hash",
 			"loan_id", rec.LoanID, "error", err)
 	}
+}
+
+func (p *Poller) alertPayoutBlocked(ctx context.Context, rec LoanRecord, reason string) {
+	p.alertOps(ctx, subjectPayoutBlocked,
+		fmt.Sprintf("Loan %s (MG %s): USDC not sent because %s. MoneyGram cancels the payout if the "+
+			"USDC does not arrive within %s of pending_user_transfer_start.",
+			rec.LoanID, rec.MoneyGramTxID, reason, payoutSendWindow))
 }
 
 var payoutDrift, _ = telemetry.Meter().Int64Counter("microvault.moneygram.payout_drift",

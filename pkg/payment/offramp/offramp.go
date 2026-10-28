@@ -98,7 +98,7 @@ type ProviderPayload interface {
 // external Stellar address. Implemented by Stellar service adapters; injected
 // into off-ramp providers that need to settle on-chain.
 type TreasuryTransfer interface {
-	SendUSDC(ctx context.Context, destination string, memo string, amount int64) (txHash string, err error)
+	SendUSDC(ctx context.Context, destination string, memo Memo, amount int64) (txHash string, err error)
 	CheckUSDCTrustline(ctx context.Context, address string) (hasTrustline bool, err error)
 }
 

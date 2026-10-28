@@ -144,7 +144,7 @@ func (a *FonbnkOffRampAdapter) Initiate(ctx context.Context, req offramp.Request
 		"deposit_address", address,
 		"amount_stroops", req.AmountStroops)
 
-	txHash, err := a.treasury.SendUSDC(ctx, address, memo, req.AmountStroops)
+	txHash, err := a.treasury.SendUSDC(ctx, address, offramp.TextMemo(memo), req.AmountStroops)
 	if err != nil {
 		// No funds moved, so the order is dead weight. Cancelling keeps
 		// Fonbnk's dashboard honest but must not mask the send failure.

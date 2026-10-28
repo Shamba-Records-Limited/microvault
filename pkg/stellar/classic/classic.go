@@ -2,6 +2,7 @@ package classic
 
 import (
 	"context"
+	"encoding/base64"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -613,8 +614,7 @@ func (s *service) AccountExists(ctx context.Context, address string) (bool, erro
 	return true, nil
 }
 
-// SendUSDC sends USDC directly from the treasury wallet to a destination Stellar address
-// with a text memo.
+// SendUSDC sends USDC directly from the treasury wallet to a destination Stellar address.
 func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "stellar.SendUSDC")
 	defer span.End()
@@ -634,6 +634,14 @@ func (s *service) sendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 
 	if req.Amount <= 0 {
 		return nil, types.ErrInvalidTransactionAmount
+	}
+
+	var memo txnbuild.Memo
+	if req.Memo != "" {
+		if memo, err = paymentMemo(req.Memo, req.MemoType); err != nil {
+			s.logger.ErrorContext(ctx, "SendUSDC: invalid memo", slog.String("memo_type", req.MemoType), slog.String("error", err.Error()))
+			return nil, err
+		}
 	}
 
 	// 2. Validate destination has USDC trustline
@@ -686,11 +694,7 @@ func (s *service) sendUSDC(ctx context.Context, req types.SendUSDCRequest) (*typ
 			TimeBounds: txnbuild.NewTimeout(300),
 		},
 		Operations: ops,
-	}
-
-	// Add text memo if provided
-	if req.Memo != "" {
-		txParams.Memo = txnbuild.MemoText(req.Memo)
+		Memo:       memo,
 	}
 
 	tx, err := txnbuild.NewTransaction(txParams)
@@ -813,4 +817,33 @@ func hasAssetTrustline(ctx context.Context, client RPCClient, accountID string, 
 	}
 
 	return true, nil
+}
+
+func paymentMemo(value, memoType string) (txnbuild.Memo, error) {
+	errb := func() oops.OopsErrorBuilder {
+		return classicErr("build_memo").Code(pkgErrors.CodeInvalidMemo).With("memo_type", memoType)
+	}
+	switch memoType {
+	case "text":
+		if len(value) > 28 {
+			return nil, errb().With("memo_bytes", len(value)).Wrapf(types.ErrInvalidMemo, "text memo exceeds 28 bytes")
+		}
+		return txnbuild.MemoText(value), nil
+	case "id":
+		id, err := strconv.ParseUint(value, 10, 64)
+		if err != nil {
+			return nil, errb().With("memo", value).Wrapf(types.ErrInvalidMemo, "id memo is not an unsigned 64-bit integer")
+		}
+		return txnbuild.MemoID(id), nil
+	case "hash":
+		raw, err := base64.StdEncoding.DecodeString(value)
+		if err != nil || len(raw) != 32 {
+			return nil, errb().Wrapf(types.ErrInvalidMemo, "hash memo is not 32 base64-encoded bytes")
+		}
+		var h txnbuild.MemoHash
+		copy(h[:], raw)
+		return h, nil
+	default:
+		return nil, errb().Wrapf(types.ErrInvalidMemo, "unsupported memo type")
+	}
 }
