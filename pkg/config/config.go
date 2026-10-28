@@ -162,6 +162,11 @@ type StellarConfig struct {
 	// contract events. From VAULT_WATCH_INTERVAL, default 5 minutes.
 	VaultWatchInterval time.Duration
 
+	// ReserveAddress is the reserve account that receives penalty income and
+	// the origination-fee share, and funds write-off cushions. From
+	// RESERVE_ADDRESS; empty holds reserve credits in the ledger unsent.
+	ReserveAddress string
+
 	// VaultRepayMaxAttempts caps the inline treasury-to-vault repay attempts
 	// for an unwound disbursement before the reconciler takes the loan over.
 	// From VAULT_REPAY_MAX_ATTEMPTS, default 5.
@@ -820,6 +825,16 @@ func New() (*Config, error) {
 		}
 	}
 
+	reserveAddress := strings.TrimSpace(os.Getenv("RESERVE_ADDRESS"))
+	if reserveAddress != "" {
+		if !strkey.IsValidEd25519PublicKey(reserveAddress) {
+			return nil, fmt.Errorf("RESERVE_ADDRESS must be a G... account address")
+		}
+		if reserveAddress == treasuryPublicFromSecret(treasurySecretKey) {
+			return nil, fmt.Errorf("RESERVE_ADDRESS must differ from the treasury account")
+		}
+	}
+
 	if err := validateUSDCIssuerAlignment(mgUSDCIssuer, usdcIssuer); err != nil {
 		return nil, err
 	}
@@ -937,6 +952,7 @@ func New() (*Config, error) {
 			AccountIndexBase:        accountIndexBase,
 			VaultWatchInterval:      firstNonZeroDuration(vaultWatchInterval, 5*time.Minute),
 
+			ReserveAddress:              reserveAddress,
 			VaultRepayMaxAttempts:       firstNonZeroInt(vaultRepayMaxAttempts, 5),
 			VaultRepaySettlementWindow:  firstNonZeroDuration(vaultRepayWindow, time.Hour),
 			VaultRepayRetryBackoff:      firstNonZeroDuration(vaultRepayBackoff, time.Hour),
@@ -1665,4 +1681,14 @@ func firstNonZeroInt(v, fallback int) int {
 		return fallback
 	}
 	return v
+}
+
+// treasuryPublicFromSecret returns the account address of a secret seed, or
+// "" if it does not parse.
+func treasuryPublicFromSecret(secret string) string {
+	kp, err := keypair.ParseFull(secret)
+	if err != nil {
+		return ""
+	}
+	return kp.Address()
 }
