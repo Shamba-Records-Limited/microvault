@@ -80,6 +80,9 @@ const (
 	// a boot-time failure, never a runtime one.
 	CodeMissingDependency = "missing_dependency"
 
+	// CodeInvalidConfig is a setting outside the range a constructor accepts.
+	CodeInvalidConfig = "invalid_config"
+
 	// CodeInvalidAmount is a money value that is non-positive or outside the
 	// range a provider accepts.
 	CodeInvalidAmount = "invalid_amount"
@@ -91,6 +94,9 @@ const (
 	// CodeInvalidDeadline is a deadline that cannot be sent on-chain, such as
 	// a time before the unix epoch.
 	CodeInvalidDeadline = "invalid_deadline"
+
+	// CodeInvalidMemo is a Stellar memo that cannot be sent as its declared type.
+	CodeInvalidMemo = "invalid_memo"
 
 	// CodeBelowAnchorMinimum is an amount under a provider's floor — for
 	// MoneyGram deposits, 15 USDC. Distinct from CodeInvalidAmount because the

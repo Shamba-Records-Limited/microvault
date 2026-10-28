@@ -40,24 +40,26 @@ func NewStellarTreasuryTransfer(stellar StellarSendUSDC, logger *slog.Logger) *S
 
 var _ offramp.TreasuryTransfer = (*StellarTreasuryTransfer)(nil)
 
-// SendUSDC sends USDC from the treasury wallet to a destination address with a memo.
-func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination string, memo string, amount int64) (string, error) {
+// SendUSDC sends USDC from the treasury wallet to a destination address.
+func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination string, memo offramp.Memo, amount int64) (string, error) {
 	t.logger.InfoContext(ctx, "initiating treasury USDC transfer",
 		"destination", destination,
-		"memo", memo,
+		"memo", memo.Value,
+		"memo_type", memo.Type,
 		"amount_stroops", amount,
 		"amount_usdc", float64(amount)/1e7,
 	)
 
 	resp, err := t.stellar.SendUSDC(ctx, types.SendUSDCRequest{
 		Destination: destination,
-		Memo:        memo,
+		Memo:        memo.Value,
+		MemoType:    string(memo.Type),
 		Amount:      amount,
 	})
 	if err != nil {
 		return "", oops.In(pkgErrors.DomainStellarClassic).Tags("treasury").
 			With(pkgErrors.AttrOperation, "transfer_usdc").
-			With("destination", destination).With("memo", memo).With(pkgErrors.AttrAmountStroops, amount).
+			With("destination", destination).With("memo", memo.Value).With("memo_type", memo.Type).With(pkgErrors.AttrAmountStroops, amount).
 			Code(pkgErrors.CodeSubmitFailed).
 			Wrapf(err, "treasury USDC transfer failed")
 	}
@@ -67,7 +69,8 @@ func (t *StellarTreasuryTransfer) SendUSDC(ctx context.Context, destination stri
 		"ledger", resp.Ledger,
 		"status", resp.Status,
 		"destination", destination,
-		"memo", memo,
+		"memo", memo.Value,
+		"memo_type", memo.Type,
 		"amount_stroops", amount,
 		"amount_usdc", float64(amount)/1e7,
 	)

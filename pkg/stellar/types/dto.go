@@ -56,7 +56,8 @@ type SponsoredPaymentTransactionResponse struct {
 // to an external Stellar address.
 type SendUSDCRequest struct {
 	Destination string // Stellar address to send USDC to
-	Memo        string // Text memo
+	Memo        string // empty sends no memo
+	MemoType    string // "text", "id" or "hash"
 	Amount      int64  // Amount in stroops (USDC * 10^7)
 }
 

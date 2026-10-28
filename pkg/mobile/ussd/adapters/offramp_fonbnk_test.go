@@ -80,12 +80,12 @@ type fakeTreasury struct {
 	txHash    string
 	err       error
 	sentTo    string
-	sentMemo  string
+	sentMemo  offramp.Memo
 	sentAmt   int64
 	sendCalls int
 }
 
-func (f *fakeTreasury) SendUSDC(_ context.Context, destination, memo string, amount int64) (string, error) {
+func (f *fakeTreasury) SendUSDC(_ context.Context, destination string, memo offramp.Memo, amount int64) (string, error) {
 	f.sendCalls++
 	if f.err != nil {
 		return "", f.err
@@ -158,7 +158,7 @@ func TestFonbnkInitiate_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "GFONBNK", treasury.sentTo, "USDC goes to the address on the order")
-	assert.Equal(t, "memo-42", treasury.sentMemo)
+	assert.Equal(t, offramp.TextMemo("memo-42"), treasury.sentMemo)
 	assert.Equal(t, int64(200_000_000), treasury.sentAmt)
 	assert.Equal(t, "stellar-tx", client.confirmed["ord-1"], "the confirm carries the on-chain hash")
 

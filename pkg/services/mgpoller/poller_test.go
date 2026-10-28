@@ -20,6 +20,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/moneygram"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/stellaranchor"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
@@ -306,11 +307,12 @@ type fakeTreasury struct {
 }
 
 type sendCall struct {
-	dest, memo string
-	stroops    int64
+	dest    string
+	memo    offramp.Memo
+	stroops int64
 }
 
-func (t *fakeTreasury) SendUSDC(_ context.Context, dest, memo string, stroops int64) (string, error) {
+func (t *fakeTreasury) SendUSDC(_ context.Context, dest string, memo offramp.Memo, stroops int64) (string, error) {
 	t.calls = append(t.calls, sendCall{dest, memo, stroops})
 	if t.err != nil {
 		return "", t.err
@@ -380,7 +382,7 @@ func TestPoller_PendingUserTransferStart_SendsUSDC(t *testing.T) {
 	p, srv, fetcher, recorder, disb, treas, _ := newTestPoller(t)
 	srv.setTransactionJSON(`{"transaction":{
 		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
-		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242","withdraw_memo_type":"id"
 	}}`)
 
 	fetcher.loans = []LoanRecord{{
@@ -394,18 +396,79 @@ func TestPoller_PendingUserTransferStart_SendsUSDC(t *testing.T) {
 
 	require.Len(t, treas.calls, 1)
 	assert.Equal(t, "GANCHOR", treas.calls[0].dest)
-	assert.Equal(t, "4242", treas.calls[0].memo)
+	assert.Equal(t, offramp.Memo{Value: "4242", Type: offramp.MemoTypeID}, treas.calls[0].memo)
 	assert.Equal(t, int64(500_000_000), treas.calls[0].stroops)
 	assert.Equal(t, "stellar-tx-hash", recorder.sendHash)
 	// No state transition yet — MG hasn't observed the payment.
 	assert.Empty(t, disb.statuses)
 }
 
+func TestPoller_PendingUserTransferStart_UnsendableMemo_RefusesBeforeClaim(t *testing.T) {
+	cases := map[string]string{
+		"missing type":   `"withdraw_memo":"4242"`,
+		"unknown type":   `"withdraw_memo":"4242","withdraw_memo_type":"return"`,
+		"id not numeric": `"withdraw_memo":"MG-4242","withdraw_memo_type":"id"`,
+	}
+	for name, memo := range cases {
+		t.Run(name, func(t *testing.T) {
+			p, srv, fetcher, recorder, _, treas, alerts := newTestPoller(t)
+			srv.setTransactionJSON(`{"transaction":{
+				"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
+				"withdraw_anchor_account":"GANCHOR",` + memo + `
+			}}`)
+			fetcher.loans = []LoanRecord{{
+				LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+				PrincipalStroops: 500_000_000,
+			}}
+			p.poll(context.Background())
+
+			assert.Empty(t, treas.calls)
+			assert.Zero(t, recorder.claims, "a refused send must not consume the claim")
+			assert.Equal(t, []string{subjectPayoutBlocked}, alerts.calls)
+		})
+	}
+}
+
+func TestPoller_PendingUserTransferStart_ClaimFails_PagesPayoutBlocked(t *testing.T) {
+	p, srv, fetcher, recorder, _, treas, alerts := newTestPoller(t)
+	recorder.claimErr = errors.New("db down")
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242","withdraw_memo_type":"id"
+	}}`)
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+		PrincipalStroops: 500_000_000,
+	}}
+	p.poll(context.Background())
+
+	assert.Empty(t, treas.calls)
+	require.Len(t, alerts.calls, 1)
+	assert.Equal(t, subjectPayoutBlocked, alerts.calls[0])
+	assert.Contains(t, alerts.bodies[0], "db down")
+}
+
+func TestPoller_PendingUserTransferStart_Sends_NoPayoutBlockedAlert(t *testing.T) {
+	p, srv, fetcher, _, _, treas, alerts := newTestPoller(t)
+	srv.setTransactionJSON(`{"transaction":{
+		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242","withdraw_memo_type":"id"
+	}}`)
+	fetcher.loans = []LoanRecord{{
+		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
+		PrincipalStroops: 500_000_000,
+	}}
+	p.poll(context.Background())
+
+	require.Len(t, treas.calls, 1)
+	assert.NotContains(t, alerts.calls, subjectPayoutBlocked)
+}
+
 func TestPoller_PendingUserTransferStart_AlreadySent_Skips(t *testing.T) {
 	p, srv, fetcher, _, _, treas, _ := newTestPoller(t)
 	srv.setTransactionJSON(`{"transaction":{
 		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
-		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242",
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242","withdraw_memo_type":"id",
 		"stellar_transaction_id":"already-sent"
 	}}`)
 
@@ -427,7 +490,7 @@ func TestPoller_PendingUserTransferStart_LocalSendMarker_PreventsDoubleSpend(t *
 	// Note: no stellar_transaction_id — MG has not echoed the payment yet.
 	srv.setTransactionJSON(`{"transaction":{
 		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
-		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242","withdraw_memo_type":"id"
 	}}`)
 
 	rec := LoanRecord{
@@ -458,7 +521,7 @@ func TestPoller_PendingUserTransferStart_ClaimsBeforeSending(t *testing.T) {
 	p, srv, fetcher, recorder, _, treas, _ := newTestPoller(t)
 	srv.setTransactionJSON(`{"transaction":{
 		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
-		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242","withdraw_memo_type":"id"
 	}}`)
 	fetcher.loans = []LoanRecord{{
 		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
@@ -479,7 +542,7 @@ func TestPoller_PendingUserTransferStart_ClaimFails_DoesNotSend(t *testing.T) {
 	recorder.claimErr = fmt.Errorf("db down")
 	srv.setTransactionJSON(`{"transaction":{
 		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
-		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242","withdraw_memo_type":"id"
 	}}`)
 	fetcher.loans = []LoanRecord{{
 		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
@@ -498,7 +561,7 @@ func TestPoller_PendingUserTransferStart_OnLedgerFailure_ReleasesClaim(t *testin
 	treas.err = fmt.Errorf("treasury USDC transfer failed: %w", types.ErrTransactionFailedOnLedger)
 	srv.setTransactionJSON(`{"transaction":{
 		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
-		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242","withdraw_memo_type":"id"
 	}}`)
 	fetcher.loans = []LoanRecord{{
 		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
@@ -519,7 +582,7 @@ func TestPoller_PendingUserTransferStart_UnknownOutcome_KeepsClaim(t *testing.T)
 	treas.err = fmt.Errorf("context deadline exceeded")
 	srv.setTransactionJSON(`{"transaction":{
 		"id":"mg-1","kind":"withdrawal","status":"pending_user_transfer_start",
-		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242"
+		"withdraw_anchor_account":"GANCHOR","withdraw_memo":"4242","withdraw_memo_type":"id"
 	}}`)
 	fetcher.loans = []LoanRecord{{
 		LoanID: "L-1", SequenceID: "L-1", MoneyGramTxID: "mg-1",
@@ -1012,6 +1075,23 @@ func TestPoller_PendingUser_LogsOnly(t *testing.T) {
 func TestPoller_RejectsBadConfig(t *testing.T) {
 	_, err := NewPoller(PollerDeps{Config: DefaultConfig()})
 	require.Error(t, err)
+}
+
+func TestPoller_RejectsPollIntervalBeyondSendWindow(t *testing.T) {
+	p, _, _, _, _, _, _ := newTestPoller(t)
+	deps := func(interval time.Duration) PollerDeps {
+		cfg := DefaultConfig()
+		cfg.PollInterval = interval
+		return PollerDeps{
+			Client: p.client, Fetcher: p.fetcher, Recorder: p.recorder,
+			Disbursement: p.disbursement, Treasury: p.treasury, Config: cfg,
+		}
+	}
+
+	_, err := NewPoller(deps(maxWithdrawalPollInterval + time.Second))
+	require.Error(t, err)
+	_, err = NewPoller(deps(maxWithdrawalPollInterval))
+	require.NoError(t, err)
 }
 
 func TestPoller_StartShutsDownOnContextCancel(t *testing.T) {
