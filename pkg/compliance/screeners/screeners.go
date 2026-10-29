@@ -88,3 +88,12 @@ func NewTransaction(cfg config.ComplianceConfig, th Thresholds) (compliance.Tran
 	}
 	return compliance.CombineTx(providers...), nil
 }
+
+// KYBVerifier returns the Didit client for lender KYB, or nil when Didit KYB
+// is not configured (no API key or no KYB workflow).
+func KYBVerifier(cfg config.ComplianceConfig) *didit.Client {
+	if cfg.DiditAPIKey == "" || cfg.DiditKYBWorkflowID == "" {
+		return nil
+	}
+	return didit.NewClient(didit.Config{APIKey: cfg.DiditAPIKey, BaseURL: cfg.DiditBaseURL, Chain: VaultChain})
+}

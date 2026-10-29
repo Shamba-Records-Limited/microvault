@@ -47,3 +47,9 @@ func TestTransactionScreeners(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not support Stellar")
 }
+
+func TestKYBVerifierNeedsKeyAndWorkflow(t *testing.T) {
+	assert.Nil(t, screeners.KYBVerifier(config.ComplianceConfig{DiditAPIKey: "k"}))
+	assert.Nil(t, screeners.KYBVerifier(config.ComplianceConfig{DiditKYBWorkflowID: "wf"}))
+	assert.NotNil(t, screeners.KYBVerifier(config.ComplianceConfig{DiditAPIKey: "k", DiditKYBWorkflowID: "wf"}))
+}

@@ -19,6 +19,8 @@ type Repositories struct {
 	AirtelSummaryCursor AirtelSummaryCursorRepository
 	VaultWatchCursor    VaultWatchCursorRepository
 	Counterparty        CounterpartyRepository
+	KYB                 KYBRepository
+	DepositScreening    DepositScreeningRepository
 }
 
 func NewRepositories(db *gorm.DB) (*Repositories, error) {
@@ -80,6 +82,14 @@ func NewRepositories(db *gorm.DB) (*Repositories, error) {
 	if err != nil {
 		return nil, err
 	}
+	kyb, err := NewKYBRepository(db)
+	if err != nil {
+		return nil, err
+	}
+	depositScreening, err := NewDepositScreeningRepository(db)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Repositories{
 		// Core repositories
@@ -94,5 +104,7 @@ func NewRepositories(db *gorm.DB) (*Repositories, error) {
 		AirtelSummaryCursor: airtelSummaryCursor,
 		VaultWatchCursor:    vaultWatchCursor,
 		Counterparty:        counterparty,
+		KYB:                 kyb,
+		DepositScreening:    depositScreening,
 	}, nil
 }

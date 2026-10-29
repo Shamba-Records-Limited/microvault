@@ -9,6 +9,7 @@ import (
 	"gorm.io/datatypes"
 
 	pkgcompliance "github.com/Shamba-Records-Limited/microvault/pkg/compliance"
+	"github.com/Shamba-Records-Limited/microvault/pkg/compliance/didit"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 )
@@ -21,6 +22,7 @@ type Service struct {
 	repo              repository.CounterpartyRepository
 	screener          pkgcompliance.Screener
 	screeningValidity time.Duration
+	requireVerified   bool
 	logger            *slog.Logger
 }
 
@@ -30,7 +32,10 @@ type Deps struct {
 	Repo              repository.CounterpartyRepository
 	Screener          pkgcompliance.Screener
 	ScreeningValidity time.Duration
-	Logger            *slog.Logger
+	// RequireKYBVerified refuses ApproveKYB until the KYB provider has
+	// approved the business; set when Didit is configured.
+	RequireKYBVerified bool
+	Logger             *slog.Logger
 }
 
 // NewService builds the lifecycle service.
@@ -47,6 +52,7 @@ func NewService(deps Deps) *Service {
 		repo:              deps.Repo,
 		screener:          deps.Screener,
 		screeningValidity: validity,
+		requireVerified:   deps.RequireKYBVerified,
 		logger:            logger.With("component", "compliance_lifecycle"),
 	}
 }
@@ -94,6 +100,15 @@ func (s *Service) SubmitAddress(ctx context.Context, counterpartyID, address str
 // ApproveKYB approves the counterparty's KYB status, then screens every
 // address already on file.
 func (s *Service) ApproveKYB(ctx context.Context, counterpartyID, actor string) error {
+	if s.requireVerified {
+		cp, err := s.repo.GetByID(ctx, counterpartyID)
+		if err != nil {
+			return err
+		}
+		if cp.KYBSessionStatus != didit.StatusApproved {
+			return ErrKYBNotVerified
+		}
+	}
 	if err := s.repo.ApproveKYB(ctx, counterpartyID, actor); err != nil {
 		return err
 	}

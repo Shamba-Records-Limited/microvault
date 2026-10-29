@@ -41,6 +41,14 @@ type Counterparty struct {
 	// not a user-UUID FK.
 	KYBApprovedBy *string `json:"kyb_approved_by,omitempty" gorm:"column:kyb_approved_by"`
 
+	// KYB verification session with the provider (Didit): its id, the
+	// hosted link sent to the lender, and the provider's latest status.
+	KYBProvider      string     `json:"kyb_provider,omitempty" gorm:"column:kyb_provider;type:varchar(20);not null;default:''"`
+	KYBSessionID     *string    `json:"kyb_session_id,omitempty" gorm:"column:kyb_session_id;type:varchar(80)"`
+	KYBSessionURL    string     `json:"kyb_session_url,omitempty" gorm:"column:kyb_session_url;not null;default:''"`
+	KYBSessionStatus string     `json:"kyb_session_status,omitempty" gorm:"column:kyb_session_status;type:varchar(20);not null;default:''"`
+	KYBSessionAt     *time.Time `json:"kyb_session_at,omitempty" gorm:"column:kyb_session_at"`
+
 	Addresses []CounterpartyAddress `json:"addresses,omitempty" gorm:"foreignKey:CounterpartyID"`
 
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime;not null"`
