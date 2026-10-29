@@ -30,8 +30,8 @@ type OnchainSigner interface {
 	ExitDeadline(ctx context.Context, address string) (*time.Time, error)
 }
 
-// OnchainWriter is the separate worker the source design doc §14 calls
-// for: "the admin writes intent to counterparty_addresses and a separate
+// OnchainWriter is the separate worker that keeps signing out of the admin:
+// "the admin writes intent to counterparty_addresses and a separate
 // worker performs the on-chain write and reconciles onchain_state — which
 // keeps signing keys out of the web process." It runs in the credit
 // backend (which already holds the treasury/admin keys), not cmd/admin.

@@ -41,6 +41,11 @@ type exitDeadlineStore interface {
 	SetExitWarningLevel(ctx context.Context, id string, level int) error
 }
 
+// depositQueue queues vault deposits for transaction screening.
+type depositQueue interface {
+	Enqueue(ctx context.Context, d *models.DepositScreening) error
+}
+
 // Ops alert subjects. The frozen one pages: the contract should make it
 // impossible.
 const (
@@ -70,6 +75,7 @@ type Watcher struct {
 	deadlines  exitDeadlineStore
 	alerts     alerts.Service
 	cursor     repository.VaultWatchCursorRepository
+	deposits   depositQueue
 	contractID string
 	interval   time.Duration
 	logger     *slog.Logger
@@ -77,11 +83,13 @@ type Watcher struct {
 
 // WatcherDeps are Watcher's collaborators; all required except Logger.
 type WatcherDeps struct {
-	Client     eventsClient
-	Allowlist  allowlistChecker
-	Deadlines  exitDeadlineStore
-	Alerts     alerts.Service
-	Cursor     repository.VaultWatchCursorRepository
+	Client    eventsClient
+	Allowlist allowlistChecker
+	Deadlines exitDeadlineStore
+	Alerts    alerts.Service
+	Cursor    repository.VaultWatchCursorRepository
+	// Deposits queues deposits for transaction screening; nil turns it off.
+	Deposits   depositQueue
 	ContractID string
 	Interval   time.Duration
 	Logger     *slog.Logger
@@ -99,6 +107,7 @@ func NewWatcher(deps WatcherDeps) *Watcher {
 		deadlines:  deps.Deadlines,
 		alerts:     deps.Alerts,
 		cursor:     deps.Cursor,
+		deposits:   deps.Deposits,
 		contractID: deps.ContractID,
 		interval:   deps.Interval,
 		logger:     logger.With("component", "vault_watcher"),
@@ -199,7 +208,9 @@ func (w *Watcher) inspect(ctx context.Context, info protocol.EventInfo) {
 		return
 	}
 	switch event.Kind {
-	case soroban.VaultEventDeposit, soroban.VaultEventTransfer:
+	case soroban.VaultEventDeposit:
+		w.queueDeposit(ctx, info, event)
+	case soroban.VaultEventTransfer:
 	case soroban.VaultEventWithdraw:
 		w.checkFrozenWithdraw(ctx, info, event.Addresses[2])
 		return
@@ -231,6 +242,24 @@ func (w *Watcher) inspect(ctx context.Context, info protocol.EventInfo) {
 				"ledger", info.Ledger,
 			)
 		}
+	}
+}
+
+// queueDeposit queues a deposit's transaction for screening. Topics are
+// (operator, from, receiver); the funds come from "from".
+func (w *Watcher) queueDeposit(ctx context.Context, info protocol.EventInfo, event soroban.VaultEvent) {
+	if w.deposits == nil || len(event.Addresses) < 2 {
+		return
+	}
+	if err := w.deposits.Enqueue(ctx, &models.DepositScreening{
+		EventID:   info.ID,
+		TxHash:    info.TransactionHash,
+		Ledger:    int64(info.Ledger),
+		Depositor: event.Addresses[1],
+		Receiver:  w.contractID,
+	}); err != nil {
+		w.logger.ErrorContext(ctx, "could not queue a vault deposit for screening",
+			"event_id", info.ID, "tx_hash", info.TransactionHash, "error", err)
 	}
 }
 

@@ -513,7 +513,7 @@ func (h *USSDHandler) handleRegistration(ctx context.Context, session *Session, 
 
 // handleRegistrationNationalID stores the (required) national ID and advances
 // straight to PIN creation. Bio and security questions are deferred to the
-// account menu (see ussd-registration-redesign) to keep the flow inside the
+// account menu to keep the flow inside the
 // USSD session budget. Nothing is persisted until the PIN is confirmed, so a
 // dropped session leaves no half-registered account.
 func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session *Session, input string) (string, error) {
@@ -2390,7 +2390,7 @@ func (h *USSDHandler) handlePINRecoveryNationalID(ctx context.Context, session *
 	//     the national-ID-only path is closed for that user).
 	//   - not set -> proceed straight to a new PIN on this SIM.
 	//
-	// See ussd-registration-redesign: refusing a reset here used to strand any
+	// Refusing a reset here used to strand any
 	// user who never completed the (previously unreachable) security-question
 	// step — a forgotten PIN meant a permanently unusable account.
 	if session.Data["recovery_q1_id"] == nil || session.Data["recovery_q2_id"] == nil {

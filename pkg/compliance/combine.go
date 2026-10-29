@@ -54,16 +54,54 @@ func Combine(providers ...Named) Screener {
 type combined []Named
 
 func (c combined) ScreenAddress(ctx context.Context, req ScreenRequest) (*Screening, error) {
-	parts := make([]*Screening, len(c))
-	g, gctx := errgroup.WithContext(ctx)
+	names := make([]string, len(c))
 	for i, p := range c {
+		names[i] = p.Name
+	}
+	return merge(ctx, names, req.Address, "", func(ctx context.Context, i int) (*Screening, error) {
+		return c[i].Screener.ScreenAddress(ctx, req)
+	})
+}
+
+// NamedTx pairs a TransactionScreener with the provider name it reports.
+type NamedTx struct {
+	Name     string
+	Screener TransactionScreener
+}
+
+// CombineTx screens a transaction with every provider and keeps the
+// strictest verdict, as Combine does for addresses.
+func CombineTx(providers ...NamedTx) TransactionScreener {
+	if len(providers) == 1 {
+		return providers[0].Screener
+	}
+	return combinedTx(providers)
+}
+
+type combinedTx []NamedTx
+
+func (c combinedTx) ScreenTransaction(ctx context.Context, req TxScreenRequest) (*Screening, error) {
+	names := make([]string, len(c))
+	for i, p := range c {
+		names[i] = p.Name
+	}
+	return merge(ctx, names, req.Address, req.Hash, func(ctx context.Context, i int) (*Screening, error) {
+		return c[i].Screener.ScreenTransaction(ctx, req)
+	})
+}
+
+// merge runs one screening per provider in parallel and folds the results.
+func merge(ctx context.Context, providers []string, address, hash string, screen func(context.Context, int) (*Screening, error)) (*Screening, error) {
+	parts := make([]*Screening, len(providers))
+	g, gctx := errgroup.WithContext(ctx)
+	for i := range providers {
 		g.Go(func() error {
-			s, err := p.Screener.ScreenAddress(gctx, req)
+			s, err := screen(gctx, i)
 			if err != nil {
 				return err
 			}
 			if s.Provider == "" {
-				s.Provider = p.Name
+				s.Provider = providers[i]
 			}
 			parts[i] = s
 			return nil
@@ -73,7 +111,7 @@ func (c combined) ScreenAddress(ctx context.Context, req ScreenRequest) (*Screen
 		return nil, err
 	}
 
-	out := &Screening{Address: req.Address, Verdict: VerdictApproved, ScreenedAt: time.Now()}
+	out := &Screening{Address: address, TxHash: hash, Verdict: VerdictApproved, ScreenedAt: time.Now()}
 	names := make([]string, 0, len(parts))
 	raw := make(map[string]json.RawMessage, len(parts))
 	for _, s := range parts {

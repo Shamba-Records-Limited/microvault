@@ -1,7 +1,6 @@
 package elliptic
 
-// walletScreeningRequest is the POST /v2/wallet/synchronous body — source
-// design doc §4.
+// walletScreeningRequest is the POST /v2/wallet/synchronous body.
 type walletScreeningRequest struct {
 	Subject           walletSubject `json:"subject"`
 	Type              string        `json:"type"`
@@ -15,8 +14,7 @@ type walletSubject struct {
 	Hash       string `json:"hash"`
 }
 
-// walletScreeningResponse models the fields the source design doc's §4
-// field table names as ones we act on. Elliptic's actual response is
+// walletScreeningResponse models the response fields we act on. Elliptic's actual response is
 // larger; everything else is preserved verbatim in Screening.Raw rather
 // than modeled here, per the doc's own instruction to keep the audit
 // record reproducible against fields we haven't parsed.

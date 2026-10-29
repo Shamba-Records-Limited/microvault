@@ -12,8 +12,8 @@ type ScreenRequest struct {
 	// for wallet screening today).
 	Address string
 	// CustomerReference joins the screening to a KYB entity on the
-	// provider's side — see the source design doc §4 on why this is the
-	// counterparty's own identifier, decided before the first call.
+	// provider's side; it is the counterparty's own identifier, decided
+	// before the first call.
 	CustomerReference string
 }
 
@@ -22,11 +22,13 @@ type Screener interface {
 	ScreenAddress(ctx context.Context, req ScreenRequest) (*Screening, error)
 }
 
-// TxScreenRequest is a transaction submitted for screening: its hash and the
-// customer's address on our side of it.
+// TxScreenRequest is a transaction submitted for screening.
 type TxScreenRequest struct {
-	Hash              string
-	Address           string
+	Hash string
+	// Address is the customer's address that sent the funds.
+	Address string
+	// Recipient is our address that received them (the vault contract).
+	Recipient         string
 	CustomerReference string
 }
 
@@ -35,8 +37,7 @@ type TransactionScreener interface {
 	ScreenTransaction(ctx context.Context, req TxScreenRequest) (*Screening, error)
 }
 
-// Verdict is the policy decision derived from a screening, per the source
-// design doc §10. It is a decision, not a score — Screening carries the
+// Verdict is the policy decision derived from a screening. It is a decision, not a score — Screening carries the
 // score this was derived from.
 type Verdict string
 
@@ -51,8 +52,7 @@ const (
 	VerdictReview Verdict = "review"
 	// VerdictUnscreenable: the address has no on-chain history for the
 	// provider to judge (Elliptic's 404 NotInBlockchain). Not a pass or a
-	// fail — see the source design doc §4's "404 is the case that will
-	// actually happen".
+	// fail; for a freshly created depositor it is the usual first result.
 	VerdictUnscreenable Verdict = "unscreenable"
 	// VerdictPending: the provider has not finished analysing the address,
 	// or the call itself failed.

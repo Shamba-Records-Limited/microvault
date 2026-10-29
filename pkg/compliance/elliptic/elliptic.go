@@ -62,8 +62,7 @@ func NewClient(cfg Config) *Client {
 // signingTransport injects Elliptic's x-access-* headers into every
 // request. Elliptic signs the request body (unlike the Fonbnk/YellowCard
 // precedent this mirrors, which sign only method+path), so RoundTrip has
-// to buffer the body to sign it before forwarding — see the source design
-// doc §3 and §11.
+// to buffer the body to sign it before forwarding.
 type signingTransport struct {
 	apiKey string
 	secret string
@@ -102,7 +101,7 @@ func (t *signingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 // call performs one request and decodes a successful response into T.
 // Every endpoint in this package goes through here so the status-code
-// classification (source design doc §4) is applied once.
+// classification is applied once.
 func call[T any](ctx context.Context, c *Client, op, method, path string, body any) (T, error) {
 	var zero T
 

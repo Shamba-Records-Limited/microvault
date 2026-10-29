@@ -118,8 +118,7 @@ STK result code to `{Retryable, Operational, Message}`. An **unmapped**
 code — sandbox-only codes, or genuinely undocumented ones — falls back to
 `{Operational: true, Retryable: true}`, so an unrecognised failure gets the
 same bounded retry budget a known-transient one gets, rather than expiring
-on the very first poll. See the "yellowcard-offramp-webhook-race-2026-09-10.md"
-doc (§3) in the knowledge vault for the incident that shaped this default.
+on the very first poll.
 
 ## Collection: C2B paybill
 
@@ -245,7 +244,7 @@ rather than a stub pretending to be wired:
 
 All five share the same `AsyncURLs`-population responsibility Account
 Balance had before it was fixed (`AccountBalanceRequest.URLs` was empty for
-every call until 2026-09-11 — see the vault doc referenced above). Anyone
+every call until 2026-09-11). Anyone
 wiring up B2C, B2B, Reversal or Transaction Status should build the request
 with `MpesaConfig.DarajaCallbackURL(...)` from the start.
 

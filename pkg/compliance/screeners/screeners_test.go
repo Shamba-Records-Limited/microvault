@@ -35,5 +35,15 @@ func TestCombinedIsNotASingleClient(t *testing.T) {
 func TestDiditIsRefusedForTheStellarVault(t *testing.T) {
 	_, err := screeners.New(config.ComplianceConfig{ScreeningProviders: []string{"didit"}, DiditAPIKey: "k"}, screeners.Thresholds{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no Stellar network")
+	assert.Contains(t, err.Error(), "does not support Stellar")
+}
+
+func TestTransactionScreeners(t *testing.T) {
+	s, err := screeners.NewTransaction(config.ComplianceConfig{}, screeners.Thresholds{})
+	require.NoError(t, err)
+	assert.IsType(t, &elliptic.Client{}, s)
+
+	_, err = screeners.NewTransaction(config.ComplianceConfig{ScreeningProviders: []string{"didit"}, DiditAPIKey: "k"}, screeners.Thresholds{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support Stellar")
 }

@@ -1,7 +1,6 @@
 -- KYB compliance persistence: an institutional depositor (counterparty),
 -- the Stellar addresses it submits, and the append-only history of every
--- Elliptic screening performed on those addresses. See
--- elliptic-compliance-integration.md §12 in the knowledge vault.
+-- Elliptic screening performed on those addresses.
 --
 -- All three tables are core-owned end to end, unlike mgpoller's tables
 -- (which deliberately skip FKs because they reference credit-owned rows) —

@@ -65,3 +65,20 @@ func TestCombineOfOneIsThatProvider(t *testing.T) {
 	f := fixed{verdict: compliance.VerdictReview}
 	assert.Equal(t, compliance.Screener(f), compliance.Combine(compliance.Named{Name: "elliptic", Screener: f}))
 }
+
+type fixedTx struct{ verdict compliance.Verdict }
+
+func (f fixedTx) ScreenTransaction(_ context.Context, req compliance.TxScreenRequest) (*compliance.Screening, error) {
+	return &compliance.Screening{TxHash: req.Hash, Verdict: f.verdict, Raw: json.RawMessage(`{}`)}, nil
+}
+
+func TestCombineTxTakesTheStricterVerdict(t *testing.T) {
+	s, err := compliance.CombineTx(
+		compliance.NamedTx{Name: "elliptic", Screener: fixedTx{compliance.VerdictApproved}},
+		compliance.NamedTx{Name: "merkle", Screener: fixedTx{compliance.VerdictReview}},
+	).ScreenTransaction(context.Background(), compliance.TxScreenRequest{Hash: "abc", Address: "GABC"})
+	require.NoError(t, err)
+	assert.Equal(t, compliance.VerdictReview, s.Verdict)
+	assert.Equal(t, "abc", s.TxHash)
+	assert.Equal(t, "elliptic+merkle", s.Provider)
+}

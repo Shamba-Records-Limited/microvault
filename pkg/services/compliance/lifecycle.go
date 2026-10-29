@@ -13,8 +13,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 )
 
-// defaultScreeningValidity matches the source design doc §17 Q9's
-// estimate ("3 months") — used when Deps.ScreeningValidity is zero.
+// defaultScreeningValidity is about three months, used when Deps.ScreeningValidity is zero.
 const defaultScreeningValidity = 90 * 24 * time.Hour
 
 // Service runs the KYB lifecycle described in doc.go.
@@ -53,7 +52,7 @@ func NewService(deps Deps) *Service {
 }
 
 // SubmitAddress validates address locally before writing anything — "a
-// typo should not cost an API call" (source design doc §13 step 1) — then
+// typo should not cost an API call" — then
 // records it. If the counterparty's KYB is already approved, it is
 // screened immediately; otherwise it waits at AddressStatusPending until
 // ApproveKYB screens it.
@@ -82,8 +81,8 @@ func (s *Service) SubmitAddress(ctx context.Context, counterpartyID, address str
 			// The address row is saved either way — a screening failure
 			// here is not a submission failure, it leaves the address at
 			// AddressStatusPending for a retry (via the admin's rescreen
-			// action), matching the source design doc §15's "Elliptic is
-			// down" degradation: onboarding stalls, nothing is corrupted.
+			// action): if the provider is down, onboarding stalls and nothing
+			// is corrupted.
 			s.logger.ErrorContext(ctx, "initial screening failed after address submission",
 				"address_id", addr.ID, "error", err)
 		}
@@ -93,7 +92,7 @@ func (s *Service) SubmitAddress(ctx context.Context, counterpartyID, address str
 }
 
 // ApproveKYB approves the counterparty's KYB status, then screens every
-// address already on file — source design doc §13 step 3.
+// address already on file.
 func (s *Service) ApproveKYB(ctx context.Context, counterpartyID, actor string) error {
 	if err := s.repo.ApproveKYB(ctx, counterpartyID, actor); err != nil {
 		return err
@@ -113,8 +112,7 @@ func (s *Service) ApproveKYB(ctx context.Context, counterpartyID, actor string) 
 }
 
 // ScreenAndRecord is the core operation: screen one address via
-// pkg/compliance.Screener and apply the source design doc §13 step 4 /
-// §10 verdict branches. Also the admin's "rescreen now" action — screening
+// pkg/compliance.Screener and apply the verdict branches. Also the admin's "rescreen now" action — screening
 // is idempotent to call again, and address_screenings is append-only, so a
 // manual rescreen is simply another call to this with no separate path.
 func (s *Service) ScreenAndRecord(ctx context.Context, addressID string) error {
@@ -137,9 +135,8 @@ func (s *Service) ScreenAndRecord(ctx context.Context, addressID string) error {
 	newStatus, expiresAt := s.applyVerdict(screening.Verdict)
 
 	// Queue the on-chain allow write only when the address is newly
-	// approved from a clean slate (onchain_state absent) — see the source
-	// design doc §13 step 4: "approved → queue an on-chain allowlist
-	// write; onchain_state goes absent → pending." A rescreen of an
+	// approved from a clean slate (onchain_state absent): approved queues
+	// an on-chain allowlist write and onchain_state goes absent → pending. A rescreen of an
 	// address that is already pending/approved/revoked must not touch
 	// onchain_state here: re-confirming a still-clean verdict is not a
 	// reason to re-queue a write, and an address a human explicitly
@@ -172,7 +169,7 @@ func (s *Service) ScreenAndRecord(ctx context.Context, addressID string) error {
 }
 
 // applyVerdict maps a compliance.Verdict to the address's next status and
-// expiry, per the source design doc §13 step 4 / §10's state table. A nil
+// expiry. A nil
 // status means "leave the address's current status untouched" — used for
 // VerdictPending so a rescreen that hasn't resolved yet can never silently
 // downgrade an address that was already approved.
@@ -190,7 +187,7 @@ func (s *Service) applyVerdict(verdict pkgcompliance.Verdict) (*models.Counterpa
 	case pkgcompliance.VerdictUnscreenable:
 		// Provisional approval: no on-chain history to judge, so the
 		// address is allowed to deposit, but it is not a real "clean"
-		// verdict — the source design doc §4/§13 requires a mandatory
+		// verdict — it needs a mandatory
 		// rescreen on the address's first observed deposit. That trigger
 		// (the vault watcher noticing a first deposit from a provisional
 		// address) is Phase 5/6 wiring not built in this pass; for now
@@ -205,8 +202,7 @@ func (s *Service) applyVerdict(verdict pkgcompliance.Verdict) (*models.Counterpa
 		// VerdictPending, or anything not yet defined: leave the address's
 		// current status untouched — see the doc comment above. A
 		// screening row is still recorded by the caller; even a pending
-		// result is worth keeping, per the source design doc §12's
-		// append-only rule.
+		// result is worth keeping, since screenings are append-only.
 		return nil, nil
 	}
 }

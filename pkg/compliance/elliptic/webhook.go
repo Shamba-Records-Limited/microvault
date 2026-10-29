@@ -17,7 +17,7 @@ import (
 const webhookTolerance = 5 * time.Minute
 
 // VerifyWebhook checks a Standard Webhooks payload against the given
-// secret (base64, as issued — the source design doc notes Elliptic ships
+// secret (base64, as issued — Elliptic ships
 // verifier classes for JavaScript, Python and PHP only, so this is a from
 // scratch implementation of that spec, not a port of theirs).
 //

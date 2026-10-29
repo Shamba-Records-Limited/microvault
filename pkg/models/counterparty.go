@@ -20,7 +20,7 @@ const (
 
 // Counterparty is an institutional vault depositor undergoing KYB — external
 // and self-custodied, the opposite of the custodial borrower accounts in
-// models.Account. See elliptic-compliance-integration.md §1.
+// models.Account.
 type Counterparty struct {
 	ID string `json:"id" gorm:"type:uuid;primaryKey"`
 
@@ -32,7 +32,7 @@ type Counterparty struct {
 
 	// EllipticCustomerReference is sent as customer_reference on every
 	// screening call for this counterparty's addresses — set once at
-	// creation, never changed. See the source design doc §4.
+	// creation, never changed.
 	EllipticCustomerReference string `json:"elliptic_customer_reference" gorm:"column:elliptic_customer_reference;type:varchar(100);uniqueIndex;not null"`
 
 	KYBApprovedAt *time.Time `json:"kyb_approved_at,omitempty" gorm:"column:kyb_approved_at"`

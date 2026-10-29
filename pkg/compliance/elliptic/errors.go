@@ -10,7 +10,7 @@ import (
 )
 
 // ErrNotInBlockchain is Elliptic's 404 NotInBlockchain: the address has
-// never appeared on chain. Per the source design doc §4, this is the
+// never appeared on chain. This is the
 // expected first outcome for a freshly generated depositor keypair, not a
 // failure — callers check for it with errors.Is and turn it into
 // compliance.VerdictUnscreenable rather than treating it as an error.
@@ -20,8 +20,8 @@ func ellipticErr(op string) oops.OopsErrorBuilder {
 	return oops.In(pkgErrors.DomainCompliance).Tags("elliptic").With(pkgErrors.AttrOperation, op)
 }
 
-// classifyStatus maps Elliptic's documented status codes (source design doc
-// §4) to the shared error vocabulary. A nil return means the caller should
+// classifyStatus maps Elliptic's documented status codes to the shared
+// error vocabulary. A nil return means the caller should
 // proceed to decode the body as a success.
 func classifyStatus(op string, statusCode int, body []byte, header http.Header) error {
 	switch statusCode {

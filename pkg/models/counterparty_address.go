@@ -27,7 +27,7 @@ const (
 // CounterpartyAddressOnchainState tracks whether the vault contract's
 // on-chain allowlist actually reflects this row — a database write and a
 // contract write are two systems, and one can fail after the other
-// succeeds. See the source design doc §12.
+// succeeds.
 type CounterpartyAddressOnchainState string
 
 const (

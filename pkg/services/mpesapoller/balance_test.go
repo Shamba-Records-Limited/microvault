@@ -45,8 +45,7 @@ func (f *fakeBalanceRepo) RecordBalance(context.Context, uint, string, string, i
 // used to call AccountBalance with a zero-valued AsyncURLs on every tick,
 // which pkg/payment/mpesa/async.go's validate() unconditionally rejects —
 // the balance poller could never succeed, on any environment, since it was
-// written. See yellowcard-offramp-webhook-race-2026-09-10.md in the
-// knowledge vault (§ added 2026-09-11) for the trace that caught it.
+// written.
 func TestBalancePoller_PassesConfiguredURLs(t *testing.T) {
 	q := &fakeBalanceQuerier{}
 	repo := &fakeBalanceRepo{}

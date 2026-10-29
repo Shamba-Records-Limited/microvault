@@ -233,8 +233,8 @@ type FonbnkConfig struct {
 
 // ComplianceConfig holds the Elliptic AML client's configuration. Empty
 // values are valid at boot — matching every other provider's pattern here —
-// so screening simply fails until real credentials are set, per the source
-// design doc §15's "Elliptic is down" degradation.
+// so screening simply fails until real credentials are set: onboarding
+// stalls, nothing already approved changes.
 type ComplianceConfig struct {
 	EllipticAPIKey    string
 	EllipticAPISecret string
@@ -242,21 +242,20 @@ type ComplianceConfig struct {
 	EllipticBaseURL string
 	// ScreeningValidity is how long a screening stays current before the
 	// address counts as expired. Empty/zero uses the service's own default
-	// (90 days, source design doc §17 Q9's estimate).
+	// (90 days).
 	ScreeningValidity time.Duration
 
 	// ComplianceRoleSecretKey signs allow_depositor/disallow_depositor —
-	// deliberately a distinct key from AdminSecretKey/TreasurySecretKey, per
-	// the source design doc §9: "keeps the freeze key away from the
-	// configuration key." Held by the credit backend's on-chain writer
+	// deliberately a distinct key from AdminSecretKey/TreasurySecretKey, which
+	// keeps the freeze key away from the configuration key. Held by the credit backend's on-chain writer
 	// worker only, never by cmd/admin — see pkg/services/compliance's
 	// OnchainWriter doc comment.
 	ComplianceRoleSecretKey string
 
 	// OnchainWriterInterval is how often the on-chain writer worker polls
 	// for approvals/revocations still waiting on a chain write. Empty/zero
-	// uses a 1-minute default — this is the fast path (source design doc
-	// §17 Q4: revocation cannot wait), so it ticks far more often than the
+	// uses a 1-minute default — this is the fast path (revocation cannot
+	// wait), so it ticks far more often than the
 	// rescreening sweep.
 	OnchainWriterInterval time.Duration
 

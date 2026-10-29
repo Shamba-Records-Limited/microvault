@@ -96,8 +96,8 @@ type Service interface {
 	SetLockPeriod(ctx context.Context, periodSeconds uint64) error
 
 	// Compliance Operations — see compliance.go. These sign with the
-	// compliance role key, not the admin key, per the source design doc
-	// §9's "keeps the freeze key away from the configuration key". A
+	// compliance role key, not the admin key, which keeps the freeze key
+	// away from the configuration key. A
 	// Service constructed without WithComplianceRole errors clearly on
 	// these rather than falling back to another key.
 	AllowDepositor(ctx context.Context, address string) error

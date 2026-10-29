@@ -308,3 +308,29 @@ func TestCheckExitWindows_AlertsOncePerLevel(t *testing.T) {
 	assert.Equal(t, 1, store.rows[0].ExitWarningLevel)
 	assert.Equal(t, 2, store.rows[1].ExitWarningLevel, "first seen inside a day gets only the one-day alert")
 }
+
+type fakeDepositQueue struct{ queued []*models.DepositScreening }
+
+func (f *fakeDepositQueue) Enqueue(_ context.Context, d *models.DepositScreening) error {
+	f.queued = append(f.queued, d)
+	return nil
+}
+
+func TestWatcherQueuesDepositsForScreening(t *testing.T) {
+	events, addrs := depositEventFixture(t)
+	client := &fakeEventsClient{events: events, latestLedger: 200}
+	allowlist := &fakeAllowlist{allowed: map[string]bool{addrs[0]: true, addrs[1]: true, addrs[2]: true}}
+	queue := &fakeDepositQueue{}
+	w := newTestWatcher(client, allowlist, &fakeCursor{ledger: 100})
+	w.deposits = queue
+
+	w.tick(context.Background())
+
+	require.Len(t, queue.queued, 1)
+	q := queue.queued[0]
+	assert.Equal(t, "evt-1", q.EventID)
+	assert.Equal(t, "deadbeef", q.TxHash)
+	assert.Equal(t, int64(150), q.Ledger)
+	assert.Equal(t, addrs[1], q.Depositor, "the funds come from the event's from address")
+	assert.Equal(t, w.contractID, q.Receiver)
+}

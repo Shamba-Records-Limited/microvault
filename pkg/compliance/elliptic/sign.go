@@ -12,7 +12,7 @@ import (
 // the base64-decoded secret, over "{timestamp_ms}{METHOD}{lowercased_path}{payload}".
 //
 // Two things here are easy to get wrong and expensive to discover in
-// production — see the source design doc §3:
+// production:
 //   - The path is lowercased for signing but sent as-is on the wire. A
 //     Stellar address is uppercase base32, so it must never appear in a
 //     path or query — only in the body, which every endpoint here uses.

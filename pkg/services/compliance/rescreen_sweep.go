@@ -14,13 +14,11 @@ import (
 )
 
 // rescreenSweepBatchSize bounds one tick's rescreens. At institutional
-// depositor cardinality this is generous — the source design doc §3 notes
-// Elliptic's 500-requests-per-minute limit is "generous for our volume"
-// even for a full sweep; one address per synchronous call, well within it.
+// depositor cardinality this is generous: Elliptic allows 500 requests per
+// minute, and a full sweep is one address per synchronous call.
 const rescreenSweepBatchSize = 50
 
-// RescreenSweep is the source design doc §6's "our own sweep": neither of
-// Elliptic's own rescreening mechanisms (three rescreens over a window, or
+// RescreenSweep is our own sweep: neither of Elliptic's own rescreening mechanisms (three rescreens over a window, or
 // retries on a failed call) amount to standing monitoring, so an allowlist
 // that gates money needs its own scheduled walk of every address whose
 // screening has gone stale.

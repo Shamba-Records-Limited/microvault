@@ -12,8 +12,7 @@ import (
 // Append-only — there is deliberately no Update path anywhere in this
 // codebase for this table. A compliance record that changes in place
 // cannot answer "what did we know on the day we approved this," which is
-// the only question that matters after an incident. See the source design
-// doc §12.
+// the only question that matters after an incident.
 type AddressScreening struct {
 	ID        string `json:"id" gorm:"type:uuid;primaryKey"`
 	AddressID string `json:"address_id" gorm:"column:address_id;type:uuid;not null;index"`

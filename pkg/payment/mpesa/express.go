@@ -419,10 +419,8 @@ var expressOutcomes = map[int64]ExpressOutcome{
 // STKMaxAttempts, not unlimited retries here), rather than the zero chances
 // an unconditional false would give it. "Undocumented" is not evidence of
 // "permanent": Daraja's own documented codes list is known incomplete (the
-// community scrape backing this table doesn't cover the login-gated pages —
-// see the daraja-docs-mirror vault doc), and a code observed against
-// sandbox (e.g. 4999, see yellowcard-offramp-webhook-race-2026-09-10.md §3)
-// may simply be one Safaricom hasn't published here yet, not a hard
+// community scrape backing this table doesn't cover the login-gated pages),
+// and a code observed against sandbox (e.g. 4999) may simply be one Safaricom hasn't published here yet, not a hard
 // rejection. The cost of retrying a genuinely permanent unknown code a few
 // extra times is small and bounded; the cost of giving a transient one zero
 // chances is a borrower whose STK repayment expires for no real reason.

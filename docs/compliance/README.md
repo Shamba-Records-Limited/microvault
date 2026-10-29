@@ -87,7 +87,7 @@ body), and an empty body signs as the two characters `"{}"`, never `""`.
    entity) → `VerdictRejected`, absolute, never reachable via a threshold.
 3. No risk score on a complete analysis → `VerdictReview` (see big idea 5).
 4. Score against `Thresholds.Reject`/`Thresholds.Review` — both configured
-   at runtime, not constants, per the source design. **Currently wired as
+   at runtime, not constants. **Currently wired as
    `elliptic.Thresholds{}`** in `cmd/credit/main.go` (zero-valued), which
    means every scored, unsanctioned screening routes to `VerdictReview`
    today — there is no admin control for these yet.
@@ -386,7 +386,7 @@ but with only a static flash message, never dynamic text, in the URL.
 
 ---
 
-## What's built vs. what the source design describes but isn't wired
+## What's built vs. what is planned but isn't wired
 
 | Capability | Status |
 |---|---|
@@ -413,7 +413,3 @@ but with only a static flash message, never dynamic text, in the URL.
   given alongside, since links resolve to the file, not the line). Links
   into `microvault-credit` point at the sibling credit module, which owns
   the admin process and the on-chain-writer/rescreen-sweep tickers.
-- **"The source design"** refers to the Elliptic compliance integration doc
-  kept in the knowledge vault (out of repo) — the phased design this module
-  implements. It is not linked directly since it lives outside this
-  repository.

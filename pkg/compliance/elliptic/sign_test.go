@@ -13,7 +13,7 @@ import (
 )
 
 // referenceSign independently reimplements Elliptic's documented algorithm
-// (source design doc §3's Go sample), separately from sign() in sign.go, so
+// (from Elliptic's Go sample), separately from sign() in sign.go, so
 // this test catches a divergence rather than confirming sign() against
 // itself.
 func referenceSign(t *testing.T, secretB64 string, timestampMs int64, method, path, payload string) string {

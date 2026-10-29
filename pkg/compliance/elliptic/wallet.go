@@ -12,7 +12,7 @@ import (
 )
 
 // stellarAsset and stellarBlockchain are the literal strings Elliptic's
-// coverage table confirmed (source design doc §7, 2026-09-10) — the vault
+// coverage table confirmed (2026-09-10) — the vault
 // holds USDC issued on Stellar, never native XLM, so this package screens
 // exactly one asset/blockchain pair.
 // Provider is this package's name in compliance.Screening.Provider.
@@ -26,7 +26,7 @@ const (
 var _ compliance.Screener = (*Client)(nil)
 
 // ScreenAddress screens req.Address via POST /v2/wallet/synchronous and
-// applies the source design doc §10 verdict policy, using the thresholds
+// applies the verdict policy in verdict.go, using the thresholds
 // set in Config (zero-valued Thresholds routes every scored, unsanctioned
 // analysis to VerdictReview — see deriveVerdict's doc comment).
 func (c *Client) ScreenAddress(ctx context.Context, req compliance.ScreenRequest) (*compliance.Screening, error) {

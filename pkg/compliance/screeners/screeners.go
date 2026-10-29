@@ -44,7 +44,7 @@ func New(cfg config.ComplianceConfig, th Thresholds) (compliance.Screener, error
 			})
 		case config.ScreeningDidit:
 			if !didit.Supports(VaultChain) {
-				return nil, fmt.Errorf("screening provider didit cannot screen %s addresses (Didit's screening has no Stellar network); use merkle or elliptic — vault doc Security & Compliance/screening-provider-toggle-plan.md", VaultChain)
+				return nil, fmt.Errorf("screening provider didit cannot screen %s addresses: Didit's wallet screening does not support Stellar; use merkle or elliptic", VaultChain)
 			}
 			s = didit.NewClient(didit.Config{
 				APIKey: cfg.DiditAPIKey, BaseURL: cfg.DiditBaseURL, Chain: VaultChain,
@@ -56,4 +56,35 @@ func New(cfg config.ComplianceConfig, th Thresholds) (compliance.Screener, error
 		providers = append(providers, compliance.Named{Name: name, Screener: s})
 	}
 	return compliance.Combine(providers...), nil
+}
+
+// NewTransaction returns the configured screener for vault deposit
+// transactions, built from the same provider list as New.
+func NewTransaction(cfg config.ComplianceConfig, th Thresholds) (compliance.TransactionScreener, error) {
+	names := cfg.ScreeningProviders
+	if len(names) == 0 {
+		names = []string{config.ScreeningElliptic}
+	}
+	providers := make([]compliance.NamedTx, 0, len(names))
+	for _, name := range names {
+		var s compliance.TransactionScreener
+		switch name {
+		case config.ScreeningElliptic:
+			s = elliptic.NewClient(elliptic.Config{
+				APIKey: cfg.EllipticAPIKey, APISecret: cfg.EllipticAPISecret,
+				BaseURL: cfg.EllipticBaseURL, Thresholds: th.Elliptic,
+			})
+		case config.ScreeningMerkle:
+			s = merkle.NewClient(merkle.Config{
+				APIKey: cfg.MerkleAPIKey, BaseURL: cfg.MerkleBaseURL,
+				Thresholds: merkle.Thresholds{Review: cfg.MerkleReviewLevel, Reject: cfg.MerkleRejectLevel},
+			})
+		case config.ScreeningDidit:
+			return nil, fmt.Errorf("screening provider didit cannot screen %s transactions: Didit's transaction screening does not support Stellar; use merkle or elliptic", VaultChain)
+		default:
+			return nil, fmt.Errorf("unknown screening provider %q", name)
+		}
+		providers = append(providers, compliance.NamedTx{Name: name, Screener: s})
+	}
+	return compliance.CombineTx(providers...), nil
 }

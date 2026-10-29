@@ -2,8 +2,8 @@ package elliptic
 
 import "github.com/Shamba-Records-Limited/microvault/pkg/compliance"
 
-// deriveVerdict applies the source design doc §10 policy to a decoded
-// response, in the order that section specifies:
+// deriveVerdict applies the screening policy to a decoded response, in
+// this order:
 //
 //  1. Sanctions membership is absolute — never reachable by a threshold.
 //  2. process_status of anything but "complete" means there is no verdict

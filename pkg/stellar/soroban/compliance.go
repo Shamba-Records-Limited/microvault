@@ -41,8 +41,7 @@ func (s *service) requireComplianceRole(fnName string) (*keypair.Full, error) {
 // AllowDepositor calls the vault's allow_depositor, signed by the
 // compliance role. See the vault contract's own doc comment: this is the
 // fast path (no timelock), matching the guardian's pause() precedent —
-// see elliptic-compliance-integration.md §17 Q4 on why revocation (and,
-// symmetrically, approval) cannot wait on a multi-day delay.
+// revocation (and, symmetrically, approval) cannot wait on a multi-day delay.
 func (s *service) AllowDepositor(ctx context.Context, address string) error {
 	const fnName = "allow_depositor"
 

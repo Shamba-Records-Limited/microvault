@@ -35,8 +35,8 @@ var (
 // (counterparties, counterparty_addresses, address_screenings) — one
 // bounded context, mirroring how UserRepository spans everything
 // user-related in one file. Actor parameters throughout are the admin's
-// Stellar public key as text (see the source design doc §14 and
-// counterparty.go's KYBApprovedBy doc comment).
+// Stellar public key as text (see counterparty.go's KYBApprovedBy doc
+// comment).
 type CounterpartyRepository interface {
 	Create(ctx context.Context, cp *models.Counterparty) error
 	GetByID(ctx context.Context, id string) (*models.Counterparty, error) // preloads Addresses
@@ -59,7 +59,7 @@ type CounterpartyRepository interface {
 
 	// ListScreeningsByAddress returns an address's full screening history,
 	// newest first — the audit artefact the screening detail screen renders
-	// from raw_payload, per the source design doc §14.
+	// from raw_payload.
 	ListScreeningsByAddress(ctx context.Context, addressID string) ([]*models.AddressScreening, error)
 
 	// RecordScreening inserts the append-only screening row and updates the
@@ -72,8 +72,7 @@ type CounterpartyRepository interface {
 
 	// ListAddressesNeedingOnchainAllow returns approved addresses whose
 	// onchain_state is still "pending" — the on-chain writer's queue for
-	// allow_depositor. See the source design doc §14 on why this write
-	// stays a separate worker rather than something the admin web process
+	// allow_depositor. This write stays a separate worker rather than something the admin web process
 	// signs itself.
 	ListAddressesNeedingOnchainAllow(ctx context.Context, limit int) ([]*models.CounterpartyAddress, error)
 
@@ -107,9 +106,7 @@ type CounterpartyRepository interface {
 	// MarkExpiredAddresses flips every approved address whose expires_at
 	// has passed to AddressStatusExpired, and returns how many it touched.
 	// One bulk statement rather than a per-row round trip, since this runs
-	// on every rescreening-sweep tick. Per the source design doc §10:
-	// "expired must actually be reachable — a status that can only ever be
-	// set by a sweep that nobody scheduled is a status that never fires."
+	// on every rescreening-sweep tick, so expired is actually reachable.
 	MarkExpiredAddresses(ctx context.Context) (int64, error)
 }
 
@@ -264,7 +261,7 @@ func (r *counterpartyRepository) ListAddressesByCounterparty(ctx context.Context
 }
 
 // ListAddressesByStatus is the screening queue's source: everything in
-// review, plus pending/expired, per the source design doc §14.
+// review, plus pending/expired.
 func (r *counterpartyRepository) ListAddressesByStatus(ctx context.Context, statuses []string, limit, offset int) ([]*models.CounterpartyAddress, error) {
 	var addrs []*models.CounterpartyAddress
 	result := r.db.WithContext(ctx).
@@ -348,8 +345,9 @@ func (r *counterpartyRepository) RejectAddress(ctx context.Context, id, actor, r
 // has confirmed this") the database cannot know yet. onchain_state stays
 // whatever it currently observes (typically "approved") until the on-chain
 // writer worker actually submits disallow_depositor and confirms it, at
-// which point it advances to revoked. See the source design doc §12 on why
-// intent and observed state are recorded separately.
+// which point it advances to revoked. Intent and observed state are
+// recorded separately because the decision and the contract write can
+// fail independently.
 func (r *counterpartyRepository) RevokeAddress(ctx context.Context, id, actor, reason string) error {
 	now := time.Now()
 	result := r.db.WithContext(ctx).
