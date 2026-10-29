@@ -160,6 +160,8 @@ func (s *Service) ScreenAndRecord(ctx context.Context, addressID string) error {
 		EllipticAnalysisID:  screening.AnalysisID,
 		EllipticScreeningID: screening.ScreeningID,
 		ScreeningSource:     "sync",
+		Provider:            screening.Provider,
+		ProviderRef:         screening.ProviderRef,
 		RiskScore:           screening.RiskScore,
 		Sanctioned:          screening.Sanctioned,
 		Verdict:             string(screening.Verdict),

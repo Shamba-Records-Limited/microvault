@@ -25,6 +25,11 @@ type AddressScreening struct {
 
 	ScreeningSource string `json:"screening_source" gorm:"column:screening_source;type:varchar(30);not null"`
 
+	// Provider is who screened ("elliptic", "merkle", "didit", or a
+	// "+"-joined list); ProviderRef is that provider's own handle.
+	Provider    string `json:"provider" gorm:"type:varchar(40);not null;default:elliptic"`
+	ProviderRef string `json:"provider_ref,omitempty" gorm:"column:provider_ref;type:varchar(120);not null;default:''"`
+
 	// RiskScore is nullable and never defaulted to zero — see
 	// compliance.Screening.RiskScore's doc comment on why a null score is
 	// not the same fact as a clean score.

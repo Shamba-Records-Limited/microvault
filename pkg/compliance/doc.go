@@ -4,8 +4,7 @@
 // and the vault contract's own allow_depositor/disallow_depositor for the
 // enforcement side).
 //
-// pkg/compliance/elliptic implements Screener against Elliptic's AML API.
-// There is one provider today; this package stays small rather than
-// inventing a registry for it, per pkg/payment/README.md's layering
-// principles.
+// Providers live in subpackages (elliptic, merkle, didit); Combine runs
+// several and keeps the strictest verdict, and pkg/compliance/screeners
+// builds the configured one.
 package compliance

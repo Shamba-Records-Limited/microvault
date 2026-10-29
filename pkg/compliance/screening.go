@@ -22,6 +22,19 @@ type Screener interface {
 	ScreenAddress(ctx context.Context, req ScreenRequest) (*Screening, error)
 }
 
+// TxScreenRequest is a transaction submitted for screening: its hash and the
+// customer's address on our side of it.
+type TxScreenRequest struct {
+	Hash              string
+	Address           string
+	CustomerReference string
+}
+
+// TransactionScreener screens a transaction's exposure.
+type TransactionScreener interface {
+	ScreenTransaction(ctx context.Context, req TxScreenRequest) (*Screening, error)
+}
+
 // Verdict is the policy decision derived from a screening, per the source
 // design doc §10. It is a decision, not a score — Screening carries the
 // score this was derived from.
@@ -62,7 +75,18 @@ type Screening struct {
 	AnalysisID  string
 	ScreeningID string
 	Address     string
-	Verdict     Verdict
+	// TxHash is set when the screening is of a transaction.
+	TxHash  string
+	Verdict Verdict
+
+	// Provider names who screened: "elliptic", "merkle", "didit", or a
+	// "+"-joined list for a combined screening.
+	Provider string
+	// ProviderRef is the provider's own handle on this screening, when it
+	// has one other than AnalysisID.
+	ProviderRef string
+	// Parts holds each provider's own screening when Provider is a list.
+	Parts []Screening
 
 	// RiskScore is a pointer deliberately: the provider can return null,
 	// and a zero-valued float would read as "perfectly clean" — the single

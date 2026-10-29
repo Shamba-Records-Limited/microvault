@@ -15,6 +15,9 @@ import (
 // coverage table confirmed (source design doc §7, 2026-09-10) — the vault
 // holds USDC issued on Stellar, never native XLM, so this package screens
 // exactly one asset/blockchain pair.
+// Provider is this package's name in compliance.Screening.Provider.
+const Provider = "elliptic"
+
 const (
 	stellarAsset      = "USDC"
 	stellarBlockchain = "stellar"
@@ -55,6 +58,7 @@ func (c *Client) ScreenAddress(ctx context.Context, req compliance.ScreenRequest
 	if err != nil {
 		if errors.Is(err, ErrNotInBlockchain) {
 			return &compliance.Screening{
+				Provider:   Provider,
 				Address:    req.Address,
 				Verdict:    compliance.VerdictUnscreenable,
 				ScreenedAt: time.Now(),
@@ -79,6 +83,7 @@ func (c *Client) ScreenAddress(ctx context.Context, req compliance.ScreenRequest
 	}
 
 	return &compliance.Screening{
+		Provider:    Provider,
 		AnalysisID:  resp.ID,
 		ScreeningID: resp.ScreeningID,
 		Address:     req.Address,

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -262,6 +263,75 @@ type ComplianceConfig struct {
 	// RescreenSweepInterval is how often the rescreening sweep looks for
 	// lapsed approvals. Empty/zero uses a 1-hour default.
 	RescreenSweepInterval time.Duration
+
+	// ScreeningProviders selects wallet and transaction screening: one or
+	// more of ScreeningProviderNames; several means the stricter verdict
+	// wins. Defaults to elliptic.
+	ScreeningProviders []string
+
+	MerkleAPIKey      string
+	MerkleBaseURL     string
+	MerkleReviewLevel int
+	MerkleRejectLevel int
+
+	// Didit runs lender KYB and, when selected, wallet screening through
+	// the provider connected in Didit's console.
+	DiditAPIKey        string
+	DiditBaseURL       string
+	DiditKYBWorkflowID string
+	DiditWebhookSecret string
+	DiditReviewScore   int
+	DiditRejectScore   int
+}
+
+// Screening provider names for COMPLIANCE_SCREENING_PROVIDERS.
+const (
+	ScreeningElliptic = "elliptic"
+	ScreeningMerkle   = "merkle"
+	ScreeningDidit    = "didit"
+)
+
+// ScreeningProviderNames are the accepted COMPLIANCE_SCREENING_PROVIDERS values.
+var ScreeningProviderNames = []string{ScreeningElliptic, ScreeningMerkle, ScreeningDidit}
+
+// screeningProviders reads COMPLIANCE_SCREENING_PROVIDERS and checks each
+// selected provider has its credentials.
+func screeningProviders(c *ComplianceConfig) ([]string, error) {
+	names := splitEnv("COMPLIANCE_SCREENING_PROVIDERS", ",")
+	if len(names) == 0 {
+		return []string{ScreeningElliptic}, nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		n = strings.ToLower(n)
+		if !slices.Contains(ScreeningProviderNames, n) {
+			return nil, fmt.Errorf("COMPLIANCE_SCREENING_PROVIDERS: unknown provider %q (want %s)", n, strings.Join(ScreeningProviderNames, ", "))
+		}
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		switch n {
+		case ScreeningMerkle:
+			if c.MerkleAPIKey == "" {
+				return nil, fmt.Errorf("COMPLIANCE_SCREENING_PROVIDERS selects merkle but MERKLE_API_KEY is not set")
+			}
+		case ScreeningDidit:
+			if c.DiditAPIKey == "" {
+				return nil, fmt.Errorf("COMPLIANCE_SCREENING_PROVIDERS selects didit but DIDIT_API_KEY is not set")
+			}
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+func levelInRange(key string, v, lo, hi int) error {
+	if v != 0 && (v < lo || v > hi) {
+		return fmt.Errorf("%s must be between %d and %d, got %d", key, lo, hi, v)
+	}
+	return nil
 }
 
 // MoneyGramConfig holds all MoneyGram-related configuration.
@@ -915,6 +985,36 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	screening := ComplianceConfig{
+		MerkleAPIKey:       os.Getenv("MERKLE_API_KEY"),
+		MerkleBaseURL:      os.Getenv("MERKLE_BASE_URL"),
+		DiditAPIKey:        os.Getenv("DIDIT_API_KEY"),
+		DiditBaseURL:       os.Getenv("DIDIT_BASE_URL"),
+		DiditKYBWorkflowID: os.Getenv("DIDIT_KYB_WORKFLOW_ID"),
+		DiditWebhookSecret: os.Getenv("DIDIT_WEBHOOK_SECRET"),
+	}
+	for _, f := range []struct {
+		key    string
+		dst    *int
+		lo, hi int
+	}{
+		{"MERKLE_REVIEW_LEVEL", &screening.MerkleReviewLevel, 1, 5},
+		{"MERKLE_REJECT_LEVEL", &screening.MerkleRejectLevel, 1, 5},
+		{"DIDIT_REVIEW_SCORE", &screening.DiditReviewScore, 1, 100},
+		{"DIDIT_REJECT_SCORE", &screening.DiditRejectScore, 1, 100},
+	} {
+		v, err := envPositiveInt(f.key)
+		if err != nil {
+			return nil, err
+		}
+		if err := levelInRange(f.key, v, f.lo, f.hi); err != nil {
+			return nil, err
+		}
+		*f.dst = v
+	}
+	if screening.ScreeningProviders, err = screeningProviders(&screening); err != nil {
+		return nil, err
+	}
 
 	// Return the populated config struct
 	return &Config{
@@ -1105,6 +1205,17 @@ func New() (*Config, error) {
 			ComplianceRoleSecretKey: complianceRoleSecretKey,
 			OnchainWriterInterval:   firstNonZeroDuration(onchainWriterInterval, time.Minute),
 			RescreenSweepInterval:   firstNonZeroDuration(rescreenSweepInterval, time.Hour),
+			ScreeningProviders:      screening.ScreeningProviders,
+			MerkleAPIKey:            screening.MerkleAPIKey,
+			MerkleBaseURL:           screening.MerkleBaseURL,
+			MerkleReviewLevel:       screening.MerkleReviewLevel,
+			MerkleRejectLevel:       screening.MerkleRejectLevel,
+			DiditAPIKey:             screening.DiditAPIKey,
+			DiditBaseURL:            screening.DiditBaseURL,
+			DiditKYBWorkflowID:      screening.DiditKYBWorkflowID,
+			DiditWebhookSecret:      screening.DiditWebhookSecret,
+			DiditReviewScore:        screening.DiditReviewScore,
+			DiditRejectScore:        screening.DiditRejectScore,
 		},
 	}, nil
 }
