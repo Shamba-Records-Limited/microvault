@@ -131,12 +131,18 @@ func (s *Service) ApproveKYB(ctx context.Context, counterpartyID, actor string) 
 // is idempotent to call again, and address_screenings is append-only, so a
 // manual rescreen is simply another call to this with no separate path.
 func (s *Service) ScreenAndRecord(ctx context.Context, addressID string) error {
+	_, err := s.Rescreen(ctx, addressID)
+	return err
+}
+
+// Rescreen is ScreenAndRecord returning the screening it recorded.
+func (s *Service) Rescreen(ctx context.Context, addressID string) (*pkgcompliance.Screening, error) {
 	addr, err := s.repo.GetAddressByID(ctx, addressID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if addr.Counterparty == nil {
-		return ErrCounterpartyMissing
+		return nil, ErrCounterpartyMissing
 	}
 
 	screening, err := s.screener.ScreenAddress(ctx, pkgcompliance.ScreenRequest{
@@ -144,7 +150,7 @@ func (s *Service) ScreenAndRecord(ctx context.Context, addressID string) error {
 		CustomerReference: addr.Counterparty.EllipticCustomerReference,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	newStatus, expiresAt := s.applyVerdict(screening.Verdict)
@@ -180,7 +186,10 @@ func (s *Service) ScreenAndRecord(ctx context.Context, addressID string) error {
 		RawPayload:          datatypes.JSON(rawPayload),
 	}
 
-	return s.repo.RecordScreening(ctx, record, newStatus, newOnchainState, expiresAt)
+	if err := s.repo.RecordScreening(ctx, record, newStatus, newOnchainState, expiresAt); err != nil {
+		return nil, err
+	}
+	return screening, nil
 }
 
 // applyVerdict maps a compliance.Verdict to the address's next status and

@@ -21,6 +21,7 @@ type Repositories struct {
 	Counterparty        CounterpartyRepository
 	KYB                 KYBRepository
 	DepositScreening    DepositScreeningRepository
+	MonitoringSignal    MonitoringSignalRepository
 }
 
 func NewRepositories(db *gorm.DB) (*Repositories, error) {
@@ -90,6 +91,10 @@ func NewRepositories(db *gorm.DB) (*Repositories, error) {
 	if err != nil {
 		return nil, err
 	}
+	monitoringSignal, err := NewMonitoringSignalRepository(db)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Repositories{
 		// Core repositories
@@ -106,5 +111,6 @@ func NewRepositories(db *gorm.DB) (*Repositories, error) {
 		Counterparty:        counterparty,
 		KYB:                 kyb,
 		DepositScreening:    depositScreening,
+		MonitoringSignal:    monitoringSignal,
 	}, nil
 }

@@ -386,6 +386,7 @@ but with only a static flash message, never dynamic text, in the URL.
 | `ScreeningProviders` | `COMPLIANCE_SCREENING_PROVIDERS`: `elliptic` (default), `merkle`, `didit`, or a comma list such as `elliptic,merkle` where the stricter verdict wins. A listed provider without its key fails startup; `didit` is refused because Didit's screening does not support Stellar |
 | `MerkleAPIKey` / `MerkleBaseURL` | Merkle Science Compass workspace key (Stellar is blockchain code `13`) |
 | `MerkleReviewLevel` / `MerkleRejectLevel` | Compass `risk_level` cut points, 1–5; both unset sends every scored address to review |
+| `MerkleWebhookSecret` | `MERKLE_WEBHOOK_SECRET`: the Webhook Secret Key set on the Compass webhook for `POST /api/v1/webhooks/merkle`, sent by Compass in `X-WEBHOOK-KEY`; unset answers 503 |
 | `DiditAPIKey` / `DiditBaseURL` / `DiditKYBWorkflowID` | Didit lender KYB; KYB is on only when both the key and the workflow id are set |
 | `DiditWebhookSecret` | `secret_shared_key` of the Didit webhook destination for `POST /api/v1/webhooks/didit` |
 | `DiditReviewScore` / `DiditRejectScore` | Didit `risk_score` cut points, 1–100, for when Didit screening supports the vault's chain |
@@ -402,6 +403,7 @@ but with only a static flash message, never dynamic text, in the URL.
 | Provider toggle and combined strictest-verdict screening (`pkg/compliance/screeners`, `Combine`, `CombineTx`) | Built, tested, wired into `cmd/credit` and `cmd/admin` |
 | Deposit transaction screening (`deposit_screenings`, `DepositScreener`, watcher queueing) | Built, tested, wired into `cmd/credit`; a sanctioned deposit pages |
 | Didit lender KYB (sessions, signed webhook at `POST /api/v1/webhooks/didit`, `counterparty_kyb_events`, approval waits for Didit) | Built, tested, wired |
+| Provider monitoring (`monitoring_signals`, `Monitoring`): Compass risk, alert-status and resolution notifications at `POST /api/v1/webhooks/merkle`, and Didit `data.updated` for a lender's KYB session, each queue a rescreen of the named lender addresses | Built, tested, wired into `cmd/credit`. Every rescreen alerts; a rejected one pages. The rescreen can mark an address rejected in the portal, but the on-chain allowlist only changes when a person revokes. Compass does not publish its alert payload, so any Stellar address in the body is matched; a notification naming no screened lender address is kept as `unmatched` and alerted |
 | Didit wallet and transaction screening | **Refused for the vault** — Didit's screening has no Stellar network; the client keeps a chain table so support is one entry when Didit adds it |
 | KYB/screening lifecycle service | Built, tested |
 | Three-table persistence, append-only screening history | Built, tested |

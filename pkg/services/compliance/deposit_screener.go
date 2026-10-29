@@ -22,9 +22,9 @@ const (
 	SubjectDepositScreeningStuck = "Lender deposit could not be screened"
 )
 
-// depositBackoff spaces retries of a deposit whose screening failed or is
-// still pending at the provider; its length is the attempt limit.
-var depositBackoff = []time.Duration{
+// screeningBackoff spaces retries of a screening that failed or is still
+// pending at the provider; its length is the attempt limit.
+var screeningBackoff = []time.Duration{
 	time.Minute, 5 * time.Minute, 15 * time.Minute, time.Hour, 3 * time.Hour, 6 * time.Hour, 12 * time.Hour, 24 * time.Hour,
 }
 
@@ -166,8 +166,8 @@ func (s *DepositScreener) screen(ctx context.Context, d *models.DepositScreening
 
 func (s *DepositScreener) retry(ctx context.Context, d *models.DepositScreening, reason string) {
 	attempt := d.Attempts
-	final := attempt >= len(depositBackoff)-1
-	next := s.now().Add(depositBackoff[min(attempt, len(depositBackoff)-1)])
+	final := attempt >= len(screeningBackoff)-1
+	next := s.now().Add(screeningBackoff[min(attempt, len(screeningBackoff)-1)])
 	if err := s.repo.RecordAttemptFailed(ctx, d.ID, reason, next, final); err != nil {
 		s.logger.ErrorContext(ctx, "could not record a failed deposit screening attempt", "deposit_screening_id", d.ID, "error", err)
 		return

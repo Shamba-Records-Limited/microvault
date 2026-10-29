@@ -272,6 +272,8 @@ type ComplianceConfig struct {
 	MerkleBaseURL     string
 	MerkleReviewLevel int
 	MerkleRejectLevel int
+	// MerkleWebhookSecret is the key Compass sends in X-WEBHOOK-KEY.
+	MerkleWebhookSecret string
 
 	// Didit runs lender KYB and, when selected, wallet screening through
 	// the provider connected in Didit's console.
@@ -985,12 +987,13 @@ func New() (*Config, error) {
 		return nil, err
 	}
 	screening := ComplianceConfig{
-		MerkleAPIKey:       os.Getenv("MERKLE_API_KEY"),
-		MerkleBaseURL:      os.Getenv("MERKLE_BASE_URL"),
-		DiditAPIKey:        os.Getenv("DIDIT_API_KEY"),
-		DiditBaseURL:       os.Getenv("DIDIT_BASE_URL"),
-		DiditKYBWorkflowID: os.Getenv("DIDIT_KYB_WORKFLOW_ID"),
-		DiditWebhookSecret: os.Getenv("DIDIT_WEBHOOK_SECRET"),
+		MerkleAPIKey:        os.Getenv("MERKLE_API_KEY"),
+		MerkleBaseURL:       os.Getenv("MERKLE_BASE_URL"),
+		MerkleWebhookSecret: os.Getenv("MERKLE_WEBHOOK_SECRET"),
+		DiditAPIKey:         os.Getenv("DIDIT_API_KEY"),
+		DiditBaseURL:        os.Getenv("DIDIT_BASE_URL"),
+		DiditKYBWorkflowID:  os.Getenv("DIDIT_KYB_WORKFLOW_ID"),
+		DiditWebhookSecret:  os.Getenv("DIDIT_WEBHOOK_SECRET"),
 	}
 	for _, f := range []struct {
 		key    string
@@ -1209,6 +1212,7 @@ func New() (*Config, error) {
 			MerkleBaseURL:           screening.MerkleBaseURL,
 			MerkleReviewLevel:       screening.MerkleReviewLevel,
 			MerkleRejectLevel:       screening.MerkleRejectLevel,
+			MerkleWebhookSecret:     screening.MerkleWebhookSecret,
 			DiditAPIKey:             screening.DiditAPIKey,
 			DiditBaseURL:            screening.DiditBaseURL,
 			DiditKYBWorkflowID:      screening.DiditKYBWorkflowID,

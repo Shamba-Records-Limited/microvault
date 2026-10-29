@@ -127,7 +127,7 @@ func TestDepositScreenerRetriesPendingAndErrors(t *testing.T) {
 
 func TestDepositScreenerGivesUpAfterTheLastAttempt(t *testing.T) {
 	d := deposit()
-	d.Attempts = len(depositBackoff) - 1
+	d.Attempts = len(screeningBackoff) - 1
 	repo := newFakeDepositRepo(d)
 	a := &recordingAlerts{}
 	newDepositScreener(repo, &fakeTxScreener{err: errors.New("still down")}, a).Tick(context.Background())

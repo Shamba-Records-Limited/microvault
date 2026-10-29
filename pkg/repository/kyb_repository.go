@@ -72,6 +72,9 @@ func (r *kybRepository) RecordEvent(ctx context.Context, e *models.CounterpartyK
 		if err := tx.Create(e).Error; err != nil {
 			return err
 		}
+		if e.Status == "" {
+			return nil
+		}
 		return tx.Model(&models.Counterparty{}).Where("id = ?", e.CounterpartyID).Updates(map[string]any{
 			"kyb_session_status": e.Status,
 			"updated_at":         time.Now(),

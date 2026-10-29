@@ -48,7 +48,9 @@ func (f *fakeKYBRepo) RecordEvent(_ context.Context, e *models.CounterpartyKYBEv
 		return repository.ErrKYBSessionMismatch
 	}
 	f.events = append(f.events, e)
-	cp.KYBSessionStatus = e.Status
+	if e.Status != "" {
+		cp.KYBSessionStatus = e.Status
+	}
 	return nil
 }
 
@@ -140,4 +142,32 @@ func TestApproveKYBRequiresDiditApproval(t *testing.T) {
 	repo.counterparties["cp-1"].KYBSessionStatus = didit.StatusApproved
 	require.NoError(t, svc.ApproveKYB(context.Background(), "cp-1", "GACTOR"))
 	assert.Equal(t, models.CounterpartyKYBApproved, repo.counterparties["cp-1"].KYBStatus)
+}
+
+type fakeRescreens struct {
+	got []string
+	n   int64
+}
+
+func (f *fakeRescreens) QueueCounterparty(_ context.Context, provider, event, id string, _ []byte) (int64, error) {
+	f.got = append(f.got, provider+"/"+event+"/"+id)
+	return f.n, nil
+}
+
+func TestKYBDataUpdatedQueuesRescreens(t *testing.T) {
+	k, cps, repo, _, a := newKYBFixture()
+	rs := &fakeRescreens{n: 2}
+	k.rescreens = rs
+	_, err := k.Start(context.Background(), "cp-1")
+	require.NoError(t, err)
+	require.NoError(t, k.HandleEvent(context.Background(), event(didit.StatusApproved, "bs_cp-1"), []byte(`{}`)))
+	a.subjects = nil
+
+	ev := event("", "bs_cp-1")
+	ev.Event = "data.updated"
+	require.NoError(t, k.HandleEvent(context.Background(), ev, []byte(`{"aml":1}`)))
+	assert.Equal(t, []string{"didit/data.updated/cp-1"}, rs.got)
+	assert.Equal(t, []string{SubjectKYBDataChanged}, a.subjects)
+	assert.Len(t, repo.events, 2, "the update joins the event trail")
+	assert.Equal(t, didit.StatusApproved, cps.counterparties["cp-1"].KYBSessionStatus, "an update without a status keeps the session status")
 }

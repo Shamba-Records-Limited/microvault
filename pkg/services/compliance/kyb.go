@@ -20,10 +20,20 @@ const (
 	SubjectKYBVerified    = "Lender KYB verified by Didit"
 	SubjectKYBNeedsReview = "Lender KYB needs review"
 	SubjectKYBDeclined    = "Lender KYB declined by Didit"
+	SubjectKYBDataChanged = "Lender KYB data changed at Didit"
 )
+
+// diditDataUpdated is Didit's event for changed session data, including
+// ongoing AML monitoring hits.
+const diditDataUpdated = "data.updated"
 
 // kybProvider names Didit on counterparty rows and events.
 const kybProvider = "didit"
+
+// CounterpartyRescreens queues a rescreen of a counterparty's addresses.
+type CounterpartyRescreens interface {
+	QueueCounterparty(ctx context.Context, provider, event, counterpartyID string, body []byte) (int64, error)
+}
 
 // KYBVerifier creates hosted business-verification sessions.
 type KYBVerifier interface {
@@ -37,6 +47,7 @@ type KYB struct {
 	counterparties repository.CounterpartyRepository
 	repo           repository.KYBRepository
 	verifier       KYBVerifier
+	rescreens      CounterpartyRescreens
 	workflowID     string
 	callback       string
 	alerts         alerts.Service
@@ -50,7 +61,9 @@ type KYBDeps struct {
 	Counterparties repository.CounterpartyRepository
 	Repo           repository.KYBRepository
 	Verifier       KYBVerifier
-	WorkflowID     string
+	// Rescreens, when set, receives Didit data updates for the lender.
+	Rescreens  CounterpartyRescreens
+	WorkflowID string
 	// Callback is where Didit sends the lender's contact after the hosted
 	// flow; empty uses Didit's default.
 	Callback string
@@ -68,6 +81,7 @@ func NewKYB(deps KYBDeps) *KYB {
 		counterparties: deps.Counterparties,
 		repo:           deps.Repo,
 		verifier:       deps.Verifier,
+		rescreens:      deps.Rescreens,
 		workflowID:     deps.WorkflowID,
 		callback:       deps.Callback,
 		alerts:         deps.Alerts,
@@ -119,17 +133,18 @@ func (k *KYB) Start(ctx context.Context, counterpartyID string) (string, error) 
 
 // HandleEvent records a verified Didit webhook. Events for other session
 // kinds are ignored; an event for a session that is no longer the
-// counterparty's current one is logged and dropped.
+// counterparty's current one is logged and dropped. A data update queues a
+// rescreen of the lender's addresses.
 func (k *KYB) HandleEvent(ctx context.Context, ev *didit.Event, body []byte) error {
-	if ev.Data.SessionKind != "business" || ev.Data.Status == "" {
+	name := ev.Event
+	if name == "" {
+		name = ev.WebhookType
+	}
+	if ev.Data.SessionKind != "business" || (ev.Data.Status == "" && name != diditDataUpdated) {
 		return nil
 	}
 	if ev.Data.VendorData == "" || ev.Data.SessionID == "" {
 		return fmt.Errorf("didit event has no vendor data or session id")
-	}
-	name := ev.Event
-	if name == "" {
-		name = ev.WebhookType
 	}
 	err := k.repo.RecordEvent(ctx, &models.CounterpartyKYBEvent{
 		CounterpartyID: ev.Data.VendorData,
@@ -151,6 +166,9 @@ func (k *KYB) HandleEvent(ctx context.Context, ev *didit.Event, body []byte) err
 		return err
 	}
 
+	if name == diditDataUpdated {
+		return k.dataUpdated(ctx, ev, body)
+	}
 	switch ev.Data.Status {
 	case didit.StatusApproved:
 		k.alert(ctx, SubjectKYBVerified, fmt.Sprintf("Didit approved counterparty %s (session %s). Review and approve it in the portal.", ev.Data.VendorData, ev.Data.SessionID))
@@ -159,6 +177,21 @@ func (k *KYB) HandleEvent(ctx context.Context, ev *didit.Event, body []byte) err
 	case didit.StatusDeclined:
 		k.alert(ctx, SubjectKYBDeclined, fmt.Sprintf("Didit declined counterparty %s (session %s). Review the decision in the portal.", ev.Data.VendorData, ev.Data.SessionID))
 	}
+	return nil
+}
+
+func (k *KYB) dataUpdated(ctx context.Context, ev *didit.Event, body []byte) error {
+	queued := int64(0)
+	if k.rescreens != nil {
+		n, err := k.rescreens.QueueCounterparty(ctx, kybProvider, diditDataUpdated, ev.Data.VendorData, body)
+		if err != nil {
+			return err
+		}
+		queued = n
+	}
+	k.alert(ctx, SubjectKYBDataChanged, fmt.Sprintf(
+		"Didit reported changed data for counterparty %s (session %s); %d addresses were queued for rescreening. Review the business in the portal.",
+		ev.Data.VendorData, ev.Data.SessionID, queued))
 	return nil
 }
 
