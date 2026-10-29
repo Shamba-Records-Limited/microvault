@@ -383,6 +383,12 @@ but with only a static flash message, never dynamic text, in the URL.
 | `ComplianceRoleSecretKey` | Signs `allow_depositor`/`disallow_depositor`/`freeze_depositor`/`extend_exit_deadline` — deliberately distinct from the admin/treasury keys, held only by the credit backend's `OnchainWriter` |
 | `OnchainWriterInterval` | Defaults to 1 minute (fast path) |
 | `RescreenSweepInterval` | Defaults to 1 hour |
+| `ScreeningProviders` | `COMPLIANCE_SCREENING_PROVIDERS`: `elliptic` (default), `merkle`, `didit`, or a comma list such as `elliptic,merkle` where the stricter verdict wins. A listed provider without its key fails startup; `didit` is refused because Didit's screening does not support Stellar |
+| `MerkleAPIKey` / `MerkleBaseURL` | Merkle Science Compass workspace key (Stellar is blockchain code `13`) |
+| `MerkleReviewLevel` / `MerkleRejectLevel` | Compass `risk_level` cut points, 1–5; both unset sends every scored address to review |
+| `DiditAPIKey` / `DiditBaseURL` / `DiditKYBWorkflowID` | Didit lender KYB; KYB is on only when both the key and the workflow id are set |
+| `DiditWebhookSecret` | `secret_shared_key` of the Didit webhook destination for `POST /api/v1/webhooks/didit` |
+| `DiditReviewScore` / `DiditRejectScore` | Didit `risk_score` cut points, 1–100, for when Didit screening supports the vault's chain |
 
 ---
 
@@ -392,6 +398,11 @@ but with only a static flash message, never dynamic text, in the URL.
 |---|---|
 | Vault contract allowlist (enforcement + admin/timelocked controls) | Built, tested |
 | Elliptic wallet screening client + verdict policy | Built, tested |
+| Merkle Science address and transaction screening (`pkg/compliance/merkle`) | Built, tested |
+| Provider toggle and combined strictest-verdict screening (`pkg/compliance/screeners`, `Combine`, `CombineTx`) | Built, tested, wired into `cmd/credit` and `cmd/admin` |
+| Deposit transaction screening (`deposit_screenings`, `DepositScreener`, watcher queueing) | Built, tested, wired into `cmd/credit`; a sanctioned deposit pages |
+| Didit lender KYB (sessions, signed webhook at `POST /api/v1/webhooks/didit`, `counterparty_kyb_events`, approval waits for Didit) | Built, tested, wired |
+| Didit wallet and transaction screening | **Refused for the vault** — Didit's screening has no Stellar network; the client keeps a chain table so support is one entry when Didit adds it |
 | KYB/screening lifecycle service | Built, tested |
 | Three-table persistence, append-only screening history | Built, tested |
 | On-chain writer (allow/disallow tickers) | Built, tested |
@@ -403,7 +414,7 @@ but with only a static flash message, never dynamic text, in the URL.
 | Runtime-configurable score thresholds | **Not built** — `Thresholds{}` is hardcoded zero-valued in `cmd/credit/main.go`, so every scored screening lands in `VerdictReview` |
 | Elliptic webhook consumption | **Not wired** — `VerifyWebhook` exists and is tested; no route calls it |
 | Provisional (unscreenable) address rescreen-on-first-deposit trigger | **Not wired** — the vault watcher noticing a first deposit from a provisional address is a designed trigger, not built; today an operator must rescreen manually |
-| Transaction screening (beyond wallet/address screening) | **Not built** — the request shape was unconfirmed against Elliptic's API at design time, and guessing at an external contract was judged worse than not building it |
+| Transaction screening (beyond wallet/address screening) | Built — Elliptic holistic `source_of_funds` analysis and Merkle Science `POST /transactions/`, run on every vault deposit |
 
 ---
 
