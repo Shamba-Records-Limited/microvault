@@ -28,9 +28,13 @@ const (
 
 const monitoringBatch = 25
 
-// AddressRescreener screens one lender address again and records the result.
+// maxWebhookAddresses bounds how many addresses one notification can match.
+const maxWebhookAddresses = 500
+
+// AddressRescreener screens one lender address again and records the
+// result without loosening its status.
 type AddressRescreener interface {
-	Rescreen(ctx context.Context, addressID string) (*pkgcompliance.Screening, error)
+	Recheck(ctx context.Context, addressID string) (*pkgcompliance.Screening, error)
 }
 
 // Monitoring turns provider monitoring alerts into rescreens of the lender
@@ -92,6 +96,11 @@ func (m *Monitoring) HandleMerkleWebhook(ctx context.Context, body []byte) error
 	}
 	if w.IsReport() {
 		return nil
+	}
+	if len(w.Addresses) > maxWebhookAddresses {
+		m.logger.WarnContext(ctx, "merkle notification names too many addresses, matching the first ones only",
+			"addresses", len(w.Addresses), "limit", maxWebhookAddresses)
+		w.Addresses = w.Addresses[:maxWebhookAddresses]
 	}
 	matched, err := m.repo.MatchAddresses(ctx, w.Addresses)
 	if err != nil {
@@ -178,7 +187,7 @@ func (m *Monitoring) rescreen(ctx context.Context, sig *models.MonitoringSignal)
 	}
 	addressID := *sig.CounterpartyAddressID
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	res, err := m.rescreener.Rescreen(callCtx, addressID)
+	res, err := m.rescreener.Recheck(callCtx, addressID)
 	cancel()
 	if err != nil {
 		m.retry(ctx, sig, err.Error(), false)

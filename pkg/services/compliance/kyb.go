@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
@@ -145,6 +146,11 @@ func (k *KYB) HandleEvent(ctx context.Context, ev *didit.Event, body []byte) err
 	}
 	if ev.Data.VendorData == "" || ev.Data.SessionID == "" {
 		return fmt.Errorf("didit event has no vendor data or session id")
+	}
+	if uuid.Validate(ev.Data.VendorData) != nil {
+		k.logger.WarnContext(ctx, "didit business event for a session not started from the portal",
+			"vendor_data", ev.Data.VendorData, "session_id", ev.Data.SessionID)
+		return nil //nolint:nilerr // dropped on purpose so Didit does not retry it
 	}
 	err := k.repo.RecordEvent(ctx, &models.CounterpartyKYBEvent{
 		CounterpartyID: ev.Data.VendorData,

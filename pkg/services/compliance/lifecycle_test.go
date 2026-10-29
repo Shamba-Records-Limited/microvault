@@ -245,12 +245,12 @@ func (f *fakeRepo) RecordScreening(_ context.Context, screening *models.AddressS
 	}
 	if newStatus != nil {
 		addr.Status = *newStatus
+		addr.ExpiresAt = expiresAt
 	}
 	if newOnchainState != nil {
 		addr.OnchainState = *newOnchainState
 	}
 	addr.LastScreeningID = &screening.ID
-	addr.ExpiresAt = expiresAt
 	return nil
 }
 
@@ -473,10 +473,12 @@ func TestService_ScreenAndRecord(t *testing.T) {
 func TestService_ApproveKYB(t *testing.T) {
 	repo := newFakeRepo()
 	newApprovedCounterparty(repo, "cp-1", models.CounterpartyKYBPending)
-	a1 := &models.CounterpartyAddress{ID: "addr-1", CounterpartyID: "cp-1", Address: testAddress()}
-	a2 := &models.CounterpartyAddress{ID: "addr-2", CounterpartyID: "cp-1", Address: testAddress()}
+	a1 := &models.CounterpartyAddress{ID: "addr-1", CounterpartyID: "cp-1", Address: testAddress(), Status: models.AddressStatusPending}
+	a2 := &models.CounterpartyAddress{ID: "addr-2", CounterpartyID: "cp-1", Address: testAddress(), Status: models.AddressStatusPending}
+	rejected := &models.CounterpartyAddress{ID: "addr-3", CounterpartyID: "cp-1", Address: testAddress(), Status: models.AddressStatusRejected, OnchainState: models.OnchainStateAbsent}
 	repo.addresses[a1.ID] = a1
 	repo.addresses[a2.ID] = a2
+	repo.addresses[rejected.ID] = rejected
 
 	screener := &fakeScreener{result: &pkgcompliance.Screening{Verdict: pkgcompliance.VerdictApproved, Raw: json.RawMessage(`{}`)}}
 	svc := NewService(Deps{Repo: repo, Screener: screener})
@@ -484,7 +486,39 @@ func TestService_ApproveKYB(t *testing.T) {
 	require.NoError(t, svc.ApproveKYB(context.Background(), "cp-1", "GADMIN..."))
 
 	assert.Equal(t, models.CounterpartyKYBApproved, repo.counterparties["cp-1"].KYBStatus)
-	assert.Len(t, screener.calls, 2, "every existing address on the counterparty is screened")
+	assert.Len(t, screener.calls, 2, "every address waiting for KYB is screened")
 	assert.Equal(t, models.AddressStatusApproved, a1.Status)
 	assert.Equal(t, models.AddressStatusApproved, a2.Status)
+	assert.Equal(t, models.AddressStatusRejected, rejected.Status, "an address a person already decided keeps its status")
+}
+
+func TestService_RecheckOnlyTightens(t *testing.T) {
+	tests := []struct {
+		name        string
+		current     models.CounterpartyAddressStatus
+		verdict     pkgcompliance.Verdict
+		wantStatus  models.CounterpartyAddressStatus
+		wantOnchain models.CounterpartyAddressOnchainState
+	}{
+		{"rejected stays rejected on a clean verdict", models.AddressStatusRejected, pkgcompliance.VerdictApproved, models.AddressStatusRejected, models.OnchainStateAbsent},
+		{"review stays review on a clean verdict", models.AddressStatusReview, pkgcompliance.VerdictApproved, models.AddressStatusReview, models.OnchainStateAbsent},
+		{"rejected is not softened to review", models.AddressStatusRejected, pkgcompliance.VerdictReview, models.AddressStatusRejected, models.OnchainStateAbsent},
+		{"approved is renewed", models.AddressStatusApproved, pkgcompliance.VerdictApproved, models.AddressStatusApproved, models.OnchainStateAbsent},
+		{"approved moves to review", models.AddressStatusApproved, pkgcompliance.VerdictReview, models.AddressStatusReview, models.OnchainStateAbsent},
+		{"approved moves to rejected", models.AddressStatusApproved, pkgcompliance.VerdictRejected, models.AddressStatusRejected, models.OnchainStateAbsent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			newApprovedCounterparty(repo, "cp-1", models.CounterpartyKYBApproved)
+			addr := &models.CounterpartyAddress{ID: "addr-1", CounterpartyID: "cp-1", Address: testAddress(), Status: tt.current, OnchainState: models.OnchainStateAbsent}
+			repo.addresses[addr.ID] = addr
+			svc := NewService(Deps{Repo: repo, Screener: &fakeScreener{result: &pkgcompliance.Screening{Verdict: tt.verdict, Raw: json.RawMessage(`{}`)}}})
+
+			_, err := svc.Recheck(context.Background(), addr.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, addr.Status)
+			assert.Equal(t, tt.wantOnchain, addr.OnchainState, "a monitoring recheck never queues an allowlist write")
+		})
+	}
 }

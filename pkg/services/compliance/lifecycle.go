@@ -98,7 +98,7 @@ func (s *Service) SubmitAddress(ctx context.Context, counterpartyID, address str
 }
 
 // ApproveKYB approves the counterparty's KYB status, then screens every
-// address already on file.
+// address still waiting for it; addresses already decided keep their status.
 func (s *Service) ApproveKYB(ctx context.Context, counterpartyID, actor string) error {
 	if s.requireVerified {
 		cp, err := s.repo.GetByID(ctx, counterpartyID)
@@ -118,6 +118,9 @@ func (s *Service) ApproveKYB(ctx context.Context, counterpartyID, actor string) 
 		return err
 	}
 	for _, addr := range addrs {
+		if addr.Status != models.AddressStatusPending {
+			continue
+		}
 		if err := s.ScreenAndRecord(ctx, addr.ID); err != nil {
 			s.logger.ErrorContext(ctx, "screening failed during KYB approval",
 				"counterparty_id", counterpartyID, "address_id", addr.ID, "error", err)
@@ -137,6 +140,18 @@ func (s *Service) ScreenAndRecord(ctx context.Context, addressID string) error {
 
 // Rescreen is ScreenAndRecord returning the screening it recorded.
 func (s *Service) Rescreen(ctx context.Context, addressID string) (*pkgcompliance.Screening, error) {
+	return s.screen(ctx, addressID, false)
+}
+
+// Recheck screens an address again after a provider's monitoring alert. It
+// can only tighten: a rejected or review verdict is applied, a clean one
+// only renews an address that is already approved or expired, and it never
+// queues an allowlist write, so a person's rejection or revocation stands.
+func (s *Service) Recheck(ctx context.Context, addressID string) (*pkgcompliance.Screening, error) {
+	return s.screen(ctx, addressID, true)
+}
+
+func (s *Service) screen(ctx context.Context, addressID string, tightenOnly bool) (*pkgcompliance.Screening, error) {
 	addr, err := s.repo.GetAddressByID(ctx, addressID)
 	if err != nil {
 		return nil, err
@@ -154,6 +169,9 @@ func (s *Service) Rescreen(ctx context.Context, addressID string) (*pkgcomplianc
 	}
 
 	newStatus, expiresAt := s.applyVerdict(screening.Verdict)
+	if tightenOnly {
+		newStatus, expiresAt = tighten(addr.Status, newStatus, expiresAt)
+	}
 
 	// Queue the on-chain allow write only when the address is newly
 	// approved from a clean slate (onchain_state absent): approved queues
@@ -164,7 +182,7 @@ func (s *Service) Rescreen(ctx context.Context, addressID string) (*pkgcomplianc
 	// revoked does not get silently re-queued by an automated rescreen —
 	// that needs its own deliberate admin action.
 	var newOnchainState *models.CounterpartyAddressOnchainState
-	if newStatus != nil && *newStatus == models.AddressStatusApproved && addr.OnchainState == models.OnchainStateAbsent {
+	if !tightenOnly && newStatus != nil && *newStatus == models.AddressStatusApproved && addr.OnchainState == models.OnchainStateAbsent {
 		state := models.OnchainStatePending
 		newOnchainState = &state
 	}
@@ -190,6 +208,29 @@ func (s *Service) Rescreen(ctx context.Context, addressID string) (*pkgcomplianc
 		return nil, err
 	}
 	return screening, nil
+}
+
+// tighten limits an automated status change to one that never loosens what
+// is recorded: review and rejected apply (rejected is kept over review), and
+// approval applies only to an address that is approved or expired already.
+func tighten(current models.CounterpartyAddressStatus, next *models.CounterpartyAddressStatus, expires *time.Time) (*models.CounterpartyAddressStatus, *time.Time) {
+	if next == nil {
+		return nil, nil
+	}
+	switch *next {
+	case models.AddressStatusRejected:
+		return next, nil
+	case models.AddressStatusReview:
+		if current == models.AddressStatusRejected {
+			return nil, nil
+		}
+		return next, nil
+	default:
+		if current == models.AddressStatusApproved || current == models.AddressStatusExpired {
+			return next, expires
+		}
+		return nil, nil
+	}
 }
 
 // applyVerdict maps a compliance.Verdict to the address's next status and

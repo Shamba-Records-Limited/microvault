@@ -14,6 +14,8 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 )
 
+const kybCP = "0193a1b2-0000-7000-8000-000000000001"
+
 type fakeVerifier struct {
 	calls int
 	got   [3]string
@@ -67,7 +69,7 @@ func (a *kybAlerts) AlertOps(_ context.Context, subject, _ string) error {
 
 func newKYBFixture() (*KYB, *fakeRepo, *fakeKYBRepo, *fakeVerifier, *kybAlerts) {
 	cps := newFakeRepo()
-	cps.counterparties["cp-1"] = &models.Counterparty{ID: "cp-1", LegalName: "Lender Ltd", KYBStatus: models.CounterpartyKYBPending}
+	cps.counterparties[kybCP] = &models.Counterparty{ID: kybCP, LegalName: "Lender Ltd", KYBStatus: models.CounterpartyKYBPending}
 	repo := &fakeKYBRepo{cps: cps}
 	v := &fakeVerifier{}
 	a := &kybAlerts{}
@@ -78,7 +80,7 @@ func newKYBFixture() (*KYB, *fakeRepo, *fakeKYBRepo, *fakeVerifier, *kybAlerts) 
 func event(status, session string) *didit.Event {
 	ev := &didit.Event{Event: "status.updated"}
 	ev.Data.SessionKind = "business"
-	ev.Data.VendorData = "cp-1"
+	ev.Data.VendorData = kybCP
 	ev.Data.SessionID = session
 	ev.Data.Status = status
 	return ev
@@ -86,62 +88,67 @@ func event(status, session string) *didit.Event {
 
 func TestKYBStartCreatesThenReusesAnOpenSession(t *testing.T) {
 	k, cps, _, v, _ := newKYBFixture()
-	url, err := k.Start(context.Background(), "cp-1")
+	url, err := k.Start(context.Background(), kybCP)
 	require.NoError(t, err)
-	assert.Equal(t, "https://verify.didit.me/session/bs_cp-1", url)
-	assert.Equal(t, [3]string{"wf-kyb", "cp-1", "https://portal/done"}, v.got)
-	assert.Equal(t, didit.StatusNotStarted, cps.counterparties["cp-1"].KYBSessionStatus)
+	assert.Equal(t, "https://verify.didit.me/session/bs_"+kybCP, url)
+	assert.Equal(t, [3]string{"wf-kyb", kybCP, "https://portal/done"}, v.got)
+	assert.Equal(t, didit.StatusNotStarted, cps.counterparties[kybCP].KYBSessionStatus)
 
-	_, err = k.Start(context.Background(), "cp-1")
+	_, err = k.Start(context.Background(), kybCP)
 	require.NoError(t, err)
 	assert.Equal(t, 1, v.calls, "an open session is reused")
 
-	cps.counterparties["cp-1"].KYBSessionStatus = didit.StatusDeclined
-	_, err = k.Start(context.Background(), "cp-1")
+	cps.counterparties[kybCP].KYBSessionStatus = didit.StatusDeclined
+	_, err = k.Start(context.Background(), kybCP)
 	require.NoError(t, err)
 	assert.Equal(t, 2, v.calls, "a closed session is replaced")
 }
 
 func TestKYBStartRefusals(t *testing.T) {
 	k, cps, _, _, _ := newKYBFixture()
-	cps.counterparties["cp-1"].KYBStatus = models.CounterpartyKYBApproved
-	_, err := k.Start(context.Background(), "cp-1")
+	cps.counterparties[kybCP].KYBStatus = models.CounterpartyKYBApproved
+	_, err := k.Start(context.Background(), kybCP)
 	assert.ErrorIs(t, err, ErrKYBAlreadyApproved)
 
-	_, err = NewKYB(KYBDeps{}).Start(context.Background(), "cp-1")
+	_, err = NewKYB(KYBDeps{}).Start(context.Background(), kybCP)
 	assert.ErrorIs(t, err, ErrKYBNotConfigured)
 }
 
 func TestKYBHandleEvent(t *testing.T) {
 	k, cps, repo, _, a := newKYBFixture()
-	_, err := k.Start(context.Background(), "cp-1")
+	_, err := k.Start(context.Background(), kybCP)
 	require.NoError(t, err)
 
-	require.NoError(t, k.HandleEvent(context.Background(), event(didit.StatusInReview, "bs_cp-1"), []byte(`{"a":1}`)))
-	require.NoError(t, k.HandleEvent(context.Background(), event(didit.StatusApproved, "bs_cp-1"), []byte(`{"a":2}`)))
-	assert.Equal(t, didit.StatusApproved, cps.counterparties["cp-1"].KYBSessionStatus)
+	require.NoError(t, k.HandleEvent(context.Background(), event(didit.StatusInReview, "bs_"+kybCP), []byte(`{"a":1}`)))
+	require.NoError(t, k.HandleEvent(context.Background(), event(didit.StatusApproved, "bs_"+kybCP), []byte(`{"a":2}`)))
+	assert.Equal(t, didit.StatusApproved, cps.counterparties[kybCP].KYBSessionStatus)
 	assert.Len(t, repo.events, 2)
 	assert.Equal(t, []string{SubjectKYBNeedsReview, SubjectKYBVerified}, a.subjects)
-	assert.Equal(t, models.CounterpartyKYBPending, cps.counterparties["cp-1"].KYBStatus, "Didit never approves the lender by itself")
+	assert.Equal(t, models.CounterpartyKYBPending, cps.counterparties[kybCP].KYBStatus, "Didit never approves the lender by itself")
 
 	require.NoError(t, k.HandleEvent(context.Background(), event(didit.StatusDeclined, "bs_old"), []byte(`{}`)), "a superseded session is dropped, not retried")
 	assert.Len(t, repo.events, 2)
 
-	user := event(didit.StatusApproved, "bs_cp-1")
+	user := event(didit.StatusApproved, "bs_"+kybCP)
 	user.Data.SessionKind = "user"
 	require.NoError(t, k.HandleEvent(context.Background(), user, []byte(`{}`)))
 	assert.Len(t, repo.events, 2, "personal KYC sessions are not lender KYB")
+
+	foreign := event(didit.StatusApproved, "bs_console")
+	foreign.Data.VendorData = "test-from-console"
+	require.NoError(t, k.HandleEvent(context.Background(), foreign, []byte(`{}`)), "a session not started from the portal is dropped, not retried")
+	assert.Len(t, repo.events, 2)
 }
 
 func TestApproveKYBRequiresDiditApproval(t *testing.T) {
 	repo := newFakeRepo()
-	repo.counterparties["cp-1"] = &models.Counterparty{ID: "cp-1", KYBStatus: models.CounterpartyKYBPending, KYBSessionStatus: didit.StatusInReview}
+	repo.counterparties[kybCP] = &models.Counterparty{ID: kybCP, KYBStatus: models.CounterpartyKYBPending, KYBSessionStatus: didit.StatusInReview}
 	svc := NewService(Deps{Repo: repo, RequireKYBVerified: true})
-	assert.ErrorIs(t, svc.ApproveKYB(context.Background(), "cp-1", "GACTOR"), ErrKYBNotVerified)
+	assert.ErrorIs(t, svc.ApproveKYB(context.Background(), kybCP, "GACTOR"), ErrKYBNotVerified)
 
-	repo.counterparties["cp-1"].KYBSessionStatus = didit.StatusApproved
-	require.NoError(t, svc.ApproveKYB(context.Background(), "cp-1", "GACTOR"))
-	assert.Equal(t, models.CounterpartyKYBApproved, repo.counterparties["cp-1"].KYBStatus)
+	repo.counterparties[kybCP].KYBSessionStatus = didit.StatusApproved
+	require.NoError(t, svc.ApproveKYB(context.Background(), kybCP, "GACTOR"))
+	assert.Equal(t, models.CounterpartyKYBApproved, repo.counterparties[kybCP].KYBStatus)
 }
 
 type fakeRescreens struct {
@@ -158,16 +165,16 @@ func TestKYBDataUpdatedQueuesRescreens(t *testing.T) {
 	k, cps, repo, _, a := newKYBFixture()
 	rs := &fakeRescreens{n: 2}
 	k.rescreens = rs
-	_, err := k.Start(context.Background(), "cp-1")
+	_, err := k.Start(context.Background(), kybCP)
 	require.NoError(t, err)
-	require.NoError(t, k.HandleEvent(context.Background(), event(didit.StatusApproved, "bs_cp-1"), []byte(`{}`)))
+	require.NoError(t, k.HandleEvent(context.Background(), event(didit.StatusApproved, "bs_"+kybCP), []byte(`{}`)))
 	a.subjects = nil
 
-	ev := event("", "bs_cp-1")
+	ev := event("", "bs_"+kybCP)
 	ev.Event = "data.updated"
 	require.NoError(t, k.HandleEvent(context.Background(), ev, []byte(`{"aml":1}`)))
-	assert.Equal(t, []string{"didit/data.updated/cp-1"}, rs.got)
+	assert.Equal(t, []string{"didit/data.updated/" + kybCP}, rs.got)
 	assert.Equal(t, []string{SubjectKYBDataChanged}, a.subjects)
 	assert.Len(t, repo.events, 2, "the update joins the event trail")
-	assert.Equal(t, didit.StatusApproved, cps.counterparties["cp-1"].KYBSessionStatus, "an update without a status keeps the session status")
+	assert.Equal(t, didit.StatusApproved, cps.counterparties[kybCP].KYBSessionStatus, "an update without a status keeps the session status")
 }

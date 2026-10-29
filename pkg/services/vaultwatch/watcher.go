@@ -173,7 +173,10 @@ func (w *Watcher) tick(ctx context.Context) {
 
 	nextLedger := from
 	for _, info := range resp.Events {
-		w.inspect(ctx, info)
+		if !w.inspect(ctx, info) && info.Ledger >= 0 {
+			nextLedger = max(from, uint32(info.Ledger))
+			break
+		}
 		if info.Ledger < 0 {
 			// Never emitted by a real network — guard against a negative
 			// int32 wrapping to a huge uint32 and corrupting the cursor.
@@ -200,30 +203,33 @@ func (w *Watcher) tick(ctx context.Context) {
 // inspect decodes one event and, for the kinds that move money or shares,
 // confirms every participant is currently allowlisted. A mismatch means the
 // contract's own gating let something through — see doc.go on why that is
-// logged as an alert, not corrected here.
-func (w *Watcher) inspect(ctx context.Context, info protocol.EventInfo) {
+// logged as an alert, not corrected here. It reports false when the event
+// must be seen again, so the cursor stops at its ledger.
+func (w *Watcher) inspect(ctx context.Context, info protocol.EventInfo) bool {
 	event, err := soroban.DecodeVaultEvent(info)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "could not decode a vault event", "event_id", info.ID, "error", err)
-		return
+		return true
 	}
 	switch event.Kind {
 	case soroban.VaultEventDeposit:
-		w.queueDeposit(ctx, info, event)
+		if !w.queueDeposit(ctx, info, event) {
+			return false
+		}
 	case soroban.VaultEventTransfer:
 	case soroban.VaultEventWithdraw:
 		w.checkFrozenWithdraw(ctx, info, event.Addresses[2])
-		return
+		return true
 	case soroban.VaultEventExitDeadlineSet:
 		w.syncExitDeadline(ctx, event.Addresses[0], &event.Deadline)
-		return
+		return true
 	case soroban.VaultEventExitDeadlineCleared:
 		w.syncExitDeadline(ctx, event.Addresses[0], nil)
-		return
+		return true
 	default:
 		// Allow/disallow events name an address whose membership just
 		// changed by design; checking them would flag every revocation.
-		return
+		return true
 	}
 
 	for _, addr := range event.Addresses {
@@ -243,13 +249,15 @@ func (w *Watcher) inspect(ctx context.Context, info protocol.EventInfo) {
 			)
 		}
 	}
+	return true
 }
 
-// queueDeposit queues a deposit's transaction for screening. Topics are
-// (operator, from, receiver); the funds come from "from".
-func (w *Watcher) queueDeposit(ctx context.Context, info protocol.EventInfo, event soroban.VaultEvent) {
+// queueDeposit queues a deposit's transaction for screening and reports
+// whether it was stored. Topics are (operator, from, receiver); the funds
+// come from "from".
+func (w *Watcher) queueDeposit(ctx context.Context, info protocol.EventInfo, event soroban.VaultEvent) bool {
 	if w.deposits == nil || len(event.Addresses) < 2 {
-		return
+		return true
 	}
 	if err := w.deposits.Enqueue(ctx, &models.DepositScreening{
 		EventID:   info.ID,
@@ -258,9 +266,11 @@ func (w *Watcher) queueDeposit(ctx context.Context, info protocol.EventInfo, eve
 		Depositor: event.Addresses[1],
 		Receiver:  w.contractID,
 	}); err != nil {
-		w.logger.ErrorContext(ctx, "could not queue a vault deposit for screening",
+		w.logger.ErrorContext(ctx, "could not queue a vault deposit for screening, retrying from its ledger next tick",
 			"event_id", info.ID, "tx_hash", info.TransactionHash, "error", err)
+		return false
 	}
+	return true
 }
 
 // checkFrozenWithdraw pages when a withdraw or redeem landed at or after the

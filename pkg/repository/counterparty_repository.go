@@ -64,7 +64,8 @@ type CounterpartyRepository interface {
 
 	// RecordScreening inserts the append-only screening row and updates the
 	// parent address's last_screening_id/screened_at/expires_at in one
-	// transaction. newAddressStatus and newOnchainState are each optional —
+	// transaction. expires_at changes only with the status. newAddressStatus
+	// and newOnchainState are each optional —
 	// nil leaves that column untouched (a screening whose verdict didn't
 	// resolve to anything new, e.g. still pending, must not silently
 	// downgrade an address that was already approved).
@@ -535,11 +536,11 @@ func (r *counterpartyRepository) RecordScreening(ctx context.Context, screening 
 		updates := map[string]interface{}{
 			"last_screening_id": screening.ID,
 			"screened_at":       time.Now(),
-			"expires_at":        expiresAt,
 			"updated_at":        time.Now(),
 		}
 		if newAddressStatus != nil {
 			updates["status"] = *newAddressStatus
+			updates["expires_at"] = expiresAt
 		}
 		if newOnchainState != nil {
 			updates["onchain_state"] = *newOnchainState

@@ -93,7 +93,7 @@ type fakeRescreener struct {
 	got []string
 }
 
-func (f *fakeRescreener) Rescreen(_ context.Context, id string) (*pkgcompliance.Screening, error) {
+func (f *fakeRescreener) Recheck(_ context.Context, id string) (*pkgcompliance.Screening, error) {
 	f.got = append(f.got, id)
 	return f.res, f.err
 }
