@@ -743,6 +743,119 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/webhooks/didit": {
+            "post": {
+                "description": "Receive Didit verification status and data webhooks",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "Process Didit Webhook",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "HMAC-SHA256 over the canonical JSON body",
+                        "name": "X-Signature-V2",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Unix seconds when Didit sent the webhook",
+                        "name": "X-Timestamp",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Signature verification failed",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to record the webhook",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    },
+                    "503": {
+                        "description": "Didit webhooks are not configured",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/webhooks/merkle": {
+            "post": {
+                "description": "Receive Merkle Science Compass risk and alert notifications",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "Process Merkle Science Webhook",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Webhook secret configured in Compass",
+                        "name": "X-WEBHOOK-KEY",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Body is not JSON",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Webhook key mismatch",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to record the webhook",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    },
+                    "503": {
+                        "description": "Merkle Science webhooks are not configured",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/webhooks/yellowcard": {
             "post": {
                 "description": "Handle incoming webhooks from YellowCard payment service",

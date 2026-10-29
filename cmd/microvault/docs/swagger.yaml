@@ -925,6 +925,81 @@ paths:
       summary: USSD Callback Handler
       tags:
       - Mobile
+  /api/v1/webhooks/didit:
+    post:
+      consumes:
+      - application/json
+      description: Receive Didit verification status and data webhooks
+      parameters:
+      - description: HMAC-SHA256 over the canonical JSON body
+        in: header
+        name: X-Signature-V2
+        required: true
+        type: string
+      - description: Unix seconds when Didit sent the webhook
+        in: header
+        name: X-Timestamp
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            type: string
+        "401":
+          description: Signature verification failed
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to record the webhook
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "503":
+          description: Didit webhooks are not configured
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Process Didit Webhook
+      tags:
+      - Webhooks
+  /api/v1/webhooks/merkle:
+    post:
+      consumes:
+      - application/json
+      description: Receive Merkle Science Compass risk and alert notifications
+      parameters:
+      - description: Webhook secret configured in Compass
+        in: header
+        name: X-WEBHOOK-KEY
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            type: string
+        "400":
+          description: Body is not JSON
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "401":
+          description: Webhook key mismatch
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "500":
+          description: Failed to record the webhook
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "503":
+          description: Merkle Science webhooks are not configured
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Process Merkle Science Webhook
+      tags:
+      - Webhooks
   /api/v1/webhooks/yellowcard:
     post:
       consumes:
