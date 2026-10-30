@@ -2,6 +2,8 @@ package rpc
 
 import (
 	"context"
+	"regexp"
+	"strconv"
 
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
 
@@ -52,4 +54,23 @@ func FetchVaultEvents(ctx context.Context, client EventsGetter, contractID strin
 			Wrapf(err, "could not fetch vault events")
 	}
 	return resp, nil
+}
+
+var ledgerRange = regexp.MustCompile(`startLedger must be within the ledger range: (\d+) - (\d+)`)
+
+// OutOfRetention reports whether err says the start ledger is older than the
+// RPC node keeps, and if so the oldest ledger it still has.
+func OutOfRetention(err error) (oldest uint32, ok bool) {
+	if err == nil {
+		return 0, false
+	}
+	m := ledgerRange.FindStringSubmatch(err.Error())
+	if m == nil {
+		return 0, false
+	}
+	v, perr := strconv.ParseUint(m[1], 10, 32)
+	if perr != nil {
+		return 0, false
+	}
+	return uint32(v), true
 }

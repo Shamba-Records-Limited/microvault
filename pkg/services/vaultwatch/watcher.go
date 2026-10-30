@@ -51,6 +51,7 @@ type depositQueue interface {
 const (
 	SubjectExitWindowClosing       = "Depositor exit window closing"
 	SubjectFrozenDepositorWithdrew = "Frozen depositor withdrew"
+	SubjectEventsSkipped           = "Vault events skipped beyond RPC retention"
 )
 
 // exitWarnings are checked nearest first, so an address first seen inside
@@ -161,6 +162,10 @@ func (w *Watcher) tick(ctx context.Context) {
 	}
 
 	resp, err := rpc.FetchVaultEvents(ctx, w.client, w.contractID, from, maxEventsPerTick)
+	if oldest, ok := rpc.OutOfRetention(err); ok && oldest > from {
+		w.skipTo(ctx, from, oldest)
+		return
+	}
 	if err != nil {
 		w.logger.ErrorContext(ctx, "could not fetch vault events, window will be retried next tick",
 			"from_ledger", from, "error", err)
@@ -198,6 +203,20 @@ func (w *Watcher) tick(ctx context.Context) {
 		w.logger.ErrorContext(ctx, "could not advance the watch cursor", "error", err)
 	}
 	w.checkExitWindows(ctx)
+}
+
+// skipTo moves a cursor the RPC node no longer has history for up to the
+// oldest ledger it keeps, and pages: events in the skipped ledgers were never
+// screened and must be rescanned from an archive.
+func (w *Watcher) skipTo(ctx context.Context, from, oldest uint32) {
+	if err := w.cursor.Advance(ctx, oldest); err != nil {
+		w.logger.ErrorContext(ctx, "could not advance the watch cursor past the retention gap", "error", err)
+		return
+	}
+	alerts.Raise(ctx, w.alerts, w.logger, SubjectEventsSkipped,
+		fmt.Sprintf("The vault watcher was at ledger %d but the RPC node keeps ledgers from %d only, so ledgers %d to %d were never scanned. "+
+			"Deposits and transfers in that range were not screened. Rescan them from an archive (vault-backfill against a full-history RPC).",
+			from, oldest, from, oldest-1))
 }
 
 // inspect decodes one event and, for the kinds that move money or shares,

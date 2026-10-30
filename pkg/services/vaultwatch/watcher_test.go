@@ -2,6 +2,7 @@ package vaultwatch
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -357,4 +358,24 @@ func TestWatcherTick_UnqueuedDepositHoldsTheCursor(t *testing.T) {
 	w.tick(context.Background())
 	require.Len(t, queue.queued, 1)
 	assert.Equal(t, uint32(151), cursor.ledger)
+}
+
+func TestWatcherTick_SkipsPastRPCRetentionAndPages(t *testing.T) {
+	client := &fakeEventsClient{eventsErr: errors.New("could not fetch vault events: [-32600] startLedger must be within the ledger range: 5345867 - 5466826")}
+	cursor := &fakeCursor{ledger: 5088353}
+	rec := &recordingAlerts{}
+	w := NewWatcher(WatcherDeps{
+		Client: client, Allowlist: &fakeAllowlist{}, Cursor: cursor, Alerts: rec,
+		ContractID: "CA7HVINR2AY532D7UPOE7MMOZAN2ZBZ327VWIO33K7JM7C4G6XYX5NOT", Logger: slog.New(slog.DiscardHandler),
+	})
+
+	w.tick(context.Background())
+
+	assert.Equal(t, uint32(5345867), cursor.ledger, "resumes at the oldest ledger the node keeps")
+	assert.Equal(t, []string{SubjectEventsSkipped}, rec.subjects)
+
+	client.eventsErr = errors.New("connection reset")
+	w.tick(context.Background())
+	assert.Equal(t, uint32(5345867), cursor.ledger, "other failures still retry the same window")
+	assert.Len(t, rec.subjects, 1)
 }
