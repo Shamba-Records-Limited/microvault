@@ -27,8 +27,8 @@ import { useRequestRedeem, useCancelRedeem } from "@/hooks/use-redeem-queue";
 import type { LenderStatus } from "@/types/vault";
 import type { Pool } from "@/types/vault";
 
-const supplyAprNote =
-  "Estimated rate lenders earn: the borrow APR times the share of the pool that is lent out. It moves as lending changes and is not compounded.";
+const yieldNote =
+  "Estimated yearly return at today's rates: the borrow rate, compounded as the vault accrues it, times the share of the pool that is lent out. It moves as lending changes.";
 
 const explorerUrl =
   import.meta.env.VITE_STELLAR_EXPLORER_URL || DEFAULT_EXPLORER_URL;
@@ -227,9 +227,9 @@ export function PoolCard({ pool }: PoolCardProps) {
                 </p>
               </div>
               <div>
-                <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground" title={supplyAprNote}>Supply APR</p>
+                <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground" title={yieldNote}>Yield</p>
                 <p className="font-bold text-sm text-foreground tabular-nums mt-0.5">
-                  {formatPercent(pool.supplyApr)}
+                  {formatPercent(pool.estimatedYield)}
                 </p>
               </div>
             </div>
@@ -243,8 +243,8 @@ export function PoolCard({ pool }: PoolCardProps) {
                 <p className="font-bold text-base text-foreground tabular-nums">{formatCurrency(pool.tvl)}</p>
               </div>
               <div className="text-right">
-                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5" title={supplyAprNote}>Supply APR</p>
-                <p className="font-bold text-base text-foreground tabular-nums">{formatPercent(pool.supplyApr)}</p>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5" title={yieldNote}>Yield</p>
+                <p className="font-bold text-base text-foreground tabular-nums">{formatPercent(pool.estimatedYield)}</p>
               </div>
             </div>
 

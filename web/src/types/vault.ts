@@ -105,8 +105,8 @@ export interface Pool {
   /** Soroban vault contract address. */
   address: string;
   tvl: number;
-  /** Estimated lender rate: borrow APR × utilisation, as a percentage. */
-  supplyApr: number;
+  /** Estimated annual lender yield: the borrow rate compounded per second, times utilisation, as a percentage. */
+  estimatedYield: number;
   /** Rate borrowers pay, as a percentage. */
   borrowApr: number;
   totalSupplied: number;
