@@ -27,7 +27,14 @@ import {
   DEFAULT_RPC_URL,
   DEFAULT_NETWORK_PASSPHRASE,
 } from "./constants";
-import type { VaultStats, VaultAddresses, VaultMetadata } from "@/types/vault";
+import type {
+  VaultStats,
+  VaultAddresses,
+  VaultMetadata,
+  QueueState,
+  RedeemRequest,
+  LenderStatus,
+} from "@/types/vault";
 
 const rpcUrl = import.meta.env.VITE_SOROBAN_RPC_URL || DEFAULT_RPC_URL;
 const networkPassphrase =
@@ -429,6 +436,153 @@ export async function fetchUserAssetBalance(address: string): Promise<number> {
   }
 
   return i128ToNumber(simResponse.result.retval, USDC_SCALE);
+}
+
+// ---------------------------------------------------------------------------
+// Withdrawal queue and lender status
+// ---------------------------------------------------------------------------
+
+/** Most queue ids scanned for the connected lender's requests per refresh. */
+const MAX_QUEUE_SCAN = 200;
+
+function u64ScVal(value: bigint): xdr.ScVal {
+  return nativeToScVal(value, { type: "u64" });
+}
+
+/**
+ * Reads the queue's head, length, USDC owed and minimum request.
+ * @returns Queue state; fields that fail to read fall back to empty values
+ */
+export async function fetchQueueState(): Promise<QueueState> {
+  const [head, length, queued, min] = await Promise.all([
+    callViewFunction("queue_head").catch(() => null),
+    callViewFunction("queue_length").catch(() => null),
+    callViewFunction("queued_assets").catch(() => null),
+    callViewFunction("min_queue_assets").catch(() => null),
+  ]);
+  return {
+    head: head ? (scValToNative(head) as bigint) : 0n,
+    length: length ? (scValToNative(length) as bigint) : 0n,
+    queuedAssets: queued ? i128ToNumber(queued, USDC_SCALE) : 0,
+    minRequest: min ? i128ToNumber(min, USDC_SCALE) : 0,
+  };
+}
+
+interface OnChainRequest {
+  owner: string;
+  receiver: string;
+  shares: bigint;
+  requested_at: bigint;
+}
+
+/**
+ * Finds the connected lender's open requests by walking the queue from its
+ * head, with each one's place and the USDC owed ahead of it.
+ * @param address - Connected lender's G-address
+ * @param queue - Current queue state
+ * @remarks The contract keeps no per-owner index, so this scans up to
+ * `MAX_QUEUE_SCAN` ids; cancelled ids read as empty and are skipped.
+ */
+export async function fetchUserRequests(
+  address: string,
+  queue: QueueState,
+): Promise<RedeemRequest[]> {
+  const count = queue.length > BigInt(MAX_QUEUE_SCAN) ? BigInt(MAX_QUEUE_SCAN) : queue.length;
+  const ids = Array.from({ length: Number(count) }, (_, i) => queue.head + BigInt(i));
+  const entries = await Promise.all(
+    ids.map((id) =>
+      callViewFunction("queue_entry", [u64ScVal(id)])
+        .then((v) => ({ id, entry: scValToNative(v) as OnChainRequest | null }))
+        .catch(() => ({ id, entry: null })),
+    ),
+  );
+  const open = entries.filter((e): e is { id: bigint; entry: OnChainRequest } => e.entry !== null);
+
+  const out: RedeemRequest[] = [];
+  let sharesAhead = 0n;
+  for (let i = 0; i < open.length; i++) {
+    const { id, entry } = open[i];
+    if (entry.owner === address) {
+      const [value, ahead] = await Promise.all([
+        callViewFunction("convert_to_assets", [i128ScVal(entry.shares)]),
+        sharesAhead > 0n
+          ? callViewFunction("convert_to_assets", [i128ScVal(sharesAhead)])
+          : Promise.resolve(null),
+      ]);
+      out.push({
+        id,
+        shares: entry.shares,
+        value: i128ToNumber(value, USDC_SCALE),
+        requestedAt: new Date(Number(entry.requested_at) * 1000),
+        position: i + 1,
+        aheadValue: ahead ? i128ToNumber(ahead, USDC_SCALE) : 0,
+      });
+    }
+    sharesAhead += entry.shares;
+  }
+  return out;
+}
+
+/**
+ * Reads what the vault allows the address to do: allowlist, freeze, exit
+ * deadline, deposit lock, its share balance and the per-request maximum.
+ * @remarks A queue request is capped by the share balance, not `max_redeem`,
+ * which falls to zero while anything is queued and with idle liquidity.
+ * @param address - Connected lender's G-address
+ */
+export async function fetchLenderStatus(address: string): Promise<LenderStatus> {
+  const a = addressScVal(address);
+  const [allowed, enforced, frozen, deadline, lock, balance, perRequest] = await Promise.all([
+    callViewFunction("is_allowed", [a]).catch(() => null),
+    callViewFunction("allowlist_enforced").catch(() => null),
+    callViewFunction("is_frozen", [a]).catch(() => null),
+    callViewFunction("exit_deadline", [a]).catch(() => null),
+    callViewFunction("remaining_lock_time", [a]).catch(() => null),
+    callViewFunction("balance", [a]).catch(() => null),
+    callViewFunction("get_max_withdraw").catch(() => null),
+  ]);
+  const deadlineSecs = deadline ? (scValToNative(deadline) as bigint | null) : null;
+  return {
+    allowed: allowed ? (scValToNative(allowed) as boolean) : true,
+    enforced: enforced ? (scValToNative(enforced) as boolean) : false,
+    frozen: frozen ? (scValToNative(frozen) as boolean) : false,
+    exitDeadline: deadlineSecs ? new Date(Number(deadlineSecs) * 1000) : null,
+    lockRemaining: lock ? Number(scValToNative(lock) as bigint) : 0,
+    shareBalance: balance ? (scValToNative(balance) as bigint) : 0n,
+    maxPerRequest: perRequest ? i128ToNumber(perRequest, USDC_SCALE) : Infinity,
+  };
+}
+
+/**
+ * Converts a USDC amount into the shares a queue request must escrow,
+ * rounded up the way a withdrawal would be.
+ * @param assets - USDC amount in stroops
+ */
+export async function fetchSharesForAssets(assets: bigint): Promise<bigint> {
+  return fetchPreviewWithdraw(assets);
+}
+
+/**
+ * Builds `request_redeem(owner, receiver, shares)`; the lender receives the
+ * USDC as the queue fills.
+ * @param senderAddress - Lender's G-address, owner and receiver
+ * @param shares - Shares to escrow (raw i128)
+ */
+export async function buildRequestRedeemTx(
+  senderAddress: string,
+  shares: bigint,
+): Promise<Transaction> {
+  const addr = addressScVal(senderAddress);
+  return buildContractTx(senderAddress, "request_redeem", [addr, addr, i128ScVal(shares)]);
+}
+
+/**
+ * Builds `cancel_redeem(id)`, returning the request's unfilled shares.
+ * @param senderAddress - Lender's G-address, the request's owner
+ * @param id - Request id
+ */
+export async function buildCancelRedeemTx(senderAddress: string, id: bigint): Promise<Transaction> {
+  return buildContractTx(senderAddress, "cancel_redeem", [u64ScVal(id)]);
 }
 
 export { server, networkPassphrase };

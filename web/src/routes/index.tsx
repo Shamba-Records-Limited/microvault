@@ -55,7 +55,8 @@ export default function IndexPage() {
           name: metadata.name,
           address: addresses.contractId,
           tvl: stats.totalManagedAssets,
-          apy: stats.borrowApr,
+          supplyApr: (stats.borrowApr * stats.utilizationRate) / 100,
+          borrowApr: stats.borrowApr,
           totalSupplied: stats.totalManagedAssets,
           totalBorrowed: stats.totalBorrowed,
           assets: [

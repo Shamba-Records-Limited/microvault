@@ -22,7 +22,13 @@ import { useDeposit } from "@/hooks/use-deposit";
 import { useWithdraw } from "@/hooks/use-withdraw";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePreviewShares } from "@/hooks/use-preview-shares";
+import { useQueueState, useUserRequests, useLenderStatus } from "@/hooks/use-queue";
+import { useRequestRedeem, useCancelRedeem } from "@/hooks/use-redeem-queue";
+import type { LenderStatus } from "@/types/vault";
 import type { Pool } from "@/types/vault";
+
+const supplyAprNote =
+  "Estimated rate lenders earn: the borrow APR times the share of the pool that is lent out. It moves as lending changes and is not compounded.";
 
 const explorerUrl =
   import.meta.env.VITE_STELLAR_EXPLORER_URL || DEFAULT_EXPLORER_URL;
@@ -48,10 +54,22 @@ export function PoolCard({ pool }: PoolCardProps) {
   const position = useUserPosition(address);
   const deposit = useDeposit(address);
   const withdraw = useWithdraw(address);
+  const queue = useQueueState();
+  const requests = useUserRequests(address);
+  const status = useLenderStatus(address);
+  const requestRedeem = useRequestRedeem(address);
+  const cancelRedeem = useCancelRedeem(address);
 
   const parsedAmount = parseFloat(rawAmount);
   const isValidAmount = !isNaN(parsedAmount) && parsedAmount > 0;
-  const isPending = deposit.isPending || withdraw.isPending;
+  const isPending = deposit.isPending || withdraw.isPending || requestRedeem.isPending;
+
+  // With anything queued the vault refuses instant withdrawals, and above
+  // what idle liquidity can pay a withdrawal has to wait its turn too.
+  const queueBusy = (queue.data?.queuedAssets ?? 0) > 0;
+  const queueMode =
+    activeTab === "withdraw" &&
+    (queueBusy || (isValidAmount && !!position.data && parsedAmount > position.data.maxWithdraw));
 
   // Immediate inline reactive validation error
   const validationError = useMemo(() => {
@@ -65,13 +83,26 @@ export function PoolCard({ pool }: PoolCardProps) {
       if (parsedAmount > position.data.maxDeposit) {
         return `Exceeds max deposit: Limit is ${formatNumber(position.data.maxDeposit, 4)} USDC`;
       }
+    } else if (queueMode) {
+      if (status.data?.frozen) {
+        return "This position is frozen and cannot be withdrawn";
+      }
+      if (parsedAmount > position.data.assetsValue) {
+        return `More than your position: ${formatNumber(position.data.assetsValue, 4)} USDC`;
+      }
+      if (queue.data && parsedAmount < queue.data.minRequest) {
+        return `Below the minimum request of ${formatNumber(queue.data.minRequest, 2)} USDC`;
+      }
+      if (status.data && parsedAmount > status.data.maxPerRequest) {
+        return `Above the per-request maximum of ${formatNumber(status.data.maxPerRequest, 2)} USDC; split it into several requests`;
+      }
     } else {
       if (parsedAmount > position.data.maxWithdraw) {
         return `Exceeds max withdraw: Limit is ${formatNumber(position.data.maxWithdraw, 4)} USDC`;
       }
     }
     return null;
-  }, [rawAmount, isValidAmount, activeTab, position.data, parsedAmount]);
+  }, [rawAmount, isValidAmount, activeTab, position.data, parsedAmount, queueMode, queue.data, status.data]);
 
   // Debounce the typed value before firing the preview RPC.
   const debouncedRaw = useDebouncedValue(rawAmount, 200);
@@ -104,6 +135,7 @@ export function PoolCard({ pool }: PoolCardProps) {
     setRawAmount("");
     deposit.reset();
     withdraw.reset();
+    requestRedeem.reset();
   }
 
   async function handleSubmit() {
@@ -124,7 +156,7 @@ export function PoolCard({ pool }: PoolCardProps) {
           });
           return;
         }
-      } else {
+      } else if (!queueMode) {
         if (parsedAmount > position.data.maxWithdraw) {
           toast.warning("Exceeds max withdraw", {
             description: `Maximum withdrawal is ${formatNumber(position.data.maxWithdraw, 2)} USDC`,
@@ -137,6 +169,12 @@ export function PoolCard({ pool }: PoolCardProps) {
     try {
       if (activeTab === "deposit") {
         await deposit.mutateAsync(parsedAmount);
+      } else if (queueMode) {
+        if (validationError) return;
+        await requestRedeem.mutateAsync({
+          amount: parsedAmount,
+          maxShares: status.data?.shareBalance ?? 0n,
+        });
       } else {
         await withdraw.mutateAsync(parsedAmount);
       }
@@ -189,9 +227,9 @@ export function PoolCard({ pool }: PoolCardProps) {
                 </p>
               </div>
               <div>
-                <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">APY</p>
+                <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground" title={supplyAprNote}>Supply APR</p>
                 <p className="font-bold text-sm text-foreground tabular-nums mt-0.5">
-                  {formatPercent(pool.apy)}
+                  {formatPercent(pool.supplyApr)}
                 </p>
               </div>
             </div>
@@ -205,8 +243,8 @@ export function PoolCard({ pool }: PoolCardProps) {
                 <p className="font-bold text-base text-foreground tabular-nums">{formatCurrency(pool.tvl)}</p>
               </div>
               <div className="text-right">
-                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5">APY</p>
-                <p className="font-bold text-base text-foreground tabular-nums">{formatPercent(pool.apy)}</p>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5" title={supplyAprNote}>Supply APR</p>
+                <p className="font-bold text-base text-foreground tabular-nums">{formatPercent(pool.supplyApr)}</p>
               </div>
             </div>
 
@@ -353,6 +391,30 @@ export function PoolCard({ pool }: PoolCardProps) {
                 </div>
               </div>
 
+              {/* Withdrawal queue */}
+              <div className="border-t border-border/60 pt-6">
+                <h4 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
+                  Withdrawal Queue
+                </h4>
+                <div className="grid grid-cols-2 gap-y-2 text-xs tabular-nums">
+                  <span className="text-muted-foreground">Owed to queued requests</span>
+                  <span className="text-right text-foreground font-semibold">
+                    {formatNumber(queue.data?.queuedAssets ?? 0, 2)} USDC
+                  </span>
+                  <span className="text-muted-foreground">Smallest request</span>
+                  <span className="text-right text-foreground font-semibold">
+                    {formatNumber(queue.data?.minRequest ?? 0, 2)} USDC
+                  </span>
+                  <span className="text-muted-foreground">Borrow APR</span>
+                  <span className="text-right text-foreground font-semibold">
+                    {formatPercent(pool.borrowApr)}
+                  </span>
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
+                  When the vault&apos;s cash is lent out, withdrawals wait in a queue and are paid oldest first as borrowers repay. A request can be part-paid, and can be cancelled until it is paid.
+                </p>
+              </div>
+
               {/* Contract Authority */}
               <div className="border-t border-border/60 pt-6">
                 <h4 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-4">
@@ -471,7 +533,9 @@ export function PoolCard({ pool }: PoolCardProps) {
                         {formatNumber(position.data.shares, 4)} mvUSDC
                       </span>
 
-                      <span className="text-muted-foreground">Max Allowed</span>
+                      <span className="text-muted-foreground">
+                        {activeTab === "deposit" ? "Max Allowed" : "Withdraw Now"}
+                      </span>
                       <span className="text-right text-foreground font-semibold">
                         {activeTab === "deposit"
                           ? `${formatNumber(position.data.maxDeposit, 4)} USDC`
@@ -480,6 +544,10 @@ export function PoolCard({ pool }: PoolCardProps) {
                     </div>
                   </div>
                 ) : null}
+
+                {isConnected && status.data && (
+                  <LenderNotices status={status.data} tab={activeTab} queueBusy={queueBusy} />
+                )}
 
                 {/* Amount input field */}
                 <div className="space-y-4">
@@ -510,7 +578,11 @@ export function PoolCard({ pool }: PoolCardProps) {
                                     position.data!.maxDeposit,
                                   ) * 100,
                                 ) / 100
-                              : Math.floor(position.data!.maxWithdraw * 100) / 100;
+                              : Math.floor(
+                                  (queueBusy
+                                    ? Math.min(position.data!.assetsValue, status.data?.maxPerRequest ?? Infinity)
+                                    : position.data!.maxWithdraw) * 100,
+                                ) / 100;
                           handleAmountChange(max.toString());
                         }}
                       >
@@ -557,14 +629,64 @@ export function PoolCard({ pool }: PoolCardProps) {
                         ? "Confirming Transaction..."
                         : activeTab === "deposit"
                           ? "Deposit Capital"
-                          : "Withdraw Capital"}
+                          : queueMode
+                            ? "Request Withdrawal"
+                            : "Withdraw Capital"}
                     </Button>
                   ) : (
                     <Button className="w-full h-11 font-semibold uppercase tracking-wider text-xs cursor-pointer transition-all duration-200" onClick={connect}>
                       Connect Wallet
                     </Button>
                   )}
+
+                  {queueMode && isConnected && (
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {queueBusy
+                        ? `Joins the queue behind ${formatNumber(queue.data?.queuedAssets ?? 0, 2)} USDC already requested.`
+                        : "More than the vault can pay right now, so it joins the queue."}{" "}
+                      Your shares are held by the vault until the request is paid; you can cancel any time before then.
+                    </p>
+                  )}
                 </div>
+
+                {isConnected && requests.data && requests.data.length > 0 && (
+                  <div className="mt-6 rounded-lg border border-border/60 bg-background/55 p-4">
+                    <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border/30 pb-1.5 mb-3">
+                      Your Withdrawal Requests
+                    </p>
+                    <ul className="space-y-3">
+                      {requests.data.map((r) => (
+                        <li key={r.id.toString()} className="flex items-start justify-between gap-3 text-xs">
+                          <div className="space-y-0.5 tabular-nums">
+                            <p className="font-semibold text-foreground">
+                              {formatNumber(r.value, 2)} USDC
+                              <span className="ml-2 font-mono font-normal text-muted-foreground">#{r.id.toString()}</span>
+                            </p>
+                            <p className="text-muted-foreground">
+                              {r.position === 1
+                                ? "Next to be paid"
+                                : `Place ${r.position} · ${formatNumber(r.aheadValue, 2)} USDC ahead`}
+                            </p>
+                            <p className="text-muted-foreground">Requested {formatWhen(r.requestedAt)}</p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 text-xs cursor-pointer"
+                            disabled={cancelRedeem.isPending}
+                            onClick={() => cancelRedeem.mutate(r.id)}
+                          >
+                            {cancelRedeem.isPending && cancelRedeem.variables === r.id ? (
+                              <CircleNotch className="h-3 w-3 animate-spin" />
+                            ) : (
+                              "Cancel"
+                            )}
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -573,5 +695,79 @@ export function PoolCard({ pool }: PoolCardProps) {
       </div>
     </div>
   </Card>
+  );
+}
+
+function formatWhen(d: Date): string {
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds >= 86_400) return `${Math.ceil(seconds / 86_400)} days`;
+  if (seconds >= 3_600) return `${Math.ceil(seconds / 3_600)} hours`;
+  return `${Math.max(1, Math.ceil(seconds / 60))} minutes`;
+}
+
+/**
+ * Plain notes on what the vault allows this address to do on the open tab.
+ * @param props.status - The address's allowlist, freeze, exit and lock state
+ * @param props.tab - The tab the notes are for
+ * @param props.queueBusy - Whether other withdrawals are already queued
+ */
+function LenderNotices({
+  status,
+  tab,
+  queueBusy,
+}: {
+  status: LenderStatus;
+  tab: ActiveTab;
+  queueBusy: boolean;
+}) {
+  const notes: { tone: "warn" | "info"; text: string }[] = [];
+  if (status.frozen) {
+    notes.push({
+      tone: "warn",
+      text: "This address is frozen: deposits, withdrawals and transfers of its shares are blocked.",
+    });
+  } else if (status.exitDeadline) {
+    notes.push({
+      tone: "warn",
+      text: `This address is no longer allowed to deposit. It can withdraw until ${formatWhen(status.exitDeadline)}, after which the position freezes.`,
+    });
+  } else if (tab === "deposit" && status.enforced && !status.allowed) {
+    notes.push({
+      tone: "warn",
+      text: "This address is not on the vault's allowlist yet, so a deposit would be refused. Complete verification with Microvault first.",
+    });
+  }
+  if (tab === "withdraw" && !status.frozen && status.lockRemaining > 0) {
+    notes.push({
+      tone: "info",
+      text: `Your latest deposit is locked for about ${formatDuration(status.lockRemaining)} more; withdrawals and requests open after that.`,
+    });
+  }
+  if (tab === "withdraw" && queueBusy && !status.frozen) {
+    notes.push({
+      tone: "info",
+      text: "Other withdrawals are waiting, so new withdrawals join the queue.",
+    });
+  }
+  if (notes.length === 0) return null;
+  return (
+    <div className="mb-5 space-y-2" role="status">
+      {notes.map((n) => (
+        <p
+          key={n.text}
+          className={cn(
+            "rounded-lg border px-3 py-2 text-xs leading-relaxed",
+            n.tone === "warn"
+              ? "border-destructive/40 bg-destructive/5 text-foreground"
+              : "border-border/60 bg-muted/30 text-muted-foreground",
+          )}
+        >
+          {n.text}
+        </p>
+      ))}
+    </div>
   );
 }

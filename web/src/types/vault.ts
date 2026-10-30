@@ -24,6 +24,53 @@ export interface VaultStats {
   isPaused: boolean;
 }
 
+/**
+ * The vault's withdrawal queue as a whole.
+ * @remarks `length` counts ids from head to tail, cancelled holes included,
+ * so it is an upper bound on open requests.
+ */
+export interface QueueState {
+  head: bigint;
+  length: bigint;
+  /** USDC currently owed to queued requests, in major units. */
+  queuedAssets: number;
+  /** Smallest request the vault accepts, in USDC major units. */
+  minRequest: number;
+}
+
+/** One of the connected lender's open withdrawal requests. */
+export interface RedeemRequest {
+  id: bigint;
+  /** Shares still escrowed (raw i128). */
+  shares: bigint;
+  /** Their current USDC value, in major units. */
+  value: number;
+  /** When the request was made. */
+  requestedAt: Date;
+  /** 1-based place among open requests; 1 is paid next. */
+  position: number;
+  /** USDC owed to open requests ahead of this one, in major units. */
+  aheadValue: number;
+}
+
+/**
+ * What the vault lets the connected address do right now.
+ * @remarks `exitDeadline` is set once an address is revoked: it can still
+ * withdraw until then, after which it is frozen.
+ */
+export interface LenderStatus {
+  allowed: boolean;
+  enforced: boolean;
+  frozen: boolean;
+  exitDeadline: Date | null;
+  /** Seconds until deposited shares unlock; 0 when unlocked. */
+  lockRemaining: number;
+  /** Share balance, the most a queue request can escrow (raw i128). */
+  shareBalance: bigint;
+  /** Largest single withdrawal or request the vault accepts, in USDC. */
+  maxPerRequest: number;
+}
+
 /** On-chain vault name and asset symbol from the `name()` and `symbol()` view functions. */
 export interface VaultMetadata {
   /** Vault name with "Pool" suffix (e.g. "Microvault USDC Pool"). */
@@ -58,7 +105,10 @@ export interface Pool {
   /** Soroban vault contract address. */
   address: string;
   tvl: number;
-  apy: number;
+  /** Estimated lender rate: borrow APR × utilisation, as a percentage. */
+  supplyApr: number;
+  /** Rate borrowers pay, as a percentage. */
+  borrowApr: number;
   totalSupplied: number;
   totalBorrowed: number;
   assets: PoolAsset[];

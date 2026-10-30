@@ -101,6 +101,48 @@ const CONTRACT_ERRORS: Record<number, ContractError> = {
     message: "Compliance has not been configured for this vault yet",
     source: "microvault",
   },
+  16: {
+    code: 16,
+    name: "ExitWindowClosed",
+    message: "Your exit window has closed; this position is frozen",
+    source: "microvault",
+  },
+  17: {
+    code: 17,
+    name: "InvalidExitDeadline",
+    message: "The exit deadline can only be moved later",
+    source: "microvault",
+  },
+  18: {
+    code: 18,
+    name: "GuardianNotSet",
+    message: "The vault's guardian has not been configured",
+    source: "microvault",
+  },
+  19: {
+    code: 19,
+    name: "QueueNotEmpty",
+    message: "Other withdrawals are queued; request a withdrawal to join the queue",
+    source: "microvault",
+  },
+  20: {
+    code: 20,
+    name: "QueueRequestTooSmall",
+    message: "The request is below the vault's minimum withdrawal request",
+    source: "microvault",
+  },
+  21: {
+    code: 21,
+    name: "QueueEntryNotFound",
+    message: "That withdrawal request is no longer open",
+    source: "microvault",
+  },
+  22: {
+    code: 22,
+    name: "MathOverflow",
+    message: "The amount is too large for the vault to process",
+    source: "microvault",
+  },
 
   // FungibleTokenError (100-114)
   100: {
