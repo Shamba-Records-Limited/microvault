@@ -8,6 +8,7 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/keypair"
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -163,4 +164,45 @@ func TestDecodeEnum(t *testing.T) {
 	assert.Equal(t, "Ready", got)
 	_, err = DecodeEnum(ScU32(1))
 	assert.Error(t, err)
+}
+
+func TestEventsReadsEveryMatchingEvent(t *testing.T) {
+	keys := stellartesting.NewTestKeys()
+	vault := keys.ContractID
+	other := strkey.MustEncode(strkey.VersionByteContract, make([]byte, 32))
+	a, b := keypair.MustRandom().Address(), keypair.MustRandom().Address()
+	event := func(contract, name, borrower string, amount int64) xdr.ContractEvent {
+		raw, _ := strkey.Decode(strkey.VersionByteContract, contract)
+		var id xdr.ContractId
+		copy(id[:], raw)
+		addr, _ := ScAddress(borrower)
+		data := xdr.ScMap{{Key: ScSymbol("amount"), Val: ScI128(types.NewI128(amount))}}
+		p := &data
+		return xdr.ContractEvent{ContractId: &id, Type: xdr.ContractEventTypeContract, Body: xdr.ContractEventBody{V0: &xdr.ContractEventV0{
+			Topics: []xdr.ScVal{ScSymbol(name), addr}, Data: xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &p},
+		}}}
+	}
+	meta := xdr.TransactionMeta{V: 3, V3: &xdr.TransactionMetaV3{SorobanMeta: &xdr.SorobanTransactionMeta{
+		Events: []xdr.ContractEvent{
+			event(vault, "written_off", a, 100), event(other, "written_off", a, 999),
+			event(vault, "repaid", a, 5), event(vault, "written_off", b, 250),
+		},
+		ReturnValue: ScVoid(),
+	}}}
+	encoded, err := xdr.MarshalBase64(meta)
+	require.NoError(t, err)
+
+	events, err := Events(encoded, vault, "written_off")
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	got := map[string]string{}
+	for _, ev := range events {
+		borrower, err := DecodeAddress(ev.Topics[0])
+		require.NoError(t, err)
+		v, ok := ev.Field("amount")
+		require.True(t, ok)
+		amount, _ := DecodeI128(v)
+		got[borrower] = amount.String()
+	}
+	assert.Equal(t, map[string]string{a: "100", b: "250"}, got)
 }

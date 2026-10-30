@@ -163,14 +163,37 @@ func extractReturnValue(resultMetaXDR string) (xdr.ScVal, error) {
 	}
 }
 
-// extractEventField parses the transaction result metadata XDR and returns the
-// named field of a contract event emitted by the vault.
-func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, vecIndex int) (xdr.ScVal, error) {
-	errb := decodeErr("extract_event").With("event", eventName).With("field", fieldName)
+// Event is one contract event: its topics after the name, and its data.
+type Event struct {
+	Topics []xdr.ScVal
+	Data   xdr.ScVal
+}
+
+// Field returns a named entry of the event's data map.
+func (e Event) Field(name string) (xdr.ScVal, bool) {
+	if e.Data.Type != xdr.ScValTypeScvMap {
+		return xdr.ScVal{}, false
+	}
+	m := e.Data.MustMap()
+	if m == nil {
+		return xdr.ScVal{}, false
+	}
+	for _, entry := range *m {
+		if entry.Key.Type == xdr.ScValTypeScvSymbol && string(*entry.Key.Sym) == name {
+			return entry.Val, true
+		}
+	}
+	return xdr.ScVal{}, false
+}
+
+// Events returns every event named name that contractID emitted in a
+// transaction, in order.
+func Events(resultMetaXDR, contractID, name string) ([]Event, error) {
+	errb := decodeErr("events").With("event", name)
 
 	var meta xdr.TransactionMeta
 	if err := xdr.SafeUnmarshalBase64(resultMetaXDR, &meta); err != nil {
-		return xdr.ScVal{}, errb.Wrapf(err, "failed to decode result meta")
+		return nil, errb.Wrapf(err, "failed to decode result meta")
 	}
 
 	// Extract contract events from the appropriate metadata version.
@@ -179,7 +202,7 @@ func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, v
 	case 3:
 		v3 := meta.MustV3()
 		if v3.SorobanMeta == nil {
-			return xdr.ScVal{}, errb.Errorf("no soroban metadata in V3 transaction")
+			return nil, errb.Errorf("no soroban metadata in V3 transaction")
 		}
 		events = v3.SorobanMeta.Events
 	case 4:
@@ -189,54 +212,54 @@ func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, v
 			return op.Events
 		})
 	default:
-		return xdr.ScVal{}, errb.With("meta_version", meta.V).
+		return nil, errb.With("meta_version", meta.V).
 			Errorf("unsupported transaction meta version")
 	}
 
-	// Decode the expected contract address for matching.
 	contractBytes, err := strkey.Decode(strkey.VersionByteContract, contractID)
 	if err != nil {
-		return xdr.ScVal{}, errb.Code(pkgErrors.CodeInvalidAddress).
+		return nil, errb.Code(pkgErrors.CodeInvalidAddress).
 			With("contract_id", contractID).
 			Wrapf(err, "invalid contract ID")
 	}
 	var expectedContractID xdr.ContractId
 	copy(expectedContractID[:], contractBytes)
 
+	var out []Event
 	for _, event := range events {
-		// Only match events from our vault contract.
-		if event.ContractId == nil || *event.ContractId != expectedContractID {
+		if event.ContractId == nil || *event.ContractId != expectedContractID || event.Type != xdr.ContractEventTypeContract {
 			continue
 		}
-		if event.Type != xdr.ContractEventTypeContract {
-			continue
-		}
-
-		// Check topic[0] == Symbol(eventName) case-insensitively.
 		topics := event.Body.MustV0().Topics
-		if len(topics) == 0 {
+		if len(topics) == 0 || topics[0].Type != xdr.ScValTypeScvSymbol || !strings.EqualFold(string(*topics[0].Sym), name) {
 			continue
 		}
-		if topics[0].Type != xdr.ScValTypeScvSymbol || !strings.EqualFold(string(*topics[0].Sym), eventName) {
-			continue
-		}
+		out = append(out, Event{Topics: topics[1:], Data: event.Body.MustV0().Data})
+	}
+	return out, nil
+}
 
-		data := event.Body.MustV0().Data
-		switch data.Type {
+// extractEventField returns the named field of the first event named
+// eventName that contractID emitted, from its data map, or the vecIndex-th
+// item of vec data.
+func extractEventField(resultMetaXDR, contractID, eventName, fieldName string, vecIndex int) (xdr.ScVal, error) {
+	errb := decodeErr("extract_event").With("event", eventName).With("field", fieldName)
+	events, err := Events(resultMetaXDR, contractID, eventName)
+	if err != nil {
+		return xdr.ScVal{}, err
+	}
+	for _, ev := range events {
+		switch ev.Data.Type {
 		case xdr.ScValTypeScvMap:
-			scMap := data.MustMap()
-			if scMap != nil {
-				for _, entry := range *scMap {
-					if entry.Key.Type == xdr.ScValTypeScvSymbol && string(*entry.Key.Sym) == fieldName {
-						return entry.Val, nil
-					}
-				}
+			if v, ok := ev.Field(fieldName); ok {
+				return v, nil
 			}
 		case xdr.ScValTypeScvVec:
-			scVec := data.MustVec()
+			scVec := ev.Data.MustVec()
 			if scVec != nil && len(*scVec) > vecIndex {
 				return (*scVec)[vecIndex], nil
 			}
+		default:
 		}
 	}
 
