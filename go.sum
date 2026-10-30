@@ -103,10 +103,10 @@ github.com/go-playground/validator/v10 v10.30.5 h1:YyCXvVShZbs2Sm3Mb53eNOlhRXctS
 github.com/go-playground/validator/v10 v10.30.5/go.mod h1:wEqiaov48pXX1kjhc3Da8y0M0Dtg/BK7gurFBLgwFrQ=
 github.com/go-sql-driver/mysql v1.10.1 h1:arlSnNLq6a5yxGxV7qg9lF4j0C+KwD6NbQyKr9QL6ME=
 github.com/go-sql-driver/mysql v1.10.1/go.mod h1:M+cqaI7+xxXGG9swrdeUIoPG3Y3KCkF0pZej+SK+nWk=
-github.com/gofiber/contrib/v3/otel v1.3.1 h1:zmo8C6zkGDz3PuCKALJImJNhHOAbxX7BJ7RoJlQ7vIs=
-github.com/gofiber/contrib/v3/otel v1.3.1/go.mod h1:WGL0tcI7KCvCfKcd/Edbr1AYc6dLahY7SqAcM6t1WA4=
-github.com/gofiber/contrib/v3/swaggo v1.0.14 h1:uaHSulZGSKkvLlbSM05LP/aO3lZfPGH0lRilawRBDaE=
-github.com/gofiber/contrib/v3/swaggo v1.0.14/go.mod h1:5S27pP+FqZ+IPBtChtNYUQhaqkSJgG+DRvDVqCIHbLE=
+github.com/gofiber/contrib/v3/otel v1.3.2 h1:q2qzbTopW9HGo7HeVq1Q/h+/i4W2YXNROmcFWnYdrzE=
+github.com/gofiber/contrib/v3/otel v1.3.2/go.mod h1:ujU8wje2vc4NMRfYbJBd020Lipm3p4lMZWwsPRrES3k=
+github.com/gofiber/contrib/v3/swaggo v1.0.15 h1:bvSlokdsl9fZCylcUlhC9sEbdgeslXcdtQ8FEL2lSJE=
+github.com/gofiber/contrib/v3/swaggo v1.0.15/go.mod h1:kZo1ye/d6DmwYb5Yi5aRB+9D+YN4TO3SyhGCc0B7MEo=
 github.com/gofiber/fiber/v3 v3.6.1 h1:wYjbgqpJm6VErIVLSGzGpX7lLZyTNgElsj8nQ1i+iFo=
 github.com/gofiber/fiber/v3 v3.6.1/go.mod h1:+nxjBal3gw0EPf3gqK5EmtxaxTL01+zbSTagFletlDI=
 github.com/gofiber/schema v1.9.1 h1:QjicFdTDMlkzCOoZAlNWqdkR2YHhgH8/Q/MpcbHurjs=

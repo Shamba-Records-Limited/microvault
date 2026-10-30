@@ -1,9 +1,8 @@
 package soroban
 
 import (
-	"time"
-
 	"testing"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"

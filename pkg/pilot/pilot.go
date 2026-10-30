@@ -14,6 +14,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
+
 	"github.com/samber/oops"
 	"gorm.io/gorm"
 
@@ -58,6 +60,11 @@ func (User) TableName() string { return "pilot_users" }
 
 // Active reports whether the row is not revoked.
 func (u User) Active() bool { return u.RevokedAt == nil }
+
+// Invite is the invite SMS notification for the row.
+func (u User) Invite() contracts.AccountNotification {
+	return contracts.AccountNotification{PhoneNumber: u.PhoneNumber, FullName: u.FullName, Language: u.Language}
+}
 
 // Unlisted is a registered user without an active row matching both their
 // phone number and national ID.

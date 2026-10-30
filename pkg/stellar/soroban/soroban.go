@@ -264,6 +264,43 @@ func (s *service) simulateContractCall(
 	return &simResp, nil
 }
 
+// applySimulation copies the simulated auth entries and Soroban data onto op,
+// padding the instruction budget and resource fee, and returns the
+// transaction fee to set. Simulated CPU can undershoot actual execution when
+// ledger state drifts between simulate and submit, failing with
+// scecExceededLimit; unused resource fee is refunded on-chain.
+func applySimulation(op *txnbuild.InvokeHostFunction, simResp *protocol.SimulateTransactionResponse) (int64, error) {
+	var authEntries []xdr.SorobanAuthorizationEntry
+	if len(simResp.Results) > 0 && simResp.Results[0].AuthXDR != nil {
+		for _, authXDR := range *simResp.Results[0].AuthXDR {
+			var auth xdr.SorobanAuthorizationEntry
+			if err := xdr.SafeUnmarshalBase64(authXDR, &auth); err != nil {
+				return 0, fmt.Errorf("decode simulation auth entry: %w", err)
+			}
+			authEntries = append(authEntries, auth)
+		}
+	}
+	op.Auth = authEntries
+
+	resourceFee := simResp.MinResourceFee
+	if simResp.TransactionDataXDR != "" {
+		var transactionData xdr.SorobanTransactionData
+		if err := xdr.SafeUnmarshalBase64(simResp.TransactionDataXDR, &transactionData); err != nil {
+			return 0, fmt.Errorf("decode simulated transaction data: %w", err)
+		}
+		transactionData.Resources.Instructions = xdr.Uint32(
+			uint64(transactionData.Resources.Instructions) * (100 + sorobanInstructionPadPct) / 100)
+		transactionData.ResourceFee = xdr.Int64(
+			int64(transactionData.ResourceFee) * (100 + sorobanResourceFeePadPct) / 100)
+		resourceFee = int64(transactionData.ResourceFee)
+		op.Ext = xdr.TransactionExt{
+			V:           1,
+			SorobanData: &transactionData,
+		}
+	}
+	return int64(txnbuild.MinBaseFee) + resourceFee, nil
+}
+
 // submitContractTransaction submits a signed contract transaction and returns
 // the full GetTransactionResponse so callers can inspect result metadata and events.
 func (s *service) submitContractTransaction(
@@ -282,45 +319,10 @@ func (s *service) submitContractTransaction(
 			Wrapf(err, "could not load the source account")
 	}
 
-	// Extract auth entries from simulation results
-	var authEntries []xdr.SorobanAuthorizationEntry
-	if len(simResp.Results) > 0 && simResp.Results[0].AuthXDR != nil {
-		for _, authXDR := range *simResp.Results[0].AuthXDR {
-			var auth xdr.SorobanAuthorizationEntry
-			if err := xdr.SafeUnmarshalBase64(authXDR, &auth); err != nil {
-				return empty, errb.Code(pkgErrors.CodeDecodeFailed).
-					Wrapf(err, "could not decode a simulation auth entry")
-			}
-			authEntries = append(authEntries, auth)
-		}
+	fee, err := applySimulation(op, simResp)
+	if err != nil {
+		return empty, errb.Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not apply the simulation")
 	}
-
-	// Set auth from simulation
-	op.Auth = authEntries
-
-	// Parse Soroban data and pad the instruction budget before submit:
-	// simulated CPU can undershoot actual execution when ledger state drifts
-	// between simulate and submit, failing with scecExceededLimit.
-	resourceFee := simResp.MinResourceFee
-	if simResp.TransactionDataXDR != "" {
-		var transactionData xdr.SorobanTransactionData
-		if err := xdr.SafeUnmarshalBase64(simResp.TransactionDataXDR, &transactionData); err != nil {
-			return empty, errb.Code(pkgErrors.CodeDecodeFailed).
-				Wrapf(err, "could not decode the simulated transaction data")
-		}
-		transactionData.Resources.Instructions = xdr.Uint32(
-			uint64(transactionData.Resources.Instructions) * (100 + sorobanInstructionPadPct) / 100)
-		transactionData.ResourceFee = xdr.Int64(
-			int64(transactionData.ResourceFee) * (100 + sorobanResourceFeePadPct) / 100)
-		resourceFee = int64(transactionData.ResourceFee)
-		op.Ext = xdr.TransactionExt{
-			V:           1,
-			SorobanData: &transactionData,
-		}
-	}
-
-	// Inclusion fee + padded resource fee; unused resource fee is refunded.
-	fee := int64(txnbuild.MinBaseFee) + resourceFee
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        sourceAccount,

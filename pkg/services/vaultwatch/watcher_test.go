@@ -309,9 +309,15 @@ func TestCheckExitWindows_AlertsOncePerLevel(t *testing.T) {
 	assert.Equal(t, 2, store.rows[1].ExitWarningLevel, "first seen inside a day gets only the one-day alert")
 }
 
-type fakeDepositQueue struct{ queued []*models.DepositScreening }
+type fakeDepositQueue struct {
+	queued []*models.DepositScreening
+	err    error
+}
 
 func (f *fakeDepositQueue) Enqueue(_ context.Context, d *models.DepositScreening) error {
+	if f.err != nil {
+		return f.err
+	}
 	f.queued = append(f.queued, d)
 	return nil
 }
@@ -333,4 +339,22 @@ func TestWatcherQueuesDepositsForScreening(t *testing.T) {
 	assert.Equal(t, int64(150), q.Ledger)
 	assert.Equal(t, addrs[1], q.Depositor, "the funds come from the event's from address")
 	assert.Equal(t, w.contractID, q.Receiver)
+}
+
+func TestWatcherTick_UnqueuedDepositHoldsTheCursor(t *testing.T) {
+	events, addrs := depositEventFixture(t)
+	client := &fakeEventsClient{events: events, latestLedger: 200}
+	allowlist := &fakeAllowlist{allowed: map[string]bool{addrs[0]: true, addrs[1]: true, addrs[2]: true}}
+	cursor := &fakeCursor{ledger: 100}
+	queue := &fakeDepositQueue{err: assertErr("db down")}
+	w := newTestWatcher(client, allowlist, cursor)
+	w.deposits = queue
+
+	w.tick(context.Background())
+	assert.Equal(t, uint32(150), cursor.ledger, "the deposit's ledger is scanned again next tick")
+
+	queue.err = nil
+	w.tick(context.Background())
+	require.Len(t, queue.queued, 1)
+	assert.Equal(t, uint32(151), cursor.ledger)
 }

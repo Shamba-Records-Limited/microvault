@@ -7,8 +7,8 @@ require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/dubinc/dub-go v0.24.0
 	github.com/go-playground/validator/v10 v10.30.5
-	github.com/gofiber/contrib/v3/otel v1.3.1
-	github.com/gofiber/contrib/v3/swaggo v1.0.14
+	github.com/gofiber/contrib/v3/otel v1.3.2
+	github.com/gofiber/contrib/v3/swaggo v1.0.15
 	github.com/gofiber/fiber/v3 v3.6.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.20.1

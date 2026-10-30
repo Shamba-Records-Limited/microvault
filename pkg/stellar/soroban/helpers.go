@@ -100,7 +100,7 @@ func u64ToScVal(value uint64) xdr.ScVal {
 
 // scValToI128 extracts int64 from ScVal i128 result
 func scValToI128(val xdr.ScVal) (int64, error) {
-	if val.Type != xdr.ScValTypeScvI128 {
+	if val.Type != xdr.ScValTypeScvI128 || val.I128 == nil {
 		return 0, decodeErr("sc_val_i128").With("got_type", val.Type.String()).
 			Errorf("expected i128")
 	}
@@ -109,7 +109,7 @@ func scValToI128(val xdr.ScVal) (int64, error) {
 
 // scValToExactI128 decodes an i128 without truncating it to int64.
 func scValToExactI128(val xdr.ScVal) (types.I128, error) {
-	if val.Type != xdr.ScValTypeScvI128 {
+	if val.Type != xdr.ScValTypeScvI128 || val.I128 == nil {
 		return types.I128{}, decodeErr("sc_val_i128").With("got_type", val.Type.String()).
 			Errorf("expected i128")
 	}
@@ -118,7 +118,7 @@ func scValToExactI128(val xdr.ScVal) (types.I128, error) {
 
 // scValToBool extracts bool from ScVal
 func scValToBool(val xdr.ScVal) (bool, error) {
-	if val.Type != xdr.ScValTypeScvBool {
+	if val.Type != xdr.ScValTypeScvBool || val.B == nil {
 		return false, decodeErr("sc_val_bool").With("got_type", val.Type.String()).
 			Errorf("expected bool")
 	}
@@ -127,7 +127,7 @@ func scValToBool(val xdr.ScVal) (bool, error) {
 
 // scValToU64 extracts uint64 from ScVal
 func scValToU64(val xdr.ScVal) (uint64, error) {
-	if val.Type != xdr.ScValTypeScvU64 {
+	if val.Type != xdr.ScValTypeScvU64 || val.U64 == nil {
 		return 0, decodeErr("sc_val_u64").With("got_type", val.Type.String()).
 			Errorf("expected u64")
 	}
