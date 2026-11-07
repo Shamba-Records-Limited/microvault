@@ -220,6 +220,7 @@ func (s *service) buildInvokeContractOp(functionName string, args []xdr.ScVal) (
 }
 
 // simulateContractCall simulates a contract call and returns the response
+// Simulation ignores the sequence number, so the source account is not loaded.
 func (s *service) simulateContractCall(
 	ctx context.Context,
 	sourceAddress string,
@@ -227,14 +228,8 @@ func (s *service) simulateContractCall(
 ) (*protocol.SimulateTransactionResponse, error) {
 	errb := coreErr("simulate").With(pkgErrors.AttrAddress, sourceAddress)
 
-	sourceAccount, err := s.rpcClient.LoadAccount(ctx, sourceAddress)
-	if err != nil {
-		return nil, errb.Code(pkgErrors.CodeTransportFailed).
-			Wrapf(err, "could not load the source account")
-	}
-
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        sourceAccount,
+		SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAddress},
 		IncrementSequenceNum: true,
 		BaseFee:              txnbuild.MinBaseFee,
 		Preconditions: txnbuild.Preconditions{

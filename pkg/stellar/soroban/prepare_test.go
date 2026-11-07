@@ -206,3 +206,40 @@ func TestEventsReadsEveryMatchingEvent(t *testing.T) {
 	}
 	assert.Equal(t, map[string]string{a: "100", b: "250"}, got)
 }
+
+func TestPreparer_ViewDoesNotLoadTheAccount(t *testing.T) {
+	m := stellartesting.NewMockRPCClient()
+	m.LoadAccountFunc = func(context.Context, string) (txnbuild.Account, error) {
+		return nil, errors.New("no account")
+	}
+	val := "AAAAAAAAAAA="
+	m.SimulateTransactionFunc = func(context.Context, protocol.SimulateTransactionRequest) (protocol.SimulateTransactionResponse, error) {
+		return protocol.SimulateTransactionResponse{Results: []protocol.SimulateHostFunctionResult{{ReturnValueXDR: &val}}}, nil
+	}
+	p, keys := newTestPreparer(m)
+
+	_, err := p.View(context.Background(), Invocation{Contract: keys.ContractID, Function: "paused"})
+
+	require.NoError(t, err)
+	assert.Empty(t, m.LoadAccountCalls)
+}
+
+func TestPreparer_PrepareUsesTheLoadedSequence(t *testing.T) {
+	m := stellartesting.NewMockRPCClient()
+	simulatesOK(m)
+	m.LoadAccountFunc = func(_ context.Context, address string) (txnbuild.Account, error) {
+		return &txnbuild.SimpleAccount{AccountID: address, Sequence: 41}, nil
+	}
+	p, keys := newTestPreparer(m)
+	guardian := keypair.MustParseFull(keys.UserSecret)
+
+	prep, err := p.Prepare(context.Background(), guardian.Address(), pauseCall(t, keys.ContractID, guardian.Address()), time.Minute)
+	require.NoError(t, err)
+
+	generic, err := txnbuild.TransactionFromXDR(prep.EnvelopeXDR)
+	require.NoError(t, err)
+	tx, ok := generic.Transaction()
+	require.True(t, ok)
+	assert.Equal(t, int64(42), tx.SequenceNumber())
+	assert.Len(t, m.LoadAccountCalls, 1)
+}
