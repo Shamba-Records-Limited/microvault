@@ -67,6 +67,7 @@ export function PoolCard({ pool }: PoolCardProps) {
   // With anything queued the vault refuses instant withdrawals, and above
   // what idle liquidity can pay a withdrawal has to wait its turn too.
   const queueBusy = (queue.data?.queuedAssets ?? 0) > 0;
+  const depositBlocked = activeTab === "deposit" && !!status.data && depositRefused(status.data);
   const queueMode =
     activeTab === "withdraw" &&
     (queueBusy || (isValidAmount && !!position.data && parsedAmount > position.data.maxWithdraw));
@@ -80,7 +81,7 @@ export function PoolCard({ pool }: PoolCardProps) {
       if (parsedAmount > position.data.walletBalance) {
         return `Insufficient balance: You only have ${formatNumber(position.data.walletBalance, 4)} USDC`;
       }
-      if (parsedAmount > position.data.maxDeposit) {
+      if (!depositBlocked && parsedAmount > position.data.maxDeposit) {
         return `Exceeds max deposit: Limit is ${formatNumber(position.data.maxDeposit, 4)} USDC`;
       }
     } else if (queueMode) {
@@ -102,7 +103,7 @@ export function PoolCard({ pool }: PoolCardProps) {
       }
     }
     return null;
-  }, [rawAmount, isValidAmount, activeTab, position.data, parsedAmount, queueMode, queue.data, status.data]);
+  }, [rawAmount, isValidAmount, activeTab, position.data, parsedAmount, queueMode, queue.data, status.data, depositBlocked]);
 
   // Debounce the typed value before firing the preview RPC.
   const debouncedRaw = useDebouncedValue(rawAmount, 200);
@@ -621,7 +622,7 @@ export function PoolCard({ pool }: PoolCardProps) {
                   {isConnected ? (
                     <Button
                       className="w-full h-11 font-semibold uppercase tracking-wider text-xs cursor-pointer transition-all duration-200"
-                      disabled={!isValidAmount || isPending || !!validationError}
+                      disabled={!isValidAmount || isPending || !!validationError || depositBlocked}
                       onClick={handleSubmit}
                     >
                       {isPending && <CircleNotch className="h-3.5 w-3.5 animate-spin shrink-0 mr-1.5" />}
@@ -706,6 +707,15 @@ function formatDuration(seconds: number): string {
   if (seconds >= 86_400) return `${Math.ceil(seconds / 86_400)} days`;
   if (seconds >= 3_600) return `${Math.ceil(seconds / 3_600)} hours`;
   return `${Math.max(1, Math.ceil(seconds / 60))} minutes`;
+}
+
+/**
+ * Whether the vault refuses any deposit from this address, which a notice
+ * already explains.
+ * @param status - The address's allowlist, freeze and exit state
+ */
+function depositRefused(status: LenderStatus): boolean {
+  return status.frozen || !!status.exitDeadline || (status.enforced && !status.allowed);
 }
 
 /**
