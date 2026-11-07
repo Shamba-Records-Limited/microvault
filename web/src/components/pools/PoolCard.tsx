@@ -709,13 +709,28 @@ function formatDuration(seconds: number): string {
   return `${Math.max(1, Math.ceil(seconds / 60))} minutes`;
 }
 
+/** Where an address stands in the vault's allowlist lifecycle. */
+type LenderState = "open" | "not-allowed" | "exiting" | "frozen";
+
+/**
+ * The address's allowlist state, the most restrictive first: frozen, then
+ * revoked and inside its exit window, then not yet allowed.
+ * @param status - The address's allowlist, freeze and exit state
+ */
+function lenderState(status: LenderStatus): LenderState {
+  if (status.frozen) return "frozen";
+  if (status.exitDeadline) return "exiting";
+  if (status.enforced && !status.allowed) return "not-allowed";
+  return "open";
+}
+
 /**
  * Whether the vault refuses any deposit from this address, which a notice
  * already explains.
  * @param status - The address's allowlist, freeze and exit state
  */
 function depositRefused(status: LenderStatus): boolean {
-  return status.frozen || !!status.exitDeadline || (status.enforced && !status.allowed);
+  return lenderState(status) !== "open";
 }
 
 /**
@@ -734,29 +749,30 @@ function LenderNotices({
   queueBusy: boolean;
 }) {
   const notes: { tone: "warn" | "info"; text: string }[] = [];
-  if (status.frozen) {
+  const state = lenderState(status);
+  if (state === "frozen") {
     notes.push({
       tone: "warn",
       text: "This address is frozen: deposits, withdrawals and transfers of its shares are blocked.",
     });
-  } else if (status.exitDeadline) {
+  } else if (state === "exiting" && status.exitDeadline) {
     notes.push({
       tone: "warn",
       text: `This address is no longer allowed to deposit. It can withdraw until ${formatWhen(status.exitDeadline)}, after which the position freezes.`,
     });
-  } else if (tab === "deposit" && status.enforced && !status.allowed) {
+  } else if (tab === "deposit" && state === "not-allowed") {
     notes.push({
       tone: "warn",
       text: "This address is not on the vault's allowlist yet, so a deposit would be refused. Complete verification with Microvault first.",
     });
   }
-  if (tab === "withdraw" && !status.frozen && status.lockRemaining > 0) {
+  if (tab === "withdraw" && state !== "frozen" && status.lockRemaining > 0) {
     notes.push({
       tone: "info",
       text: `Your latest deposit is locked for about ${formatDuration(status.lockRemaining)} more; withdrawals and requests open after that.`,
     });
   }
-  if (tab === "withdraw" && queueBusy && !status.frozen) {
+  if (tab === "withdraw" && queueBusy && state !== "frozen") {
     notes.push({
       tone: "info",
       text: "Other withdrawals are waiting, so new withdrawals join the queue.",

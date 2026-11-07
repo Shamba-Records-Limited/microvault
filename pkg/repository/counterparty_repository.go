@@ -20,6 +20,9 @@ var (
 	ErrFailedToGetCounterparties   = errors.New("failed to get counterparties")
 	ErrFailedToCountCounterparties = errors.New("failed to count counterparties")
 	ErrFailedToUpdateCounterparty  = errors.New("failed to update counterparty")
+	// ErrCounterpartyKYBDecided is a KYB approve or reject refused because the
+	// counterparty is no longer pending.
+	ErrCounterpartyKYBDecided = errors.New("counterparty KYB is no longer pending")
 
 	ErrCounterpartyAddressNotFound        = errors.New("counterparty address not found")
 	ErrFailedToAddCounterpartyAddress     = errors.New("failed to add counterparty address")
@@ -27,6 +30,9 @@ var (
 	ErrFailedToGetCounterpartyAddresses   = errors.New("failed to get counterparty addresses")
 	ErrFailedToCountCounterpartyAddresses = errors.New("failed to count counterparty addresses")
 	ErrFailedToUpdateCounterpartyAddress  = errors.New("failed to update counterparty address")
+	// ErrCounterpartyAddressDecided is an approve or reject refused because
+	// the address is not awaiting a decision, or is frozen on-chain.
+	ErrCounterpartyAddressDecided = errors.New("counterparty address is not awaiting a decision")
 
 	ErrFailedToRecordScreening = errors.New("failed to record screening")
 )
@@ -42,6 +48,8 @@ type CounterpartyRepository interface {
 	GetByID(ctx context.Context, id string) (*models.Counterparty, error) // preloads Addresses
 	List(ctx context.Context, kybStatus string, limit, offset int) ([]*models.Counterparty, error)
 	Count(ctx context.Context, kybStatus string) (int64, error)
+	// ApproveKYB and RejectKYB decide a pending counterparty only; once
+	// decided, ErrCounterpartyKYBDecided.
 	ApproveKYB(ctx context.Context, id, actor string) error
 	RejectKYB(ctx context.Context, id, actor string) error
 
@@ -50,6 +58,9 @@ type CounterpartyRepository interface {
 	ListAddressesByCounterparty(ctx context.Context, counterpartyID string) ([]*models.CounterpartyAddress, error)
 	ListAddressesByStatus(ctx context.Context, statuses []string, limit, offset int) ([]*models.CounterpartyAddress, error)
 	CountAddressesByStatus(ctx context.Context, statuses []string) (int64, error)
+	// ApproveAddress and RejectAddress decide an address in one of
+	// models.AddressDecisionStatuses that is not frozen on-chain; otherwise
+	// ErrCounterpartyAddressDecided.
 	ApproveAddress(ctx context.Context, id, actor, reason string) error
 	RejectAddress(ctx context.Context, id, actor, reason string) error
 	RevokeAddress(ctx context.Context, id, actor, reason string) error
@@ -183,41 +194,41 @@ func (r *counterpartyRepository) Count(ctx context.Context, kybStatus string) (i
 
 func (r *counterpartyRepository) ApproveKYB(ctx context.Context, id, actor string) error {
 	now := time.Now()
+	return r.decideKYB(ctx, "ApproveKYB", id, map[string]interface{}{
+		"kyb_status":      models.CounterpartyKYBApproved,
+		"kyb_approved_at": now,
+		"kyb_approved_by": actor,
+		"updated_at":      now,
+	})
+}
+
+func (r *counterpartyRepository) decideKYB(ctx context.Context, op, id string, fields map[string]interface{}) error {
 	result := r.db.WithContext(ctx).
 		Model(&models.Counterparty{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"kyb_status":      models.CounterpartyKYBApproved,
-			"kyb_approved_at": now,
-			"kyb_approved_by": actor,
-			"updated_at":      now,
-		})
-	if result.RowsAffected == 0 {
-		return ErrCounterpartyNotFound
-	}
+		Where("id = ? AND kyb_status = ?", id, models.CounterpartyKYBPending).
+		Updates(fields)
 	if result.Error != nil {
-		slog.ErrorContext(ctx, "ApproveKYB: database error", slog.Any("error", result.Error))
+		slog.ErrorContext(ctx, "counterparty decision: database error", slog.String("op", op), slog.Any("error", result.Error))
 		return ErrFailedToUpdateCounterparty
 	}
-	return nil
+	if result.RowsAffected > 0 {
+		return nil
+	}
+	var n int64
+	if err := r.db.WithContext(ctx).Model(&models.Counterparty{}).Where("id = ?", id).Count(&n).Error; err != nil {
+		return ErrFailedToUpdateCounterparty
+	}
+	if n == 0 {
+		return ErrCounterpartyNotFound
+	}
+	return ErrCounterpartyKYBDecided
 }
 
 func (r *counterpartyRepository) RejectKYB(ctx context.Context, id, actor string) error {
-	result := r.db.WithContext(ctx).
-		Model(&models.Counterparty{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"kyb_status": models.CounterpartyKYBRejected,
-			"updated_at": time.Now(),
-		})
-	if result.RowsAffected == 0 {
-		return ErrCounterpartyNotFound
-	}
-	if result.Error != nil {
-		slog.ErrorContext(ctx, "RejectKYB: database error", slog.Any("error", result.Error))
-		return ErrFailedToUpdateCounterparty
-	}
-	return nil
+	return r.decideKYB(ctx, "RejectKYB", id, map[string]interface{}{
+		"kyb_status": models.CounterpartyKYBRejected,
+		"updated_at": time.Now(),
+	})
 }
 
 // --- CounterpartyAddress ---
@@ -297,48 +308,48 @@ func (r *counterpartyRepository) CountAddressesByStatus(ctx context.Context, sta
 // distinct from RecordScreening's automated verdict application.
 func (r *counterpartyRepository) ApproveAddress(ctx context.Context, id, actor, reason string) error {
 	now := time.Now()
+	return r.decideAddress(ctx, "ApproveAddress", id, map[string]interface{}{
+		"status":          models.AddressStatusApproved,
+		"onchain_state":   models.OnchainStatePending,
+		"approved_by":     actor,
+		"approved_at":     now,
+		"revoked_by":      nil,
+		"revoked_at":      nil,
+		"frozen_by":       nil,
+		"frozen_at":       nil,
+		"override_reason": reason,
+		"updated_at":      now,
+	})
+}
+
+func (r *counterpartyRepository) decideAddress(ctx context.Context, op, id string, fields map[string]interface{}) error {
 	result := r.db.WithContext(ctx).
 		Model(&models.CounterpartyAddress{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"status":          models.AddressStatusApproved,
-			"onchain_state":   models.OnchainStatePending,
-			"approved_by":     actor,
-			"approved_at":     now,
-			"revoked_by":      nil,
-			"revoked_at":      nil,
-			"frozen_by":       nil,
-			"frozen_at":       nil,
-			"override_reason": reason,
-			"updated_at":      now,
-		})
-	if result.RowsAffected == 0 {
-		return ErrCounterpartyAddressNotFound
-	}
+		Where("id = ? AND status IN ? AND onchain_state <> ?", id, models.AddressDecisionStatuses, models.OnchainStateFrozen).
+		Updates(fields)
 	if result.Error != nil {
-		slog.ErrorContext(ctx, "ApproveAddress: database error", slog.Any("error", result.Error))
+		slog.ErrorContext(ctx, "counterparty decision: database error", slog.String("op", op), slog.Any("error", result.Error))
 		return ErrFailedToUpdateCounterpartyAddress
 	}
-	return nil
+	if result.RowsAffected > 0 {
+		return nil
+	}
+	var n int64
+	if err := r.db.WithContext(ctx).Model(&models.CounterpartyAddress{}).Where("id = ?", id).Count(&n).Error; err != nil {
+		return ErrFailedToUpdateCounterpartyAddress
+	}
+	if n == 0 {
+		return ErrCounterpartyAddressNotFound
+	}
+	return ErrCounterpartyAddressDecided
 }
 
 func (r *counterpartyRepository) RejectAddress(ctx context.Context, id, actor, reason string) error {
-	result := r.db.WithContext(ctx).
-		Model(&models.CounterpartyAddress{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"status":          models.AddressStatusRejected,
-			"override_reason": reason,
-			"updated_at":      time.Now(),
-		})
-	if result.RowsAffected == 0 {
-		return ErrCounterpartyAddressNotFound
-	}
-	if result.Error != nil {
-		slog.ErrorContext(ctx, "RejectAddress: database error", slog.Any("error", result.Error))
-		return ErrFailedToUpdateCounterpartyAddress
-	}
-	return nil
+	return r.decideAddress(ctx, "RejectAddress", id, map[string]interface{}{
+		"status":          models.AddressStatusRejected,
+		"override_reason": reason,
+		"updated_at":      time.Now(),
+	})
 }
 
 // RevokeAddress records revocation *intent* only — it does not set
