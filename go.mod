@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/dubinc/dub-go v0.24.0
-	github.com/go-playground/validator/v10 v10.30.5
+	github.com/go-playground/validator/v10 v10.30.6
 	github.com/gofiber/contrib/v3/otel v1.3.2
 	github.com/gofiber/contrib/v3/swaggo v1.0.15
 	github.com/gofiber/fiber/v3 v3.6.1
@@ -17,7 +17,7 @@ require (
 	github.com/govalues/money v0.2.4
 	github.com/hibiken/asynq v0.26.0
 	github.com/jackc/pgconn v1.14.3
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/extra/redisotel/v9 v9.23.0
 	github.com/redis/go-redis/v9 v9.23.0
