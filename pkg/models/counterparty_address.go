@@ -24,6 +24,10 @@ const (
 	AddressStatusExpired      CounterpartyAddressStatus = "expired"
 )
 
+// AddressDecisionStatuses are the statuses an operator may approve or reject
+// an address from: the ones the screening queue shows.
+var AddressDecisionStatuses = []CounterpartyAddressStatus{AddressStatusPending, AddressStatusReview, AddressStatusExpired}
+
 // CounterpartyAddressOnchainState tracks whether the vault contract's
 // on-chain allowlist actually reflects this row — a database write and a
 // contract write are two systems, and one can fail after the other

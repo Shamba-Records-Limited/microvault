@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -14,15 +15,55 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/health"
 )
 
+const (
+	limiterMax        = 20
+	limiterExpiration = 30 * time.Second
+)
+
+// callbackPrefixes lists authenticated provider callbacks. SMS delivery reports
+// carry no token or signature, so they stay on the general limiter.
+var callbackPrefixes = []string{
+	"/api/v1/mobile/ussd/",
+	"/api/v1/webhooks/",
+	"/api/v1/callbacks/",
+}
+
+func isCallback(c fiber.Ctx) bool {
+	path := c.Path()
+	for _, prefix := range callbackPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// generalLimiter limits each client IP across all routes except provider
+// callbacks, which arrive in bursts from a few gateway addresses.
+func generalLimiter() fiber.Handler {
+	return limiter.New(limiter.Config{
+		Max:          limiterMax,
+		Expiration:   limiterExpiration,
+		KeyGenerator: ClientIP,
+		Next:         isCallback,
+	})
+}
+
+// callbackLimiter limits only a client's failed callbacks, so a busy gateway
+// is never throttled and guessing a slug, token or signature still is.
+func callbackLimiter() fiber.Handler {
+	return limiter.New(limiter.Config{
+		Max:                    limiterMax,
+		Expiration:             limiterExpiration,
+		KeyGenerator:           ClientIP,
+		SkipSuccessfulRequests: true,
+		Next:                   func(c fiber.Ctx) bool { return !isCallback(c) },
+	})
+}
+
 // FiberMiddleware provide Fiber's built-in middlewares.
 // See: https://docs.gofiber.io/api/middleware
 func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.Logger) {
-	limiterConfig := limiter.Config{
-		Max:          20,
-		Expiration:   30 * time.Second,
-		KeyGenerator: ClientIP,
-	}
-
 	helmetConfig := helmet.Config{
 		CrossOriginEmbedderPolicy: "false",
 		ReferrerPolicy:            "same-origin",
@@ -47,7 +88,8 @@ func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.L
 		// Add CORS to each route with credentials enabled
 		cors.New(corsConfig),
 		// Limiter
-		limiter.New(limiterConfig),
+		generalLimiter(),
+		callbackLimiter(),
 		// Favicon
 		favicon.New(favicon.Config{
 			File: "./static/favicon.ico",

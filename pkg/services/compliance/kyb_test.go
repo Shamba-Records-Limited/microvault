@@ -105,13 +105,27 @@ func TestKYBStartCreatesThenReusesAnOpenSession(t *testing.T) {
 }
 
 func TestKYBStartRefusals(t *testing.T) {
-	k, cps, _, _, _ := newKYBFixture()
+	_, err := NewKYB(KYBDeps{}).Start(context.Background(), kybCP)
+	assert.ErrorIs(t, err, ErrKYBNotConfigured)
+}
+
+func TestKYBUpdateForAnApprovedCounterparty(t *testing.T) {
+	k, cps, _, v, a := newKYBFixture()
 	cps.counterparties[kybCP].KYBStatus = models.CounterpartyKYBApproved
 	_, err := k.Start(context.Background(), kybCP)
-	assert.ErrorIs(t, err, ErrKYBAlreadyApproved)
+	require.NoError(t, err)
+	assert.Equal(t, 1, v.calls, "an approved counterparty can start a KYB update")
 
-	_, err = NewKYB(KYBDeps{}).Start(context.Background(), kybCP)
-	assert.ErrorIs(t, err, ErrKYBNotConfigured)
+	require.NoError(t, k.HandleEvent(context.Background(), event(didit.StatusDeclined, "bs_"+kybCP), []byte(`{}`)))
+	assert.Equal(t, models.CounterpartyKYBApproved, cps.counterparties[kybCP].KYBStatus, "a declined update leaves the approval")
+	assert.Equal(t, didit.StatusDeclined, cps.counterparties[kybCP].KYBSessionStatus)
+	assert.Equal(t, []string{SubjectKYBUpdateDeclined}, a.subjects)
+
+	cps.counterparties[kybCP].KYBSessionStatus = didit.StatusDeclined
+	_, err = k.Start(context.Background(), kybCP)
+	require.NoError(t, err)
+	require.NoError(t, k.HandleEvent(context.Background(), event(didit.StatusApproved, "bs_"+kybCP), []byte(`{}`)))
+	assert.Equal(t, []string{SubjectKYBUpdateDeclined, SubjectKYBUpdateVerified}, a.subjects)
 }
 
 func TestKYBHandleEvent(t *testing.T) {

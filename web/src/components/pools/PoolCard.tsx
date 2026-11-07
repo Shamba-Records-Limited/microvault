@@ -67,6 +67,7 @@ export function PoolCard({ pool }: PoolCardProps) {
   // With anything queued the vault refuses instant withdrawals, and above
   // what idle liquidity can pay a withdrawal has to wait its turn too.
   const queueBusy = (queue.data?.queuedAssets ?? 0) > 0;
+  const depositBlocked = activeTab === "deposit" && !!status.data && depositRefused(status.data);
   const queueMode =
     activeTab === "withdraw" &&
     (queueBusy || (isValidAmount && !!position.data && parsedAmount > position.data.maxWithdraw));
@@ -80,7 +81,7 @@ export function PoolCard({ pool }: PoolCardProps) {
       if (parsedAmount > position.data.walletBalance) {
         return `Insufficient balance: You only have ${formatNumber(position.data.walletBalance, 4)} USDC`;
       }
-      if (parsedAmount > position.data.maxDeposit) {
+      if (!depositBlocked && parsedAmount > position.data.maxDeposit) {
         return `Exceeds max deposit: Limit is ${formatNumber(position.data.maxDeposit, 4)} USDC`;
       }
     } else if (queueMode) {
@@ -102,7 +103,7 @@ export function PoolCard({ pool }: PoolCardProps) {
       }
     }
     return null;
-  }, [rawAmount, isValidAmount, activeTab, position.data, parsedAmount, queueMode, queue.data, status.data]);
+  }, [rawAmount, isValidAmount, activeTab, position.data, parsedAmount, queueMode, queue.data, status.data, depositBlocked]);
 
   // Debounce the typed value before firing the preview RPC.
   const debouncedRaw = useDebouncedValue(rawAmount, 200);
@@ -621,7 +622,7 @@ export function PoolCard({ pool }: PoolCardProps) {
                   {isConnected ? (
                     <Button
                       className="w-full h-11 font-semibold uppercase tracking-wider text-xs cursor-pointer transition-all duration-200"
-                      disabled={!isValidAmount || isPending || !!validationError}
+                      disabled={!isValidAmount || isPending || !!validationError || depositBlocked}
                       onClick={handleSubmit}
                     >
                       {isPending && <CircleNotch className="h-3.5 w-3.5 animate-spin shrink-0 mr-1.5" />}
@@ -708,6 +709,30 @@ function formatDuration(seconds: number): string {
   return `${Math.max(1, Math.ceil(seconds / 60))} minutes`;
 }
 
+/** Where an address stands in the vault's allowlist lifecycle. */
+type LenderState = "open" | "not-allowed" | "exiting" | "frozen";
+
+/**
+ * The address's allowlist state, the most restrictive first: frozen, then
+ * revoked and inside its exit window, then not yet allowed.
+ * @param status - The address's allowlist, freeze and exit state
+ */
+function lenderState(status: LenderStatus): LenderState {
+  if (status.frozen) return "frozen";
+  if (status.exitDeadline) return "exiting";
+  if (status.enforced && !status.allowed) return "not-allowed";
+  return "open";
+}
+
+/**
+ * Whether the vault refuses any deposit from this address, which a notice
+ * already explains.
+ * @param status - The address's allowlist, freeze and exit state
+ */
+function depositRefused(status: LenderStatus): boolean {
+  return lenderState(status) !== "open";
+}
+
 /**
  * Plain notes on what the vault allows this address to do on the open tab.
  * @param props.status - The address's allowlist, freeze, exit and lock state
@@ -724,29 +749,30 @@ function LenderNotices({
   queueBusy: boolean;
 }) {
   const notes: { tone: "warn" | "info"; text: string }[] = [];
-  if (status.frozen) {
+  const state = lenderState(status);
+  if (state === "frozen") {
     notes.push({
       tone: "warn",
       text: "This address is frozen: deposits, withdrawals and transfers of its shares are blocked.",
     });
-  } else if (status.exitDeadline) {
+  } else if (state === "exiting" && status.exitDeadline) {
     notes.push({
       tone: "warn",
       text: `This address is no longer allowed to deposit. It can withdraw until ${formatWhen(status.exitDeadline)}, after which the position freezes.`,
     });
-  } else if (tab === "deposit" && status.enforced && !status.allowed) {
+  } else if (tab === "deposit" && state === "not-allowed") {
     notes.push({
       tone: "warn",
       text: "This address is not on the vault's allowlist yet, so a deposit would be refused. Complete verification with Microvault first.",
     });
   }
-  if (tab === "withdraw" && !status.frozen && status.lockRemaining > 0) {
+  if (tab === "withdraw" && state !== "frozen" && status.lockRemaining > 0) {
     notes.push({
       tone: "info",
       text: `Your latest deposit is locked for about ${formatDuration(status.lockRemaining)} more; withdrawals and requests open after that.`,
     });
   }
-  if (tab === "withdraw" && queueBusy && !status.frozen) {
+  if (tab === "withdraw" && queueBusy && state !== "frozen") {
     notes.push({
       tone: "info",
       text: "Other withdrawals are waiting, so new withdrawals join the queue.",
