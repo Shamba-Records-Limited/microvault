@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -14,15 +15,39 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/health"
 )
 
+const (
+	limiterMax        = 20
+	limiterExpiration = 30 * time.Second
+	ussdCallbackPath  = "/api/v1/mobile/ussd/"
+)
+
+// generalLimiter limits each client IP across all routes except USSD
+// callbacks, which all arrive from the gateway's few addresses.
+func generalLimiter() fiber.Handler {
+	return limiter.New(limiter.Config{
+		Max:          limiterMax,
+		Expiration:   limiterExpiration,
+		KeyGenerator: ClientIP,
+		Next: func(c fiber.Ctx) bool {
+			return strings.HasPrefix(c.Path(), ussdCallbackPath)
+		},
+	})
+}
+
+// FailedCallbackLimiter limits only a client's failed requests, so a busy
+// gateway is never throttled and guessing its callback token still is.
+func FailedCallbackLimiter() fiber.Handler {
+	return limiter.New(limiter.Config{
+		Max:                    limiterMax,
+		Expiration:             limiterExpiration,
+		KeyGenerator:           ClientIP,
+		SkipSuccessfulRequests: true,
+	})
+}
+
 // FiberMiddleware provide Fiber's built-in middlewares.
 // See: https://docs.gofiber.io/api/middleware
 func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.Logger) {
-	limiterConfig := limiter.Config{
-		Max:          20,
-		Expiration:   30 * time.Second,
-		KeyGenerator: ClientIP,
-	}
-
 	helmetConfig := helmet.Config{
 		CrossOriginEmbedderPolicy: "false",
 		ReferrerPolicy:            "same-origin",
@@ -47,7 +72,7 @@ func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.L
 		// Add CORS to each route with credentials enabled
 		cors.New(corsConfig),
 		// Limiter
-		limiter.New(limiterConfig),
+		generalLimiter(),
 		// Favicon
 		favicon.New(favicon.Config{
 			File: "./static/favicon.ico",
