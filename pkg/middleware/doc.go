@@ -24,7 +24,8 @@
 // # Cross-cutting stack
 //
 // FiberMiddleware registers the rest in one call: security headers (helmet),
-// panic recovery, CORS with credentials, a request rate limiter, and a favicon
+// panic recovery, CORS with credentials, request rate limiters (provider
+// callbacks count only failed requests), and a favicon
 // handler, behind RequestID, Tracing and AccessLog. RequestID attaches a request
 // ID to the user context so every *Context log call below it carries the ID;
 // Tracing starts the request's server span; AccessLog writes one structured
