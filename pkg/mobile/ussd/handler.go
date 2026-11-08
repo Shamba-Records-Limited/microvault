@@ -166,6 +166,10 @@ type HandlerDeps struct {
 	// DisableMobileMoneyBorrow drops mobile money as a loan payout rail, so
 	// new loans go straight to cash pickup.
 	DisableMobileMoneyBorrow bool
+
+	// AskCreditConsent adds a screen after the national ID asking whether the
+	// user agrees to share their details with the credit partner.
+	AskCreditConsent bool
 }
 
 // NewUSSDHandler builds the handler.
@@ -195,6 +199,7 @@ func NewUSSDHandler(deps HandlerDeps) *USSDHandler {
 
 		pilotGate:            deps.PilotGate,
 		mobileMoneyBorrowOff: deps.DisableMobileMoneyBorrow,
+		askCreditConsent:     deps.AskCreditConsent,
 	}
 	if deps.MpesaPrompter {
 		h.mpesaPrompter, _ = deps.LoanService.(RepaymentPrompter)
@@ -316,6 +321,8 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 		return h.handleRegistration(ctx, session, input)
 	case "register_national_id":
 		return h.handleRegistrationNationalID(ctx, session, input)
+	case "register_consent":
+		return h.handleRegistrationConsent(ctx, session, input)
 	case "my_details":
 		return h.handleMyDetails(ctx, session, input)
 	case "bio_edit":
@@ -370,6 +377,8 @@ func (h *USSDHandler) handleMenuInput(ctx context.Context, session *Session, inp
 		return h.handlePINRecoveryConfirm(ctx, session, input)
 
 	// Loan flow
+	case "loan_product":
+		return h.handleLoanProduct(ctx, session, input)
 	case "request_loan", "loan_amount":
 		return h.handleLoanAmount(ctx, session, input)
 	case "payout_method":
@@ -406,11 +415,7 @@ func (h *USSDHandler) handleMainMenu(ctx context.Context, session *Session, inpu
 				return h.formatResponse(session.Language, "END", "loan_outstanding"), nil
 			}
 		}
-		session.CurrentMenu = "request_loan"
-		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
-			return "", sessionSaveErr(session, err)
-		}
-		return h.showLoanAmountMenu(session)
+		return h.startBorrow(ctx, session)
 	case "2": // Repay Loan
 		// No PIN gate. Nothing leaves the borrower's wallet as a result of
 		// this session — the cash rail is paid at an agent counter and the
@@ -545,12 +550,42 @@ func (h *USSDHandler) handleRegistrationNationalID(ctx context.Context, session 
 	}
 
 	session.Data["national_id"] = nationalID
+	delete(session.Data, creditConsentKey)
 
-	// No PIN service configured — create the account immediately (no PIN).
+	if h.askCreditConsent {
+		session.CurrentMenu = "register_consent"
+		if err := h.sessionManager.SaveSession(ctx, session); err != nil {
+			return "", sessionSaveErr(session, err)
+		}
+		return h.conWithNav(session, "register_consent", "reg_credit_consent"), nil
+	}
+	return h.continueToPIN(ctx, session)
+}
+
+// creditConsentKey holds the RFC 3339 time the user agreed to share their
+// details with the credit partner.
+const creditConsentKey = "credit_consent_at"
+
+// handleRegistrationConsent records whether the user agrees to share their
+// details with the credit partner. Declining still registers the account.
+func (h *USSDHandler) handleRegistrationConsent(ctx context.Context, session *Session, input string) (string, error) {
+	switch input {
+	case "1":
+		session.Data[creditConsentKey] = time.Now().UTC().Format(time.RFC3339)
+	case "2":
+		delete(session.Data, creditConsentKey)
+	default:
+		return h.conNav(session, "reg_credit_consent"), nil
+	}
+	return h.continueToPIN(ctx, session)
+}
+
+// continueToPIN moves registration on to PIN creation, or creates the
+// account straight away when no PIN service is configured.
+func (h *USSDHandler) continueToPIN(ctx context.Context, session *Session) (string, error) {
 	if h.pinService == nil {
 		return h.completeRegistration(ctx, session)
 	}
-
 	session.CurrentMenu = "pin_create"
 	if err := h.sessionManager.SaveSession(ctx, session); err != nil {
 		return "", sessionSaveErr(session, err)
@@ -859,6 +894,11 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 		regReq.PinHash = pinHash
 		regReq.PinSetAt = &now
 	}
+	if raw, _ := session.Data[creditConsentKey].(string); raw != "" {
+		if at, err := time.Parse(time.RFC3339, raw); err == nil {
+			regReq.CreditConsentAt = &at
+		}
+	}
 
 	user, _, err := h.userService.RegisterUser(ctx, regReq)
 	if err != nil {
@@ -883,6 +923,7 @@ func (h *USSDHandler) completeRegistration(ctx context.Context, session *Session
 	// Clear transient registration data.
 	delete(session.Data, "pin_hash")
 	delete(session.Data, "national_id")
+	delete(session.Data, creditConsentKey)
 
 	// Welcome SMS confirming the account is active. Fired off the request path:
 	// a slow SMS gateway must not delay the END screen (AT sandbox has timed out
@@ -939,7 +980,7 @@ func isISODate(s string) bool {
 // product's fiat limits, stores product defaults (duration, schedule), and
 // skips directly to the confirmation screen.
 func (h *USSDHandler) handleLoanAmount(ctx context.Context, session *Session, input string) (string, error) {
-	cfg := h.loanService.GetProductConfig()
+	cfg := h.productFor(session)
 	if cfg == nil {
 		return h.formatError(session.Language, "error"), nil
 	}
@@ -1074,7 +1115,7 @@ func (h *USSDHandler) cashPickupLimit(ctx context.Context, session *Session) (is
 	// The origination fee is deducted from the payout, so the floor applies
 	// to what is left after it.
 	netShare := 1.0
-	if cfg := h.loanService.GetProductConfig(); cfg != nil && cfg.OriginationFeeBps > 0 {
+	if cfg := h.productFor(session); cfg != nil && cfg.OriginationFeeBps > 0 {
 		netShare = 1 - float64(cfg.OriginationFeeBps)/10_000
 	}
 
@@ -1126,7 +1167,7 @@ func (h *USSDHandler) showLoanTerms(ctx context.Context, session *Session) (stri
 		}
 		return h.showLoanConfirmation(ctx, session)
 	}
-	cfg := h.loanService.GetProductConfig()
+	cfg := h.productFor(session)
 	if cfg == nil {
 		return h.formatError(session.Language, "error"), nil
 	}
@@ -1988,7 +2029,7 @@ func (h *USSDHandler) showRegistrationMenu(session *Session) (string, error) {
 }
 
 func (h *USSDHandler) showLoanAmountMenu(session *Session) (string, error) {
-	cfg := h.loanService.GetProductConfig()
+	cfg := h.productFor(session)
 	if cfg == nil {
 		return h.formatError(session.Language, "error"), nil
 	}
@@ -2036,7 +2077,7 @@ func (h *USSDHandler) showLoanConfirmation(ctx context.Context, session *Session
 // leading notice — a wrong-PIN warning or a format reminder. The notice goes
 // above the terms so the terms stay adjacent to the PIN prompt they authorize.
 func (h *USSDHandler) showLoanConfirmationWith(_ context.Context, session *Session, notice string) (string, error) {
-	cfg := h.loanService.GetProductConfig()
+	cfg := h.productFor(session)
 	if cfg == nil {
 		return h.formatError(session.Language, "error"), nil
 	}

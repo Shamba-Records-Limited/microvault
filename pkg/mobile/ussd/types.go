@@ -97,6 +97,7 @@ type USSDHandler struct {
 
 	pilotGate            pilot.Gate
 	mobileMoneyBorrowOff bool
+	askCreditConsent     bool
 }
 
 //
@@ -283,6 +284,7 @@ type RepaymentQuote struct {
 // It is loaded once at startup from the highest-priority active loan product.
 type LoanProductConfig struct {
 	ProductID         string // UUID of the loan product record.
+	Name              string // Shown when the borrower chooses between products.
 	MinAmountCents    int64  // Minimum loan in fiat cents (e.g. 50000 = KES 500).
 	MaxAmountCents    int64  // Maximum auto-approved loan in fiat cents (e.g. 300000 = KES 3,000).
 	Currency          string // ISO 4217 currency code (e.g. "KES").
@@ -290,6 +292,14 @@ type LoanProductConfig struct {
 	RepaymentSchedule string // Repayment cadence (e.g. "lump_sum").
 	InterestRateBps   int32  // Fallback annual rate in basis points; vault APR takes precedence.
 	OriginationFeeBps int32  // One-off fee in bps (1 bps = 0.01 %). Zero when product has none.
+}
+
+// ProductCatalog is implemented by a LoanService that offers several products
+// and decides per borrower which they may take. ProductsFor returns them in
+// display order, each MaxAmountCents already capped at what the borrower may
+// borrow; an empty list means no offer.
+type ProductCatalog interface {
+	ProductsFor(ctx context.Context, userID string) ([]LoanProductConfig, error)
 }
 
 // LoanTerms are the borrower policy terms disclosed before a loan is accepted.
@@ -357,6 +367,10 @@ type RegisterUserRequest struct {
 	// deployment has no PIN service configured.
 	PinHash  string
 	PinSetAt *time.Time
+
+	// CreditConsentAt is when the user agreed to share their details with
+	// the credit partner. Nil when they declined or were not asked.
+	CreditConsentAt *time.Time
 
 	// Optional SEP-9 bio (MoneyGram cash-pickup prefill). Empty when the user
 	// skips the bio step. BirthDate is YYYY-MM-DD.
