@@ -1420,7 +1420,7 @@ func loanStatus(loan any) string {
 // none, so a quote failure there is the normal case rather than an error.
 func isQuotable(status string) bool {
 	switch strings.ToLower(status) {
-	case "disbursed", "repaid", "defaulted":
+	case "disbursed", "repaid", "defaulted", "recovered":
 		return true
 	default:
 		return false

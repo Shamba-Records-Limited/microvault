@@ -97,6 +97,12 @@ func (s *Service) SubmitAddress(ctx context.Context, counterpartyID, address str
 	return addr, nil
 }
 
+// CanApproveKYB reports whether ApproveKYB would accept the counterparty's
+// verification: when the KYB provider is required, only after it approved.
+func (s *Service) CanApproveKYB(cp *models.Counterparty) bool {
+	return !s.requireVerified || cp.KYBSessionStatus == didit.StatusApproved
+}
+
 // ApproveKYB approves the counterparty's KYB status, then screens every
 // address still waiting for it; addresses already decided keep their status.
 func (s *Service) ApproveKYB(ctx context.Context, counterpartyID, actor string) error {
@@ -105,7 +111,7 @@ func (s *Service) ApproveKYB(ctx context.Context, counterpartyID, actor string) 
 		if err != nil {
 			return err
 		}
-		if cp.KYBSessionStatus != didit.StatusApproved {
+		if !s.CanApproveKYB(cp) {
 			return ErrKYBNotVerified
 		}
 	}

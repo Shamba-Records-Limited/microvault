@@ -16,8 +16,6 @@ var (
 	// ErrKYBNotConfigured means no KYB provider is configured.
 	ErrKYBNotConfigured = errors.New("kyb verification is not configured")
 
-	// ErrKYBAlreadyApproved means the counterparty's KYB is already approved.
-	ErrKYBAlreadyApproved = errors.New("kyb is already approved for this counterparty")
 
 	// ErrKYBNotVerified means the KYB provider has not approved the business,
 	// so it cannot be approved here.

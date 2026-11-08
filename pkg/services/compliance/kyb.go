@@ -18,10 +18,12 @@ import (
 
 // KYB alert subjects; none pages, each asks a person to act in the portal.
 const (
-	SubjectKYBVerified    = "Lender KYB verified by Didit"
-	SubjectKYBNeedsReview = "Lender KYB needs review"
-	SubjectKYBDeclined    = "Lender KYB declined by Didit"
-	SubjectKYBDataChanged = "Lender KYB data changed at Didit"
+	SubjectKYBVerified       = "Lender KYB verified by Didit"
+	SubjectKYBNeedsReview    = "Lender KYB needs review"
+	SubjectKYBDeclined       = "Lender KYB declined by Didit"
+	SubjectKYBUpdateDeclined = "Approved lender's KYB update declined by Didit"
+	SubjectKYBUpdateVerified = "Approved lender's KYB update verified by Didit"
+	SubjectKYBDataChanged    = "Lender KYB data changed at Didit"
 )
 
 // diditDataUpdated is Didit's event for changed session data, including
@@ -107,7 +109,9 @@ var openStatuses = map[string]bool{
 }
 
 // Start returns the hosted verification link for a counterparty, creating a
-// Didit session unless an open one exists.
+// Didit session unless an open one exists. For an approved counterparty the
+// session is a KYB update: its approval and addresses stand whatever the
+// session decides.
 func (k *KYB) Start(ctx context.Context, counterpartyID string) (string, error) {
 	if !k.Configured() {
 		return "", ErrKYBNotConfigured
@@ -115,9 +119,6 @@ func (k *KYB) Start(ctx context.Context, counterpartyID string) (string, error) 
 	cp, err := k.counterparties.GetByID(ctx, counterpartyID)
 	if err != nil {
 		return "", err
-	}
-	if cp.KYBStatus == models.CounterpartyKYBApproved {
-		return "", ErrKYBAlreadyApproved
 	}
 	if cp.KYBSessionID != nil && cp.KYBSessionURL != "" && openStatuses[cp.KYBSessionStatus] {
 		return cp.KYBSessionURL, nil
@@ -177,13 +178,26 @@ func (k *KYB) HandleEvent(ctx context.Context, ev *didit.Event, body []byte) err
 	}
 	switch ev.Data.Status {
 	case didit.StatusApproved:
+		if k.approved(ctx, ev.Data.VendorData) {
+			k.alert(ctx, SubjectKYBUpdateVerified, fmt.Sprintf("Didit verified the KYB update for approved counterparty %s (session %s).", ev.Data.VendorData, ev.Data.SessionID))
+			return nil
+		}
 		k.alert(ctx, SubjectKYBVerified, fmt.Sprintf("Didit approved counterparty %s (session %s). Review and approve it in the portal.", ev.Data.VendorData, ev.Data.SessionID))
 	case didit.StatusInReview:
 		k.alert(ctx, SubjectKYBNeedsReview, fmt.Sprintf("Didit needs a manual review for counterparty %s (session %s).", ev.Data.VendorData, ev.Data.SessionID))
 	case didit.StatusDeclined:
+		if k.approved(ctx, ev.Data.VendorData) {
+			k.alert(ctx, SubjectKYBUpdateDeclined, fmt.Sprintf("Didit declined the KYB update for approved counterparty %s (session %s). Its approval and addresses are unchanged; if it is no longer eligible, revoke its addresses from the allowlist.", ev.Data.VendorData, ev.Data.SessionID))
+			return nil
+		}
 		k.alert(ctx, SubjectKYBDeclined, fmt.Sprintf("Didit declined counterparty %s (session %s). Review the decision in the portal.", ev.Data.VendorData, ev.Data.SessionID))
 	}
 	return nil
+}
+
+func (k *KYB) approved(ctx context.Context, counterpartyID string) bool {
+	cp, err := k.counterparties.GetByID(ctx, counterpartyID)
+	return err == nil && cp.KYBStatus == models.CounterpartyKYBApproved
 }
 
 func (k *KYB) dataUpdated(ctx context.Context, ev *didit.Event, body []byte) error {

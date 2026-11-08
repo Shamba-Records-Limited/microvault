@@ -149,7 +149,7 @@ type LoanRecord struct {
 	DurationDays       int
 	RepaymentSchedule  string
 	DueDate            *time.Time
-	Status             string // "pending", "approved", "disbursed", "repaid", "defaulted", "cancelled"
+	Status             string // "pending", "approved", "disbursed", "repaid", "defaulted", "recovered", "cancelled"
 	VaultTxHash        string
 	RampProvider       string
 	RampRequestID      string
