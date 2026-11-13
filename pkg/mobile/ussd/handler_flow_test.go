@@ -20,14 +20,16 @@ type fakeUserSvc struct {
 	accounts   []any
 	getErr     error
 	registered bool
+	lastReq    *RegisterUserRequest
 }
 
 func (f *fakeUserSvc) GetUserWithAccounts(context.Context, string) (any, []any, error) {
 	return f.user, f.accounts, f.getErr
 }
 
-func (f *fakeUserSvc) RegisterUser(context.Context, *RegisterUserRequest) (any, []any, error) {
+func (f *fakeUserSvc) RegisterUser(_ context.Context, req *RegisterUserRequest) (user any, accounts []any, err error) {
 	f.registered = true
+	f.lastReq = req
 	return map[string]any{"id": "new-user"}, []any{map[string]any{}}, nil
 }
 

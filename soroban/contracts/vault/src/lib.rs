@@ -107,7 +107,7 @@ pub enum MicrovaultError {
     ExceedsUtilizationCap = 9,
     /// The vault holds too little idle USDC for the borrow or exit.
     InsufficientLiquidity = 10,
-    /// The repayment is larger than the outstanding debt.
+    /// There is no outstanding debt to repay.
     RepayExceedsDebt = 11,
     /// The owner's shares are still inside the deposit lock period.
     SharesLocked = 12,
@@ -123,7 +123,7 @@ pub enum MicrovaultError {
     InvalidExitDeadline = 17,
     /// No guardian address is stored.
     GuardianNotSet = 18,
-    /// Redemption requests are waiting, so instant exits and borrows are refused.
+    /// The idle USDC left after the queued requests' reserve cannot cover the exit or borrow.
     QueueNotEmpty = 19,
     /// The queued shares are worth less than the minimum request.
     QueueRequestTooSmall = 20,
@@ -466,7 +466,7 @@ pub enum DataKey {
     MaxDeposit,
     /// Instance: per-transaction withdrawal limit.
     MaxWithdraw,
-    /// Instance: outstanding debt including accrued interest.
+    /// Instance: legacy outstanding debt, read once to seed `ScaledDebt`.
     TotalBorrowed,
     /// Instance: ledger timestamp of the last accrual.
     LastAccrualTime,
@@ -496,6 +496,8 @@ pub enum DataKey {
     QueueEntry(u64),
     /// Instance: smallest redemption request, in base units.
     MinQueueAssets,
+    /// Instance: outstanding debt divided by the borrow index at booking.
+    ScaledDebt,
 }
 
 /// Where a share owner stands on exiting the vault after revocation.
@@ -548,6 +550,12 @@ const DEFAULT_MIN_QUEUE_ASSETS: i128 = 100_000_000;
 /// Seconds per year, used for APR-to-per-second rate conversion.
 const SECONDS_PER_YEAR: u64 = 31_536_000;
 
+/// Ledgers per day at a 5-second close.
+const DAY_IN_LEDGERS: u32 = 17_280;
+
+/// Nominal ledger close time in seconds.
+const LEDGER_SECONDS: u64 = 5;
+
 /// Microvault SEP-56 tokenized vault contract.
 #[contract]
 pub struct MicrovaultContract;
@@ -585,7 +593,7 @@ impl MicrovaultContract {
         e.storage()
             .instance()
             .set(&DataKey::MaxWithdraw, &DEFAULT_MAX_WITHDRAW);
-        e.storage().instance().set(&DataKey::TotalBorrowed, &0i128);
+        e.storage().instance().set(&DataKey::ScaledDebt, &0i128);
         e.storage()
             .instance()
             .set(&DataKey::LastAccrualTime, &e.ledger().timestamp());
@@ -631,12 +639,15 @@ impl MicrovaultContract {
             .unwrap_or(DEFAULT_MAX_WITHDRAW)
     }
 
-    /// Returns the total amount currently borrowed by the treasury.
+    /// Returns the outstanding debt at the last accrual: scaled debt times the
+    /// stored borrow index, rounded up.
     pub fn total_borrowed(e: &Env) -> i128 {
-        e.storage()
-            .instance()
-            .get(&DataKey::TotalBorrowed)
-            .unwrap_or(0)
+        Self::debt_at(e, Self::scaled_debt(e), Self::stored_borrow_index(e))
+    }
+
+    /// Returns idle USDC not reserved for queued redemption requests.
+    pub fn free_liquidity(e: &Env) -> i128 {
+        (Self::available_liquidity(e) - Self::queue_reserve(e)).max(0)
     }
 
     /// Returns available liquidity (contract token balance, excluding borrowed).
@@ -684,10 +695,7 @@ impl MicrovaultContract {
     /// Accrues interest first so the index is always current.
     pub fn get_borrow_index(e: &Env) -> i128 {
         Self::accrue_interest(e);
-        e.storage()
-            .instance()
-            .get(&DataKey::BorrowIndex)
-            .unwrap_or(WAD_SCALE)
+        Self::stored_borrow_index(e)
     }
 
     /// Returns the current borrow APR as a WAD-scaled value based on utilization.
@@ -927,9 +935,11 @@ impl MicrovaultContract {
             .unwrap_or(0);
         let new_unlock = current_unlock.max(proposed_unlock);
 
-        e.storage()
-            .persistent()
-            .set(&DataKey::UserUnlockTime(user.clone()), &new_unlock);
+        let key = DataKey::UserUnlockTime(user.clone());
+        e.storage().persistent().set(&key, &new_unlock);
+        let lock_ledgers = (new_unlock - current_time) / LEDGER_SECONDS + DAY_IN_LEDGERS as u64;
+        let ttl = lock_ledgers.min(e.storage().max_ttl() as u64) as u32;
+        e.storage().persistent().extend_ttl(&key, ttl, ttl);
         UserLockUpdated {
             user: user.clone(),
             unlock_time: new_unlock,
@@ -1305,13 +1315,19 @@ impl MicrovaultContract {
             return;
         }
 
-        let total_borrowed = Self::total_borrowed(e);
-        if total_borrowed == 0 {
+        let scaled = Self::scaled_debt(e);
+        if scaled == 0 {
             e.storage()
                 .instance()
                 .set(&DataKey::LastAccrualTime, &current_time);
             return;
         }
+        if !e.storage().instance().has(&DataKey::ScaledDebt) {
+            Self::set_scaled_debt(e, scaled);
+        }
+
+        let old_index = Self::stored_borrow_index(e);
+        let total_borrowed = Self::debt_at(e, scaled, old_index);
 
         // Compute utilization inline to avoid circular call through
         // utilization_rate → total_managed_assets → accrue_interest.
@@ -1336,34 +1352,17 @@ impl MicrovaultContract {
         };
         let compound_factor = base.powi(e, exponent);
 
-        let new_total_borrowed = checked_mul_div_with_rounding(
-            e,
-            total_borrowed,
-            compound_factor.raw(),
-            WAD_SCALE,
-            Rounding::Floor,
-        )
-        .unwrap_or_else(|| panic_with_error!(e, MicrovaultError::MathOverflow));
-
-        // Update cumulative borrow index
-        let old_index: i128 = e
-            .storage()
-            .instance()
-            .get(&DataKey::BorrowIndex)
-            .unwrap_or(WAD_SCALE);
-        let old_index_wad = Wad::from_raw(old_index);
-        let new_index = old_index_wad
+        let new_index = Wad::from_raw(old_index)
             .checked_mul(e, compound_factor)
-            .unwrap_or_else(|| panic_with_error!(e, MicrovaultError::MathOverflow));
+            .unwrap_or_else(|| panic_with_error!(e, MicrovaultError::MathOverflow))
+            .raw();
+        let new_total_borrowed = Self::debt_at(e, scaled, new_index);
         e.storage()
             .instance()
-            .set(&DataKey::BorrowIndex, &new_index.raw());
+            .set(&DataKey::BorrowIndex, &new_index);
 
         let interest = new_total_borrowed - total_borrowed;
         if interest > 0 {
-            e.storage()
-                .instance()
-                .set(&DataKey::TotalBorrowed, &new_total_borrowed);
             InterestAccrued {
                 interest_amount: interest,
                 new_total_borrowed,
@@ -1377,16 +1376,88 @@ impl MicrovaultContract {
             .set(&DataKey::LastAccrualTime, &current_time);
     }
 
+    fn stored_borrow_index(e: &Env) -> i128 {
+        e.storage()
+            .instance()
+            .get(&DataKey::BorrowIndex)
+            .unwrap_or(WAD_SCALE)
+    }
+
+    /// Scaled debt, seeded from the legacy booked total on first read after an upgrade.
+    fn scaled_debt(e: &Env) -> i128 {
+        if let Some(scaled) = e.storage().instance().get(&DataKey::ScaledDebt) {
+            return scaled;
+        }
+        let legacy: i128 = e
+            .storage()
+            .instance()
+            .get(&DataKey::TotalBorrowed)
+            .unwrap_or(0);
+        if legacy == 0 {
+            return 0;
+        }
+        Self::to_scaled(e, legacy, Self::stored_borrow_index(e), Rounding::Ceil)
+    }
+
+    fn set_scaled_debt(e: &Env, scaled: i128) {
+        e.storage().instance().set(&DataKey::ScaledDebt, &scaled);
+        e.storage().instance().remove(&DataKey::TotalBorrowed);
+    }
+
+    fn debt_at(e: &Env, scaled: i128, index: i128) -> i128 {
+        checked_mul_div_with_rounding(e, scaled, index, WAD_SCALE, Rounding::Ceil)
+            .unwrap_or_else(|| panic_with_error!(e, MicrovaultError::MathOverflow))
+    }
+
+    fn to_scaled(e: &Env, amount: i128, index: i128, rounding: Rounding) -> i128 {
+        checked_mul_div_with_rounding(e, amount, WAD_SCALE, index, rounding)
+            .unwrap_or_else(|| panic_with_error!(e, MicrovaultError::MathOverflow))
+    }
+
+    /// Remove `amount` of debt, clearing it outright when it covers the total.
+    fn reduce_debt(e: &Env, amount: i128, current: i128, rounding: Rounding) -> i128 {
+        let scaled = if amount >= current {
+            0
+        } else {
+            let index = Self::stored_borrow_index(e);
+            (Self::scaled_debt(e) - Self::to_scaled(e, amount, index, rounding)).max(0)
+        };
+        Self::set_scaled_debt(e, scaled);
+        Self::total_borrowed(e)
+    }
+
+    /// The error for an exit or borrow of `amount` that free liquidity cannot cover.
+    fn liquidity_shortfall(e: &Env, amount: i128) -> Option<MicrovaultError> {
+        if amount <= Self::free_liquidity(e) {
+            None
+        } else if Self::queued_shares(e) > 0 {
+            Some(MicrovaultError::QueueNotEmpty)
+        } else {
+            Some(MicrovaultError::InsufficientLiquidity)
+        }
+    }
+
+    fn queue_reserve(e: &Env) -> i128 {
+        Self::to_assets(e, Self::queued_shares(e), Rounding::Ceil)
+    }
+
+    /// Panic with `AddressNotAllowed` unless `receiver` is `owner` or passes the allowlist gate.
+    fn require_exit_receiver(e: &Env, owner: &Address, receiver: &Address) {
+        if receiver != owner {
+            Self::require_allowed(e, receiver);
+        }
+    }
+
     /// Lend `amount` to the treasury. Treasury only.
     ///
     /// Accrues interest before processing. Enforces the 80% utilization cap
-    /// and checks available liquidity. The USDC goes to the treasury;
+    /// and draws only on liquidity not reserved for queued requests. The USDC goes to the treasury;
     /// `recipient` is recorded on the `Borrowed` event only.
     ///
     /// # Errors
     ///
     /// `Unauthorized`, `TreasuryNotSet`, `InvalidAmount`, `ExceedsUtilizationCap`,
-    /// `InsufficientLiquidity`.
+    /// `QueueNotEmpty`, `InsufficientLiquidity`.
     #[when_not_paused]
     pub fn borrow(
         e: &Env,
@@ -1407,9 +1478,6 @@ impl MicrovaultContract {
         if amount <= 0 {
             return Err(MicrovaultError::InvalidAmount);
         }
-        if Self::queued_shares(e) > 0 {
-            return Err(MicrovaultError::QueueNotEmpty);
-        }
 
         Self::accrue_interest(e);
 
@@ -1426,14 +1494,16 @@ impl MicrovaultContract {
             return Err(MicrovaultError::ExceedsUtilizationCap);
         }
 
-        let available = Self::available_liquidity(e);
-        if amount > available {
-            return Err(MicrovaultError::InsufficientLiquidity);
+        if let Some(err) = Self::liquidity_shortfall(e, amount) {
+            return Err(err);
         }
 
-        e.storage()
-            .instance()
-            .set(&DataKey::TotalBorrowed, &new_borrowed);
+        let index = Self::stored_borrow_index(e);
+        Self::set_scaled_debt(
+            e,
+            Self::scaled_debt(e) + Self::to_scaled(e, amount, index, Rounding::Ceil),
+        );
+        let new_borrowed = Self::total_borrowed(e);
 
         let underlying_asset = Vault::query_asset(e);
         let token_client = soroban_sdk::token::Client::new(e, &underlying_asset);
@@ -1452,7 +1522,8 @@ impl MicrovaultContract {
 
     /// Repay borrowed funds to the vault. Treasury only.
     ///
-    /// Accrues interest before processing.
+    /// Accrues interest before processing. An amount above the outstanding
+    /// debt is capped at the debt, and only the capped amount is transferred.
     ///
     /// # Errors
     ///
@@ -1562,11 +1633,7 @@ impl MicrovaultContract {
 
     /// Shared body of `write_off` and `write_off_batch`; the caller accrues.
     fn write_off_one(e: &Env, borrower: Address, principal: i128, origin_index: i128) -> i128 {
-        let index: i128 = e
-            .storage()
-            .instance()
-            .get(&DataKey::BorrowIndex)
-            .unwrap_or(WAD_SCALE);
+        let index = Self::stored_borrow_index(e);
         if principal <= 0 || origin_index <= 0 || origin_index > index {
             panic_with_error!(e, MicrovaultError::InvalidAmount)
         }
@@ -1574,10 +1641,7 @@ impl MicrovaultContract {
         let owed = mul_div_with_rounding(e, principal, index, origin_index, Rounding::Ceil);
         let current = Self::total_borrowed(e);
         let amount = owed.min(current);
-        let total_borrowed = current - amount;
-        e.storage()
-            .instance()
-            .set(&DataKey::TotalBorrowed, &total_borrowed);
+        let total_borrowed = Self::reduce_debt(e, amount, current, Rounding::Ceil);
 
         WrittenOff {
             borrower,
@@ -1650,13 +1714,15 @@ impl MicrovaultContract {
     /// Queue `shares` for redemption to `receiver`, first in first out.
     ///
     /// The shares move into escrow and are priced when filled, so they keep
-    /// earning and keep bearing write-offs until then. While any request is
-    /// open, `withdraw`, `redeem` and `borrow` are refused. Returns the request id.
+    /// earning and keep bearing write-offs until then. Their value is reserved
+    /// from idle liquidity, so `withdraw`, `redeem` and `borrow` draw only on
+    /// the rest. A `receiver` other than `owner` must pass the allowlist gate.
+    /// Returns the request id.
     ///
     /// # Errors
     ///
-    /// `InvalidAmount`, `ExitWindowClosed`, `SharesLocked`, `ExceedsMaxRedeem`,
-    /// `QueueRequestTooSmall`.
+    /// `InvalidAmount`, `AddressNotAllowed`, `ExitWindowClosed`, `SharesLocked`,
+    /// `ExceedsMaxRedeem`, `QueueRequestTooSmall`.
     #[when_not_paused]
     pub fn request_redeem(e: &Env, owner: Address, receiver: Address, shares: i128) -> u64 {
         owner.require_auth();
@@ -1666,6 +1732,7 @@ impl MicrovaultContract {
         if Self::check_exit(e, &owner) && Self::is_locked(e, owner.clone()) {
             panic_with_error!(e, MicrovaultError::SharesLocked)
         }
+        Self::require_exit_receiver(e, &owner, &receiver);
         let assets = Self::to_assets(e, shares, Rounding::Floor);
         if assets > Self::get_max_withdraw(e) {
             panic_with_error!(e, MicrovaultError::ExceedsMaxRedeem)
@@ -1720,8 +1787,9 @@ impl MicrovaultContract {
 
     /// Fill queued requests from idle liquidity, oldest first, touching at most
     /// `max_entries` requests. Callable by anyone. The oldest request may be
-    /// filled in part. A frozen owner's request is returned unpaid. Returns the
-    /// number of requests touched.
+    /// filled in part. A request whose owner is frozen, or whose third-party
+    /// receiver is no longer allowed, is returned unpaid. Returns the number of
+    /// requests touched.
     #[when_not_paused]
     pub fn process_queue(e: &Env, max_entries: u32) -> u32 {
         let vault = e.current_contract_address();
@@ -1736,7 +1804,10 @@ impl MicrovaultContract {
                 continue;
             };
 
-            if Self::exit_state(e, &request.owner) == ExitState::Frozen {
+            if Self::exit_state(e, &request.owner) == ExitState::Frozen
+                || (request.receiver != request.owner
+                    && !Self::address_allowed(e, &request.receiver))
+            {
                 Self::release_request(e, head, &request);
                 RedeemReturned {
                     owner: request.owner,
@@ -1793,11 +1864,7 @@ impl MicrovaultContract {
         let key = DataKey::QueueEntry(id);
         let request = e.storage().persistent().get(&key);
         if request.is_some() {
-            e.storage().persistent().extend_ttl(
-                &key,
-                ALLOW_BLOCK_TTL_THRESHOLD,
-                ALLOW_BLOCK_EXTEND_AMOUNT,
-            );
+            Self::extend_queue_entry(e, &key);
         }
         request
     }
@@ -1844,11 +1911,14 @@ impl MicrovaultContract {
     fn write_request(e: &Env, id: u64, request: &RedeemRequest) {
         let key = DataKey::QueueEntry(id);
         e.storage().persistent().set(&key, request);
-        e.storage().persistent().extend_ttl(
-            &key,
-            ALLOW_BLOCK_TTL_THRESHOLD,
-            ALLOW_BLOCK_EXTEND_AMOUNT,
-        );
+        Self::extend_queue_entry(e, &key);
+    }
+
+    fn extend_queue_entry(e: &Env, key: &DataKey) {
+        let max = e.storage().max_ttl();
+        e.storage()
+            .persistent()
+            .extend_ttl(key, max.saturating_sub(DAY_IN_LEDGERS), max);
     }
 
     /// Return a request's escrowed shares to its owner and close it.
@@ -1866,12 +1936,6 @@ impl MicrovaultContract {
             e.storage()
                 .instance()
                 .set(&DataKey::QueueHead, &Self::queue_tail(e));
-        }
-    }
-
-    fn require_queue_empty(e: &Env) {
-        if Self::queued_shares(e) > 0 {
-            panic_with_error!(e, MicrovaultError::QueueNotEmpty)
         }
     }
 
@@ -1899,18 +1963,16 @@ impl MicrovaultContract {
         Self::accrue_interest(e);
 
         let current_borrowed = Self::total_borrowed(e);
-        if amount > current_borrowed {
+        if current_borrowed == 0 {
             return Err(MicrovaultError::RepayExceedsDebt);
         }
+        let amount = amount.min(current_borrowed);
 
         let underlying_asset = Vault::query_asset(e);
         let token_client = soroban_sdk::token::Client::new(e, &underlying_asset);
         token_client.transfer(&treasury_caller, e.current_contract_address(), &amount);
 
-        let new_borrowed = current_borrowed - amount;
-        e.storage()
-            .instance()
-            .set(&DataKey::TotalBorrowed, &new_borrowed);
+        let new_borrowed = Self::reduce_debt(e, amount, current_borrowed, Rounding::Ceil);
 
         Repaid {
             treasury: treasury_caller,
@@ -2043,10 +2105,12 @@ impl FungibleVault for MicrovaultContract {
     }
 
     /// Burn the owner's shares for `assets` of USDC. The lock is waived during a revocation grace window.
+    /// A `receiver` other than `owner` must pass the allowlist gate.
     ///
     /// # Errors
     ///
-    /// `QueueNotEmpty`, `ExitWindowClosed`, `SharesLocked`, `ExceedsMaxWithdraw`, `InsufficientLiquidity`.
+    /// `AddressNotAllowed`, `ExitWindowClosed`, `SharesLocked`, `ExceedsMaxWithdraw`,
+    /// `QueueNotEmpty`, `InsufficientLiquidity`.
     #[when_not_paused]
     fn withdraw(
         e: &Env,
@@ -2055,20 +2119,19 @@ impl FungibleVault for MicrovaultContract {
         owner: Address,
         operator: Address,
     ) -> i128 {
-        MicrovaultContract::require_queue_empty(e);
         if MicrovaultContract::check_exit(e, &owner)
             && MicrovaultContract::is_locked(e, owner.clone())
         {
             panic_with_error!(e, MicrovaultError::SharesLocked)
         }
+        MicrovaultContract::require_exit_receiver(e, &owner, &receiver);
 
         if assets > MicrovaultContract::get_max_withdraw(e) {
             panic_with_error!(e, MicrovaultError::ExceedsMaxWithdraw)
         }
 
-        let available = MicrovaultContract::available_liquidity(e);
-        if assets > available {
-            panic_with_error!(e, MicrovaultError::InsufficientLiquidity)
+        if let Some(err) = MicrovaultContract::liquidity_shortfall(e, assets) {
+            panic_with_error!(e, err)
         }
 
         operator.require_auth();
@@ -2085,18 +2148,20 @@ impl FungibleVault for MicrovaultContract {
     }
 
     /// Burn `shares` for their USDC value. The lock is waived during a revocation grace window.
+    /// A `receiver` other than `owner` must pass the allowlist gate.
     ///
     /// # Errors
     ///
-    /// `QueueNotEmpty`, `ExitWindowClosed`, `SharesLocked`, `ExceedsMaxRedeem`, `InsufficientLiquidity`.
+    /// `AddressNotAllowed`, `ExitWindowClosed`, `SharesLocked`, `ExceedsMaxRedeem`,
+    /// `QueueNotEmpty`, `InsufficientLiquidity`.
     #[when_not_paused]
     fn redeem(e: &Env, shares: i128, receiver: Address, owner: Address, operator: Address) -> i128 {
-        MicrovaultContract::require_queue_empty(e);
         if MicrovaultContract::check_exit(e, &owner)
             && MicrovaultContract::is_locked(e, owner.clone())
         {
             panic_with_error!(e, MicrovaultError::SharesLocked)
         }
+        MicrovaultContract::require_exit_receiver(e, &owner, &receiver);
 
         let assets = MicrovaultContract::to_assets(e, shares, Rounding::Floor);
 
@@ -2104,9 +2169,8 @@ impl FungibleVault for MicrovaultContract {
             panic_with_error!(e, MicrovaultError::ExceedsMaxRedeem)
         }
 
-        let available = MicrovaultContract::available_liquidity(e);
-        if assets > available {
-            panic_with_error!(e, MicrovaultError::InsufficientLiquidity)
+        if let Some(err) = MicrovaultContract::liquidity_shortfall(e, assets) {
+            panic_with_error!(e, err)
         }
 
         operator.require_auth();
@@ -2156,22 +2220,16 @@ impl FungibleVault for MicrovaultContract {
     }
 
     fn max_withdraw(e: &Env, owner: Address) -> i128 {
-        if pausable_mod::paused(e)
-            || MicrovaultContract::queued_shares(e) > 0
-            || MicrovaultContract::exit_blocked(e, &owner)
-        {
+        if pausable_mod::paused(e) || MicrovaultContract::exit_blocked(e, &owner) {
             return 0;
         }
         MicrovaultContract::to_assets(e, Base::balance(e, &owner), Rounding::Floor)
             .min(MicrovaultContract::get_max_withdraw(e))
-            .min(MicrovaultContract::available_liquidity(e))
+            .min(MicrovaultContract::free_liquidity(e))
     }
 
     fn max_redeem(e: &Env, owner: Address) -> i128 {
-        if pausable_mod::paused(e)
-            || MicrovaultContract::queued_shares(e) > 0
-            || MicrovaultContract::exit_blocked(e, &owner)
-        {
+        if pausable_mod::paused(e) || MicrovaultContract::exit_blocked(e, &owner) {
             return 0;
         }
         let cap_shares = MicrovaultContract::to_shares(
@@ -2181,7 +2239,7 @@ impl FungibleVault for MicrovaultContract {
         );
         let liquidity_shares = MicrovaultContract::to_shares(
             e,
-            MicrovaultContract::available_liquidity(e),
+            MicrovaultContract::free_liquidity(e),
             Rounding::Floor,
         );
         Base::balance(e, &owner)

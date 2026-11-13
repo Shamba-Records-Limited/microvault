@@ -322,6 +322,9 @@ func main() {
 	app.Get("/", func(c fiber.Ctx) error {
 		return c.SendFile("./cmd/microvault/docs/redoc-static.html")
 	})
+	app.Get("/login", func(c fiber.Ctx) error {
+		return c.Redirect().Status(fiber.StatusSeeOther).To(cfg.Server.PortalBaseURL + "/login")
+	})
 
 	// Initialize webhook controller (event handler will be wired when disbursement service is ready)
 	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.PublicKey, cfg.Payments.YellowCard.SecretKey)

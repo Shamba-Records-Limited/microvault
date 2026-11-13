@@ -245,6 +245,11 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 			"sw": "Weka kitambulisho chako:",
 			"fr": "Entrez votre pièce d'identité:",
 		},
+		"reg_credit_consent": {
+			"en": "Share your name, ID and phone number with our credit partner to check your loan limit?\n1. Yes\n2. No",
+			"sw": "Shiriki jina, kitambulisho na nambari ya simu na mshirika wetu wa mikopo ili kuangalia kikomo chako?\n1. Ndiyo\n2. Hapana",
+			"fr": "Partager votre nom, votre pièce d'identité et votre numéro avec notre partenaire de crédit pour vérifier votre limite?\n1. Oui\n2. Non",
+		},
 		"reg_national_id_required": {
 			"en": "National ID is required. Enter your national ID:",
 			"sw": "Kitambulisho kinahitajika. Weka kitambulisho chako:",
@@ -344,6 +349,16 @@ func (l *InMemoryLocalizer) LoadStandardTranslations() {
 		},
 
 		// ── Loan Flow ───────────────────────────────────────────────
+		"loan_choose_product": {
+			"en": "Choose a loan:",
+			"sw": "Chagua mkopo:",
+			"fr": "Choisissez un crédit:",
+		},
+		"loan_no_offers": {
+			"en": "No loan offers for you right now. Please try again later.",
+			"sw": "Hakuna mikopo kwako kwa sasa. Tafadhali jaribu tena baadaye.",
+			"fr": "Aucune offre de crédit pour vous pour le moment. Veuillez réessayer plus tard.",
+		},
 		"loan_amount_prompt": {
 			"en": "Enter amount to borrow in %s (min %.0f, max %.0f):",
 			"sw": "Weka kiasi cha kukopa kwa %s (chini %.0f, juu %.0f):",

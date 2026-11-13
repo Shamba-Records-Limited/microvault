@@ -26,6 +26,7 @@ const (
 var navBackTargets = map[string]string{
 	"register":                 "language_select",
 	"register_national_id":     "register",
+	"register_consent":         "register_national_id",
 	"pin_create":               "register_national_id",
 	"pin_confirm":              "pin_create",
 	"security_q1_select":       "pin_manager",
@@ -37,6 +38,7 @@ var navBackTargets = map[string]string{
 	"pin_change_confirm":       "pin_change_new",
 	"pin_recovery_national_id": "pin_manager",
 	"bio_edit":                 "my_details",
+	"loan_product":             "main",
 	"loan_amount":              "main",
 	"payout_method":            "loan_amount",
 	"loan_terms":               "payout_method",
@@ -55,6 +57,8 @@ var navBackTargets = map[string]string{
 // retaining a value the user was trying to correct.
 var navBackClears = map[string][]string{
 	"register_national_id": {"national_id"},
+	"register_consent":     {creditConsentKey},
+	"loan_product":         {productChoicesKey},
 	"pin_confirm":          {"new_pin"},
 	"security_q1_answer":   {"sq1_id"},
 	"security_q2_select":   {"sq1_answer"},
@@ -73,7 +77,7 @@ var navFlowKeys = []string{
 	"sq1_id", "sq1_answer", "sq2_id", "from_pin_manager",
 	"loan_amount_local", "local_currency", "loan_duration",
 	"repayment_schedule", "product_id", "payout_method",
-	"bio_field",
+	"bio_field", productKey, productChoicesKey,
 }
 
 // canGoBack reports whether the given menu accepts the back input for this
@@ -176,6 +180,10 @@ func (h *USSDHandler) renderMenu(ctx context.Context, session *Session, menuID s
 		return h.showRegistrationMenu(session)
 	case "register_national_id":
 		return h.conWithNav(session, "register_national_id", "reg_enter_national_id"), nil
+	case "register_consent":
+		return h.conWithNav(session, "register_consent", "reg_credit_consent"), nil
+	case "loan_product":
+		return h.showProductMenu(session)
 	case "loan_amount":
 		return h.showLoanAmountMenu(session)
 	case "loan_terms":

@@ -53,6 +53,7 @@ type Service interface {
 	GetTreasuryAddress(ctx context.Context) (string, error)
 	GetTotalBorrowed(ctx context.Context) (int64, error)
 	GetAvailableLiquidity(ctx context.Context) (int64, error)
+	GetFreeLiquidity(ctx context.Context) (int64, error)
 	GetTotalManagedAssets(ctx context.Context) (int64, error)
 	GetUtilizationRate(ctx context.Context) (int64, error)
 	GetBorrowAPR(ctx context.Context) (int64, error)

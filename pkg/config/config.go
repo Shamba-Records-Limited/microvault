@@ -84,6 +84,10 @@ type ServerConfig struct {
 	// PublicBaseURL is the externally-reachable origin used to build SMS
 	// short-links (e.g. https://microvault.outray.app). No trailing slash.
 	PublicBaseURL string
+	// PortalBaseURL is the admin portal's origin; the API servers redirect
+	// /login there. PORTAL_BASE_URL overrides the per-network default. No
+	// trailing slash.
+	PortalBaseURL string
 
 	// TrustedProxyCIDRs are the ingress hops whose X-Forwarded-For may be
 	// believed. Both binaries sit behind the same tunnel, so both read the
@@ -882,6 +886,14 @@ func New() (*Config, error) {
 		networkPassphrase = network.TestNetworkPassphrase
 	}
 
+	portalBaseURL := strings.TrimRight(os.Getenv("PORTAL_BASE_URL"), "/")
+	if portalBaseURL == "" {
+		portalBaseURL = "https://portal.shambarecords.com"
+		if networkPassphrase == network.TestNetworkPassphrase {
+			portalBaseURL = "https://portal-testnet.shambarecords.com"
+		}
+	}
+
 	// Multi-Signature Configuration
 	enableMultiSig, err := strconv.ParseBool(os.Getenv("ENABLE_MULTI_SIG"))
 	if err != nil {
@@ -1042,6 +1054,7 @@ func New() (*Config, error) {
 			CoreServerPort:    coreServerPort,
 			CreditServerPort:  creditServerPort,
 			PublicBaseURL:     strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"),
+			PortalBaseURL:     portalBaseURL,
 			TrustedProxyCIDRs: splitEnv("TRUSTED_PROXY_CIDRS", ","),
 		},
 		Shortener: ShortenerConfig{
