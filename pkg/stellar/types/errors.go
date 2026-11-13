@@ -119,7 +119,7 @@ func MapContractError(code uint32) *ContractError {
 	case 10:
 		return &ContractError{code, "InsufficientLiquidity", "Insufficient liquidity for withdrawal", "microvault"}
 	case 11:
-		return &ContractError{code, "RepayExceedsDebt", "Repay amount exceeds debt", "microvault"}
+		return &ContractError{code, "RepayExceedsDebt", "There is no outstanding debt to repay", "microvault"}
 	case 12:
 		return &ContractError{code, "SharesLocked", "Shares are locked and cannot be withdrawn", "microvault"}
 	case 13:
@@ -135,7 +135,7 @@ func MapContractError(code uint32) *ContractError {
 	case 18:
 		return &ContractError{code, "GuardianNotSet", "Guardian has not been configured", "microvault"}
 	case 19:
-		return &ContractError{code, "QueueNotEmpty", "Redemption requests are waiting; instant exits and borrows are refused", "microvault"}
+		return &ContractError{code, "QueueNotEmpty", "Liquidity is reserved for queued redemptions; this exit or borrow cannot be covered", "microvault"}
 	case 20:
 		return &ContractError{code, "QueueRequestTooSmall", "Queued shares are worth less than the minimum request", "microvault"}
 	case 21:

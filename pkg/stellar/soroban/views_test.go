@@ -687,3 +687,18 @@ func TestCallView_ResultWithNoReturnValue(t *testing.T) {
 		assert.ErrorIs(t, err, types.ErrNoSimulationResult)
 	})
 }
+
+func TestGetFreeLiquidity(t *testing.T) {
+	mockClient := stellartesting.NewMockRPCClient()
+	var called string
+	mockClient.SimulateTransactionFunc = func(ctx context.Context, req protocol.SimulateTransactionRequest) (protocol.SimulateTransactionResponse, error) {
+		called = req.Transaction
+		return stellartesting.NewSimulationResponse().WithI128Result(1_250_000_000).Build(), nil
+	}
+
+	got, err := newTestService(mockClient).GetFreeLiquidity(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1_250_000_000), got)
+	assert.NotEmpty(t, called)
+}

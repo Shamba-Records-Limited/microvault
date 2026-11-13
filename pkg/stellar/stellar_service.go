@@ -122,6 +122,10 @@ func (s *service) GetAvailableLiquidity(ctx context.Context) (int64, error) {
 	return s.sorobanService.GetAvailableLiquidity(ctx)
 }
 
+func (s *service) GetFreeLiquidity(ctx context.Context) (int64, error) {
+	return s.sorobanService.GetFreeLiquidity(ctx)
+}
+
 func (s *service) GetTotalManagedAssets(ctx context.Context) (int64, error) {
 	return s.sorobanService.GetTotalManagedAssets(ctx)
 }

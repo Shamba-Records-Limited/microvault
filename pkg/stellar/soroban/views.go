@@ -106,6 +106,16 @@ func (s *service) GetAvailableLiquidity(ctx context.Context) (int64, error) {
 	return scValToI128(result)
 }
 
+// GetFreeLiquidity returns idle USDC not reserved for queued redemptions,
+// the most an instant exit or a borrow can draw.
+func (s *service) GetFreeLiquidity(ctx context.Context) (int64, error) {
+	result, err := s.callView(ctx, "free_liquidity", nil)
+	if err != nil {
+		return 0, err
+	}
+	return scValToI128(result)
+}
+
 // GetTotalManagedAssets returns the total assets under management
 func (s *service) GetTotalManagedAssets(ctx context.Context) (int64, error) {
 	result, err := s.callView(ctx, "total_managed_assets", nil)
@@ -143,7 +153,6 @@ func (s *service) GetBorrowIndex(ctx context.Context) (types.I128, error) {
 }
 
 // GetQueuedShares returns the shares held in escrow for queued redemptions.
-// Non-zero means instant exits and borrows are refused.
 func (s *service) GetQueuedShares(ctx context.Context) (types.I128, error) {
 	result, err := s.callView(ctx, "queued_shares", nil)
 	if err != nil {
