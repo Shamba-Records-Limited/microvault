@@ -9,7 +9,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.6
 	github.com/gofiber/contrib/v3/otel v1.3.3
 	github.com/gofiber/contrib/v3/swaggo v1.0.16
-	github.com/gofiber/fiber/v3 v3.6.1
+	github.com/gofiber/fiber/v3 v3.7.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/uuid v1.6.0
@@ -37,7 +37,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0
 	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2
-	golang.org/x/sync v0.24.0
+	golang.org/x/sync v0.25.0
 	gorm.io/datatypes v1.2.7
 	gorm.io/driver/postgres v1.6.3
 	gorm.io/gorm v1.31.2
@@ -99,7 +99,7 @@ require (
 	github.com/swaggo/files/v2 v2.0.2 // indirect
 	github.com/tinylib/msgp v1.6.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasthttp v1.77.0 // indirect
+	github.com/valyala/fasthttp v1.78.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib v1.47.0 // indirect
