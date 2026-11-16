@@ -26,7 +26,18 @@ type Counterparty struct {
 
 	LegalName          string `json:"legal_name" gorm:"type:varchar(200);not null"`
 	RegistrationNumber string `json:"registration_number,omitempty" gorm:"type:varchar(100)"`
-	Jurisdiction       string `json:"jurisdiction,omitempty" gorm:"type:varchar(100)"`
+	// Jurisdiction is the ISO 3166-1 alpha-2 code of the country the
+	// counterparty is registered in. Rows created before codes were enforced
+	// may hold free text.
+	Jurisdiction string `json:"jurisdiction,omitempty" gorm:"type:varchar(100)"`
+
+	// Registered address; its country is Jurisdiction and Region is a
+	// first-level ISO 3166-2 code within it.
+	AddressLine1 string `json:"address_line1,omitempty" gorm:"column:address_line1;type:varchar(200);not null;default:''"`
+	AddressLine2 string `json:"address_line2,omitempty" gorm:"column:address_line2;type:varchar(200);not null;default:''"`
+	City         string `json:"city,omitempty" gorm:"type:varchar(100);not null;default:''"`
+	Region       string `json:"region,omitempty" gorm:"type:varchar(10);not null;default:''"`
+	PostalCode   string `json:"postal_code,omitempty" gorm:"type:varchar(20);not null;default:''"`
 
 	KYBStatus CounterpartyKYBStatus `json:"kyb_status" gorm:"column:kyb_status;type:varchar(20);not null;default:'pending';index"`
 
