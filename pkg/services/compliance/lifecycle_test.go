@@ -152,7 +152,7 @@ func (f *fakeRepo) CountAddressesByStatus(_ context.Context, statuses []string) 
 	return int64(len(addrs)), nil
 }
 
-func (f *fakeRepo) ApproveAddress(_ context.Context, id, actor, reason string) error {
+func (f *fakeRepo) ApproveAddress(_ context.Context, id, actor, reason string, _ time.Time) error {
 	addr, ok := f.addresses[id]
 	if !ok {
 		return repository.ErrCounterpartyAddressNotFound

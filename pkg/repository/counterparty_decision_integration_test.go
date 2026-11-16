@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 )
@@ -28,7 +29,7 @@ func TestCounterpartyRepository_DecisionsOnlyFromPending(t *testing.T) {
 		t.Fatalf("unknown counterparty = %v, want ErrCounterpartyNotFound", err)
 	}
 
-	if err := repo.ApproveAddress(ctx, addr.ID, "admin", "cleared"); err != nil {
+	if err := repo.ApproveAddress(ctx, addr.ID, "admin", "cleared", time.Now().Add(90*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.RejectAddress(ctx, addr.ID, "admin", "second thoughts"); !errors.Is(err, ErrCounterpartyAddressDecided) {
@@ -37,7 +38,7 @@ func TestCounterpartyRepository_DecisionsOnlyFromPending(t *testing.T) {
 
 	testDB.Exec(`UPDATE counterparty_addresses SET status = ?, onchain_state = ? WHERE id = ?`,
 		models.AddressStatusReview, models.OnchainStateFrozen, addr.ID)
-	if err := repo.ApproveAddress(ctx, addr.ID, "admin", "override"); !errors.Is(err, ErrCounterpartyAddressDecided) {
+	if err := repo.ApproveAddress(ctx, addr.ID, "admin", "override", time.Now().Add(90*24*time.Hour)); !errors.Is(err, ErrCounterpartyAddressDecided) {
 		t.Fatalf("approving an address frozen on-chain = %v, want ErrCounterpartyAddressDecided", err)
 	}
 	got, _ := repo.GetAddressByID(ctx, addr.ID)

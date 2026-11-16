@@ -92,7 +92,7 @@ func TestCounterpartyRepository_FreezeAndExitDeadline(t *testing.T) {
 		t.Fatal("an unknown address is not an error")
 	}
 
-	if err := repo.ApproveAddress(ctx, addr.ID, "admin", "cleared"); err != nil {
+	if err := repo.ApproveAddress(ctx, addr.ID, "admin", "cleared", time.Now().Add(90*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = repo.GetAddressByID(ctx, addr.ID)

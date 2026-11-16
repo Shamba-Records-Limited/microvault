@@ -76,7 +76,9 @@ type CounterpartyRepository interface {
 	// ApproveAddress and RejectAddress decide an address in one of
 	// models.AddressDecisionStatuses that is not frozen on-chain; otherwise
 	// ErrCounterpartyAddressDecided.
-	ApproveAddress(ctx context.Context, id, actor, reason string) error
+	// ApproveAddress approves an address by hand; it stays approved until
+	// expiresAt, as a clean screening would.
+	ApproveAddress(ctx context.Context, id, actor, reason string, expiresAt time.Time) error
 	RejectAddress(ctx context.Context, id, actor, reason string) error
 	RevokeAddress(ctx context.Context, id, actor, reason string) error
 	// FreezeAddress records a freeze intent: revoked too, and the on-chain
@@ -353,10 +355,11 @@ func (r *counterpartyRepository) CountAddressesByStatus(ctx context.Context, sta
 
 // ApproveAddress is the human override path from the screening queue —
 // distinct from RecordScreening's automated verdict application.
-func (r *counterpartyRepository) ApproveAddress(ctx context.Context, id, actor, reason string) error {
+func (r *counterpartyRepository) ApproveAddress(ctx context.Context, id, actor, reason string, expiresAt time.Time) error {
 	now := time.Now()
 	return r.decideAddress(ctx, "ApproveAddress", id, map[string]interface{}{
 		"status":          models.AddressStatusApproved,
+		"expires_at":      expiresAt,
 		"onchain_state":   models.OnchainStatePending,
 		"approved_by":     actor,
 		"approved_at":     now,

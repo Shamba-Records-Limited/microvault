@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -18,7 +19,7 @@ func TestCounterpartyAddressUnfreezeAndReinstate(t *testing.T) {
 	cps, err := NewCounterpartyRepository(testDB)
 	require.NoError(t, err)
 	addr := newCounterpartyAddress(t, cps)
-	require.NoError(t, cps.ApproveAddress(ctx, addr.ID, "GCOMP", "cleared"))
+	require.NoError(t, cps.ApproveAddress(ctx, addr.ID, "GCOMP", "cleared", time.Now().Add(90*24*time.Hour)))
 
 	require.NoError(t, cps.FreezeAddress(ctx, addr.ID, "GCOMP", "court order"))
 	require.NoError(t, cps.SetOnchainState(ctx, addr.ID, models.OnchainStateFrozen))

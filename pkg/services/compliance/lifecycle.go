@@ -243,6 +243,9 @@ func tighten(current models.CounterpartyAddressStatus, next *models.Counterparty
 // expiry. A nil
 // status means "leave the address's current status untouched" — used for
 // VerdictPending so a rescreen that hasn't resolved yet can never silently
+// ScreeningExpiry is when an address approved now must be screened again.
+func (s *Service) ScreeningExpiry() time.Time { return time.Now().Add(s.screeningValidity) }
+
 // downgrade an address that was already approved.
 func (s *Service) applyVerdict(verdict pkgcompliance.Verdict) (*models.CounterpartyAddressStatus, *time.Time) {
 	status := func(v models.CounterpartyAddressStatus) *models.CounterpartyAddressStatus { return &v }
