@@ -52,3 +52,19 @@ func defaultReportHandler(ctx context.Context, report DeliveryReport) {
 	}
 	slog.InfoContext(ctx, "sms delivery report received", attrs...)
 }
+
+// WithLog applies each report to l as well as logging it.
+func WithLog(l *Log) DeliveryReportOption {
+	return WithReportHandler(func(ctx context.Context, report DeliveryReport) {
+		defaultReportHandler(ctx, report)
+		changed, err := l.ApplyReport(ctx, report)
+		switch {
+		case err != nil:
+			slog.WarnContext(ctx, "sms delivery report not recorded",
+				slog.String("message_id", report.ID), slog.String("error", err.Error()))
+		case !changed:
+			slog.InfoContext(ctx, "sms delivery report matched no open message",
+				slog.String("message_id", report.ID), slog.String("status", report.Status))
+		}
+	})
+}

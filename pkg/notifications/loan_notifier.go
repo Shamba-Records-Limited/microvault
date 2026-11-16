@@ -67,79 +67,79 @@ func (s *SMSLoanNotifier) tmpl(ctx context.Context, n contracts.LoanNotification
 }
 
 func (s *SMSLoanNotifier) NotifyLoanApproved(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Approved(n))
+	return s.send(ctx, n, "loan.approved", s.tmpl(ctx, n).Approved(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanRejected(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Rejected(n))
+	return s.send(ctx, n, "loan.rejected", s.tmpl(ctx, n).Rejected(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanDisbursed(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Disbursed(n))
+	return s.send(ctx, n, "loan.disbursed", s.tmpl(ctx, n).Disbursed(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanFailed(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Failed(n))
+	return s.send(ctx, n, "loan.failed", s.tmpl(ctx, n).Failed(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanOffRampFailed(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).OffRampFailed(n))
+	return s.send(ctx, n, "loan.off_ramp_failed", s.tmpl(ctx, n).OffRampFailed(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupApproved(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).CashPickupApproved(n))
+	return s.send(ctx, n, "loan.cash_pickup_approved", s.tmpl(ctx, n).CashPickupApproved(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanRepaid(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Repaid(n))
+	return s.send(ctx, n, "loan.repaid", s.tmpl(ctx, n).Repaid(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentReceived(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentReceived(n))
+	return s.send(ctx, n, "loan.repayment_received", s.tmpl(ctx, n).RepaymentReceived(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentFailed(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentFailed(n))
+	return s.send(ctx, n, "loan.repayment_failed", s.tmpl(ctx, n).RepaymentFailed(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentReference(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentReference(n))
+	return s.send(ctx, n, "loan.repayment_reference", s.tmpl(ctx, n).RepaymentReference(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentMoreInfo(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentMoreInfo(n))
+	return s.send(ctx, n, "loan.repayment_more_info", s.tmpl(ctx, n).RepaymentMoreInfo(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentPaybill(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentPaybill(n))
+	return s.send(ctx, n, "loan.repayment_paybill", s.tmpl(ctx, n).RepaymentPaybill(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentInitiated(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentInitiated(n))
+	return s.send(ctx, n, "loan.repayment_initiated", s.tmpl(ctx, n).RepaymentInitiated(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentWindowExpiring(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentWindowExpiring(n))
+	return s.send(ctx, n, "loan.repayment_window_expiring", s.tmpl(ctx, n).RepaymentWindowExpiring(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentExpired(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).RepaymentExpired(n))
+	return s.send(ctx, n, "loan.repayment_expired", s.tmpl(ctx, n).RepaymentExpired(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanStatement(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).Statement(n))
+	return s.send(ctx, n, "loan.statement", s.tmpl(ctx, n).Statement(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupInitiated(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).CashPickupInitiated(n))
+	return s.send(ctx, n, "loan.cash_pickup_initiated", s.tmpl(ctx, n).CashPickupInitiated(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupReady(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).CashPickupReady(n))
+	return s.send(ctx, n, "loan.cash_pickup_ready", s.tmpl(ctx, n).CashPickupReady(n))
 }
 
 func (s *SMSLoanNotifier) NotifyLoanCashPickupCancelled(ctx context.Context, n contracts.LoanNotification) error {
-	return s.notifier.Send(ctx, n.PhoneNumber, s.tmpl(ctx, n).CashPickupCancelled(n))
+	return s.send(ctx, n, "loan.cash_pickup_cancelled", s.tmpl(ctx, n).CashPickupCancelled(n))
 }
 
 func (s *SMSLoanNotifier) NotifyRepaymentReminder(ctx context.Context, n contracts.LoanNotification) error {
@@ -160,7 +160,11 @@ func (s *SMSLoanNotifier) NotifyRepaymentReminder(ctx context.Context, n contrac
 		msg = t.RepaymentUpcoming(n)
 	}
 
-	return s.notifier.Send(ctx, n.PhoneNumber, msg)
+	return s.send(ctx, n, KindRepaymentReminder, msg)
+}
+
+func (s *SMSLoanNotifier) send(ctx context.Context, n contracts.LoanNotification, kind, body string) error {
+	return s.notifier.Send(ctx, Message{To: n.PhoneNumber, Body: body, Kind: kind, Ref: n.LoanID})
 }
 
 // NoOpLoanNotifier discards all loan notifications silently.

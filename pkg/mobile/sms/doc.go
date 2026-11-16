@@ -4,15 +4,19 @@
 // or more SMSProvider implementations with RegisterProvider; the service holds
 // them by name and resolves them at send time. SMSRequest carries the recipient
 // list, message body, sender ID, and a typed ProviderOptions map for any
-// provider-specific extras; the response is SMSResponse with a typed
-// ProviderData field.
+// provider-specific extras; the response is SMSResponse with the raw
+// ProviderData and a Recipient per number (message ID, status, cost).
 //
 // Delivery reports are handled separately. Africa's Talking POSTs them as
 // form-encoded requests; DeliveryReport is the parsed shape and
 // DeliveryReportHandler dispatches each report to a callback (or, by default,
 // to a structured slog entry). Build the handler with NewDeliveryReportHandler
-// and override the default sink with WithReportHandler. Phone numbers are
-// redacted before they reach logs.
+// and override the default sink with WithReportHandler, or add WithLog to
+// apply each report to the Log. Phone numbers are redacted before they reach
+// logs.
+//
+// Log is the sms_messages table: one row per outbound SMS with the gateway's
+// message ID and its latest status. The body is never stored.
 //
 // Provider implementations live under providers/. Today that is
 // providers/africastalking, the Africa's Talking HTTP adapter.

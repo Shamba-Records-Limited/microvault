@@ -203,8 +203,15 @@ func (a *AfricaTalkingSMSAdapter) send(ctx context.Context, encoded string) (sms
 		return sms.SMSResponse{}, fmt.Errorf("failed to parse response: %w", err)
 	}
 
+	recipients := make([]sms.Recipient, 0, len(smsResp.SMSMessageData.Recipients))
+	for _, r := range smsResp.SMSMessageData.Recipients {
+		recipients = append(recipients, sms.Recipient{
+			Number: r.Number, MessageID: r.MessageID, Status: r.Status, StatusCode: r.StatusCode, Cost: r.Cost,
+		})
+	}
 	return sms.SMSResponse{
 		ProviderData: smsResp,
+		Recipients:   recipients,
 	}, nil
 }
 

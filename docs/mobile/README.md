@@ -258,7 +258,8 @@ resp, err := smsSvc.GetProvider("africastalking").SendSMS(ctx, sms.SMSRequest{
 `SMSService` is a name → `SMSProvider` registry. `SMSRequest` carries the
 recipient list (`To` for one, `ToMultiple` for bulk), message body, sender
 ID, and a typed `ProviderOptions` map for provider-specific extras. The
-response is `SMSResponse` with a typed `ProviderData` field.
+response is `SMSResponse`: the raw `ProviderData` plus one `Recipient` per
+number with the gateway's message ID, status code and cost.
 
 The platform doesn't call `SMSService` directly from handlers. It goes
 through `pkg/notifications`, which wraps an `SMSProvider` in a
@@ -266,30 +267,33 @@ through `pkg/notifications`, which wraps an `SMSProvider` in a
 domain code depends on `contracts.Notifier` / `contracts.AccountNotifier`
 and stays ignorant of SMS as a transport.
 
+Every send is a `notifications.Message` with a `Kind` (`loan.disbursed`,
+`account.pilot_invite`, `credit.<event>`) and a `Ref` (the loan or user ID).
+Built with `WithSendRecorder(sms.Log, "africastalking")`, `SMSNotifier`
+records each send in `sms_messages`: the gateway's message ID, the number,
+kind, ref and status (`Submitted`, `Rejected` with the gateway's reason, or
+`SendFailed` when the request itself failed). The body is never stored. A
+rejected recipient is returned as `notifications.ErrRejected`.
+
 ### Inbound: delivery reports
 
 When a provider delivers (or fails to deliver) a message, it POSTs to
 `/api/v1/mobile/sms/:provider/delivery`. The route lands in
-`SMSCallbackController.HandleDeliveryReport`, which parses the form into an
+`SMSCallbackController.HandleDeliveryReport`, which first checks the `token`
+query parameter against `SMS_CALLBACK_TOKEN` in constant time and answers
+`401` on a mismatch; an unset token rejects every report. Configure the
+gateway's delivery-report URL as
+`.../api/v1/mobile/sms/africastalking/delivery?token=<SMS_CALLBACK_TOKEN>`.
+It then parses the form into an
 `sms.DeliveryReport` (message ID, status, phone, network, failure reason)
 and hands it to `sms.DeliveryReportHandler.HandleReport`.
 
 By default the handler logs each report as a structured `slog` entry with the
-phone number redacted. Override the sink with `sms.WithReportHandler`:
-
-```go
-h := sms.NewDeliveryReportHandler(
-    sms.WithReportHandler(func(ctx context.Context, r sms.DeliveryReport) {
-        if r.IsFinalStatus() {
-            // persist to your delivery-tracking table
-        }
-    }),
-)
-```
-
-`DeliveryReport.IsFinalStatus()` returns true for terminal states
-(`Sent`, `Submitted`, `Buffered`, `Rejected`, `Success`, `Failed`,
-`AbsentSubscriber`, `Expired`), i.e. no further updates expected.
+phone number redacted. The services build it with `sms.WithLog`, which also
+moves the matching `sms_messages` row to the reported status. A row in a
+final status (`Success`, `Failed`, `Rejected`, `Expired`, `SendFailed`) is
+never overwritten by a late report. `sms.WithReportHandler` replaces the sink
+entirely.
 
 ### Adding an SMS transport
 

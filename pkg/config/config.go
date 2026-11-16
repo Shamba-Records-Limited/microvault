@@ -480,6 +480,11 @@ type MobileConfig struct {
 	// token query parameter. From USSD_CALLBACK_TOKEN; empty rejects all callbacks.
 	USSDCallbackToken string
 
+	// SMSCallbackToken is the shared secret the SMS gateway sends as the
+	// token query parameter on delivery reports. From SMS_CALLBACK_TOKEN;
+	// empty rejects all reports.
+	SMSCallbackToken string
+
 	// PilotAccessGate restricts registration and account access to active
 	// pilot_users rows. From ENABLE_PILOT_ACCESS_GATE; unset is off.
 	PilotAccessGate bool
@@ -1203,6 +1208,7 @@ func New() (*Config, error) {
 			SessionTimeout:    ussdSessionTimeout,
 			USSDDialString:    ussdDialString,
 			USSDCallbackToken: os.Getenv("USSD_CALLBACK_TOKEN"),
+			SMSCallbackToken:  os.Getenv("SMS_CALLBACK_TOKEN"),
 			PilotAccessGate:   pilotAccessGate,
 		},
 		Auth: AuthConfig{

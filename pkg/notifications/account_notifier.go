@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 )
@@ -60,7 +61,8 @@ func (s *SMSAccountNotifier) tmpl(ctx context.Context, n contracts.AccountNotifi
 
 // send renders one message and wraps any transport failure with the event name.
 func (s *SMSAccountNotifier) send(ctx context.Context, n contracts.AccountNotification, event string, msg AccountMessage) error {
-	if err := s.notifier.Send(ctx, n.PhoneNumber, msg(n)); err != nil {
+	kind := "account." + strings.ReplaceAll(event, " ", "_")
+	if err := s.notifier.Send(ctx, Message{To: n.PhoneNumber, Body: msg(n), Kind: kind, Ref: n.UserID}); err != nil {
 		return fmt.Errorf("notify %s for %s: %w", event, n.UserID, err)
 	}
 	return nil

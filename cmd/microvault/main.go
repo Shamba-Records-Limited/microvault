@@ -226,10 +226,15 @@ func main() {
 
 	// ---- Initialize Notification Service ----
 	// Create notifier (NoOp if AT provider not configured)
+	smsLog, err := sms.NewLog(db)
+	if err != nil {
+		log.Fatalf("Failed to initialize SMS log: %v", err)
+	}
 	var notifier mvnotifications.Notifier
 	atProvider, providerErr := smsService.GetProvider("africastalking")
 	if providerErr == nil {
-		notifier = mvnotifications.NewSMSNotifier(atProvider, cfg.Mobile.AfricasTalking.ResolveSenderID())
+		notifier = mvnotifications.NewSMSNotifier(atProvider, cfg.Mobile.AfricasTalking.ResolveSenderID(),
+			mvnotifications.WithSendRecorder(smsLog, "africastalking"))
 	} else {
 		notifier = &mvnotifications.NoOpNotifier{}
 	}
@@ -330,8 +335,8 @@ func main() {
 	webhookController := controllers.NewWebhookController(nil, cfg.Payments.YellowCard.PublicKey, cfg.Payments.YellowCard.SecretKey)
 
 	// Initialize SMS delivery report callback controller
-	smsCallbackHandler := sms.NewDeliveryReportHandler()
-	smsCallbackController := controllers.NewSMSCallbackController(smsCallbackHandler)
+	smsCallbackHandler := sms.NewDeliveryReportHandler(sms.WithLog(smsLog))
+	smsCallbackController := controllers.NewSMSCallbackController(smsCallbackHandler, cfg.Mobile.SMSCallbackToken)
 
 	// Daraja callbacks are registered only when the integration is configured.
 	// Unauthenticated by design — Daraja signs nothing; the unguessable slug

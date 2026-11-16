@@ -18,7 +18,20 @@ type SMSRequest struct {
 // SMSResponse represents an SMS message response.
 type SMSResponse struct {
 	ProviderData any // Provider-specific response data
+	Recipients   []Recipient
 }
+
+// Recipient is the gateway's verdict on one recipient of a send.
+type Recipient struct {
+	Number     string
+	MessageID  string
+	Status     string
+	StatusCode int
+	Cost       string
+}
+
+// Accepted reports whether the gateway took the message for delivery.
+func (r Recipient) Accepted() bool { return r.StatusCode >= 100 && r.StatusCode < 200 }
 
 // SMSProvider is an interface for sending SMS messages.
 type SMSProvider interface {

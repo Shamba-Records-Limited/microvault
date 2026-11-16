@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"crypto/subtle"
 	"log/slog"
 
 	"github.com/gofiber/fiber/v3"
@@ -11,12 +12,14 @@ import (
 
 // SMSCallbackController handles SMS callback endpoints.
 type SMSCallbackController struct {
-	handler *sms.DeliveryReportHandler
+	handler       *sms.DeliveryReportHandler
+	callbackToken string
 }
 
-// NewSMSCallbackController creates a new SMSCallbackController.
-func NewSMSCallbackController(handler *sms.DeliveryReportHandler) *SMSCallbackController {
-	return &SMSCallbackController{handler: handler}
+// NewSMSCallbackController creates a new SMSCallbackController. An empty
+// callbackToken rejects every report.
+func NewSMSCallbackController(handler *sms.DeliveryReportHandler, callbackToken string) *SMSCallbackController {
+	return &SMSCallbackController{handler: handler, callbackToken: callbackToken}
 }
 
 // HandleDeliveryReport processes incoming SMS delivery report callbacks from Africa's Talking.
@@ -26,6 +29,8 @@ func NewSMSCallbackController(handler *sms.DeliveryReportHandler) *SMSCallbackCo
 // @Tags Mobile
 // @Accept application/x-www-form-urlencoded
 // @Produce plain
+// @Param provider path string true "SMS provider name (e.g. africastalking)"
+// @Param token query string true "Shared callback token"
 // @Param id formData string true "AT message ID"
 // @Param status formData string true "Delivery status"
 // @Param phoneNumber formData string false "Recipient phone number"
@@ -33,8 +38,12 @@ func NewSMSCallbackController(handler *sms.DeliveryReportHandler) *SMSCallbackCo
 // @Param failureReason formData string false "Failure reason (if applicable)"
 // @Success 200 {string} string "ok"
 // @Failure 400 {object} fiber.Error "Invalid callback payload"
+// @Failure 401 {string} string "Unauthorized"
 // @Router /api/v1/mobile/sms/{provider}/delivery [post]
 func (ctrl *SMSCallbackController) HandleDeliveryReport(c fiber.Ctx) error {
+	if ctrl.callbackToken == "" || subtle.ConstantTimeCompare([]byte(c.Query("token")), []byte(ctrl.callbackToken)) != 1 {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
 	provider := c.Params("provider")
 
 	slog.InfoContext(c.Context(), "sms callback: delivery report received",

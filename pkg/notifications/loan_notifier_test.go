@@ -11,13 +11,12 @@ import (
 )
 
 type fakeNotifier struct {
-	to  string
-	msg string
-	err error
+	to, msg, kind, ref string
+	err                error
 }
 
-func (f *fakeNotifier) Send(_ context.Context, to, msg string) error {
-	f.to, f.msg = to, msg
+func (f *fakeNotifier) Send(_ context.Context, m Message) error {
+	f.to, f.msg, f.kind, f.ref = m.To, m.Body, m.Kind, m.Ref
 	return f.err
 }
 
