@@ -97,3 +97,28 @@ func TestRaise(t *testing.T) {
 		})
 	}
 }
+
+func TestRefNamesWhatTheAlertIsAbout(t *testing.T) {
+	ctx := context.Background()
+	for name, tc := range map[string]struct {
+		ctx  context.Context
+		want string
+	}{
+		"loan":         {logging.WithLoan(ctx, "L1", "MV-7KQ2D"), "MV-7KQ2D (L1)"},
+		"loan id only": {logging.WithLoan(ctx, "L1", ""), "loan L1"},
+		"account":      {logging.With(ctx, slog.String(AttrAccount, "A1"), slog.String("user_id", "U1")), "account A1"},
+		"user":         {logging.With(ctx, slog.String("user_id", "U1")), "user U1"},
+		"nothing":      {ctx, "-"},
+	} {
+		assert.Equal(t, tc.want, Ref(tc.ctx), name)
+	}
+}
+
+func TestAlertLineCarriesRef(t *testing.T) {
+	logger, buf := captureLogger()
+	ctx := logging.With(context.Background(), slog.String(AttrAccount, "A1"))
+	require.NoError(t, LogAlerter{Logger: logger}.AlertOps(ctx, "s", "m"))
+	got := lines(t, buf)
+	require.Len(t, got, 1)
+	assert.Equal(t, "account A1", got[0][AttrRef])
+}

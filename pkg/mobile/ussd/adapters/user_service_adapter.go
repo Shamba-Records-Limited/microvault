@@ -14,6 +14,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/account"
 	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
@@ -369,7 +370,7 @@ func (a *UserServiceAdapter) createSponsoredAccountAsync(ctx context.Context, us
 		a.logger.ErrorContext(ctx, "derivation index reused — derived account already exists on-chain",
 			"user_id", userID, "account_id", accountID, "address", address,
 			"error_code", pkgErrors.CodeDerivationIndexReused)
-		a.alertOps(ctx, "Stellar derivation index reused",
+		a.alertOps(logging.With(ctx, slog.String(alerts.AttrAccount, accountID), slog.String(pkgErrors.AttrUserID, userID)), "Stellar derivation index reused",
 			fmt.Sprintf("User %s account %s derived %s, which already exists on-chain. "+
 				"account_index_seq has been rewound: two users now derive one keypair. "+
 				"Do not retry — re-arm ACCOUNT_INDEX_BASE above the on-chain "+
