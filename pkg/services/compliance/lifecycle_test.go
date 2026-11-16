@@ -80,6 +80,10 @@ func (f *fakeRepo) ApproveKYB(_ context.Context, id, actor string) error {
 	return nil
 }
 
+func (f *fakeRepo) ReinstateAddress(context.Context, string) error { return nil }
+
+func (f *fakeRepo) UnfreezeAddress(context.Context, string) error { return nil }
+
 func (f *fakeRepo) UpdateDetails(_ context.Context, id string, d repository.CounterpartyDetails) error {
 	cp, ok := f.counterparties[id]
 	if !ok {

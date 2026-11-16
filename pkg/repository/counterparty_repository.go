@@ -82,6 +82,13 @@ type CounterpartyRepository interface {
 	// FreezeAddress records a freeze intent: revoked too, and the on-chain
 	// writer calls freeze_depositor rather than disallow_depositor.
 	FreezeAddress(ctx context.Context, id, actor, reason string) error
+	// ReinstateAddress clears an approved address's revoke and freeze and
+	// marks it pending, so the next allow_depositor puts it back on the
+	// allowlist.
+	ReinstateAddress(ctx context.Context, id string) error
+	// UnfreezeAddress records a lifted freeze: the address stays revoked,
+	// in its exit window again.
+	UnfreezeAddress(ctx context.Context, id string) error
 
 	// ListScreeningsByAddress returns an address's full screening history,
 	// newest first — the audit artefact the screening detail screen renders
@@ -417,6 +424,49 @@ func (r *counterpartyRepository) RevokeAddress(ctx context.Context, id, actor, r
 	if result.Error != nil {
 		slog.ErrorContext(ctx, "RevokeAddress: database error", slog.Any("error", result.Error))
 		return ErrFailedToUpdateCounterpartyAddress
+	}
+	return nil
+}
+
+func (r *counterpartyRepository) ReinstateAddress(ctx context.Context, id string) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.CounterpartyAddress{}).
+		Where("id = ? AND status = ?", id, models.AddressStatusApproved).
+		Updates(map[string]interface{}{
+			"revoked_by":      nil,
+			"revoked_at":      nil,
+			"frozen_by":       nil,
+			"frozen_at":       nil,
+			"override_reason": nil,
+			"onchain_state":   models.OnchainStatePending,
+			"updated_at":      time.Now(),
+		})
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "ReinstateAddress: database error", slog.Any("error", result.Error))
+		return ErrFailedToUpdateCounterpartyAddress
+	}
+	if result.RowsAffected == 0 {
+		return ErrCounterpartyAddressNotFound
+	}
+	return nil
+}
+
+func (r *counterpartyRepository) UnfreezeAddress(ctx context.Context, id string) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.CounterpartyAddress{}).
+		Where("id = ? AND frozen_at IS NOT NULL", id).
+		Updates(map[string]interface{}{
+			"frozen_by":     nil,
+			"frozen_at":     nil,
+			"onchain_state": models.OnchainStateRevoked,
+			"updated_at":    time.Now(),
+		})
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "UnfreezeAddress: database error", slog.Any("error", result.Error))
+		return ErrFailedToUpdateCounterpartyAddress
+	}
+	if result.RowsAffected == 0 {
+		return ErrCounterpartyAddressNotFound
 	}
 	return nil
 }
