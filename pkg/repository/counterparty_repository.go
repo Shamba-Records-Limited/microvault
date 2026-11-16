@@ -12,6 +12,18 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/models"
 )
 
+// CounterpartyDetails are the operator-editable fields of a counterparty.
+type CounterpartyDetails struct {
+	LegalName          string
+	RegistrationNumber string
+	Jurisdiction       string
+	AddressLine1       string
+	AddressLine2       string
+	City               string
+	Region             string
+	PostalCode         string
+}
+
 // Common errors for CounterpartyRepository.
 var (
 	ErrCounterpartyNotFound        = errors.New("counterparty not found")
@@ -52,6 +64,9 @@ type CounterpartyRepository interface {
 	// decided, ErrCounterpartyKYBDecided.
 	ApproveKYB(ctx context.Context, id, actor string) error
 	RejectKYB(ctx context.Context, id, actor string) error
+	// UpdateDetails replaces a counterparty's registration details and
+	// registered address; KYB status, approval and addresses are untouched.
+	UpdateDetails(ctx context.Context, id string, d CounterpartyDetails) error
 
 	AddAddress(ctx context.Context, addr *models.CounterpartyAddress) error
 	GetAddressByID(ctx context.Context, id string) (*models.CounterpartyAddress, error) // preloads Counterparty + LatestScreening
@@ -229,6 +244,31 @@ func (r *counterpartyRepository) RejectKYB(ctx context.Context, id, actor string
 		"kyb_status": models.CounterpartyKYBRejected,
 		"updated_at": time.Now(),
 	})
+}
+
+func (r *counterpartyRepository) UpdateDetails(ctx context.Context, id string, d CounterpartyDetails) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.Counterparty{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"legal_name":          d.LegalName,
+			"registration_number": d.RegistrationNumber,
+			"jurisdiction":        d.Jurisdiction,
+			"address_line1":       d.AddressLine1,
+			"address_line2":       d.AddressLine2,
+			"city":                d.City,
+			"region":              d.Region,
+			"postal_code":         d.PostalCode,
+			"updated_at":          time.Now(),
+		})
+	if result.Error != nil {
+		slog.ErrorContext(ctx, "UpdateDetails: database error", slog.Any("error", result.Error))
+		return ErrFailedToUpdateCounterparty
+	}
+	if result.RowsAffected == 0 {
+		return ErrCounterpartyNotFound
+	}
+	return nil
 }
 
 // --- CounterpartyAddress ---

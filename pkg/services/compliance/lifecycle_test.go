@@ -80,6 +80,16 @@ func (f *fakeRepo) ApproveKYB(_ context.Context, id, actor string) error {
 	return nil
 }
 
+func (f *fakeRepo) UpdateDetails(_ context.Context, id string, d repository.CounterpartyDetails) error {
+	cp, ok := f.counterparties[id]
+	if !ok {
+		return repository.ErrCounterpartyNotFound
+	}
+	cp.LegalName, cp.RegistrationNumber, cp.Jurisdiction = d.LegalName, d.RegistrationNumber, d.Jurisdiction
+	cp.AddressLine1, cp.AddressLine2, cp.City, cp.Region, cp.PostalCode = d.AddressLine1, d.AddressLine2, d.City, d.Region, d.PostalCode
+	return nil
+}
+
 func (f *fakeRepo) RejectKYB(_ context.Context, id, _ string) error {
 	cp, ok := f.counterparties[id]
 	if !ok {
