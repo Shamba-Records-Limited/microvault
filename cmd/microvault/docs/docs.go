@@ -612,6 +612,20 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
+                        "description": "SMS provider name (e.g. africastalking)",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Shared callback token",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
                         "description": "AT message ID",
                         "name": "id",
                         "in": "formData",
@@ -654,6 +668,12 @@ const docTemplate = `{
                         "description": "Invalid callback payload",
                         "schema": {
                             "$ref": "#/definitions/fiber.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }

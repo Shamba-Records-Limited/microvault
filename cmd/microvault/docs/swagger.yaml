@@ -831,6 +831,16 @@ paths:
       - application/x-www-form-urlencoded
       description: Handle incoming SMS delivery report callbacks from Africa's Talking
       parameters:
+      - description: SMS provider name (e.g. africastalking)
+        in: path
+        name: provider
+        required: true
+        type: string
+      - description: Shared callback token
+        in: query
+        name: token
+        required: true
+        type: string
       - description: AT message ID
         in: formData
         name: id
@@ -864,6 +874,10 @@ paths:
           description: Invalid callback payload
           schema:
             $ref: '#/definitions/fiber.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
       summary: Process SMS Delivery Report
       tags:
       - Mobile
