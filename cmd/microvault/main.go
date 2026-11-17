@@ -27,11 +27,14 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/health"
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
+	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/mobilesasa"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
 	smsAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms/providers/africastalking"
+	smsMobileSasa "github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms/providers/mobilesasa"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd"
 	ussdadapters "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/adapters"
 	ussdAfrica "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/providers/africastalking"
+	ussdMobileSasa "github.com/Shamba-Records-Limited/microvault/pkg/mobile/ussd/providers/mobilesasa"
 	mvnotifications "github.com/Shamba-Records-Limited/microvault/pkg/notifications"
 	"github.com/Shamba-Records-Limited/microvault/pkg/pilot"
 	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
@@ -76,6 +79,10 @@ func main() {
 
 	if err := cfg.Payments.Mpesa.Validate(cfg.Server.ServerEnvironment); err != nil {
 		log.Fatalf("M-Pesa config invalid: %v", err)
+	}
+
+	if err := cfg.Mobile.Validate(); err != nil {
+		log.Fatalf("Mobile config invalid: %v", err)
 	}
 
 	// ---- Initialize Validation Service ----
@@ -213,28 +220,32 @@ func main() {
 	slog.Info("USSD user service adapter initialized")
 
 	// Initialize SMS providers
-	AfricasTalkingSMSProvider := smsAfrica.NewAfricasTalkingSMSAdapter(
+	smsService := sms.NewSMSService()
+	smsService.RegisterProvider(config.SMSProviderAfricasTalking, smsAfrica.NewAfricasTalkingSMSAdapter(
 		cfg.Mobile.AfricasTalking.Username,
 		cfg.Mobile.AfricasTalking.APIKey,
 		cfg.Mobile.AfricasTalking.BaseURL,
 		cfg.Mobile.AfricasTalking.HTTPTimeout,
-	)
-
-	// Register SMS providers
-	smsService := sms.NewSMSService()
-	smsService.RegisterProvider("africastalking", AfricasTalkingSMSProvider)
+	))
+	senderID := cfg.Mobile.AfricasTalking.ResolveSenderID()
+	if cfg.Mobile.SMSProvider == config.SMSProviderMobileSasa {
+		ms := cfg.Mobile.MobileSasa
+		smsService.RegisterProvider(config.SMSProviderMobileSasa, smsMobileSasa.New(
+			mobilesasa.NewClient(ms.BaseURL, ms.APIToken, ms.HTTPTimeout), ms.SenderID, ms.CallbackURL))
+		senderID = ms.SenderID
+	}
 
 	// ---- Initialize Notification Service ----
-	// Create notifier (NoOp if AT provider not configured)
 	smsLog, err := sms.NewLog(db)
 	if err != nil {
 		log.Fatalf("Failed to initialize SMS log: %v", err)
 	}
 	var notifier mvnotifications.Notifier
-	atProvider, providerErr := smsService.GetProvider("africastalking")
+	smsProvider, providerErr := smsService.GetProvider(cfg.Mobile.SMSProvider)
 	if providerErr == nil {
-		notifier = mvnotifications.NewSMSNotifier(atProvider, cfg.Mobile.AfricasTalking.ResolveSenderID(),
-			mvnotifications.WithSendRecorder(smsLog, "africastalking"))
+		notifier = mvnotifications.NewSMSNotifier(smsProvider, senderID,
+			mvnotifications.WithSendRecorder(smsLog, cfg.Mobile.SMSProvider))
+		slog.Info("SMS provider selected", slog.String("provider", cfg.Mobile.SMSProvider))
 	} else {
 		notifier = &mvnotifications.NoOpNotifier{}
 	}
@@ -285,15 +296,24 @@ func main() {
 	})
 	ussdService := ussd.NewUSSDService(handler)
 
-	// Register USSD providers
-	AfricasTalkingUSSDProvider := ussdAfrica.NewAfricasTalkingUSSDAdapter(
+	// Register USSD providers; the callback URL's {provider} segment picks one.
+	ussdService.RegisterProvider("africastalking", ussdAfrica.NewAfricasTalkingUSSDAdapter(
 		cfg.Mobile.AfricasTalking.Username,
 		cfg.Mobile.AfricasTalking.APIKey,
-	)
-	ussdService.RegisterProvider("africastalking", AfricasTalkingUSSDProvider)
+	))
+	ussdService.RegisterProvider(ussdMobileSasa.ProviderName, ussdMobileSasa.New())
+
+	var mobileSasaVerifier *mobilesasa.Verifier
+	var ussdOpts []controllers.USSDOption
+	if secret := cfg.Mobile.MobileSasa.WebhookSecret; secret != "" {
+		mobileSasaVerifier = mobilesasa.NewVerifier(secret)
+		ussdOpts = append(ussdOpts, controllers.WithRequestVerifier(ussdMobileSasa.ProviderName, mobileSasaVerifier.Verify))
+	} else if cfg.Mobile.SMSProvider == config.SMSProviderMobileSasa {
+		slog.Warn("MOBILESASA_WEBHOOK_SECRET is unset; Mobile Sasa callbacks are checked by token only")
+	}
 
 	// Initialize USSD controller
-	ussdController := controllers.NewUSSDController(ussdService, cfg.Mobile.USSDCallbackToken)
+	ussdController := controllers.NewUSSDController(ussdService, cfg.Mobile.USSDCallbackToken, ussdOpts...)
 
 	// ---- Initialize Application ----
 	// Create a new fiber app. The proxy header is read only from a trusted
@@ -336,7 +356,8 @@ func main() {
 
 	// Initialize SMS delivery report callback controller
 	smsCallbackHandler := sms.NewDeliveryReportHandler(sms.WithLog(smsLog))
-	smsCallbackController := controllers.NewSMSCallbackController(smsCallbackHandler, cfg.Mobile.SMSCallbackToken)
+	smsCallbackController := controllers.NewSMSCallbackController(smsCallbackHandler, cfg.Mobile.SMSCallbackToken,
+		controllers.WithReportParser(smsMobileSasa.ProviderName, smsMobileSasa.ReportParser(mobileSasaVerifier)))
 
 	// Daraja callbacks are registered only when the integration is configured.
 	// Unauthenticated by design — Daraja signs nothing; the unguessable slug

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"log/slog"
 
 	"github.com/gofiber/fiber/v3"
@@ -14,17 +15,32 @@ import (
 type SMSCallbackController struct {
 	handler       *sms.DeliveryReportHandler
 	callbackToken string
+	parsers       map[string]sms.ReportParser
+}
+
+// SMSCallbackOption configures an SMSCallbackController.
+type SMSCallbackOption func(*SMSCallbackController)
+
+// WithReportParser reads provider's reports with parser instead of the
+// form-encoded default.
+func WithReportParser(provider string, parser sms.ReportParser) SMSCallbackOption {
+	return func(c *SMSCallbackController) { c.parsers[provider] = parser }
 }
 
 // NewSMSCallbackController creates a new SMSCallbackController. An empty
 // callbackToken rejects every report.
-func NewSMSCallbackController(handler *sms.DeliveryReportHandler, callbackToken string) *SMSCallbackController {
-	return &SMSCallbackController{handler: handler, callbackToken: callbackToken}
+func NewSMSCallbackController(handler *sms.DeliveryReportHandler, callbackToken string, opts ...SMSCallbackOption) *SMSCallbackController {
+	c := &SMSCallbackController{handler: handler, callbackToken: callbackToken, parsers: map[string]sms.ReportParser{}}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
-// HandleDeliveryReport processes incoming SMS delivery report callbacks from Africa's Talking.
-// AT sends form-encoded POST requests with delivery status updates.
-// @Description Handle incoming SMS delivery report callbacks from Africa's Talking
+// HandleDeliveryReport processes incoming SMS delivery report callbacks.
+// Africa's Talking posts form-encoded reports; providers registered with
+// WithReportParser are read by their own parser.
+// @Description Handle incoming SMS delivery report callbacks (form-encoded from Africa's Talking, JSON from Mobile Sasa)
 // @Summary Process SMS Delivery Report
 // @Tags Mobile
 // @Accept application/x-www-form-urlencoded
@@ -50,16 +66,16 @@ func (ctrl *SMSCallbackController) HandleDeliveryReport(c fiber.Ctx) error {
 		slog.String("provider", provider),
 	)
 
-	report := sms.DeliveryReport{
-		ID:            c.FormValue("id"),
-		Status:        c.FormValue("status"),
-		PhoneNumber:   c.FormValue("phoneNumber"),
-		NetworkCode:   c.FormValue("networkCode"),
-		FailureReason: c.FormValue("failureReason"),
+	parse, ok := ctrl.parsers[provider]
+	if !ok {
+		parse = sms.ParseFormReport
 	}
-
-	if report.ID == "" || report.Status == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "missing required fields: id and status")
+	report, err := parse(func(k string) string { return c.Get(k) }, c.Body())
+	if errors.Is(err, sms.ErrReportUnauthenticated) {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid delivery report")
 	}
 
 	go ctrl.handler.HandleReport(context.WithoutCancel(c.Context()), report)

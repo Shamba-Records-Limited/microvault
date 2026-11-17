@@ -1,9 +1,9 @@
 package sms
 
-// DeliveryReport represents an SMS delivery report callback from Africa's Talking.
-// AT sends these as form-encoded POST requests to the configured callback URL.
+// DeliveryReport is one delivery-report callback in Africa's Talking's
+// vocabulary; other providers' reports are mapped onto it.
 type DeliveryReport struct {
-	ID            string // AT message ID (matches messageId from send response)
+	ID            string // provider message ID (matches messageId from send response)
 	Status        string // Sent|Submitted|Buffered|Rejected|Success|Failed|AbsentSubscriber|Expired
 	PhoneNumber   string
 	NetworkCode   string

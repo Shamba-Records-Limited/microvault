@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -465,9 +467,86 @@ func (c *AfricasTalkingConfig) ResolveSenderID() string {
 	return ""
 }
 
+// SMS providers a deployment can send through.
+const (
+	SMSProviderAfricasTalking = "africastalking"
+	SMSProviderMobileSasa     = "mobilesasa"
+)
+
+// MobileSasaConfig holds the Mobile Sasa SMS and USSD configuration.
+type MobileSasaConfig struct {
+	// APIToken is the mbs_ token sends authenticate with; it needs only the
+	// send-messages scope. From MOBILESASA_API_TOKEN.
+	APIToken string
+
+	// BaseURL overrides the API host. From MOBILESASA_BASE_URL; empty uses
+	// the production host, as the gateway has no sandbox.
+	BaseURL string
+
+	// SenderID is the approved sender name messages go out under. From
+	// MOBILESASA_SENDER_ID; case-sensitive.
+	SenderID string
+
+	// WebhookSecret is the team's webhook signing secret. From
+	// MOBILESASA_WEBHOOK_SECRET; when set, delivery reports and USSD steps
+	// must carry a valid signature as well as the callback token.
+	WebhookSecret string
+
+	// CallbackURL is sent with every message so its delivery reports reach
+	// this deployment, token included. From MOBILESASA_CALLBACK_URL; empty
+	// leaves reports on the account's callback URL.
+	CallbackURL string
+
+	// HTTPTimeout bounds one send. From MOBILESASA_HTTP_TIMEOUT (seconds);
+	// zero leaves the adapter's default.
+	HTTPTimeout time.Duration
+}
+
+// Validate checks that the chosen SMS provider has what it needs to send.
+func (c *MobileConfig) Validate() error {
+	switch c.SMSProvider {
+	case SMSProviderAfricasTalking:
+		return nil
+	case SMSProviderMobileSasa:
+		return c.MobileSasa.Validate()
+	default:
+		return fmt.Errorf("SMS_PROVIDER must be %s or %s, got %q", SMSProviderAfricasTalking, SMSProviderMobileSasa, c.SMSProvider)
+	}
+}
+
+// Validate checks the Mobile Sasa settings needed to send.
+func (c *MobileSasaConfig) Validate() error {
+	if c.APIToken == "" {
+		return errors.New("MOBILESASA_API_TOKEN must be set when SMS_PROVIDER is mobilesasa")
+	}
+	if c.SenderID == "" {
+		return errors.New("MOBILESASA_SENDER_ID must be set when SMS_PROVIDER is mobilesasa")
+	}
+	if c.BaseURL != "" {
+		if u, err := url.Parse(c.BaseURL); err != nil || u.Scheme != "https" || u.Host == "" {
+			return fmt.Errorf("MOBILESASA_BASE_URL must be an https URL, got %q", c.BaseURL)
+		}
+	}
+	if c.CallbackURL != "" {
+		u, err := url.Parse(c.CallbackURL)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return fmt.Errorf("MOBILESASA_CALLBACK_URL must be an absolute http(s) URL")
+		}
+		if len(c.CallbackURL) > 255 {
+			return fmt.Errorf("MOBILESASA_CALLBACK_URL is %d characters; the gateway accepts at most 255", len(c.CallbackURL))
+		}
+	}
+	return nil
+}
+
 // MobileConfig holds all mobile-related configuration
 type MobileConfig struct {
 	AfricasTalking AfricasTalkingConfig
+	MobileSasa     MobileSasaConfig
+
+	// SMSProvider is the gateway outbound SMS go through. From SMS_PROVIDER;
+	// africastalking when unset.
+	SMSProvider string
 	// SessionTimeout is the Redis TTL for a USSD session, refreshed on each
 	// request. From USSD_SESSION_TIMEOUT (seconds); defaults to 5 minutes.
 	SessionTimeout time.Duration
@@ -875,6 +954,15 @@ func New() (*Config, error) {
 		mobileBaseURL = "https://api.africastalking.com/version1"
 	}
 
+	smsProvider := strings.ToLower(strings.TrimSpace(os.Getenv("SMS_PROVIDER")))
+	if smsProvider == "" {
+		smsProvider = SMSProviderAfricasTalking
+	}
+	mobileSasaTimeout, err := envSeconds("MOBILESASA_HTTP_TIMEOUT")
+	if err != nil {
+		return nil, err
+	}
+
 	mobileSenderID := os.Getenv("AT_SENDER_ID")
 	mobileShortcode := os.Getenv("AT_SHORTCODE")
 
@@ -1205,6 +1293,15 @@ func New() (*Config, error) {
 				Shortcode:   mobileShortcode,
 				HTTPTimeout: mobileHTTPTimeout,
 			},
+			MobileSasa: MobileSasaConfig{
+				APIToken:      os.Getenv("MOBILESASA_API_TOKEN"),
+				BaseURL:       os.Getenv("MOBILESASA_BASE_URL"),
+				SenderID:      os.Getenv("MOBILESASA_SENDER_ID"),
+				WebhookSecret: os.Getenv("MOBILESASA_WEBHOOK_SECRET"),
+				CallbackURL:   os.Getenv("MOBILESASA_CALLBACK_URL"),
+				HTTPTimeout:   mobileSasaTimeout,
+			},
+			SMSProvider:       smsProvider,
 			SessionTimeout:    ussdSessionTimeout,
 			USSDDialString:    ussdDialString,
 			USSDCallbackToken: os.Getenv("USSD_CALLBACK_TOKEN"),

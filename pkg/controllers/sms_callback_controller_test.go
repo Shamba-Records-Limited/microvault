@@ -48,3 +48,38 @@ func TestDeliveryReportNeedsTheToken(t *testing.T) {
 		t.Fatal("the accepted report never reached the handler")
 	}
 }
+
+func TestDeliveryReportUsesTheProvidersParser(t *testing.T) {
+	got := make(chan sms.DeliveryReport, 1)
+	handler := sms.NewDeliveryReportHandler(sms.WithReportHandler(func(_ context.Context, r sms.DeliveryReport) { got <- r }))
+	parser := func(header func(string) string, body []byte) (sms.DeliveryReport, error) {
+		if header("X-Signed") != "yes" {
+			return sms.DeliveryReport{}, sms.ErrReportUnauthenticated
+		}
+		if string(body) != `{"ok":true}` {
+			return sms.DeliveryReport{}, assert.AnError
+		}
+		return sms.DeliveryReport{ID: "m-1", Status: "Success"}, nil
+	}
+	app := fiber.New()
+	app.Post("/sms/:provider/delivery", NewSMSCallbackController(handler, "secret", WithReportParser("mobilesasa", parser)).HandleDeliveryReport)
+
+	post := func(signed, body string) int {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/sms/mobilesasa/delivery?token=secret", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Signed", signed)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		return resp.StatusCode
+	}
+
+	assert.Equal(t, fiber.StatusUnauthorized, post("no", `{"ok":true}`))
+	assert.Equal(t, fiber.StatusBadRequest, post("yes", `{"ok":false}`))
+	assert.Equal(t, fiber.StatusOK, post("yes", `{"ok":true}`))
+	select {
+	case r := <-got:
+		assert.Equal(t, "m-1", r.ID)
+	case <-time.After(time.Second):
+		t.Fatal("the accepted report never reached the handler")
+	}
+}

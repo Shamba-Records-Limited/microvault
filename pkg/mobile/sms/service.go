@@ -21,7 +21,9 @@ type SMSResponse struct {
 	Recipients   []Recipient
 }
 
-// Recipient is the gateway's verdict on one recipient of a send.
+// Recipient is the gateway's verdict on one recipient of a send. StatusCode
+// uses Africa's Talking's per-recipient codes (1xx accepted, 4xx and 5xx
+// rejected); other providers map their verdicts onto them.
 type Recipient struct {
 	Number     string
 	MessageID  string

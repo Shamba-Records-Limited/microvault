@@ -284,9 +284,12 @@ query parameter against `SMS_CALLBACK_TOKEN` in constant time and answers
 `401` on a mismatch; an unset token rejects every report. Configure the
 gateway's delivery-report URL as
 `.../api/v1/mobile/sms/africastalking/delivery?token=<SMS_CALLBACK_TOKEN>`.
-It then parses the form into an
-`sms.DeliveryReport` (message ID, status, phone, network, failure reason)
-and hands it to `sms.DeliveryReportHandler.HandleReport`.
+It then reads the body with the provider's `sms.ReportParser` (registered with
+`controllers.WithReportParser`; Africa's Talking's form-encoded
+`sms.ParseFormReport` is the default) into an `sms.DeliveryReport`
+(message ID, status, phone, network, failure reason) and hands it to
+`sms.DeliveryReportHandler.HandleReport`. A parser that returns
+`sms.ErrReportUnauthenticated` gets a `401`; any other parse error a `400`.
 
 By default the handler logs each report as a structured `slog` entry with the
 phone number redacted. The services build it with `sms.WithLog`, which also
@@ -334,11 +337,62 @@ smsSvc.RegisterProvider("mygateway", mygateway.NewGatewaySMSAdapter(/* cfg */))
 ```
 
 **3.** For delivery reports, point the gateway at
-`POST /api/v1/mobile/sms/mygateway/delivery`. The route already exists; the
-`:provider` param is informational (the controller doesn't switch on it, since
-the `DeliveryReport` shape is provider-agnostic). If your gateway POSTs a
-different field set, extend `DeliveryReport` and the parsing in
-`SMSCallbackController.HandleDeliveryReport`.
+`POST /api/v1/mobile/sms/mygateway/delivery?token=<SMS_CALLBACK_TOKEN>`. The
+route already exists. If the gateway posts anything other than Africa's
+Talking's form fields, write an `sms.ReportParser` that maps its body onto
+`DeliveryReport` (statuses in the `Success`/`Failed`/`Rejected`/`Expired`/`Sent`
+vocabulary the log and portal read) and register it with
+`controllers.WithReportParser("mygateway", parser)`.
+
+---
+
+## Choosing a gateway: Africa's Talking or Mobile Sasa
+
+`SMS_PROVIDER` picks the gateway outbound SMS go through: `africastalking`
+(the default) or `mobilesasa`. Both adapters are registered at boot; the
+notifier sends through the chosen one and records sends under its name.
+USSD needs no switch: both USSD adapters are always registered, and the
+gateway's callback URL (`/api/v1/mobile/ussd/africastalking` or
+`/api/v1/mobile/ussd/mobilesasa`) decides which one reads the step.
+
+| Variable | Needed for | Purpose |
+| --- | --- | --- |
+| `SMS_PROVIDER` | always | `africastalking` or `mobilesasa` |
+| `MOBILESASA_API_TOKEN` | `mobilesasa` | `mbs_` token with the send-messages scope |
+| `MOBILESASA_SENDER_ID` | `mobilesasa` | Approved sender name (case-sensitive) |
+| `MOBILESASA_CALLBACK_URL` | optional | Sent with every message: `https://<core>/api/v1/mobile/sms/mobilesasa/delivery?token=<SMS_CALLBACK_TOKEN>`, at most 255 characters |
+| `MOBILESASA_WEBHOOK_SECRET` | recommended | The team's webhook secret; when set, delivery reports and USSD steps must also carry a valid `X-MobileSasa-Signature` |
+| `MOBILESASA_BASE_URL` | optional | API host override (https) |
+| `MOBILESASA_HTTP_TIMEOUT` | optional | Seconds per send; 30 by default |
+
+`pkg/mobile/mobilesasa` holds the gateway contract: the v1/v2 send client,
+response codes, the signature `Verifier`, the delivery-report body, and two
+normalisers the adapters use:
+
+- `MobileNetworkCode` turns the gateway's network names and its USSD
+  `networkCode` digits (`1` Safaricom, `2` Airtel, `3` Telkom, `4` Equitel)
+  into the MCC+MNC codes the USSD network mapper expects (`63902`, …).
+- `USSDServiceCode` strips the subscriber input the gateway splices into
+  `serviceCode` (`*657*45*1*2500#` → `*657*45#`), so the dial-string check
+  sees the code the subscriber dialled.
+
+Behaviour worth knowing:
+
+- Each recipient is sent as its own v2 request with a fresh tracking ID, so
+  every number gets its own message ID in `sms_messages`. A send is retried
+  only when the gateway refused it unprocessed (`429`) or the connection was
+  never made; a timeout after the request went out is not retried, as the
+  message may already be queued.
+- A refused message (no balance, unknown sender, invalid phone, the daily
+  duplicate block) comes back as a rejected recipient with the gateway's
+  message and code as the reason. A bad token or missing scope fails the
+  whole send.
+- `cost` in `sms_messages` is the number of parts billed (`1 part`), not KES.
+- Delivery statuses map onto the log's vocabulary: `Delivered` → `Success`,
+  `Unreachable` → `Failed` with the carrier's reason, the rest unchanged. A
+  recipient that arrives as a SHA-256 hash leaves the phone number blank.
+- The gateway has no sandbox. Sends from a trial account reach only the
+  account owner's number.
 
 ---
 

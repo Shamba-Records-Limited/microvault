@@ -13,12 +13,30 @@ import (
 type USSDController struct {
 	ussdService   *ussd.USSDService
 	callbackToken string
+	verifiers     map[string]RequestVerifier
+}
+
+// RequestVerifier checks a provider's own proof that a callback came from
+// it. header reads a request header by name; body is the raw request body.
+type RequestVerifier func(header func(string) string, body []byte) error
+
+// USSDOption configures a USSDController.
+type USSDOption func(*USSDController)
+
+// WithRequestVerifier makes provider's callbacks pass verify as well as the
+// token check.
+func WithRequestVerifier(provider string, verify RequestVerifier) USSDOption {
+	return func(c *USSDController) { c.verifiers[provider] = verify }
 }
 
 // NewUSSDController creates a new USSDController. Callbacks must carry
 // callbackToken in the token query parameter; an empty token rejects all.
-func NewUSSDController(ussdService *ussd.USSDService, callbackToken string) *USSDController {
-	return &USSDController{ussdService: ussdService, callbackToken: callbackToken}
+func NewUSSDController(ussdService *ussd.USSDService, callbackToken string, opts ...USSDOption) *USSDController {
+	c := &USSDController{ussdService: ussdService, callbackToken: callbackToken, verifiers: map[string]RequestVerifier{}}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // HandleCallback handles incoming USSD callback requests from any registered provider.
@@ -27,7 +45,7 @@ func NewUSSDController(ussdService *ussd.USSDService, callbackToken string) *USS
 // @Tags Mobile
 // @Accept application/x-www-form-urlencoded
 // @Produce plain
-// @Param provider path string true "USSD provider name (e.g. africastalking)"
+// @Param provider path string true "USSD provider name (africastalking or mobilesasa)"
 // @Param token query string true "Shared callback token"
 // @Param sessionId formData string true "Session ID"
 // @Param phoneNumber formData string true "User's phone number"
@@ -43,6 +61,11 @@ func (ctrl *USSDController) HandleCallback(c fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).SendString("END Unauthorized")
 	}
 	provider := c.Params("provider")
+	if verify, ok := ctrl.verifiers[provider]; ok {
+		if err := verify(func(k string) string { return c.Get(k) }, c.Body()); err != nil {
+			return c.Status(fiber.StatusUnauthorized).SendString("END Unauthorized")
+		}
+	}
 	data := make(map[string]string)
 	for key, value := range c.Request().PostArgs().All() {
 		data[string(key)] = string(value)
