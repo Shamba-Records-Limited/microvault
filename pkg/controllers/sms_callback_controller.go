@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/middleware"
 	"github.com/Shamba-Records-Limited/microvault/pkg/mobile/sms"
 )
 
@@ -72,9 +73,11 @@ func (ctrl *SMSCallbackController) HandleDeliveryReport(c fiber.Ctx) error {
 	}
 	report, err := parse(func(k string) string { return c.Get(k) }, c.Body())
 	if errors.Is(err, sms.ErrReportUnauthenticated) {
+		middleware.NoteError(c, err)
 		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
 	}
 	if err != nil {
+		middleware.NoteError(c, err)
 		return fiber.NewError(fiber.StatusBadRequest, "invalid delivery report")
 	}
 

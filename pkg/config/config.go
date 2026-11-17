@@ -493,7 +493,7 @@ type MobileSasaConfig struct {
 	WebhookSecret string
 
 	// CallbackURL is sent with every message so its delivery reports reach
-	// this deployment, token included. From MOBILESASA_CALLBACK_URL; empty
+	// this deployment, token included, so it must be https. From MOBILESASA_CALLBACK_URL; empty
 	// leaves reports on the account's callback URL.
 	CallbackURL string
 
@@ -529,8 +529,8 @@ func (c *MobileSasaConfig) Validate() error {
 	}
 	if c.CallbackURL != "" {
 		u, err := url.Parse(c.CallbackURL)
-		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return fmt.Errorf("MOBILESASA_CALLBACK_URL must be an absolute http(s) URL")
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return errors.New("MOBILESASA_CALLBACK_URL must be an absolute https URL")
 		}
 		if len(c.CallbackURL) > 255 {
 			return fmt.Errorf("MOBILESASA_CALLBACK_URL is %d characters; the gateway accepts at most 255", len(c.CallbackURL))

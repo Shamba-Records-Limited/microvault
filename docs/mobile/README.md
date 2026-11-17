@@ -360,7 +360,7 @@ gateway's callback URL (`/api/v1/mobile/ussd/africastalking` or
 | `SMS_PROVIDER` | always | `africastalking` or `mobilesasa` |
 | `MOBILESASA_API_TOKEN` | `mobilesasa` | `mbs_` token with the send-messages scope |
 | `MOBILESASA_SENDER_ID` | `mobilesasa` | Approved sender name (case-sensitive) |
-| `MOBILESASA_CALLBACK_URL` | optional | Sent with every message: `https://<core>/api/v1/mobile/sms/mobilesasa/delivery?token=<SMS_CALLBACK_TOKEN>`, at most 255 characters |
+| `MOBILESASA_CALLBACK_URL` | optional | Sent with every message: `https://<core>/api/v1/mobile/sms/mobilesasa/delivery?token=<SMS_CALLBACK_TOKEN>`; https only, at most 255 characters |
 | `MOBILESASA_WEBHOOK_SECRET` | recommended | The team's webhook secret; when set, delivery reports and USSD steps must also carry a valid `X-MobileSasa-Signature` |
 | `MOBILESASA_BASE_URL` | optional | API host override (https) |
 | `MOBILESASA_HTTP_TIMEOUT` | optional | Seconds per send; 30 by default |

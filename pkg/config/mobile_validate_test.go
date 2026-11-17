@@ -30,6 +30,7 @@ func TestMobileConfigValidate(t *testing.T) {
 		{name: "no token", mutate: func(c *MobileConfig) { c.MobileSasa.APIToken = "" }, wantErr: "MOBILESASA_API_TOKEN"},
 		{name: "no sender", mutate: func(c *MobileConfig) { c.MobileSasa.SenderID = "" }, wantErr: "MOBILESASA_SENDER_ID"},
 		{name: "plain http base url", mutate: func(c *MobileConfig) { c.MobileSasa.BaseURL = "http://api.mobilesasa.com" }, wantErr: "MOBILESASA_BASE_URL"},
+		{name: "plain http callback leaks the token", mutate: func(c *MobileConfig) { c.MobileSasa.CallbackURL = "http://core.example/delivery?token=t" }, wantErr: "https"},
 		{name: "relative callback", mutate: func(c *MobileConfig) { c.MobileSasa.CallbackURL = "/delivery" }, wantErr: "MOBILESASA_CALLBACK_URL"},
 		{name: "callback too long", mutate: func(c *MobileConfig) { c.MobileSasa.CallbackURL = "https://x.example/" + strings.Repeat("a", 250) }, wantErr: "at most 255"},
 		{name: "no callback is allowed", mutate: func(c *MobileConfig) { c.MobileSasa.CallbackURL = "" }},
