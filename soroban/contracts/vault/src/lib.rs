@@ -1311,12 +1311,8 @@ impl MicrovaultContract {
         let current_time = e.ledger().timestamp();
         let time_elapsed = current_time.saturating_sub(last_accrual);
 
-        if time_elapsed == 0 {
-            return;
-        }
-
         let scaled = Self::scaled_debt(e);
-        if scaled == 0 {
+        if time_elapsed == 0 || scaled == 0 {
             e.storage()
                 .instance()
                 .set(&DataKey::LastAccrualTime, &current_time);
