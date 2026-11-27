@@ -35,8 +35,12 @@ flowchart TD
     LoanAdapter --> Reg["offramp.Registry"]
     Reg --> MG["adapters.MoneyGramOffRampAdapter"]
     Reg --> YC["adapters.YellowCardOffRampAdapter"]
+    Reg --> FB["adapters.FonbnkOffRampAdapter"]
+    Reg --> CH["adapters.ChipperOffRampAdapter"]
     MG --> TTransfer["adapters.StellarTreasuryTransfer"]
     YC --> TTransfer
+    FB --> TTransfer
+    CH --> TTransfer
 
     UserAdapter --> Domain["user / account / stellar /<br/>payment services"]
     LoanAdapter --> Domain
@@ -50,8 +54,9 @@ Two things to read off the diagram:
   port interfaces (`UserService`, `LoanService`, `RateService`, `PINService`)
   plus a `contracts.AccountNotifier`. Every arrow out of the handler crosses
   an interface boundary.
-- **The off-ramp adapters are not USSD ports.** `MoneyGramOffRampAdapter` and
-  `YellowCardOffRampAdapter` implement `offramp.Provider` (the payment
+- **The off-ramp adapters are not USSD ports.** `MoneyGramOffRampAdapter`,
+  `YellowCardOffRampAdapter`, `FonbnkOffRampAdapter` and
+  `ChipperOffRampAdapter` implement `offramp.Provider` (the payment
   contract), not `ussd.LoanService`. They sit inside `pkg/mobile/ussd/adapters/`
   because they're USSD-channel glue, but they're consumed by the credit
   module's `LoanServiceAdapter` through the `offramp.Registry`, not by the
@@ -106,6 +111,8 @@ pkg/mobile/ussd/
 ├── adapters/               # USSD-to-domain glue (see adapters/doc.go)
 │   ├── doc.go
 │   ├── user_service_adapter.go      # ussd.UserService ← user + account + stellar
+│   ├── offramp_chipper.go           # offramp.Provider ← chipper.Client
+│   ├── offramp_fonbnk.go            # offramp.Provider ← fonbnk.FonbnkAdapter
 │   ├── offramp_moneygram.go         # offramp.Provider ← moneygram.Client
 │   ├── offramp_yellowcard.go        # offramp.Provider ← yellowcard.YellowcardAdapter
 │   └── treasury_transfer.go         # offramp.TreasuryTransfer ← stellar.Service

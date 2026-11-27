@@ -7,8 +7,8 @@
 // Stellar child account via BIP44/148, and return the user-with-accounts
 // view the USSD handler expects.
 //
-// The off-ramp adapters — MoneyGramOffRampAdapter and YellowCardOffRampAdapter
-// — satisfy offramp.Provider (the payment contract declared in
+// The off-ramp adapters — MoneyGramOffRampAdapter, YellowCardOffRampAdapter,
+// FonbnkOffRampAdapter and ChipperOffRampAdapter — satisfy offramp.Provider (the payment contract declared in
 // pkg/payment/offramp). They translate a channel-agnostic offramp.Request into
 // a provider-specific call and return an offramp.Result with a typed payload.
 // They are registered in the offramp.Registry at boot and consumed by the
@@ -17,8 +17,8 @@
 // registry-based routing.
 //
 // StellarTreasuryTransfer satisfies offramp.TreasuryTransfer against the
-// Stellar service's SendUSDC path. It is consumed by the YellowCard adapter
-// (for direct-settlement mode) and by the MoneyGram poller
+// Stellar service's SendUSDC path. It is consumed by the YellowCard, Fonbnk
+// and Chipper adapters (for their treasury deposits) and by the MoneyGram poller
 // (pkg/services/mgpoller).
 //
 // The handlers in the parent ussd package never import these adapters'

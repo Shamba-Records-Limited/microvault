@@ -10,7 +10,7 @@ Airtel developer account yet. With no `AIRTEL_*` variables set, nothing is
 constructed, the repay menu does not offer Airtel, and the config validates
 in every environment.
 
-Two gates, like the YellowCard/Fonbnk relay:
+Two gates, like the optional off-ramp providers (Fonbnk, Chipper) and the relay:
 
 - **Credentials** (`AIRTEL_CLIENT_ID` + `AIRTEL_CLIENT_SECRET`,
   `AirtelConfig.Enabled()`) construct the client, the collection adapter, the

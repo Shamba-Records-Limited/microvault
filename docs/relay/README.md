@@ -5,10 +5,10 @@ provider handles one transaction, based on which of them prices it best.
 
 It sits above the ramps rather than inside either one. The
 [off-ramp](../offramp/README.md) knows how to pay a borrower through YellowCard,
-Fonbnk or MoneyGram; the relay decides *which*.
+Fonbnk, Chipper or MoneyGram; the relay decides *which*.
 
 Code: [`pkg/payment/relay`](../../pkg/payment/relay) for the mechanism,
-[`pkg/payment/relay/sources`](../../pkg/payment/relay/sources) for the two
+[`pkg/payment/relay/sources`](../../pkg/payment/relay/sources) for the three
 providers we ship.
 
 ---
@@ -27,6 +27,18 @@ do under load: it restores the previous dispatch exactly, and a test asserts the
 non-default sources record zero calls when it is off. A non-boolean value is
 rejected at boot rather than silently read as false. A typo in a Coolify
 variable would otherwise disable routing invisibly.
+
+---
+
+## The sources
+
+| Source | Registered when | Directions | Pinned when it wins |
+|---|---|---|---|
+| YellowCard | Always; it is the default | Both | No: it is what an unpinned loan uses |
+| Fonbnk | Fonbnk credentials are set | Both | No: its orders need a user email and IP address that USSD does not collect |
+| Chipper | `CHIPPER_API_KEY` is set | Off-ramp only (`DirectionalSource`) | Yes: the loan carries `chipper` to dispatch |
+
+MoneyGram has no source. Cash pickup is chosen by the borrower, not by price.
 
 ---
 
@@ -50,6 +62,15 @@ after every fee on both legs**.
   provider.
 - YellowCard publishes no priced quote at all, only a headline rate and a
   per-channel fee. Its effective rate is computed in the source.
+- Chipper publishes no fees. `GET /v1/rates/USDC/{fiat}` is all-in (the FX
+  spread is inside it) and is the rate payouts execute at, so the source
+  subtracts the deposit and payout fees from `CHIPPER_FEE_SCHEDULE`:
+  `(amount − deposit fee − payout fee) × rate / amount`. Chipper takes both
+  fees from our Chipper balance rather than the payout, but they are still a
+  cost of the route, so they count. The source refuses to start if a mapped
+  payout method has no fee rule: an unpriced quote would win for free. The
+  schedule is an estimate for routing only; the fee recorded on a loan comes
+  from the payout itself.
 
 ### Why the amount is always carried
 
@@ -92,8 +113,12 @@ principal is priced at the rate that will actually execute:
    builds that provider's options (`chipper.Options` for Chipper), and the
    off-ramp registry resolves the adapter from them. It never re-routes.
 
-Fonbnk can win a quote but is never pinned: its orders need a user email and IP
-address that USSD does not collect.
+Fonbnk can win a quote but is never pinned (see [the sources](#the-sources)).
+
+Chipper's rate is the source of truth for a loan Chipper disburses; if Chipper
+cannot be quoted, the loan is not pinned and falls back to YellowCard at the
+shared rate. At disbursement the entry rate of a Chipper loan is requoted from
+Chipper itself, not the FX orchestrator.
 
 ---
 
@@ -135,9 +160,9 @@ Three rules for a source:
   smallest.
 - **Use `relay.SourceErr`** so failures land in the same domain and attribute
   keys as the platform's own.
-- **Implement the optional `DirectionalSource`** on a one-way rail, MoneyGram
-  cash pickup pays out but cannot collect, so the Router skips it for the
-  direction it cannot serve instead of logging a failure per transaction.
+- **Implement the optional `DirectionalSource`** on a one-way rail. Chipper is
+  wired for off-ramps only, so the Router skips it for on-ramps instead of
+  logging a failure per transaction.
 
 The platform's own sources live in the `sources` subpackage, which is the only
 thing under `relay` that imports a provider client.
@@ -162,6 +187,8 @@ trusted not to be needed.
 ## Related
 
 - [Off-ramp overview](../offramp/README.md): the providers being routed between.
+- [chipper.md](../offramp/chipper.md): the deposit-then-payout flow, fees
+  and the float the Chipper source prices against.
 - [fonbnk.md](../offramp/fonbnk.md): why a Fonbnk quote costs one call, and what
   its effective rate is derived from.
 - [yellowcard.md](../offramp/yellowcard.md): the buy/sell rate semantics the
