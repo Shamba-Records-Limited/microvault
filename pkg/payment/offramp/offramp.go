@@ -20,6 +20,7 @@ const (
 	ProviderYellowCard ProviderID = "yellowcard"
 	ProviderMoneyGram  ProviderID = "moneygram"
 	ProviderFonbnk     ProviderID = "fonbnk"
+	ProviderChipper    ProviderID = "chipper"
 )
 
 // Provider is the single mandatory capability — every off-ramp must
