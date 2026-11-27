@@ -433,3 +433,32 @@ func TestListWebhookEvents(t *testing.T) {
 	require.Len(t, page.Data, 1)
 	assert.Equal(t, "pay_kes_abc", page.Data[0].ResourceID)
 }
+
+func TestFindCryptoDeposit(t *testing.T) {
+	since := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		assert.Equal(t, "/v1/collections", r.URL.Path)
+		assert.Equal(t, CollectionTypeCrypto, q.Get("type"))
+		assert.Equal(t, "addr_1", q.Get("cryptoAddressId"))
+		assert.Equal(t, "2026-11-27T10:00:00Z", q.Get("from"))
+		if q.Get("cursor") == "" {
+			writeJSON(t, w, 200, `{"data":[{"id":"col_other","type":"crypto","status":"completed","from":{"accountNumber":"GX","code":null,"amount":"5","currency":"USDC"},"to":{"accountNumber":"USDC1","amount":"4.925","currency":"USDC"},"fee":null,"details":{"hash":"OTHER","chain":"Stellar","tag":"2802699348"},"externalReference":null,"createdAt":"2026-11-27T10:01:00Z"}],"hasMore":true,"nextCursor":"c2"}`)
+			return
+		}
+		writeJSON(t, w, 200, `{"data":[{"id":"col_1","type":"crypto","status":"completed","from":{"accountNumber":"GX","code":null,"amount":"500","currency":"USDC"},"to":{"accountNumber":"USDC1","amount":"492.5","currency":"USDC"},"fee":{"amount":"7.5","currency":"USDC"},"details":{"hash":"abc123","chain":"Stellar","tag":"2802699348"},"externalReference":null,"createdAt":"2026-11-27T10:02:00Z"}],"hasMore":false,"nextCursor":null}`)
+	})
+
+	dep, ok, err := c.FindCryptoDeposit(context.Background(), "addr_1", "ABC123", since)
+	require.NoError(t, err)
+	require.True(t, ok, "hash matching ignores case and follows pages")
+	assert.Equal(t, "col_1", dep.ID)
+	assert.Equal(t, "7.5", dep.Fee.Amount.String())
+
+	_, ok, err = c.FindCryptoDeposit(context.Background(), "addr_1", "missing", since)
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	_, _, err = c.FindCryptoDeposit(context.Background(), "", "abc", since)
+	require.Error(t, err)
+}
