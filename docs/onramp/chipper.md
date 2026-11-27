@@ -27,10 +27,13 @@ collects. The paybill line stays on Daraja.
    the borrower's child-account memo as `to.tag`. Chipper prompts the borrower
    and adds its fee to what they pay, so the treasury receives the full payoff.
    The `externalReference` is `rp-<loan reference>-<unix time>`, one per
-   attempt.
+   attempt, and is written to the loan before the order is created, so an
+   order can never take the borrower's money untracked. A refusal closes the
+   attempt as `failed`; a timeout leaves it open, and if the reference later
+   finds no order it is closed then.
 2. **Wait.** `order.*` webhooks drive the loan at once; a poller (every 30 s)
    is the backstop. Both read the order back from Chipper; the webhook body is
-   never trusted. An order still `awaiting_funds` after 15 minutes is expired
+   never trusted. An order still `created` or `awaiting_funds` after 15 minutes is expired
    (mobile money orders carry no expiry of their own).
 3. **Receive.** On `completed`, the USDC that arrived is established:
    - with a Stellar hash on the order's payout, from the ledger: the treasury
@@ -70,4 +73,6 @@ path.
   returned with a normal payout, by hand.
 - **`reversed` after `completed`** is not handled automatically; by then the
   vault is repaid.
+- **One replica.** A loan is driven by one caller at a time within a
+  process; running several credit replicas needs a database lock instead.
 - **Kenya only.** Only `ke_mpesa` is mapped.
