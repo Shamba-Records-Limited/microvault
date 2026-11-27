@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -25,6 +26,13 @@ const (
 	pathCurrencies        = "/api/v2/currencies"
 	pathOrderLimits       = "/api/v2/order-limits"
 	pathUserKYC           = "/api/v2/user/kyc"
+)
+
+// maxErrorBody bounds how much of an error response is read, and
+// maxErrorMessage how much of it is kept on the error.
+const (
+	maxErrorBody    = 64 << 10
+	maxErrorMessage = 512
 )
 
 // permissionGateMessage is what Fonbnk answers when the account lacks the
@@ -53,7 +61,7 @@ func call[T any](ctx context.Context, a *FonbnkAdapter, errb oops.OopsErrorBuild
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return nil, errb.Code(pkgErrors.CodeTransportFailed).Wrapf(err, "request did not complete")
+		return nil, errb.Code(pkgErrors.CodeTransportFailed).Wrapf(withoutURL(err), "request did not complete")
 	}
 	defer resp.Body.Close()
 
@@ -71,11 +79,11 @@ func call[T any](ctx context.Context, a *FonbnkAdapter, errb oops.OopsErrorBuild
 // parseError turns a non-2xx into a structured error, mapping the statuses
 // Fonbnk overloads onto distinct codes.
 func parseError(errb oops.OopsErrorBuilder, resp *http.Response) error {
-	raw, _ := io.ReadAll(resp.Body)
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 
 	var apiErr APIError
 	_ = json.Unmarshal(raw, &apiErr)
-	message := firstNonEmpty(apiErr.Message, apiErr.Error, string(raw))
+	message := truncate(firstNonEmpty(apiErr.Message, apiErr.Error, string(raw)), maxErrorMessage)
 
 	errb = errb.
 		With(pkgErrors.AttrStatusCode, resp.StatusCode).
@@ -98,6 +106,23 @@ func parseError(errb oops.OopsErrorBuilder, resp *http.Response) error {
 	return errb.Code(pkgErrors.CodeHTTPError).Errorf("Fonbnk returned a non-2xx")
 }
 
+// withoutURL drops the request URL from a transport error: query strings
+// carry the user's email, which must not reach logs.
+func withoutURL(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
 func firstNonEmpty(values ...string) string {
 	return lo.FindOrElse(values, "", func(v string) bool { return v != "" })
 }
@@ -115,12 +140,16 @@ func directionOf(depositType, payoutType string) string {
 }
 
 // withDirection tags an error with the corridor direction when it is
-// derivable.
+// derivable, and moves an on-ramp into the on-ramp domain.
 func withDirection(errb oops.OopsErrorBuilder, depositType, payoutType string) oops.OopsErrorBuilder {
-	if direction := directionOf(depositType, payoutType); direction != "" {
-		return errb.With(pkgErrors.AttrDirection, direction)
+	direction := directionOf(depositType, payoutType)
+	switch direction {
+	case "":
+		return errb
+	case OrderTypeOnRamp:
+		errb = errb.In(pkgErrors.DomainOnRamp)
 	}
-	return errb
+	return errb.With(pkgErrors.AttrDirection, direction)
 }
 
 // withQuery appends an encoded query string, rendered once so the signed and

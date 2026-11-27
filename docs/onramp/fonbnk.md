@@ -50,8 +50,9 @@ webhook; `GetOrderByParams` reads it back by our reference.
 | Problem | Code |
 |---|---|
 | No user email | `missing_payer_email` |
-| No user IP, or not a valid address | `missing_payer_ip` |
+| No user IP, not a valid address, or unspecified (`0.0.0.0`) | `missing_payer_ip` |
 | No payer phone | `missing_phone_number` |
+| Payer phone not 8 to 15 digits, country code first, no `+` | `invalid_phone_number` |
 | Country, currency or carrier missing | `missing_dependency` |
 | Amount not positive | `invalid_amount` |
 | Destination is not a `G…` account | `invalid_address` |
@@ -78,6 +79,9 @@ webhook; `GetOrderByParams` reads it back by our reference.
   uses it. A channel that collects the payer's email and runs in a browser or
   app (so a real client IP exists) can drive it. Until then it is callable from
   the package only.
+- **Errors.** Validation and API failures on an on-ramp corridor report the
+  `on-ramp` domain with `direction: on_ramp`. A transport failure never carries
+  the request URL, because the KYC query string holds the user's email.
 - **Settlement proof.** The order reports the payout leg's transaction hash in
   `payout.transaction.meta`; the treasury payment should still be verified
   on-chain before crediting anything.

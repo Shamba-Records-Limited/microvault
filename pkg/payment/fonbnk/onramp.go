@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/samber/oops"
 	"github.com/stellar/go-stellar-sdk/strkey"
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
@@ -35,12 +34,6 @@ type StellarOnRamp struct {
 	WebhookURL  string
 }
 
-func onRampErr(op string) oops.OopsErrorBuilder {
-	return oops.In(pkgErrors.DomainOnRamp).Tags("fonbnk").
-		With(pkgErrors.AttrProvider, ProviderName).
-		With(pkgErrors.AttrOperation, op)
-}
-
 func (r StellarOnRamp) fiatLeg() FiatLeg {
 	return FiatLeg{
 		CurrencyCode:   r.Currency,
@@ -53,15 +46,19 @@ func (r StellarOnRamp) fiatLeg() FiatLeg {
 
 // Validate checks everything Fonbnk would otherwise refuse, without calling it.
 func (r StellarOnRamp) Validate() error {
-	errb := onRampErr("stellar_on_ramp").With("order_params", r.OrderParams)
+	errb := withDirection(fonbnkErr("stellar_on_ramp"), CurrencyTypeFiat, CurrencyTypeCrypto).
+		With("order_params", r.OrderParams)
+	ip := net.ParseIP(r.UserIP)
 	switch {
 	case strings.TrimSpace(r.UserEmail) == "":
 		return errb.Code(pkgErrors.CodeMissingPayerEmail).Errorf("user email is required on every order")
-	case net.ParseIP(r.UserIP) == nil:
-		return errb.Code(pkgErrors.CodeMissingPayerIP).With("user_ip", r.UserIP).
-			Errorf("user ip is required on every order and must be a valid address")
+	case ip == nil || ip.IsUnspecified():
+		return errb.Code(pkgErrors.CodeMissingPayerIP).Errorf("user ip is required on every order and must be a valid address")
 	case r.PayerPhone == "":
 		return errb.Code(pkgErrors.CodeMissingPhoneNumber).Errorf("payer phone is required")
+	case !isMSISDN(r.PayerPhone):
+		return errb.Code(pkgErrors.CodeInvalidPhoneNumber).
+			Errorf("payer phone must be the full number in digits, country code first")
 	case r.CountryIsoCode == "" || r.Currency == "" || r.CarrierCode == "":
 		return errb.Code(pkgErrors.CodeMissingDependency).Errorf("country, currency and carrier are required")
 	case r.USDCAmount <= 0:
@@ -111,6 +108,19 @@ func (a *FonbnkAdapter) CreateStellarOnRamp(ctx context.Context, quote *Quote, r
 		return nil, err
 	}
 	return &resp.Order, nil
+}
+
+// isMSISDN reports 8 to 15 digits, the form Fonbnk's phoneNumber field takes.
+func isMSISDN(s string) bool {
+	if len(s) < 8 || len(s) > 15 {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // IsOnRampSettled reports whether the USDC has been paid out.

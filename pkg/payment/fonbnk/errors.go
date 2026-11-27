@@ -6,8 +6,8 @@ import (
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 )
 
-// fonbnkErr starts an error builder for Fonbnk calls. Both directions share
-// DomainOffRamp; direction is an attribute where it is knowable.
+// fonbnkErr starts an error builder for Fonbnk calls in DomainOffRamp.
+// withDirection moves an on-ramp corridor into DomainOnRamp.
 func fonbnkErr(op string) oops.OopsErrorBuilder {
 	return oops.
 		In(pkgErrors.DomainOffRamp).
