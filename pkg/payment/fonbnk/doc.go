@@ -13,9 +13,11 @@
 // # Files
 //
 // fonbnk.go holds the http.RoundTripper that signs every request. client.go
-// holds the shared call/error plumbing. quote.go, order.go, discovery.go and
-// webhook.go wrap the endpoint groups. types.go defines the wire shapes and
-// the enum constants.
+// holds the shared call/error plumbing. quote.go, order.go, discovery.go,
+// kyc.go and webhook.go wrap the endpoint groups. onramp.go builds a Stellar
+// USDC on-ramp from mobile money; it is not wired to any channel (see
+// docs/onramp/fonbnk.md). types.go defines the wire shapes and the enum
+// constants.
 //
 // # Signing
 //

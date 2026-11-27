@@ -233,6 +233,10 @@ type RequiredField struct {
 	Required     bool          `json:"required"`
 	Options      []FieldOption `json:"options,omitempty"`
 	DefaultValue string        `json:"defaultValue,omitempty"`
+	// Format and Regexp are the provider's own validation rules, sent on KYC
+	// document fields.
+	Format string `json:"format,omitempty"`
+	Regexp string `json:"regexp,omitempty"`
 }
 
 // TransferDetail is one line of pay-to instructions. Render as it arrives —

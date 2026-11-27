@@ -246,6 +246,8 @@ const (
 	CodeMissingBorrowerAddr = "missing_borrower_address"
 	CodeMissingPhoneNumber  = "missing_phone_number"
 	CodeMissingPayerKYC     = "missing_payer_kyc"
+	CodeMissingPayerEmail   = "missing_payer_email"
+	CodeMissingPayerIP      = "missing_payer_ip"
 
 	// CodeNilTransaction is a polled anchor transaction that came back nil.
 	CodeNilTransaction = "nil_transaction"

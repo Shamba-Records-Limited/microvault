@@ -24,6 +24,7 @@ const (
 	pathOrderIntermediate = "/api/v2/order/intermediate-action"
 	pathCurrencies        = "/api/v2/currencies"
 	pathOrderLimits       = "/api/v2/order-limits"
+	pathUserKYC           = "/api/v2/user/kyc"
 )
 
 // permissionGateMessage is what Fonbnk answers when the account lacks the

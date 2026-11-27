@@ -15,7 +15,7 @@ settling their debt without ever holding crypto.
 |---|---|---|---|
 | MoneyGram | [moneygram.md](./moneygram.md) | SEP-24 anchor cash-in at an agent | Wired end to end |
 | YellowCard | [yellowcard.md](./yellowcard.md) | Mobile money in, USDC on Stellar out (direct-settlement receive) | Package only, not wired |
-| Fonbnk | [../offramp/fonbnk.md](../offramp/fonbnk.md) | Mobile-money STK push | Client only, no consumer |
+| Fonbnk | [fonbnk.md](./fonbnk.md) | Mobile money STK push in, USDC on Stellar out (server-to-server order) | Package only, not wired |
 
 Only MoneyGram cash-in is wired to a consumer. The other providers can be
 called from their packages, and each package documents what it needs from the
