@@ -51,6 +51,7 @@ webhooks `RECEIVE.*` and `CONVERT.*`.
 | Memo is not a numeric memo id | `invalid_memo` |
 | Amount not positive | `invalid_amount` |
 | No payer phone | `missing_phone_number` |
+| Payer phone not in international form (`+` and 8 to 15 digits) | `invalid_phone_number` |
 | Sequence id, customer uid, channel, network, currency or country missing | `missing_dependency` |
 
 ## Limitations
@@ -70,6 +71,8 @@ webhooks `RECEIVE.*` and `CONVERT.*`.
 - **Settlement proof.** The receive reports `settlementInfo.cryptoAmount`; the
   on-chain transaction should still be verified on the treasury before
   crediting anything.
+- **Errors are on-ramp errors.** Receive calls report the `on-ramp` domain;
+  payouts keep `off-ramp`.
 - **Redirect channels.** South Africa and Côte d'Ivoire collect through a
   hosted page and need `redirectUrl`; `StellarReceive` targets mobile money
   prompts only.

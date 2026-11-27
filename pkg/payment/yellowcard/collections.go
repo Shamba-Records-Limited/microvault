@@ -22,7 +22,7 @@ import (
 // collection it is about. Every failure below therefore names both the
 // operation and which collection it concerned.
 func collectionErr(op, collectionID string) oops.OopsErrorBuilder {
-	return ycErr(op).With(pkgErrors.AttrCollectionID, collectionID)
+	return onRampErr(op).With(pkgErrors.AttrCollectionID, collectionID)
 }
 
 // collectionCall performs one signed JSON request and decodes the response.
@@ -63,7 +63,7 @@ func collectionCall[T any](ctx context.Context, y *YellowcardAdapter, errb oops.
 // is set unconditionally so the request never parks in pending_approval.
 func (y *YellowcardAdapter) SubmitCollection(ctx context.Context, req CollectionRequest) (*Collection, error) {
 	req.ForceAccept = true
-	return collectionCall[Collection](ctx, y, ycErr("submit_collection").With(pkgErrors.AttrSequenceID, req.SequenceID), http.MethodPost, "/receive", req)
+	return collectionCall[Collection](ctx, y, onRampErr("submit_collection").With(pkgErrors.AttrSequenceID, req.SequenceID), http.MethodPost, "/receive", req)
 }
 
 // AcceptCollection approves a collection request. Unreachable for collections
@@ -87,7 +87,7 @@ func (y *YellowcardAdapter) LookupCollection(ctx context.Context, collectionID s
 // supplied at submission. This is the lookup that works after a crash between
 // submitting and persisting YellowCard's ID.
 func (y *YellowcardAdapter) LookupCollectionBySequenceID(ctx context.Context, sequenceID string) (*Collection, error) {
-	return collectionCall[Collection](ctx, y, ycErr("lookup_collection_by_sequence_id").With(pkgErrors.AttrSequenceID, sequenceID), http.MethodGet, "/receive/sequence-id/"+sequenceID, nil)
+	return collectionCall[Collection](ctx, y, onRampErr("lookup_collection_by_sequence_id").With(pkgErrors.AttrSequenceID, sequenceID), http.MethodGet, "/receive/sequence-id/"+sequenceID, nil)
 }
 
 // CancelCollection stops a collection that has not yet completed.
@@ -154,7 +154,7 @@ func (y *YellowcardAdapter) ListCollections(ctx context.Context, params ListColl
 		endpoint += "?" + q
 	}
 
-	resp, err := collectionCall[CollectionsResponse](ctx, y, ycErr("list_collections"), http.MethodGet, endpoint, nil)
+	resp, err := collectionCall[CollectionsResponse](ctx, y, onRampErr("list_collections"), http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}

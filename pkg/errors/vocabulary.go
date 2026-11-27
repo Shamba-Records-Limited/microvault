@@ -245,6 +245,7 @@ const (
 	CodeMissingAccountIndex = "missing_account_index"
 	CodeMissingBorrowerAddr = "missing_borrower_address"
 	CodeMissingPhoneNumber  = "missing_phone_number"
+	CodeInvalidPhoneNumber  = "invalid_phone_number"
 	CodeMissingPayerKYC     = "missing_payer_kyc"
 
 	// CodeNilTransaction is a polled anchor transaction that came back nil.

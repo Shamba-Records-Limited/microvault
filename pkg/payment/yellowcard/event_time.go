@@ -3,19 +3,23 @@ package yellowcard
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"strconv"
 	"time"
 )
 
+// millisThreshold separates Unix seconds from milliseconds: 1e12 seconds is
+// the year 33658, 1e12 milliseconds is 2001.
+const millisThreshold = 1e12
+
 // EventTime is a webhook timestamp sent as an ISO 8601 string or as Unix
-// seconds. A value it cannot read decodes to the zero time rather than
-// failing the whole event.
+// seconds or milliseconds. A value it cannot read decodes to the zero time
+// rather than failing the whole event.
 type EventTime struct {
 	time.Time
 }
 
-// UnmarshalJSON accepts a quoted RFC 3339 timestamp, a number of seconds, or
-// null.
+// UnmarshalJSON accepts a quoted RFC 3339 timestamp, a Unix number, or null.
 func (t *EventTime) UnmarshalJSON(data []byte) error {
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
@@ -30,11 +34,7 @@ func (t *EventTime) UnmarshalJSON(data []byte) error {
 		t.Time = parseEventTime(s)
 		return nil
 	}
-	if secs, err := strconv.ParseFloat(string(data), 64); err == nil {
-		t.Time = time.Unix(int64(secs), 0).UTC()
-		return nil
-	}
-	t.Time = time.Time{}
+	t.Time = unixTime(string(data))
 	return nil
 }
 
@@ -53,8 +53,18 @@ func parseEventTime(s string) time.Time {
 	if ts, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return ts.UTC()
 	}
-	if secs, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return time.Unix(secs, 0).UTC()
+	return unixTime(s)
+}
+
+// unixTime reads seconds or milliseconds since the epoch. Anything negative,
+// non-finite or beyond int64 milliseconds is unreadable.
+func unixTime(s string) time.Time {
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v >= math.MaxInt64 {
+		return time.Time{}
 	}
-	return time.Time{}
+	if v >= millisThreshold {
+		return time.UnixMilli(int64(v)).UTC()
+	}
+	return time.Unix(int64(v), 0).UTC()
 }
