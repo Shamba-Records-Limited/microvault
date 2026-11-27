@@ -15,9 +15,10 @@ succeeds, fails, or has to be retried a different way.
 |---|---|---|
 | YellowCard | [yellowcard.md](./yellowcard.md) | Mobile money across multiple African countries. The default. |
 | Fonbnk | [fonbnk.md](./fonbnk.md) | Mobile money, competing with YellowCard on price |
+| Chipper | [chipper.md](./chipper.md) | Mobile money funded by a treasury USDC deposit; optional, competing on price |
 | MoneyGram | [moneygram.md](./moneygram.md) | SEP-24 anchor cash pickup at an agent |
 
-All three plug into the same internal `offramp.Provider` interface, so the loan
+All four plug into the same internal `offramp.Provider` interface, so the loan
 service treats them uniformly. The docs here describe each provider's own quirks.
 
 ## Which provider handles a payout
@@ -31,10 +32,12 @@ new loan goes to cash pickup; an amount outside MoneyGram's corridor re-prompts
 the amount, and the loan adapter refuses a `mobile_money` request with
 `payout_rail_disabled`. Mobile-money loans already in flight keep running.
 
-**The relay picks the provider within mobile money.** When
-`ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH` is on, YellowCard and Fonbnk are quoted
-concurrently and the better post-fee rate wins. Off, everything goes to
-YellowCard. See [Payment Relay](../relay/README.md).
+**The relay picks the provider within mobile money, before the borrow.** When
+`ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH` is on, the configured sources are quoted
+at the loan's real amount when the borrower submits it. A Chipper win prices the
+loan at Chipper's own rate and pins the loan to Chipper; anything else keeps
+YellowCard and the shared rate. Off, everything goes to YellowCard. See
+[Payment Relay](../relay/README.md).
 
 Cash pickup always resolves to MoneyGram.
 

@@ -20,7 +20,7 @@ providers we ship.
 | Setting | Behaviour |
 |---|---|
 | Off | Every mobile-money payout goes to YellowCard. The other providers are not even quoted. |
-| On | YellowCard and Fonbnk are quoted concurrently and the better post-fee rate wins. |
+| On | Every registered source (YellowCard, Fonbnk, Chipper when configured) is quoted concurrently at the loan's amount and the best post-fee rate wins. |
 
 **This is a kill switch, not a feature gate.** Turning it off is always safe to
 do under load: it restores the previous dispatch exactly, and a test asserts the
@@ -70,27 +70,30 @@ collecting cash at an agent, so a cash-pickup loan is not even quoted.
 have already chosen; the relay does not second-guess it.
 
 **A relay failure is not a loan failure.** If no provider can be quoted, the
-routing call returns empty and the off-ramp registry's own alias resolves as
-before. The borrower is disbursed through the default provider.
+loan is priced at the shared rate with no provider pinned, and the borrower is
+disbursed through the default provider.
 
 ---
 
 ## How routing reaches dispatch
 
-The off-ramp registry resolves a provider from a `PayoutMethod` alias. The relay
-therefore returns an alias to pin rather than a provider handle:
+Routing happens **once, before anything is borrowed**, so the loan's USDC
+principal is priced at the rate that will actually execute:
 
-| Winner | Alias pinned |
-|---|---|
-| YellowCard | `mobile_money` (unchanged, the registry's own default) |
-| Fonbnk | `mobile_money_fonbnk` |
+1. The USSD `submitLoan` step asks the rate service for a disbursement quote
+   (`ussd.DisbursementQuoter`), mobile money only.
+2. The credit rate service converts the requested amount at the shared rate,
+   asks `Router.Best` for the winner at that amount, and:
+   - on a **Chipper** win, prices the loan at Chipper's own sell rate with the
+     entry buffer and returns `chipper` as the provider;
+   - on a YellowCard or Fonbnk win, with routing off, or on any failure,
+     returns the shared rate and no provider.
+3. The provider rides `LoanRequest.RampProvider` onto the loan. Disbursement
+   builds that provider's options (`chipper.Options` for Chipper), and the
+   off-ramp registry resolves the adapter from them. It never re-routes.
 
-Fonbnk deliberately registers under a *separate* alias. That is what makes the
-switch a genuine no-op when off: the unrouted default still resolves
-`mobile_money` to YellowCard, whether or not Fonbnk is wired.
-
-A winner with no alias mapping falls back rather than pinning something the
-registry cannot resolve.
+Fonbnk can win a quote but is never pinned: its orders need a user email and IP
+address that USSD does not collect.
 
 ---
 

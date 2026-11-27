@@ -125,6 +125,7 @@ interfaces declared in [`pkg/mobile/ussd/types.go`](../../pkg/mobile/ussd/types.
 | `ussd.UserService` | `GetUserWithAccounts`, `RegisterUser` | `adapters.UserServiceAdapter` (in `pkg/mobile/ussd/adapters`) |
 | `ussd.LoanService` | `GetUserLoans`, `RequestLoan`, `CheckLoanEligibility`, `GetProductConfig`, `GetRepaymentQuote` | `LoanServiceAdapter` (in the credit module) |
 | `ussd.RateService` | `GetExchangeRate` | `RateServiceAdapter` (in the credit module) |
+| `ussd.DisbursementQuoter` (optional, on the rate service) | `QuoteDisbursement` | `RateServiceAdapter` with routing on: prices a mobile money loan with the provider that will disburse it and pins that provider on `LoanRequest.RampProvider` |
 | `ussd.PINService` | `SetPIN`, `VerifyPIN`, `ChangePIN`, `ResetPIN`, `IsLocked`, `HasPIN`, security-question methods | `pin.Service` (in `pkg/pin`) |
 
 Plus a `contracts.AccountNotifier` for side-effect SMS (registration

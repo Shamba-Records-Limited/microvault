@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/govalues/decimal"
@@ -40,6 +41,7 @@ type FloatMonitor struct {
 	cfg     FloatMonitorConfig
 	now     func() time.Time
 
+	mu        sync.Mutex
 	low       bool
 	lastAlert time.Time
 }
@@ -87,6 +89,8 @@ func (m *FloatMonitor) Check(ctx context.Context) {
 		return
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	now := m.now()
 	switch below := available.Cmp(m.cfg.Threshold) < 0; {
 	case below && (!m.low || now.Sub(m.lastAlert) >= m.cfg.RealertEvery):

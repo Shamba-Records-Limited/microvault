@@ -114,6 +114,8 @@ func (r *FeeReconciler) Reconcile(ctx context.Context) ([]Mismatch, error) {
 		recorded := decimal.MustNew(p.ServiceFeeCents, 2)
 		diff, err := fee.Sub(recorded)
 		if err != nil {
+			unread++
+			r.logger.WarnContext(ctx, "chipper fee could not be compared", "loan_id", p.LoanID, "payout_id", p.PayoutID, "error", err)
 			continue
 		}
 		if diff.Abs().Cmp(oneCent) > 0 {

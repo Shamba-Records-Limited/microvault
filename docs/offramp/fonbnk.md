@@ -178,6 +178,20 @@ The payload is a **summary**: rates and amounts but no fee breakdown, no
 transfer instructions, no status history. Match on `_id` or
 `merchantOrderParams`, then call `GetOrder` for the rest.
 
+The credit service receives them on `POST /api/v1/webhooks/fonbnk`
+(`webhook.Service.ProcessFonbnkEvent`), registered only when Fonbnk is
+configured; without `FONBNK_WEBHOOK_SECRET` it answers 503.
+
+| Status | Action |
+|---|---|
+| `payout_successful` | Loan complete with the delivered amount; **no service fee**, since Fonbnk takes its fee from the payout; borrower notified |
+| `payout_failed`, `refund_initiated`, `refund_pending` | Refund-pending marker only; not final |
+| `refund_successful` | Loan off-ramp failed; the USDC is back in the treasury, so the vault is repaid; borrower notified |
+| `refund_failed` | `Fonbnk Refund Failed` (pages) |
+| `deposit_invalid` | `Fonbnk Deposit Invalid` |
+
+A repeated delivery of a final status is skipped once the loan is settled.
+
 ---
 
 ## Configuration
@@ -185,8 +199,9 @@ transfer instructions, no status history. Match on `_id` or
 | Variable | Notes |
 |---|---|
 | `FONBNK_CLIENT_ID` / `FONBNK_CLIENT_SECRET` | Per environment. Absent means Fonbnk is not registered at all, boot logs it and carries on. |
-| `FONBNK_BASE_URL` | Sandbox or production host |
-| `ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH` | Whether Fonbnk ever wins a payout. See [relay](../relay/README.md). |
+| `FONBNK_BASE_URL` | Sandbox or production host; required in production only when Fonbnk is configured |
+| `FONBNK_WEBHOOK_SECRET` | Verifies deliveries on `/api/v1/webhooks/fonbnk` |
+| `ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH` | Lets Fonbnk compete in quotes. It is never pinned to a loan today; see [relay](../relay/README.md). |
 
 **Never hard-code a contract address, bank name or carrier list.** Sandbox
 values are fixtures and differ from production. Read them from

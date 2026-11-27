@@ -61,16 +61,17 @@ func TestEnabledProviders(t *testing.T) {
 }
 
 func TestParseFloatAlert(t *testing.T) {
-	off, err := parseFloatAlert(" ")
+	_, set, err := parseFloatAlert(" ")
 	require.NoError(t, err)
-	assert.Nil(t, off)
+	assert.False(t, set)
 
-	got, err := parseFloatAlert("150.5")
+	got, set, err := parseFloatAlert("150.5")
 	require.NoError(t, err)
+	assert.True(t, set)
 	assert.Equal(t, "150.5", got.String())
 
 	for _, bad := range []string{"-5", "lots"} {
-		_, err := parseFloatAlert(bad)
+		_, _, err := parseFloatAlert(bad)
 		assert.Error(t, err, bad)
 	}
 }

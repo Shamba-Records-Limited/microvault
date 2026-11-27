@@ -300,17 +300,18 @@ func (c *ChipperConfig) Validate(serverEnv string) error {
 	return nil
 }
 
-// parseFloatAlert reads a non-negative USDC amount; empty turns the alert off.
-func parseFloatAlert(raw string) (*decimal.Decimal, error) {
+// parseFloatAlert reads a non-negative USDC amount; set is false when raw is
+// empty, which turns the alert off.
+func parseFloatAlert(raw string) (amount decimal.Decimal, set bool, err error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, nil
+		return decimal.Zero, false, nil
 	}
 	d, err := decimal.Parse(raw)
 	if err != nil || d.IsNeg() {
-		return nil, fmt.Errorf("CHIPPER_FLOAT_ALERT_USDC: expected a non-negative amount, got %q", raw)
+		return decimal.Zero, false, fmt.Errorf("CHIPPER_FLOAT_ALERT_USDC: expected a non-negative amount, got %q", raw)
 	}
-	return &d, nil
+	return d, true, nil
 }
 
 // parseMethodCodes reads "MPESA=ke_mpesa,AIRTEL=ke_airtel".
@@ -321,12 +322,12 @@ func parseMethodCodes(raw string) (map[string]string, error) {
 		if pair == "" {
 			continue
 		}
-		network, code, ok := strings.Cut(pair, "=")
-		network, code = strings.TrimSpace(network), strings.TrimSpace(code)
-		if !ok || network == "" || code == "" {
+		momo, code, ok := strings.Cut(pair, "=")
+		momo, code = strings.TrimSpace(momo), strings.TrimSpace(code)
+		if !ok || momo == "" || code == "" {
 			return nil, fmt.Errorf("CHIPPER_METHOD_CODES entry %q is not NETWORK=method_code", pair)
 		}
-		codes[strings.ToUpper(network)] = strings.ToLower(code)
+		codes[strings.ToUpper(momo)] = strings.ToLower(code)
 	}
 	return codes, nil
 }
@@ -1031,9 +1032,13 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	chipperFloat, err := parseFloatAlert(os.Getenv("CHIPPER_FLOAT_ALERT_USDC"))
+	floatAlert, floatAlertSet, err := parseFloatAlert(os.Getenv("CHIPPER_FLOAT_ALERT_USDC"))
 	if err != nil {
 		return nil, err
+	}
+	var chipperFloat *decimal.Decimal
+	if floatAlertSet {
+		chipperFloat = &floatAlert
 	}
 	chipperReconcile, err := envSeconds("CHIPPER_FEE_RECONCILE_INTERVAL")
 	if err != nil {
