@@ -14,11 +14,12 @@ settling their debt without ever holding crypto.
 | Provider | Doc | Rail | Status |
 |---|---|---|---|
 | MoneyGram | [moneygram.md](./moneygram.md) | SEP-24 anchor cash-in at an agent | Wired end to end |
+| Chipper | [chipper.md](./chipper.md) | M-Pesa in, USDC on Stellar out (one order) | Wired; on with `REPAYMENT_RAIL_MPESA=chipper` |
 | YellowCard | [yellowcard.md](./yellowcard.md) | Mobile money in, USDC on Stellar out (direct-settlement receive) | Package only, not wired |
 | Fonbnk | [fonbnk.md](./fonbnk.md) | Mobile money STK push in, USDC on Stellar out (server-to-server order) | Package only, not wired |
 
-Only MoneyGram cash-in is wired to a consumer. The other providers can be
-called from their packages, and each package documents what it needs from the
+MoneyGram cash-in and Chipper orders are wired to repayments. The other
+providers can be called from their packages, and each package documents what it needs from the
 channel that drives it. Those needs are why they are not wired: the USSD
 channel holds no payer email or client IP, and a web or app channel would.
 

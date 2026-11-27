@@ -456,7 +456,7 @@ func (d *DepositDriver) handleCompleted(ctx context.Context, rec RepaymentRecord
 	d.checkDepositShortfall(ctx, rec, tx)
 
 	hash, repaid, err := d.vault.RepayForBorrower(ctx, rec.LoanID, rec.BorrowerAddress)
-	if outcomeUnknown(err) {
+	if OutcomeUnknown(err) {
 		d.vaultOutcomeUnknown(ctx, rec, err)
 		return
 	}
@@ -562,9 +562,9 @@ func (d *DepositDriver) vaultLegFailed(ctx context.Context, rec RepaymentRecord,
 	d.reschedule(ctx, rec, backoff)
 }
 
-// outcomeUnknown reports whether a submit error leaves open that the
+// OutcomeUnknown reports whether a submit error leaves open that the
 // transaction landed.
-func outcomeUnknown(err error) bool {
+func OutcomeUnknown(err error) bool {
 	return errors.Is(err, stellar.ErrSubmissionUnconfirmed) || errors.Is(err, stellar.ErrTransactionTimeout) ||
 		errors.Is(err, stellar.ErrUnknownTransactionStatus) || errors.Is(err, stellar.ErrContextCancelled)
 }

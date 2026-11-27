@@ -2,6 +2,7 @@ package chipper
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"time"
@@ -96,6 +97,36 @@ type Payout struct {
 	CreatedAt         time.Time        `json:"createdAt"`
 	UpdatedAt         time.Time        `json:"updatedAt"`
 	Timeline          []TimelineEvent  `json:"timeline,omitempty"`
+	// Details is undocumented on payouts; a crypto payout may carry its
+	// on-chain hash here as collections do.
+	Details json.RawMessage `json:"details,omitempty"`
+	// TransactionHash is read when Chipper sends it at the top level.
+	TransactionHash string `json:"transactionHash,omitempty"`
+}
+
+// TxHash returns the payout's on-chain hash when Chipper reports one, from
+// details.hash, details.transactionHash or transactionHash.
+func (p Payout) TxHash() (hash string, ok bool) {
+	if p.TransactionHash != "" {
+		return p.TransactionHash, true
+	}
+	if len(p.Details) == 0 {
+		return "", false
+	}
+	var d struct {
+		Hash            string `json:"hash"`
+		TransactionHash string `json:"transactionHash"`
+	}
+	if err := json.Unmarshal(p.Details, &d); err != nil {
+		return "", false
+	}
+	switch {
+	case d.Hash != "":
+		return d.Hash, true
+	case d.TransactionHash != "":
+		return d.TransactionHash, true
+	}
+	return "", false
 }
 
 // IsTerminal reports whether the payout has reached a final status.

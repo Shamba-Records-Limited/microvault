@@ -164,6 +164,48 @@ func TestChipperPayoutFailed(t *testing.T) {
 	}
 }
 
+type fakeChipperOrders struct{ refs []chipper.ResourceRef }
+
+func (f *fakeChipperOrders) ApplyChipperOrder(_ context.Context, ref chipper.ResourceRef) error {
+	f.refs = append(f.refs, ref)
+	return nil
+}
+
+func TestChipperOrderEventsReachRepayments(t *testing.T) {
+	orders := &fakeChipperOrders{}
+	disb := &fakeDisb{}
+	svc := chipperService(disb, &fakeAlerts{}, &fakeChipperPayouts{}, &fakeChipperStore{}).WithChipperOrders(orders)
+
+	for _, ev := range []string{chipper.EventOrderFundsReceived, chipper.EventOrderCompleted, chipper.EventOrderFailed, chipper.EventOrderExpired} {
+		data := []byte(`{"id":"ord_1","status":"` + ev + `","externalReference":"rp-LN1-1"}`)
+		require.NoError(t, svc.ProcessChipperEvent(context.Background(), chipper.Event{Event: ev, Data: data}))
+	}
+	require.Len(t, orders.refs, 4)
+	assert.Equal(t, "ord_1", orders.refs[0].ID)
+	assert.Equal(t, "rp-LN1-1", orders.refs[0].ExternalReference)
+	assert.Empty(t, disb.statuses)
+}
+
+func TestChipperOrderEventsIgnoredWithoutRepayments(t *testing.T) {
+	svc := chipperService(&fakeDisb{}, &fakeAlerts{}, &fakeChipperPayouts{}, &fakeChipperStore{})
+	ev := chipper.Event{Event: chipper.EventOrderCompleted, Data: []byte(`{"id":"ord_1","status":"completed"}`)}
+	require.NoError(t, svc.ProcessChipperEvent(context.Background(), ev))
+}
+
+// An order's own USDC payout to the treasury also fires payout.completed; it
+// must not be applied as a loan disbursement.
+func TestChipperCryptoPayoutLegIgnored(t *testing.T) {
+	disb, store := &fakeDisb{}, &fakeChipperStore{}
+	svc := chipperService(disb, &fakeAlerts{}, &fakeChipperPayouts{}, store)
+
+	code := chipper.MethodUSDCStellar
+	p := chipperPayout(chipper.PayoutCompleted, "rp-LN1-1")
+	p.To.Code = &code
+	require.NoError(t, svc.ProcessChipperEvent(context.Background(), payoutEvent(t, chipper.EventPayoutCompleted, p)))
+	assert.Empty(t, disb.statuses)
+	assert.Empty(t, store.recorded)
+}
+
 func depositEvent(t *testing.T, typ, status, hash string) chipper.Event {
 	t.Helper()
 	data, err := json.Marshal(map[string]any{

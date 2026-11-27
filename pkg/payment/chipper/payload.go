@@ -1,6 +1,9 @@
 package chipper
 
-import "github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
+import (
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/cashin"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/offramp"
+)
 
 // Settlement methods.
 const (
@@ -42,3 +45,14 @@ type Release struct {
 	NetworkCode      string
 	DepositTxHash    string
 }
+
+// PromptPayload is the cashin.PromptResult.Provider value of a Chipper
+// repayment: the order collecting it.
+type PromptPayload struct {
+	OrderID   string
+	Reference string
+	Status    string
+}
+
+// ProviderID identifies this payload's provider.
+func (PromptPayload) ProviderID() cashin.ProviderID { return cashin.ProviderChipper }

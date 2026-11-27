@@ -530,6 +530,11 @@ type PaymentsConfig struct {
 	// is on.
 	MobileMoneyBorrow bool
 
+	// RepaymentRailMpesa picks who collects a repayment when the borrower
+	// chooses M-Pesa: RepaymentRailDaraja (default) or RepaymentRailChipper.
+	// From REPAYMENT_RAIL_MPESA.
+	RepaymentRailMpesa string
+
 	// LoanReferencePrefix is the 2-character namespace prefix on generated loan
 	// references, defaulting to loanref.DefaultPrefix. From
 	// LOAN_REFERENCE_PREFIX. The check character is derived over the prefix, so
@@ -861,6 +866,10 @@ func New() (*Config, error) {
 		loanRefPrefix = v
 	}
 
+	repaymentRailMpesa, err := parseRepaymentRail(os.Getenv("REPAYMENT_RAIL_MPESA"))
+	if err != nil {
+		return nil, err
+	}
 	enableRelaySwitch, err := envBool("ENABLE_PAYMENT_PROVIDER_RELAY_SWITCH")
 	if err != nil {
 		return nil, err
@@ -1306,6 +1315,7 @@ func New() (*Config, error) {
 		Payments: PaymentsConfig{
 			EntryFXBufferPct:          entryFXBuffer,
 			EnableProviderRelaySwitch: enableRelaySwitch,
+			RepaymentRailMpesa:        repaymentRailMpesa,
 			RoundAnchorAmounts:        roundAnchor,
 			MobileMoneyBorrow:         mobileMoneyBorrow,
 			LoanReferencePrefix:       loanRefPrefix,
@@ -2098,4 +2108,29 @@ func treasuryPublicFromSecret(secret string) string {
 		return ""
 	}
 	return kp.Address()
+}
+
+// Repayment rails for the M-Pesa repay choice.
+const (
+	RepaymentRailDaraja  = "daraja"
+	RepaymentRailChipper = "chipper"
+)
+
+func parseRepaymentRail(raw string) (string, error) {
+	switch rail := strings.ToLower(strings.TrimSpace(raw)); rail {
+	case "":
+		return RepaymentRailDaraja, nil
+	case RepaymentRailDaraja, RepaymentRailChipper:
+		return rail, nil
+	default:
+		return "", fmt.Errorf("REPAYMENT_RAIL_MPESA must be %q or %q, got %q", RepaymentRailDaraja, RepaymentRailChipper, raw)
+	}
+}
+
+// ValidateRepaymentRails refuses a rail whose provider is not configured.
+func (p PaymentsConfig) ValidateRepaymentRails() error {
+	if p.RepaymentRailMpesa == RepaymentRailChipper && !p.Chipper.Enabled() {
+		return fmt.Errorf("REPAYMENT_RAIL_MPESA=chipper needs CHIPPER_API_KEY")
+	}
+	return nil
 }

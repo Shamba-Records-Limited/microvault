@@ -61,6 +61,18 @@ type ChipperStore interface {
 	IsDirectSettlement(ctx context.Context, sequenceID string) (bool, error)
 }
 
+// ChipperOrderHandler settles repayments collected through Chipper orders.
+// It receives only the order's identity and re-reads the order itself.
+type ChipperOrderHandler interface {
+	ApplyChipperOrder(ctx context.Context, ref chipper.ResourceRef) error
+}
+
+// WithChipperOrders routes order events to the repayment handler.
+func (s *Service) WithChipperOrders(h ChipperOrderHandler) *Service {
+	s.chipperOrders = h
+	return s
+}
+
 // WithChipper enables Chipper event handling.
 func (s *Service) WithChipper(payouts ChipperPayouts, store ChipperStore) *Service {
 	s.chipperPayouts, s.chipperStore = payouts, store
@@ -83,6 +95,8 @@ func (s *Service) ProcessChipperEvent(ctx context.Context, event chipper.Event) 
 		return s.applyChipperPayout(ctx, payout)
 	case chipper.EventCollectionCompleted, chipper.EventAccountCredited:
 		return s.releaseForDeposit(ctx, event)
+	case chipper.EventOrderFundsReceived, chipper.EventOrderCompleted, chipper.EventOrderFailed, chipper.EventOrderExpired:
+		return s.applyChipperOrder(ctx, event)
 	case chipper.EventWebhookTest:
 		slog.InfoContext(ctx, "chipper webhook test received")
 	default:
@@ -91,12 +105,26 @@ func (s *Service) ProcessChipperEvent(ctx context.Context, event chipper.Event) 
 	return nil
 }
 
+func (s *Service) applyChipperOrder(ctx context.Context, event chipper.Event) error {
+	if s.chipperOrders == nil {
+		slog.DebugContext(ctx, "chipper order event ignored; repayments are not configured", slog.String("event", event.Event))
+		return nil
+	}
+	ref, err := event.Resource()
+	if err != nil {
+		return err
+	}
+	return s.chipperOrders.ApplyChipperOrder(ctx, ref)
+}
+
 // applyChipperPayout settles a payout that reached completed or failed.
+// A payout to a crypto destination is an order's own leg, not a
+// disbursement, and is left to the order events.
 func (s *Service) applyChipperPayout(ctx context.Context, payout *chipper.Payout) error {
 	seqID := payout.ExternalReference
 	ctx = logging.With(ctx, slog.String(pkgErrors.AttrSequenceID, seqID), slog.String("payout_id", payout.ID))
 
-	if !payout.IsTerminal() {
+	if !payout.IsTerminal() || isCryptoPayout(payout) {
 		return nil
 	}
 	settled, err := s.chipperStore.DisbursementSettled(ctx, seqID)
@@ -246,4 +274,8 @@ func reasonOf(s *string) string {
 		return "no reason given"
 	}
 	return *s
+}
+
+func isCryptoPayout(p *chipper.Payout) bool {
+	return p.To.Code != nil && *p.To.Code == chipper.MethodUSDCStellar
 }

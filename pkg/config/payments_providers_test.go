@@ -75,3 +75,33 @@ func TestParseFloatAlert(t *testing.T) {
 		assert.Error(t, err, bad)
 	}
 }
+
+func TestParseRepaymentRail(t *testing.T) {
+	cases := []struct{ raw, want string }{
+		{"", RepaymentRailDaraja},
+		{"daraja", RepaymentRailDaraja},
+		{"  Chipper\t", RepaymentRailChipper},
+	}
+	for _, tc := range cases {
+		got, err := parseRepaymentRail(tc.raw)
+		if err != nil || got != tc.want {
+			t.Errorf("parseRepaymentRail(%q) = %q, %v; want %q", tc.raw, got, err, tc.want)
+		}
+	}
+	if _, err := parseRepaymentRail("fonbnk"); err == nil {
+		t.Error("an unknown rail must be refused")
+	}
+}
+
+func TestValidateRepaymentRails(t *testing.T) {
+	if err := (PaymentsConfig{RepaymentRailMpesa: RepaymentRailChipper}).ValidateRepaymentRails(); err == nil {
+		t.Error("chipper rail without a chipper key must be refused")
+	}
+	ok := PaymentsConfig{RepaymentRailMpesa: RepaymentRailChipper, Chipper: ChipperConfig{APIKey: "sk_test_x"}}
+	if err := ok.ValidateRepaymentRails(); err != nil {
+		t.Errorf("configured chipper rail refused: %v", err)
+	}
+	if err := (PaymentsConfig{RepaymentRailMpesa: RepaymentRailDaraja}).ValidateRepaymentRails(); err != nil {
+		t.Errorf("daraja rail refused: %v", err)
+	}
+}

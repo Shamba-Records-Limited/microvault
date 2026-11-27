@@ -105,6 +105,7 @@ match. Register it in the dashboard for `payout.completed`, `payout.failed`,
 | `payout.failed`, direct, first failure | Repeated once from the Chipper balance under `<reference>_fiat` (the loan lookup resolves the suffix) to the same number and amount; ops alerted |
 | `payout.failed` on the repeat, or on a balance-funded payout | Loan off-ramp failed, vault repaid from treasury, borrower notified, ops alerted. On direct, the deposit stays on the Chipper balance as float |
 | `collection.completed` / `account.credited` for a crypto deposit | Releases the pending payout whose deposit hash matches |
+| `order.*` | Repayment orders, see [Chipper on-ramp](../onramp/chipper.md). A `payout.*` to a crypto destination is an order's own leg and is not applied as a disbursement |
 
 Terminal outcomes skip a loan that is already settled, so a repeated delivery
 never texts the borrower twice. Chipper retries for about a day and disables an

@@ -58,6 +58,7 @@ type Service struct {
 
 	chipperPayouts ChipperPayouts
 	chipperStore   ChipperStore
+	chipperOrders  ChipperOrderHandler
 	settlement     SettlementChecker
 }
 
