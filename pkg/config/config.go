@@ -13,6 +13,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
 
+	"github.com/govalues/decimal"
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -257,6 +258,11 @@ type ChipperConfig struct {
 	DepositMemo    string
 	MethodCodes    map[string]string
 	FeeSchedule    *chipper.FeeSchedule
+	// FloatAlertUSDC is the USDC balance below which ops are alerted; nil
+	// leaves the float alert off.
+	FloatAlertUSDC *decimal.Decimal
+	// FeeReconcileInterval paces the fee reconciliation (default 24h).
+	FeeReconcileInterval time.Duration
 }
 
 // Enabled reports whether a Chipper API key is set.
@@ -292,6 +298,19 @@ func (c *ChipperConfig) Validate(serverEnv string) error {
 		return fmt.Errorf("CHIPPER_API_KEY is set but %s are not", strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+// parseFloatAlert reads a non-negative USDC amount; empty turns the alert off.
+func parseFloatAlert(raw string) (*decimal.Decimal, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	d, err := decimal.Parse(raw)
+	if err != nil || d.IsNeg() {
+		return nil, fmt.Errorf("CHIPPER_FLOAT_ALERT_USDC: expected a non-negative amount, got %q", raw)
+	}
+	return &d, nil
 }
 
 // parseMethodCodes reads "MPESA=ke_mpesa,AIRTEL=ke_airtel".
@@ -1012,6 +1031,14 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	chipperFloat, err := parseFloatAlert(os.Getenv("CHIPPER_FLOAT_ALERT_USDC"))
+	if err != nil {
+		return nil, err
+	}
+	chipperReconcile, err := envSeconds("CHIPPER_FEE_RECONCILE_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
 	var chipperFees *chipper.FeeSchedule
 	if raw := os.Getenv("CHIPPER_FEE_SCHEDULE"); raw != "" {
 		if chipperFees, err = chipper.ParseFeeSchedule(raw); err != nil {
@@ -1341,13 +1368,15 @@ func New() (*Config, error) {
 				WebhookSecret: os.Getenv("FONBNK_WEBHOOK_SECRET"),
 			},
 			Chipper: ChipperConfig{
-				APIKey:         os.Getenv("CHIPPER_API_KEY"),
-				BaseURL:        firstNonEmpty(os.Getenv("CHIPPER_BASE_URL"), chipper.SandboxBaseURL),
-				WebhookSecret:  os.Getenv("CHIPPER_WEBHOOK_SECRET"),
-				DepositAddress: os.Getenv("CHIPPER_DEPOSIT_ADDRESS"),
-				DepositMemo:    os.Getenv("CHIPPER_DEPOSIT_MEMO"),
-				MethodCodes:    chipperMethodCodes,
-				FeeSchedule:    chipperFees,
+				APIKey:               os.Getenv("CHIPPER_API_KEY"),
+				BaseURL:              firstNonEmpty(os.Getenv("CHIPPER_BASE_URL"), chipper.SandboxBaseURL),
+				WebhookSecret:        os.Getenv("CHIPPER_WEBHOOK_SECRET"),
+				DepositAddress:       os.Getenv("CHIPPER_DEPOSIT_ADDRESS"),
+				DepositMemo:          os.Getenv("CHIPPER_DEPOSIT_MEMO"),
+				MethodCodes:          chipperMethodCodes,
+				FeeSchedule:          chipperFees,
+				FloatAlertUSDC:       chipperFloat,
+				FeeReconcileInterval: firstNonZeroDuration(chipperReconcile, 24*time.Hour),
 			},
 			MoneyGram: MoneyGramConfig{
 				HomeDomain:        mgHomeDomain,

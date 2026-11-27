@@ -59,3 +59,18 @@ func TestEnabledProviders(t *testing.T) {
 	assert.True(t, p.ProviderEnabled(ProviderChipper))
 	assert.False(t, p.ProviderEnabled(ProviderFonbnk), "fonbnk needs both credentials")
 }
+
+func TestParseFloatAlert(t *testing.T) {
+	off, err := parseFloatAlert(" ")
+	require.NoError(t, err)
+	assert.Nil(t, off)
+
+	got, err := parseFloatAlert("150.5")
+	require.NoError(t, err)
+	assert.Equal(t, "150.5", got.String())
+
+	for _, bad := range []string{"-5", "lots"} {
+		_, err := parseFloatAlert(bad)
+		assert.Error(t, err, bad)
+	}
+}
