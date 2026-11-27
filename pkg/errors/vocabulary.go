@@ -245,6 +245,7 @@ const (
 	CodeMissingAccountIndex = "missing_account_index"
 	CodeMissingBorrowerAddr = "missing_borrower_address"
 	CodeMissingPhoneNumber  = "missing_phone_number"
+	CodeInvalidPhoneNumber  = "invalid_phone_number"
 	CodeMissingPayerKYC     = "missing_payer_kyc"
 	CodeMissingPayerEmail   = "missing_payer_email"
 	CodeMissingPayerIP      = "missing_payer_ip"

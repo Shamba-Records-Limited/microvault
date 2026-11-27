@@ -19,7 +19,8 @@ type StellarReceive struct {
 	ChannelID   string
 	// NetworkID is the payer's mobile money network, from GetNetworks.
 	NetworkID string
-	// PayerPhone is the mobile money number in international form (+254…).
+	// PayerPhone is the mobile money number in international form (+254…),
+	// as YellowCard requires for momo.
 	PayerPhone string
 	// Payer is the retail KYC block. Every field in RetailPayerFields is
 	// required by YellowCard.
@@ -36,6 +37,7 @@ type StellarReceive struct {
 // receive.
 var RetailPayerFields = []string{"name", "country", "phone", "email", "address", "dob", "idType", "idNumber"}
 
+// onRampErr starts an error builder for the pay-in direction.
 func onRampErr(op string) oops.OopsErrorBuilder {
 	return oops.In(pkgErrors.DomainOnRamp).Tags("yellowcard").
 		With(pkgErrors.AttrProvider, "yellowcard").
@@ -67,6 +69,9 @@ func (r StellarReceive) Request() (CollectionRequest, error) {
 			Errorf("sequence id, customer uid, channel id and network id are required")
 	case r.PayerPhone == "":
 		return CollectionRequest{}, errb.Code(pkgErrors.CodeMissingPhoneNumber).Errorf("payer phone is required")
+	case !isInternationalPhone(r.PayerPhone):
+		return CollectionRequest{}, errb.Code(pkgErrors.CodeInvalidPhoneNumber).
+			Errorf("payer phone must be in international form with a leading +")
 	case r.LocalAmount <= 0:
 		return CollectionRequest{}, errb.Code(pkgErrors.CodeInvalidAmount).With("local_amount", r.LocalAmount).
 			Errorf("local amount must be positive")
@@ -114,6 +119,20 @@ func (r StellarReceive) Request() (CollectionRequest, error) {
 			CryptoNetwork:  CryptoNetworkXLM,
 		},
 	}, nil
+}
+
+// isInternationalPhone reports a leading + followed by 8 to 15 digits.
+func isInternationalPhone(s string) bool {
+	digits, ok := strings.CutPrefix(s, "+")
+	if !ok || len(digits) < 8 || len(digits) > 15 {
+		return false
+	}
+	for _, c := range digits {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // SubmitStellarReceive validates and submits a direct-settlement receive.
