@@ -388,19 +388,52 @@ func TestChipperInitiateRejects(t *testing.T) {
 	}
 }
 
+func chipperRelease() chipper.Release {
+	return chipper.Release{
+		LoanID: "loan-1", Reference: "loan-1", RecipientName: "Jane Doe",
+		DestinationPhone: "+254712345678", CountryCode: "KE", NetworkCode: "63902",
+		DepositTxHash: "stellar-tx",
+	}
+}
+
 func TestChipperReleasePayout(t *testing.T) {
 	client := newFakeChipper()
-	res, err := chipperAdapter(t, client, &fakeTreasury{}, nil).ReleasePayout(context.Background(), chipperRequest(), "stellar-tx")
+	client.deposit.From = chipper.CollectionParty{Amount: decimal.MustParse("7.678911"), Currency: "USDC"}
+	res, err := chipperAdapter(t, client, &fakeTreasury{}, nil).ReleasePayout(context.Background(), chipperRelease())
 	require.NoError(t, err)
 	assert.Equal(t, "pay_kes_1", res.RequestID)
 	require.Len(t, client.created, 1)
+	assert.Equal(t, "7.678911", client.created[0].From.Amount.String(), "the payout uses the deposited amount")
 
 	client = newFakeChipper()
 	client.deposit.Status = chipper.CollectionProcessing
-	_, err = chipperAdapter(t, client, &fakeTreasury{}, nil).ReleasePayout(context.Background(), chipperRequest(), "stellar-tx")
+	_, err = chipperAdapter(t, client, &fakeTreasury{}, nil).ReleasePayout(context.Background(), chipperRelease())
 	require.Error(t, err)
 	assert.Equal(t, pkgErrors.CodeIncompleteResponse, chipperCodeOf(t, err))
 	assert.Empty(t, client.created)
+}
+
+func TestChipperReissuePayout(t *testing.T) {
+	failed := completedPayout()
+	failed.Status = chipper.PayoutFailed
+	failed.To.Code, failed.To.AccountNumber = new("ke_mpesa"), new("254712345678")
+	failed.Metadata = map[string]any{"loan_id": "loan-1"}
+
+	client := newFakeChipper()
+	p, err := chipperAdapter(t, client, &fakeTreasury{}, nil).ReissuePayout(context.Background(), failed, "loan-1_fiat")
+	require.NoError(t, err)
+	assert.Equal(t, "pay_kes_1", p.ID)
+	require.Len(t, client.created, 1)
+	req := client.created[0]
+	assert.Equal(t, "loan-1_fiat", req.ExternalReference)
+	assert.Equal(t, "7.678911", req.From.Amount.String())
+	assert.Equal(t, "ke_mpesa", req.To.Code)
+	assert.Equal(t, "loan-1", req.Metadata["loan_id"])
+
+	failed.To.AccountNumber = nil
+	_, err = chipperAdapter(t, newFakeChipper(), &fakeTreasury{}, nil).ReissuePayout(context.Background(), failed, "loan-1_fiat")
+	require.Error(t, err)
+	assert.Equal(t, pkgErrors.CodeIncompleteResponse, chipperCodeOf(t, err))
 }
 
 func TestChipperStatus(t *testing.T) {

@@ -30,3 +30,15 @@ type OffRampPayload struct {
 
 // ProviderID identifies this payload's provider.
 func (OffRampPayload) ProviderID() offramp.ProviderID { return offramp.ProviderChipper }
+
+// Release identifies a pending payout to finish: the loan, its reference, the
+// destination and the deposit transaction that funded it.
+type Release struct {
+	LoanID           string
+	Reference        string
+	RecipientName    string
+	DestinationPhone string
+	CountryCode      string
+	NetworkCode      string
+	DepositTxHash    string
+}

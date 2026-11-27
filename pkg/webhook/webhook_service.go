@@ -55,6 +55,10 @@ type Service struct {
 	alerts        AlertService
 	transactions  TransactionRecorder
 	payments      PaymentLookup
+
+	chipperPayouts ChipperPayouts
+	chipperStore   ChipperStore
+	settlement     SettlementChecker
 }
 
 // NewService creates a new webhook processing service.

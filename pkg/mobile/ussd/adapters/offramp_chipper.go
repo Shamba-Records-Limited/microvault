@@ -416,37 +416,106 @@ func (a *ChipperOffRampAdapter) createPayout(ctx context.Context, d *disbursemen
 }
 
 // ReleasePayout finishes a disbursement whose deposit reached Chipper but
-// whose payout was left pending. It is idempotent on the reference.
-func (a *ChipperOffRampAdapter) ReleasePayout(ctx context.Context, req offramp.Request, depositTxHash string) (*offramp.Result, error) {
-	errb := chipperAdapterErr("release_payout").With(pkgErrors.AttrLoanID, req.LoanID).With(pkgErrors.AttrTxHash, depositTxHash)
-
-	d, err := a.prepare(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	if existing, err := a.client.GetPayoutByReference(ctx, d.reference); err == nil {
-		return a.payoutResult(d, existing, chipper.SettlementDirect, depositTxHash, ""), nil
-	} else if !isChipperNotFound(err) {
-		return nil, errb.Code(pkgErrors.CodeHTTPError).Wrapf(err, "could not check for an existing payout")
+// whose payout was left pending. The payout amount is the deposit's own
+// on-chain amount. It is idempotent on the reference.
+func (a *ChipperOffRampAdapter) ReleasePayout(ctx context.Context, rel chipper.Release) (*offramp.Result, error) {
+	errb := chipperAdapterErr("release_payout").With(pkgErrors.AttrLoanID, rel.LoanID).With(pkgErrors.AttrTxHash, rel.DepositTxHash)
+	if rel.DepositTxHash == "" {
+		return nil, errb.Code(pkgErrors.CodeMissingAccount).Errorf("deposit tx hash is required")
 	}
 
 	addressID, err := a.depositAddressID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	deposit, found, err := a.client.FindCryptoDeposit(ctx, addressID, depositTxHash, time.Time{})
+	deposit, found, err := a.client.FindCryptoDeposit(ctx, addressID, rel.DepositTxHash, time.Time{})
 	if err != nil {
 		return nil, errb.Code(pkgErrors.CodeHTTPError).Wrapf(err, "could not look up the deposit")
 	}
 	if !found || deposit.Status != chipper.CollectionCompleted {
 		return nil, errb.Code(pkgErrors.CodeIncompleteResponse).Errorf("deposit is not credited yet")
 	}
+	stroops, err := usdcToStroops(deposit.From.Amount)
+	if err != nil {
+		return nil, errb.Code(pkgErrors.CodeInvalidAmount).Wrapf(err, "deposit amount is out of range")
+	}
+
+	d, err := a.prepare(ctx, offramp.Request{
+		LoanID:           rel.LoanID,
+		RecipientName:    rel.RecipientName,
+		AmountStroops:    stroops,
+		DestinationPhone: rel.DestinationPhone,
+		CountryCode:      rel.CountryCode,
+		NetworkCode:      rel.NetworkCode,
+		IdempotencyKey:   rel.Reference,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if existing, err := a.client.GetPayoutByReference(ctx, d.reference); err == nil {
+		return a.payoutResult(d, existing, chipper.SettlementDirect, rel.DepositTxHash, deposit.ID), nil
+	} else if !isChipperNotFound(err) {
+		return nil, errb.Code(pkgErrors.CodeHTTPError).Wrapf(err, "could not check for an existing payout")
+	}
 
 	payout, err := a.createPayout(ctx, d)
 	if err != nil {
 		return nil, errb.Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "chipper rejected the payout")
 	}
-	return a.payoutResult(d, payout, chipper.SettlementDirect, depositTxHash, deposit.ID), nil
+	return a.payoutResult(d, payout, chipper.SettlementDirect, rel.DepositTxHash, deposit.ID), nil
+}
+
+// ReissuePayout repeats a failed payout from the Chipper balance under a new
+// reference, to the same destination and for the same debit.
+func (a *ChipperOffRampAdapter) ReissuePayout(ctx context.Context, failed *chipper.Payout, reference string) (*chipper.Payout, error) {
+	errb := chipperAdapterErr("reissue_payout").With("failed_payout_id", failed.ID).With(pkgErrors.AttrSequenceID, reference)
+
+	code, account := lo.FromPtr(failed.To.Code), lo.FromPtr(failed.To.AccountNumber)
+	if code == "" || account == "" {
+		return nil, errb.Code(pkgErrors.CodeIncompleteResponse).Errorf("failed payout carries no destination to repeat")
+	}
+	req := chipper.PayoutRequest{
+		From:              &chipper.PayoutSource{Amount: chipper.NewAmount(failed.From.Amount), Currency: failed.From.Currency},
+		To:                chipper.PayoutDestination{Code: code, AccountNumber: account, Currency: failed.To.Currency},
+		Narration:         chipperNarration,
+		ExternalReference: reference,
+	}
+	if loanID, ok := failed.Metadata["loan_id"].(string); ok && loanID != "" {
+		req.Metadata = map[string]string{"loan_id": loanID}
+	}
+
+	payout, _, err := a.client.CreatePayout(ctx, req)
+	if err == nil {
+		return payout, nil
+	}
+	if apiErr, ok := chipper.AsAPIError(err); !ok || apiErr.Retryable() {
+		if existing, getErr := a.client.GetPayoutByReference(ctx, reference); getErr == nil {
+			return existing, nil
+		}
+	}
+	return nil, errb.Code(pkgErrors.CodeSubmitFailed).Wrapf(err, "chipper rejected the repeated payout")
+}
+
+// Payout reads a payout by id.
+func (a *ChipperOffRampAdapter) Payout(ctx context.Context, id string) (*chipper.Payout, error) {
+	payout, err := a.client.GetPayout(ctx, id)
+	if err != nil {
+		return nil, chipperAdapterErr("payout").With("payout_id", id).Code(pkgErrors.CodeHTTPError).Wrapf(err, "could not read the payout")
+	}
+	return payout, nil
+}
+
+func usdcToStroops(amount decimal.Decimal) (int64, error) {
+	scaled, err := amount.Mul(decimal.MustNew(10_000_000, 0))
+	if err != nil {
+		return 0, err
+	}
+	whole, frac, ok := scaled.Int64(0)
+	if !ok || frac != 0 || whole <= 0 {
+		return 0, chipperAdapterErr("usdc_to_stroops").With("amount", amount.String()).
+			Code(pkgErrors.CodeInvalidAmount).Errorf("amount is not a positive whole number of stroops")
+	}
+	return whole, nil
 }
 
 // Status reads a payout. ref.ID is a payout id (pay_…) or the reference.
