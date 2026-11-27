@@ -46,6 +46,9 @@ const (
 	// DomainOffRamp covers payout providers and the refund unwind path.
 	DomainOffRamp = "off-ramp"
 
+	// DomainOnRamp covers pay-in providers converting fiat to crypto.
+	DomainOnRamp = "on-ramp"
+
 	// DomainRepaymentCashIn covers the borrower repayment rail on the credit
 	// side — quote lock, deposit initiation, and settlement.
 	DomainRepaymentCashIn = "repayment-cash-in"
@@ -242,6 +245,7 @@ const (
 	CodeMissingAccountIndex = "missing_account_index"
 	CodeMissingBorrowerAddr = "missing_borrower_address"
 	CodeMissingPhoneNumber  = "missing_phone_number"
+	CodeMissingPayerKYC     = "missing_payer_kyc"
 
 	// CodeNilTransaction is a polled anchor transaction that came back nil.
 	CodeNilTransaction = "nil_transaction"

@@ -151,6 +151,16 @@ A few things worth calling out:
 - **The webhook is thin.** It carries the payment id, sequence id, status, and
   event name, and nothing else. No amounts, no fees. That's why capturing the
   final numbers needs a separate lookup (next section).
+- **Both event vocabularies are accepted.** YellowCard has deprecated the
+  legacy names (`PAYMENT.*`, `COLLECTION.*`, `SETTLEMENT.*`) in favour of v2
+  (`SEND.*`, `RECEIVE.*`, and `CRYPTO_SEND.*` / `CRYPTO_RECEIVE.*` /
+  `CONVERT.*` for settlements). Payouts match `SEND.COMPLETE` / `SEND.FAILED`
+  and their legacy twins, and every other event routes by `status`, so the
+  dashboard can be set to v2 without losing payouts.
+- **`executedAt` is read leniently.** YellowCard documents it as an ISO 8601
+  string; we also accept Unix seconds, and an unreadable value decodes to zero
+  rather than refusing the whole event. A strict integer field once turned
+  every ISO-stamped webhook into a `400`, so no payout ever completed.
 
 ---
 
@@ -242,6 +252,8 @@ logs a loud `WARN` on startup and on every payout, so it can't slip by unnoticed
 | `refund_failed` alert | YC couldn't return our crypto | **Manual**, reconcile with YC directly |
 | `vault_repay_status = failed`, repay hash NULL | A payout settled but returning USDC to the Vault failed | The USDC is stuck in treasury; sweep/retry the repay manually |
 | Fiat failover failed alert | Direct refunded but the fiat retry couldn't go through (e.g. low YC balance) | Loan is marked failed and Vault repaid; investigate the retry error |
+| Submit refused with a `400` naming `channelType`, `country` or `currency` | YellowCard now requires all three at the top level of a send | `buildPaymentRequest` sets them from the momo channel and the request's country; check the channel YC returned has a currency |
+| Payouts paid by YC but loans never reach `complete`; webhook logs show `400 invalid webhook payload` | Our handler could not decode the event | Check the payload against `yellowcard.WebhookEvent`; YC's delivery log in the dashboard shows the body and our response |
 
 ---
 

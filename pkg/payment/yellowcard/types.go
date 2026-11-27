@@ -144,6 +144,10 @@ type CollectionRequest struct {
 	// RedirectURL is required when the selected channel needs a redirect and
 	// ForceAccept is true. The South African collection channel is one.
 	RedirectURL string `json:"redirectUrl,omitempty"`
+	// DirectSettlement pays the collected funds out as crypto per
+	// SettlementInfo instead of crediting the partner balance.
+	DirectSettlement bool            `json:"directSettlement,omitempty"`
+	SettlementInfo   *SettlementInfo `json:"settlementInfo,omitempty"`
 }
 
 // Collection is a collection request as YellowCard reports it. Submit, accept,
@@ -175,6 +179,11 @@ type Collection struct {
 	Recipient Party            `json:"recipient"`
 	Source    CollectionSource `json:"source"`
 	BankInfo  *BankInfo        `json:"bankInfo,omitempty"`
+
+	DirectSettlement      bool            `json:"directSettlement,omitempty"`
+	SettlementInfo        *SettlementInfo `json:"settlementInfo,omitempty"`
+	NetworkFeeAmountUSD   float64         `json:"networkFeeAmountUSD,omitempty"`
+	NetworkFeeAmountLocal float64         `json:"networkFeeAmountLocal,omitempty"`
 
 	ServiceFeeAmountUSD   float64 `json:"serviceFeeAmountUSD,omitempty"`
 	ServiceFeeAmountLocal float64 `json:"serviceFeeAmountLocal,omitempty"`
@@ -240,7 +249,9 @@ type SettlementInfo struct {
 // Either Amount (USD) or LocalAmount must be specified, not both.
 // ForceAccept is always set to true to skip the approval window.
 type PaymentRequest struct {
-	ChannelID        string          `json:"channelId"`
+	ChannelID string `json:"channelId,omitempty"`
+	// ChannelType is the payout rail, momo or bank. Required by YellowCard.
+	ChannelType      string          `json:"channelType"`
 	SequenceID       string          `json:"sequenceId"`
 	Reason           string          `json:"reason"`
 	Sender           Sender          `json:"sender"`
@@ -341,8 +352,9 @@ type WebhookEvent struct {
 	ErrorCode string `json:"errorCode,omitempty"`
 	// SessionID is YellowCard's session identifier for this payment attempt.
 	SessionID string `json:"sessionId,omitempty"`
-	// ExecutedAt is the Unix timestamp (seconds) at which this event occurred.
-	ExecutedAt int64 `json:"executedAt" example:"1735689600"`
+	// ExecutedAt is when the event occurred. YellowCard documents an ISO 8601
+	// string; Unix seconds are accepted too.
+	ExecutedAt EventTime `json:"executedAt" swaggertype:"string" example:"2026-02-20T14:25:30.459Z"`
 }
 
 // UnmarshalJSON ensures SettlementInfo is always a non-nil pointer after
@@ -441,7 +453,8 @@ const (
 	CustomerTypeInstitution = "institution"
 )
 
-// Webhook event constants, v1
+// Webhook event constants, v1. Deprecated by YellowCard; kept while
+// dashboards may still send them.
 const (
 	EventDisbursementComplete     = "DISBURSEMENT.COMPLETE"
 	EventDisbursementFailed       = "DISBURSEMENT.FAILED"
@@ -452,11 +465,32 @@ const (
 	EventCryptoDeposit            = "CRYPTO.DEPOSIT"
 )
 
-// Webhook event constants, v2
+// Webhook event constants, v2.
 const (
 	EventSendPendingSettlement = "SEND.PENDING_SETTLEMENT"
 	EventSendComplete          = "SEND.COMPLETE"
 	EventSendFailed            = "SEND.FAILED"
+
+	EventReceiveComplete             = "RECEIVE.COMPLETE"
+	EventReceiveFailed               = "RECEIVE.FAILED"
+	EventReceiveSettlementPending    = "RECEIVE.SETTLEMENT_PENDING"
+	EventReceiveSettlementProcessing = "RECEIVE.SETTLEMENT_PROCESSING"
+	EventReceiveSettlementComplete   = "RECEIVE.SETTLEMENT_COMPLETE"
+)
+
+// v2 settlement event prefixes. Each is followed by a status, e.g.
+// CONVERT.COMPLETE.
+const (
+	EventPrefixCryptoSend    = "CRYPTO_SEND."
+	EventPrefixCryptoReceive = "CRYPTO_RECEIVE."
+	EventPrefixConvert       = "CONVERT."
+)
+
+// Receive settlement statuses, set on a direct-settlement receive.
+const (
+	StatusSettlementPending    = "settlement_pending"
+	StatusSettlementProcessing = "settlement_processing"
+	StatusSettlementComplete   = "settlement_complete"
 )
 
 // Country code constants (ISO 3166-2).

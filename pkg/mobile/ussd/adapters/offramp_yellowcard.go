@@ -539,6 +539,9 @@ func (a *YellowCardOffRampAdapter) buildPaymentRequest(p *disbursementParams) ye
 
 	return yellowcard.PaymentRequest{
 		ChannelID:    p.momoChannel.ID,
+		ChannelType:  yellowcard.ChannelTypeMomo,
+		Country:      p.req.CountryCode,
+		Currency:     p.momoChannel.Currency,
 		SequenceID:   p.idempotencyKey,
 		Amount:       p.req.AmountUSD,
 		Reason:       "other",

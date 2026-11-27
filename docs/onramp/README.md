@@ -14,13 +14,13 @@ settling their debt without ever holding crypto.
 | Provider | Doc | Rail | Status |
 |---|---|---|---|
 | MoneyGram | [moneygram.md](./moneygram.md) | SEP-24 anchor cash-in at an agent | Wired end to end |
-| YellowCard | [../offramp/yellowcard.md](../offramp/yellowcard.md) | Mobile-money collections | Client only, no consumer |
+| YellowCard | [yellowcard.md](./yellowcard.md) | Mobile money in, USDC on Stellar out (direct-settlement receive) | Package only, not wired |
 | Fonbnk | [../offramp/fonbnk.md](../offramp/fonbnk.md) | Mobile-money STK push | Client only, no consumer |
 
-YellowCard collections and Fonbnk on-ramp orders are both callable today, but
-nothing in the platform drives them: only MoneyGram cash-in is wired to a
-consumer. Both are documented alongside their off-ramp direction, since each is
-one client covering both.
+Only MoneyGram cash-in is wired to a consumer. The other providers can be
+called from their packages, and each package documents what it needs from the
+channel that drives it. Those needs are why they are not wired: the USSD
+channel holds no payer email or client IP, and a web or app channel would.
 
 ## The big ideas
 

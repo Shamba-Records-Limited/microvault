@@ -15,6 +15,10 @@
 // that flow through offramp.Request.Options and offramp.Result.Provider for
 // callers that need YC-specific input or output.
 //
+// onramp.go builds a direct-settlement receive that collects mobile money
+// and settles USDC on Stellar; it is not wired to any channel (see
+// docs/onramp/yellowcard.md).
+//
 // The package is a pure client library: it knows how to talk to YellowCard
 // and nothing about USSD, persistence, or notifications.
 package yellowcard
