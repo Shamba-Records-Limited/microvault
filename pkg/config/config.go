@@ -20,6 +20,7 @@ import (
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/loanref"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/airtel"
+	"github.com/Shamba-Records-Limited/microvault/pkg/payment/chipper"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/mpesa"
 )
 
@@ -230,11 +231,85 @@ type YellowCardConfig struct {
 	BusinessName string // Registered business name with YellowCard
 }
 
+// Enabled reports whether YellowCard credentials are set.
+func (c YellowCardConfig) Enabled() bool { return c.PublicKey != "" && c.SecretKey != "" }
+
 // FonbnkConfig holds all Fonbnk-related configuration
 type FonbnkConfig struct {
-	ClientID     string
-	ClientSecret string
-	BaseURL      string
+	ClientID      string
+	ClientSecret  string
+	BaseURL       string
+	WebhookSecret string
+}
+
+// Enabled reports whether Fonbnk credentials are set.
+func (c FonbnkConfig) Enabled() bool { return c.ClientID != "" && c.ClientSecret != "" }
+
+// ChipperConfig configures the Chipper off-ramp. DepositAddress and
+// DepositMemo are the dashboard's Stellar USDC deposit target, pinned per
+// environment. MethodCodes maps a mobile money network code to a Chipper
+// payout method, e.g. MPESA=ke_mpesa.
+type ChipperConfig struct {
+	APIKey         string
+	BaseURL        string
+	WebhookSecret  string
+	DepositAddress string
+	DepositMemo    string
+	MethodCodes    map[string]string
+	FeeSchedule    *chipper.FeeSchedule
+}
+
+// Enabled reports whether a Chipper API key is set.
+func (c ChipperConfig) Enabled() bool { return c.APIKey != "" }
+
+// Validate requires the full Chipper setup once a key is set, since a
+// half-configured provider would deposit treasury funds it cannot pay out.
+func (c *ChipperConfig) Validate(serverEnv string) error {
+	if !c.Enabled() {
+		return nil
+	}
+	missing := []string{}
+	for key, value := range map[string]string{
+		"CHIPPER_WEBHOOK_SECRET":  c.WebhookSecret,
+		"CHIPPER_DEPOSIT_ADDRESS": c.DepositAddress,
+		"CHIPPER_DEPOSIT_MEMO":    c.DepositMemo,
+	} {
+		if value == "" {
+			missing = append(missing, key)
+		}
+	}
+	if len(c.MethodCodes) == 0 {
+		missing = append(missing, "CHIPPER_METHOD_CODES")
+	}
+	if c.FeeSchedule == nil {
+		missing = append(missing, "CHIPPER_FEE_SCHEDULE")
+	}
+	if serverEnv == "production" && os.Getenv("CHIPPER_BASE_URL") == "" {
+		missing = append(missing, "CHIPPER_BASE_URL")
+	}
+	if len(missing) > 0 {
+		slices.Sort(missing)
+		return fmt.Errorf("CHIPPER_API_KEY is set but %s are not", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// parseMethodCodes reads "MPESA=ke_mpesa,AIRTEL=ke_airtel".
+func parseMethodCodes(raw string) (map[string]string, error) {
+	codes := map[string]string{}
+	for pair := range strings.SplitSeq(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		network, code, ok := strings.Cut(pair, "=")
+		network, code = strings.TrimSpace(network), strings.TrimSpace(code)
+		if !ok || network == "" || code == "" {
+			return nil, fmt.Errorf("CHIPPER_METHOD_CODES entry %q is not NETWORK=method_code", pair)
+		}
+		codes[strings.ToUpper(network)] = strings.ToLower(code)
+	}
+	return codes, nil
 }
 
 // ComplianceConfig holds the Elliptic AML client's configuration. Empty
@@ -401,6 +476,7 @@ type MoneyGramConfig struct {
 type PaymentsConfig struct {
 	YellowCard YellowCardConfig
 	Fonbnk     FonbnkConfig
+	Chipper    ChipperConfig
 	MoneyGram  MoneyGramConfig
 	Mpesa      MpesaConfig
 	Airtel     AirtelConfig
@@ -891,8 +967,6 @@ func New() (*Config, error) {
 		"YELLOW_CARD_SECRET_KEY":    ycSecretKey,
 		"YELLOW_CARD_BUSINESS_ID":   ycBusinessID,
 		"YELLOW_CARD_BUSINESS_NAME": ycBusinessName,
-		"FONBNK_CLIENT_ID":          fonbnkClientID,
-		"FONBNK_CLIENT_SECRET":      fonbnkClientSecret,
 		"TREASURY_SECRET_KEY":       treasurySecretKey,
 		"ADMIN_SECRET_KEY":          adminSecretKey,
 		"SERVER_SECRET_KEY":         serverSecretKey,
@@ -934,9 +1008,20 @@ func New() (*Config, error) {
 		ycBaseURL = "https://sandbox.api.yellowcard.io/business"
 	}
 
+	chipperMethodCodes, err := parseMethodCodes(os.Getenv("CHIPPER_METHOD_CODES"))
+	if err != nil {
+		return nil, err
+	}
+	var chipperFees *chipper.FeeSchedule
+	if raw := os.Getenv("CHIPPER_FEE_SCHEDULE"); raw != "" {
+		if chipperFees, err = chipper.ParseFeeSchedule(raw); err != nil {
+			return nil, fmt.Errorf("CHIPPER_FEE_SCHEDULE: %w", err)
+		}
+	}
+
 	fonbnkBaseURL := os.Getenv("FONBNK_BASE_URL")
 	if fonbnkBaseURL == "" {
-		if serverEnvironment == "production" {
+		if serverEnvironment == "production" && fonbnkClientID != "" {
 			return nil, fmt.Errorf("FONBNK_BASE_URL must be set in production; the default is the Fonbnk sandbox")
 		}
 		fonbnkBaseURL = "https://sandbox-api.fonbnk.com"
@@ -1250,9 +1335,19 @@ func New() (*Config, error) {
 				BusinessName: ycBusinessName,
 			},
 			Fonbnk: FonbnkConfig{
-				ClientID:     fonbnkClientID,
-				ClientSecret: fonbnkClientSecret,
-				BaseURL:      fonbnkBaseURL,
+				ClientID:      fonbnkClientID,
+				ClientSecret:  fonbnkClientSecret,
+				BaseURL:       fonbnkBaseURL,
+				WebhookSecret: os.Getenv("FONBNK_WEBHOOK_SECRET"),
+			},
+			Chipper: ChipperConfig{
+				APIKey:         os.Getenv("CHIPPER_API_KEY"),
+				BaseURL:        firstNonEmpty(os.Getenv("CHIPPER_BASE_URL"), chipper.SandboxBaseURL),
+				WebhookSecret:  os.Getenv("CHIPPER_WEBHOOK_SECRET"),
+				DepositAddress: os.Getenv("CHIPPER_DEPOSIT_ADDRESS"),
+				DepositMemo:    os.Getenv("CHIPPER_DEPOSIT_MEMO"),
+				MethodCodes:    chipperMethodCodes,
+				FeeSchedule:    chipperFees,
 			},
 			MoneyGram: MoneyGramConfig{
 				HomeDomain:        mgHomeDomain,
@@ -1837,6 +1932,49 @@ func (c AirtelConfig) AirtelCallbackURL() string {
 // Enabled reports whether the Airtel rail is configured at all. Every Airtel
 // code path is wired behind it.
 func (c AirtelConfig) Enabled() bool { return c.ClientID != "" && c.ClientSecret != "" }
+
+// Enabled reports whether M-Pesa credentials are set.
+func (c MpesaConfig) Enabled() bool { return c.ConsumerKey != "" && c.ConsumerSecret != "" }
+
+// Enabled reports whether a MoneyGram anchor is configured.
+func (c MoneyGramConfig) Enabled() bool { return c.HomeDomain != "" }
+
+// Payment provider identifiers, matching the off-ramp and cash-in registries.
+const (
+	ProviderYellowCard = "yellowcard"
+	ProviderFonbnk     = "fonbnk"
+	ProviderChipper    = "chipper"
+	ProviderMoneyGram  = "moneygram"
+	ProviderMpesa      = "mpesa"
+	ProviderAirtel     = "airtel"
+)
+
+// EnabledProviders lists the configured payment providers. Anything absent
+// is neither wired by the credit service nor shown in the admin portal.
+func (c PaymentsConfig) EnabledProviders() []string {
+	enabled := []string{}
+	for _, p := range []struct {
+		id string
+		on bool
+	}{
+		{ProviderMoneyGram, c.MoneyGram.Enabled()},
+		{ProviderYellowCard, c.YellowCard.Enabled()},
+		{ProviderFonbnk, c.Fonbnk.Enabled()},
+		{ProviderChipper, c.Chipper.Enabled()},
+		{ProviderMpesa, c.Mpesa.Enabled()},
+		{ProviderAirtel, c.Airtel.Enabled()},
+	} {
+		if p.on {
+			enabled = append(enabled, p.id)
+		}
+	}
+	return enabled
+}
+
+// ProviderEnabled reports whether one provider is configured.
+func (c PaymentsConfig) ProviderEnabled(id string) bool {
+	return slices.Contains(c.EnabledProviders(), id)
+}
 
 // Offered reports whether new repayments may use the rail: configured and
 // switched on.
