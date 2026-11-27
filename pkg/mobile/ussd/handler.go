@@ -1286,22 +1286,6 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	localAmount := toInt64(session.Data["loan_amount_local"])
 	localCurrency, _ := session.Data["local_currency"].(string)
 
-	var sellRate float64
-	if h.rateService != nil {
-		rate, err := h.rateService.GetExchangeRate(ctx, localCurrency)
-		if err != nil {
-			slog.ErrorContext(ctx, "submitLoan: failed to get exchange rate", slog.Any("error", err))
-			return h.formatError(session.Language, "error"), nil
-		}
-		sellRate = rate
-	} else {
-		sellRate = 153.50 // fallback
-	}
-
-	// Convert local currency to USDC stroops: (fiat / rate) * 1e7
-	fiatAmount := float64(localAmount) / 100.0
-	usdcStroops := int64(fiatAmount / sellRate * 1e7)
-
 	// Get user and first account.
 	userData, accounts, err := h.userService.GetUserWithAccounts(ctx, session.UserID)
 	if err != nil || len(accounts) == 0 {
@@ -1365,6 +1349,16 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 	// ends immediately. The user is notified via SMS on success or failure.
 	payoutMethod, _ := session.Data["payout_method"].(string)
 
+	sellRate, rampProvider, err := h.quoteDisbursement(ctx, payoutMethod, localAmount, localCurrency, countryCode)
+	if err != nil {
+		slog.ErrorContext(ctx, "submitLoan: failed to get exchange rate", slog.Any("error", err))
+		return h.formatError(session.Language, "error"), nil
+	}
+
+	// Convert local currency to USDC stroops: (fiat / rate) * 1e7
+	fiatAmount := float64(localAmount) / 100.0
+	usdcStroops := int64(fiatAmount / sellRate * 1e7)
+
 	loanReq := &LoanRequest{
 		UserID:          session.UserID,
 		AccountID:       accountID,
@@ -1384,6 +1378,7 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 		LocalCurrency:   localCurrency,
 		ConversionRate:  sellRate,
 		PayoutMethod:    payoutMethod,
+		RampProvider:    rampProvider,
 		BirthDate:       birthDate,
 		Address:         address,
 		City:            city,
@@ -1406,6 +1401,31 @@ func (h *USSDHandler) submitLoan(ctx context.Context, session *Session) (string,
 
 	localKES := float64(localAmount) / 100
 	return "END " + Format(session.Language, "loan_processing", localCurrency, localKES), nil
+}
+
+// quoteDisbursement prices the loan before anything is borrowed. Mobile money
+// is quoted by the provider that will execute it when the rate service can
+// route; otherwise, and for cash pickup, the shared rate applies and no
+// provider is pinned.
+func (h *USSDHandler) quoteDisbursement(ctx context.Context, payoutMethod string, localAmount int64, currency, country string) (rate float64, provider string, err error) {
+	if h.rateService == nil {
+		return 153.50, "", nil
+	}
+	if quoter, ok := h.rateService.(DisbursementQuoter); ok && isMobileMoney(payoutMethod) {
+		q, err := quoter.QuoteDisbursement(ctx, DisbursementQuoteRequest{
+			LocalAmount: localAmount, LocalCurrency: currency, CountryCode: country,
+		})
+		if err == nil && q.SellRate > 0 {
+			return q.SellRate, q.Provider, nil
+		}
+		slog.WarnContext(ctx, "submitLoan: routed quote unavailable, using the shared rate", slog.Any("error", err))
+	}
+	rate, err = h.rateService.GetExchangeRate(ctx, currency)
+	return rate, "", err
+}
+
+func isMobileMoney(payoutMethod string) bool {
+	return payoutMethod == "" || payoutMethod == "mobile_money"
 }
 
 // handleMyLoans texts the borrower a statement of their current loan rather

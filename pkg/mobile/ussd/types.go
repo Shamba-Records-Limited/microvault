@@ -187,6 +187,27 @@ type RateService interface {
 	GetExchangeRate(ctx context.Context, currency string) (sellRate float64, err error)
 }
 
+// DisbursementQuoter prices a mobile money disbursement with the provider
+// that will execute it. Optional: a RateService that implements it lets the
+// loan be priced and pinned to that provider before anything is borrowed.
+type DisbursementQuoter interface {
+	QuoteDisbursement(ctx context.Context, req DisbursementQuoteRequest) (*DisbursementQuote, error)
+}
+
+// DisbursementQuoteRequest is the loan as requested, in local currency cents.
+type DisbursementQuoteRequest struct {
+	LocalAmount   int64
+	LocalCurrency string
+	CountryCode   string
+}
+
+// DisbursementQuote is the provider chosen to disburse and its sell rate in
+// local units per USD. An empty Provider leaves the choice to disbursement.
+type DisbursementQuote struct {
+	Provider string
+	SellRate float64
+}
+
 // LoanService defines the interface for loan-related operations.
 // Implementations live in the lending module; the USSD handler depends only on
 // this consumer-defined interface.
@@ -404,6 +425,10 @@ type LoanRequest struct {
 	// Empty defaults to mobile money for back-compat with menus that don't
 	// expose the cash-pickup branch yet.
 	PayoutMethod string
+
+	// RampProvider pins the off-ramp the loan was quoted against, so
+	// disbursement does not re-route to a provider priced differently.
+	RampProvider string
 
 	// Cash-pickup-only KYC fields (MoneyGram). Ignored by mobile-money flows.
 	FirstName          string

@@ -142,7 +142,7 @@ func chipperAdapter(t *testing.T, client ChipperClient, treasury offramp.Treasur
 		Treasury:       treasury,
 		DepositAddress: chipperTestAddress,
 		DepositMemo:    chipperTestMemo,
-		MethodCodes:    map[string]string{"63902": "ke_mpesa"},
+		MethodCodes:    map[string]string{"MPESA": "ke_mpesa"},
 		CreditTimeout:  50 * time.Millisecond,
 		PollInterval:   time.Millisecond,
 	}
@@ -161,7 +161,7 @@ func chipperRequest() offramp.Request {
 		AmountStroops:    76_789_115,
 		DestinationPhone: "+254 712 345 678",
 		CountryCode:      "KE",
-		NetworkCode:      "63902",
+		NetworkCode:      "MPESA",
 		IdempotencyKey:   "loan-1",
 		PayoutMethod:     offramp.PayoutMethodMobileMoney,
 	}
@@ -171,7 +171,7 @@ func TestNewChipperOffRampAdapterValidation(t *testing.T) {
 	base := ChipperOffRampConfig{
 		Client: newFakeChipper(), Treasury: &fakeTreasury{},
 		DepositAddress: chipperTestAddress, DepositMemo: chipperTestMemo,
-		MethodCodes: map[string]string{"63902": "ke_mpesa"},
+		MethodCodes: map[string]string{"MPESA": "ke_mpesa"},
 	}
 	tests := []struct {
 		name   string
@@ -364,7 +364,7 @@ func TestChipperInitiateRejects(t *testing.T) {
 		mutate func(*offramp.Request, *fakeChipperClient)
 		code   string
 	}{
-		{"unmapped network", func(r *offramp.Request, _ *fakeChipperClient) { r.NetworkCode = "63903" }, pkgErrors.CodeCorridorUnavailable},
+		{"unmapped network", func(r *offramp.Request, _ *fakeChipperClient) { r.NetworkCode = "AIRTEL" }, pkgErrors.CodeCorridorUnavailable},
 		{"method in outage", func(_ *offramp.Request, c *fakeChipperClient) { c.caps = kenyaCaps(chipper.MethodOutage) }, pkgErrors.CodeCorridorUnavailable},
 		{"unsupported country", func(r *offramp.Request, _ *fakeChipperClient) { r.CountryCode = "ZA" }, pkgErrors.CodeCorridorUnavailable},
 		{"national phone", func(r *offramp.Request, _ *fakeChipperClient) { r.DestinationPhone = "0712345678" }, pkgErrors.CodeMissingPhoneNumber},
@@ -391,7 +391,7 @@ func TestChipperInitiateRejects(t *testing.T) {
 func chipperRelease() chipper.Release {
 	return chipper.Release{
 		LoanID: "loan-1", Reference: "loan-1", RecipientName: "Jane Doe",
-		DestinationPhone: "+254712345678", CountryCode: "KE", NetworkCode: "63902",
+		DestinationPhone: "+254712345678", CountryCode: "KE", NetworkCode: "MPESA",
 		DepositTxHash: "stellar-tx",
 	}
 }

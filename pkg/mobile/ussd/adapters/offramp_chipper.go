@@ -3,7 +3,6 @@ package adapters
 import (
 	"context"
 	"log/slog"
-	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -55,8 +54,8 @@ func chipperAdapterErr(op string) oops.OopsErrorBuilder {
 //
 // DepositAddress and DepositMemo are the dashboard values, pinned so a
 // changed or wrong API response cannot redirect treasury funds. MethodCodes
-// maps a mobile network code (MCC+MNC, e.g. 63902) to a Chipper payout
-// method code (e.g. ke_mpesa). FeeHeadroomPct is the margin over the payout
+// maps the borrower's mobile money network code (offramp.Request.NetworkCode,
+// e.g. MPESA) to a Chipper payout method code (e.g. ke_mpesa). FeeHeadroomPct is the margin over the payout
 // amount the Chipper balance must hold before a fiat payout.
 type ChipperOffRampConfig struct {
 	Client         ChipperClient
@@ -151,7 +150,7 @@ func NewChipperOffRampAdapter(cfg ChipperOffRampConfig) (*ChipperOffRampAdapter,
 		treasury:      cfg.Treasury,
 		address:       cfg.DepositAddress,
 		memo:          memo,
-		methodCodes:   maps.Clone(cfg.MethodCodes),
+		methodCodes:   upperKeys(cfg.MethodCodes),
 		headroom:      headroom,
 		creditTimeout: lo.CoalesceOrEmpty(cfg.CreditTimeout, defaultCreditTimeout),
 		pollInterval:  lo.CoalesceOrEmpty(cfg.PollInterval, defaultPollInterval),
@@ -638,7 +637,7 @@ func (a *ChipperOffRampAdapter) usdcAvailable(ctx context.Context) (decimal.Deci
 func (a *ChipperOffRampAdapter) payoutMethod(ctx context.Context, country, networkCode string) (chipper.PaymentMethod, error) {
 	errb := chipperAdapterErr("payout_method").With("country", country).With("network_code", networkCode)
 
-	code, ok := a.methodCodes[networkCode]
+	code, ok := a.methodCodes[strings.ToUpper(networkCode)]
 	if !ok {
 		return chipper.PaymentMethod{}, errb.Code(pkgErrors.CodeCorridorUnavailable).Errorf("no chipper payout method for this network")
 	}
@@ -779,4 +778,12 @@ func isChipperNotFound(err error) bool {
 func decimalFloat(d decimal.Decimal) float64 {
 	f, _ := d.Float64()
 	return f
+}
+
+func upperKeys(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[strings.ToUpper(k)] = v
+	}
+	return out
 }
