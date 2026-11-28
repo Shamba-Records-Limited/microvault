@@ -161,6 +161,21 @@ A few things worth calling out:
   string; we also accept Unix seconds, and an unreadable value decodes to zero
   rather than refusing the whole event. A strict integer field once turned
   every ISO-stamped webhook into a `400`, so no payout ever completed.
+- **A final outcome is applied once.** Before `complete` or `failed` is
+  applied, the loan is checked (`DisbursementSettled`); if it has already left
+  the in-flight statuses the event is ignored, so a repeated webhook does not
+  text the borrower again.
+
+### When the webhook never arrives
+
+`YellowCardReconciler` ([`pkg/webhook/yellowcard_reconciler.go`](../../pkg/webhook/yellowcard_reconciler.go))
+is the backstop. Every minute it lists YellowCard payouts with a payment id
+and no outcome for 15 minutes, reads each with `LookupPayment` (`GET
+/send/{id}`), and passes a final status (`complete`, `failed`, `expired`,
+`cancelled`) to `ProcessYellowCardEvent` as if the webhook had delivered it.
+Statuses still in progress are left alone, since re-applying them would repeat
+side effects such as the `pending_liquidity` alert on every pass, and refunds
+stay with the refund poller. It runs on the credit worker leader.
 
 ---
 
@@ -254,6 +269,8 @@ logs a loud `WARN` on startup and on every payout, so it can't slip by unnoticed
 | Fiat failover failed alert | Direct refunded but the fiat retry couldn't go through (e.g. low YC balance) | Loan is marked failed and Vault repaid; investigate the retry error |
 | Submit refused with a `400` naming `channelType`, `country` or `currency` | YellowCard now requires all three at the top level of a send | `buildPaymentRequest` sets them from the momo channel and the request's country; check the channel YC returned has a currency |
 | Payouts paid by YC but loans never reach `complete`; webhook logs show `400 invalid webhook payload` | Our handler could not decode the event | Check the payload against `yellowcard.WebhookEvent`; YC's delivery log in the dashboard shows the body and our response |
+| Log `yellowcard reconciler: applying an outcome the webhook did not deliver` | A payout's webhook went missing and the reconciler settled it from the send | Nothing to do for the loan; if it repeats, check the webhook URL and YC's delivery log |
+| Log `yellowcard reconciler: could not read payout` | `GET /send/{id}` failed for an in-flight payout | Retried every minute; check YC credentials and reachability |
 
 ---
 

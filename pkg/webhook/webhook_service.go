@@ -61,6 +61,7 @@ type Service struct {
 	chipperOrders   ChipperOrderHandler
 	chipperDisputes ChipperDisputeHandler
 	settlement      SettlementChecker
+	yellowCardStore YellowCardStore
 }
 
 // NewService creates a new webhook processing service.
@@ -126,6 +127,9 @@ func (s *Service) ProcessYellowCardEvent(ctx context.Context, event yellowcard.W
 // from a payment lookup (delivered amount + service/partner fees), and notifies
 // the borrower.
 func (s *Service) handleComplete(ctx context.Context, seqID, paymentID string) error {
+	if settled, err := s.settledAlready(ctx, seqID); err != nil || settled {
+		return err
+	}
 	if err := s.disbursements.UpdateDisbursementStatus(ctx, seqID, yellowcard.DisbursementComplete); err != nil {
 		return webhookErr("update_status").With("target_status", "complete").
 			Code(pkgErrors.CodeStateWriteFailed).Wrapf(err, "could not write the disbursement status")
@@ -158,8 +162,29 @@ func (s *Service) recordCompletionFinancials(ctx context.Context, seqID, payment
 	}
 }
 
+// settledAlready reports whether the disbursement already has its final
+// outcome, so a repeated webhook or a reconciler pass does not apply it, and
+// notify the borrower, twice. Without a checker every event is applied.
+func (s *Service) settledAlready(ctx context.Context, seqID string) (bool, error) {
+	if s.settlement == nil {
+		return false, nil
+	}
+	settled, err := s.settlement.DisbursementSettled(ctx, seqID)
+	if err != nil {
+		return false, webhookErr("disbursement_settled").With(pkgErrors.AttrSequenceID, seqID).
+			Code(pkgErrors.CodeLoanLoadFailed).Wrapf(err, "could not read the disbursement outcome")
+	}
+	if settled {
+		slog.InfoContext(ctx, "yellowcard outcome already applied")
+	}
+	return settled, nil
+}
+
 // handleFailedEvent processes FAILED events with mode-specific logic.
 func (s *Service) handleFailedEvent(ctx context.Context, seqID, paymentID, status string, isDirect bool) error {
+	if settled, err := s.settledAlready(ctx, seqID); err != nil || settled {
+		return err
+	}
 	if isDirect {
 		// Direct settlement failed after USDC was sent to YC will refund crypto.
 		// Set to refund_pending; RefundPoller will detect the refund and trigger fiat failover.
