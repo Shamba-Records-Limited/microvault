@@ -1966,7 +1966,6 @@ func parseDisplayAmount(s string) (float64, string) {
 	return amount, parts[0]
 }
 
-// formatOwed renders what the borrower owes, in their own currency.
 // promptedAmount is the figure the borrower's prompt shows, else the quote.
 func promptedAmount(p PromptedRepayment, quoted string) string {
 	if p.AmountMinor <= 0 || p.Currency == "" {
@@ -1975,6 +1974,7 @@ func promptedAmount(p PromptedRepayment, quoted string) string {
 	return fmt.Sprintf("%s %.2f", p.Currency, float64(p.AmountMinor)/100.0)
 }
 
+// formatOwed renders what the borrower owes, in their own currency.
 func formatOwed(quote *RepaymentQuote) string {
 	if quote == nil {
 		return "\u2014"
