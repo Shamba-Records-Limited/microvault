@@ -18,6 +18,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 )
 
 // ScopeName is the instrumentation scope for spans and metrics the platform
@@ -108,28 +110,48 @@ func Meter() metric.Meter {
 
 var workDuration, _ = Meter().Float64Histogram("microvault.background.work.duration",
 	metric.WithUnit("s"),
-	metric.WithDescription("Duration of one unit of background work — a poller item or a sweep — labelled by work name."))
+	metric.WithDescription("Duration of one unit of background work — a poller item or a sweep — labelled by work name and outcome (ok or error)."))
 
 // StartRoot starts a new root span for a unit of background work — one
 // poller item, one sweep — so each gets its own trace instead of joining
 // whatever the caller's context carried. Ending the returned span also
 // records the work's duration, labelled by name, so name must come from a
-// fixed set.
+// fixed set, and by outcome: error when the span was marked failed or an
+// error-level record was logged under the returned context, else ok.
 func StartRoot(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
+	ctx, failed := logging.WithFailureMark(ctx)
 	ctx, span := Tracer().Start(ctx, name, trace.WithNewRoot(), trace.WithSpanKind(trace.SpanKindInternal), trace.WithAttributes(attrs...))
-	return ctx, &workSpan{Span: span, ctx: ctx, name: name, start: time.Now()}
+	return ctx, &workSpan{Span: span, ctx: ctx, name: name, start: time.Now(), failed: failed}
 }
+
+// Outcome label values on the background work duration.
+const (
+	OutcomeOK    = "ok"
+	OutcomeError = "error"
+)
 
 type workSpan struct {
 	trace.Span
-	ctx   context.Context
-	name  string
-	start time.Time
+	ctx    context.Context
+	name   string
+	start  time.Time
+	failed func() bool
 }
 
 func (w *workSpan) End(opts ...trace.SpanEndOption) {
-	workDuration.Record(w.ctx, time.Since(w.start).Seconds(), metric.WithAttributes(attribute.String("work", w.name)))
+	outcome := OutcomeOK
+	if w.failed() || spanFailed(w.Span) {
+		outcome = OutcomeError
+	}
+	workDuration.Record(w.ctx, time.Since(w.start).Seconds(),
+		metric.WithAttributes(attribute.String("work", w.name), attribute.String("outcome", outcome)))
 	w.Span.End(opts...)
+}
+
+// spanFailed reports whether a recording span has an error status.
+func spanFailed(span trace.Span) bool {
+	ro, ok := span.(sdktrace.ReadOnlySpan)
+	return ok && ro.Status().Code == codes.Error
 }
 
 // RecordError marks span as failed with err. A nil err is a no-op.

@@ -337,7 +337,7 @@ func (p *Poller) handleRefunded(ctx context.Context, rec LoanRecord, tx *stellar
 		p.awaitRefundDetails(ctx, rec, tx)
 		return
 	}
-	p.clearRefundWait(rec.LoanID)
+	p.clearRefundWait(ctx, rec)
 
 	// Trust but verify: MG naming a Stellar hash is not proof the payment
 	// landed. Repaying the vault against a refund that never arrived would
@@ -562,7 +562,7 @@ func (p *Poller) settleFromStellarTx(ctx context.Context, rec LoanRecord, tx *st
 	for _, pay := range received {
 		net += pay.AmountStroops
 	}
-	p.clearRefundWait(rec.LoanID)
+	p.clearRefundWait(ctx, rec)
 	p.settleRefund(ctx, rec, hash, net)
 	return true
 }
@@ -591,13 +591,14 @@ func (p *Poller) refundAssetIssuer() string {
 }
 
 // awaitRefundDetails counts ticks spent waiting for MoneyGram to publish refund
-// payments and escalates past the ceiling. The count is in memory; it only
-// drives alerting.
+// payments and escalates once the count reaches the ceiling. The count is
+// stored on the loan, so neither a restart nor a change of worker leader
+// starts it again; a failed write still counts this tick.
 func (p *Poller) awaitRefundDetails(ctx context.Context, rec LoanRecord, tx *stellaranchor.Transaction) {
-	p.refundWaitMu.Lock()
-	p.refundWaits[rec.LoanID]++
-	attempts := p.refundWaits[rec.LoanID]
-	p.refundWaitMu.Unlock()
+	attempts := rec.RefundWaitPolls + 1
+	if err := p.recorder.RecordRefundWait(ctx, rec.LoanID, attempts); err != nil {
+		p.logger.WarnContext(ctx, "could not record the refund wait", "loan_id", rec.LoanID, "error", err)
+	}
 
 	max := p.cfg.RefundSettleMaxAttempts
 	if max <= 0 || attempts != max {
@@ -621,12 +622,15 @@ func (p *Poller) awaitRefundDetails(ctx context.Context, rec LoanRecord, tx *ste
 			"and settle manually.", rec.LoanID, rec.MoneyGramTxID, attempts, rec.PrincipalStroops))
 }
 
-// clearRefundWait drops the wait counter once MG supplies refund payments, so
+// clearRefundWait resets the wait count once MG supplies refund payments, so
 // a later refund on the same loan starts from zero.
-func (p *Poller) clearRefundWait(loanID string) {
-	p.refundWaitMu.Lock()
-	delete(p.refundWaits, loanID)
-	p.refundWaitMu.Unlock()
+func (p *Poller) clearRefundWait(ctx context.Context, rec LoanRecord) {
+	if rec.RefundWaitPolls == 0 {
+		return
+	}
+	if err := p.recorder.RecordRefundWait(ctx, rec.LoanID, 0); err != nil {
+		p.logger.WarnContext(ctx, "could not clear the refund wait", "loan_id", rec.LoanID, "error", err)
+	}
 }
 
 // refundLanded confirms every refund payment succeeded on-ledger. A nil

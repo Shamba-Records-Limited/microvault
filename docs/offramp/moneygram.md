@@ -209,7 +209,7 @@ Everything tunable on the MG off-ramp. All live under `MoneyGramConfig`
 | `MONEYGRAM_FX_ENTRY_BUFFER_PCT_FALLBACK` | 1.5% | Buffer on the fallback (YC) rate |
 | `MONEYGRAM_POLL_INTERVAL` | 30s | Poller tick |
 | `MONEYGRAM_POLL_MAX_BATCH` | 100 | Max loans evaluated per tick |
-| `MONEYGRAM_REFUND_MAX_ATTEMPTS` | 20 | Polls to wait for refund details before alerting |
+| `MONEYGRAM_REFUND_MAX_ATTEMPTS` | 20 | Polls to wait for refund details before alerting. The count is stored on the loan (`ramp_refund_wait_polls`), so a restart or a new worker leader carries on from it |
 
 ### Amount corridor
 

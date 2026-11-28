@@ -57,7 +57,14 @@ add it there in **both** trees. Beyond the two ops-alert rules, the trees
 carry rules on logs (`panic`, `error_spike`, `credit_silent`,
 `account_creation_burst`) and metrics (HTTP 5xx and latency, partner 5xx,
 Soroban failures, disbursement failures, repayment expiries, MoneyGram
-payout drift, host memory and disk).
+payout drift, background work failing, host memory and disk).
+
+`microvault.background.work.duration` is labelled by `work` and `outcome`.
+A unit of work (one poller item or sweep, started with `telemetry.StartRoot`)
+is an `error` when its span is marked failed or an error-level record is
+logged under its context, which is how most pollers report failure; the
+`background_work_failing` digest rule fires when one kind of work fails five
+or more times in 15 minutes.
 
 ## Provisioning: `o2-provision`
 

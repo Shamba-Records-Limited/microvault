@@ -24,8 +24,12 @@ func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.inner.Enabled(ctx, level)
 }
 
-// Handle appends the context's attributes to r and passes it to inner.
+// Handle appends the context's attributes to r and passes it to inner. An
+// error-level record also sets the context's failure mark, if it has one.
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
+	if r.Level >= slog.LevelError {
+		markFailure(ctx)
+	}
 	attrs := Attrs(ctx)
 	sc := trace.SpanContextFromContext(ctx)
 	if len(attrs) > 0 || sc.IsValid() {

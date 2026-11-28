@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
@@ -38,6 +37,10 @@ type LoanRecord struct {
 	DisbursementStatus   string
 	PhoneNumber          string
 	UserID               string
+	// RefundWaitPolls counts the ticks spent waiting for MoneyGram to publish
+	// the payments of a declared refund. Stored on the loan, so a restart or
+	// a new worker leader carries on counting.
+	RefundWaitPolls int
 }
 
 // LoanFetcher retrieves active MoneyGram cash-pickup loans for the poller
@@ -74,6 +77,10 @@ type LoanRecorder interface {
 	// principal we originally sent. Written before the vault repay so a crash
 	// mid-repay leaves evidence of what came back.
 	RecordRefund(ctx context.Context, loanID string, refund RefundRecord) error
+
+	// RecordRefundWait stores how many ticks the loan has waited for refund
+	// payments; zero clears it once they appear.
+	RecordRefundWait(ctx context.Context, loanID string, polls int) error
 }
 
 // RefundRecord is the settled outcome of a MoneyGram refund.
@@ -251,11 +258,6 @@ type Poller struct {
 	cfg          PollerConfig
 	logger       *slog.Logger
 
-	// refundWaits counts consecutive ticks a loan has spent waiting for MG to
-	// publish refund payments. Guarded because Start runs in its own goroutine.
-	refundWaitMu sync.Mutex
-	refundWaits  map[string]int
-
 	// runner supplies the ticker and batching. Poller is its Driver.
 	runner *Runner[LoanRecord]
 }
@@ -332,7 +334,6 @@ func NewPoller(deps PollerDeps) (*Poller, error) {
 		verifier:     deps.Verifier,
 		alerts:       deps.Alerts,
 		cfg:          cfg,
-		refundWaits:  make(map[string]int),
 		logger:       logger.With("component", "mgpoller"),
 	}
 	// Two-step because the runner's Driver is the Poller itself.

@@ -147,6 +147,25 @@ type fakeRecorder struct {
 	refunds   []RefundRecord
 	refundErr error
 	mu        sync.Mutex
+
+	// fetcher, when set, sees each recorded refund wait on its next fetch, as
+	// the loan row would.
+	fetcher *fakeFetcher
+	waits   []int
+}
+
+func (r *fakeRecorder) RecordRefundWait(_ context.Context, loanID string, polls int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.waits = append(r.waits, polls)
+	if r.fetcher != nil {
+		for i := range r.fetcher.loans {
+			if r.fetcher.loans[i].LoanID == loanID {
+				r.fetcher.loans[i].RefundWaitPolls = polls
+			}
+		}
+	}
+	return nil
 }
 
 func (r *fakeRecorder) RecordSendAttempt(_ context.Context, _ string) error {
@@ -357,7 +376,7 @@ func newTestPoller(t *testing.T) (*Poller, *mgFakeServer, *fakeFetcher, *fakeRec
 	require.NoError(t, err)
 
 	fetcher := &fakeFetcher{}
-	recorder := &fakeRecorder{}
+	recorder := &fakeRecorder{fetcher: fetcher}
 	disb := &fakeDisbursement{}
 	treas := &fakeTreasury{hash: "stellar-tx-hash"}
 	alerts := &fakeAlerts{}
@@ -768,6 +787,30 @@ func TestPoller_Refunded_SettlesFullRefund(t *testing.T) {
 	assert.Empty(t, alerts.calls)
 }
 
+// Once MoneyGram publishes the refund, a stored wait count is cleared, so a
+// later refund on the loan starts from zero; a loan that never waited costs
+// no write.
+func TestPoller_Refunded_ClearsTheStoredWait(t *testing.T) {
+	for name, tc := range map[string]struct {
+		stored int
+		want   []int
+	}{"after waiting": {2, []int{0}}, "never waited": {0, nil}} {
+		t.Run(name, func(t *testing.T) {
+			p, srv, fetcher, recorder, _, _, _ := newTestPoller(t)
+			srv.setTransactionJSON(refundedTxJSON("50.0000000", "0", "refund-hash"))
+			loan := refundPendingLoan(500000000)
+			loan.RefundWaitPolls = tc.stored
+			fetcher.loans = []LoanRecord{loan}
+			p.verifier = ledgerRefund(500000000)
+
+			p.poll(context.Background())
+
+			assert.Equal(t, tc.want, recorder.waits)
+			require.Len(t, recorder.refunds, 1)
+		})
+	}
+}
+
 // The anchor's own refund fee is money the treasury does not get back, so it
 // counts as a shortfall and pages ops like any other.
 func TestPoller_Refunded_AnchorFeeCountsAsShortfall(t *testing.T) {
@@ -1157,6 +1200,30 @@ func TestPoller_Refunded_NoRefundsObject_AlertsOnceAtCeiling(t *testing.T) {
 		p.poll(context.Background())
 	}
 	assert.Len(t, alerts.calls, 1, "the ceiling must not re-fire on every later tick")
+}
+
+// The count lives on the loan: a new poller, as after a restart or a change
+// of worker leader, carries on from it and still alerts at the ceiling.
+func TestPoller_Refunded_NoRefundsObject_CountSurvivesARestart(t *testing.T) {
+	p, srv, fetcher, recorder, _, _, alerts := newTestPoller(t)
+	srv.setTransactionJSON(mgRealRefundedPayload)
+	fetcher.loans = []LoanRecord{refundPendingLoan(78000000)}
+	p.cfg.RefundSettleMaxAttempts = 3
+
+	for range 2 {
+		p.poll(context.Background())
+	}
+	assert.Equal(t, []int{1, 2}, recorder.waits)
+	assert.Empty(t, alerts.calls)
+
+	restarted, restartedSrv, restartedFetcher, restartedRecorder, _, _, restartedAlerts := newTestPoller(t)
+	restarted.cfg.RefundSettleMaxAttempts = 3
+	restartedSrv.setTransactionJSON(mgRealRefundedPayload)
+	restartedFetcher.loans = []LoanRecord{fetcher.loans[0]}
+	restarted.poll(context.Background())
+
+	assert.Equal(t, []int{3}, restartedRecorder.waits, "carried on from the stored count")
+	require.Len(t, restartedAlerts.calls, 1, "the third poll overall reaches the ceiling")
 }
 
 // A ceiling of zero disables escalation rather than alerting on every tick.
