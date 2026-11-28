@@ -48,9 +48,10 @@ configured; Chipper can be a deployment's only M-Pesa path.
      and the earliest transaction carrying the memo and paying at least the
      payoff less the 2% tolerance is taken. A memo is no secret, so the floor
      keeps dust sent under a borrower's memo from standing in for the real
-     payment. Only plain payment operations count.
+     payment.
 
-   The amount is then read from that transaction, and its hash is stored with
+   Either way the amount is what the transaction's transfer events credited
+   the treasury, so a path payment counts as well as a plain one. The hash is stored with
    a unique index, so one payment can never settle two loans. If nothing turns
    up within 5 minutes of the order completing, the amount Chipper reports is
    used instead, with a `Chipper repayment settled without on-chain proof`

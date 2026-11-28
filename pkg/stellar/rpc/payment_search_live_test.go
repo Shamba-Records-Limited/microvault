@@ -18,7 +18,8 @@ import (
 //	STELLAR_LIVE_DESTINATION=G… STELLAR_LIVE_MEMO=… go test -tags stellar_live -run Live -v ./pkg/stellar/rpc/
 //
 // It finds a USDC payment into the destination carrying the memo within the
-// last STELLAR_LIVE_DAYS (default 6) on testnet.
+// last STELLAR_LIVE_DAYS (default 6) on testnet. With STELLAR_LIVE_TX set it
+// also reads what that transaction credited STELLAR_LIVE_TX_DESTINATION.
 func TestLivePaymentFinder(t *testing.T) {
 	dest, memo := os.Getenv("STELLAR_LIVE_DESTINATION"), os.Getenv("STELLAR_LIVE_MEMO")
 	if dest == "" || memo == "" {
@@ -47,4 +48,10 @@ func TestLivePaymentFinder(t *testing.T) {
 	found, ok, err := f.Find(ctx, PaymentSearch{Destination: dest, AssetCode: "USDC", AssetIssuer: issuer, Memo: memo, Since: time.Now().Add(-days)})
 	require.NoError(t, err)
 	t.Logf("found=%v tx=%s ledger=%d stroops=%d", ok, found.TxHash, found.Ledger, found.AmountStroops)
+
+	if tx := os.Getenv("STELLAR_LIVE_TX"); tx != "" {
+		amount, err := f.AmountIn(ctx, tx, PaymentSearch{Destination: os.Getenv("STELLAR_LIVE_TX_DESTINATION"), AssetCode: "USDC", AssetIssuer: issuer})
+		require.NoError(t, err)
+		t.Logf("tx %s credited %d stroops", tx, amount)
+	}
 }

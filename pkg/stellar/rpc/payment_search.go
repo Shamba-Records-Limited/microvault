@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"time"
 
 	protocol "github.com/stellar/go-stellar-sdk/protocols/rpc"
@@ -62,8 +63,9 @@ func NewPaymentFinder(client PaymentSearchClient, networkPassphrase string) *Pay
 }
 
 // Find returns the earliest transaction since s.Since that carries s.Memo and
-// pays s.Destination at least s.MinStroops in the asset. Only plain payment
-// operations count, not path payments. ok is false when none is visible yet. The
+// pays s.Destination at least s.MinStroops in the asset. The amount is what
+// the asset's transfer events credited the destination, so path payments
+// count as well as plain ones. ok is false when none is visible yet. The
 // search reaches back only as far as the RPC node's event retention.
 func (f *PaymentFinder) Find(ctx context.Context, s PaymentSearch) (found FoundPayment, ok bool, err error) {
 	errb := verifyErr("find_payment").With(pkgErrors.AttrAddress, s.Destination).With("memo", s.Memo)
@@ -103,13 +105,19 @@ func (f *PaymentFinder) Find(ctx context.Context, s PaymentSearch) (found FoundP
 				continue
 			}
 			seen[ev.TransactionHash] = true
-			p, matched, err := f.paymentIn(ctx, ev.TransactionHash, s)
+			matched, err := f.carriesMemo(ctx, ev.TransactionHash, s.Memo)
+			if err != nil || !matched {
+				if err != nil {
+					return FoundPayment{}, false, err
+				}
+				continue
+			}
+			amount, err := f.creditedIn(ctx, filter, ev.TransactionHash, uint32(ev.Ledger))
 			if err != nil {
 				return FoundPayment{}, false, err
 			}
-			if matched {
-				p.Ledger = ev.Ledger
-				return p, true, nil
+			if amount > 0 && amount >= s.MinStroops {
+				return FoundPayment{TxHash: ev.TransactionHash, Ledger: ev.Ledger, AmountStroops: amount}, true, nil
 			}
 		}
 		// A response covers a bounded window of ledgers, so a short page with a
@@ -192,38 +200,116 @@ func (f *PaymentFinder) startLedger(ctx context.Context, since time.Time) (uint3
 	return latest.Sequence - uint32(back), nil
 }
 
-// paymentIn reads a transaction and reports what it paid the destination when
-// it carries the memo.
-func (f *PaymentFinder) paymentIn(ctx context.Context, txHash string, s PaymentSearch) (FoundPayment, bool, error) {
+// AmountIn returns what txHash credited s.Destination in the asset, read from
+// the asset's transfer events in the transaction's ledger. It covers path
+// payments, which a payment-operation reading of the envelope misses. Zero
+// means the transaction paid the destination nothing.
+func (f *PaymentFinder) AmountIn(ctx context.Context, txHash string, s PaymentSearch) (int64, error) {
+	errb := verifyErr("amount_in").With(pkgErrors.AttrTxHash, txHash)
+	if txHash == "" || s.Destination == "" || s.AssetCode == "" || s.AssetIssuer == "" {
+		return 0, errb.Code(pkgErrors.CodeMissingAccount).Errorf("transaction hash, destination and asset are required")
+	}
+	resp, err := f.client.GetTransaction(ctx, protocol.GetTransactionRequest{Hash: txHash})
+	if err != nil {
+		return 0, errb.Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the transaction")
+	}
+	switch resp.Status {
+	case protocol.TransactionStatusSuccess:
+	case protocol.TransactionStatusNotFound:
+		return 0, errb.Code(pkgErrors.CodeNotFound).Errorf("transaction is not on the ledger")
+	default:
+		return 0, errb.Code(pkgErrors.CodeSubmitFailed).With("status", resp.Status).Errorf("transaction did not succeed")
+	}
+	filter, err := f.transferFilter(s)
+	if err != nil {
+		return 0, errb.Code(pkgErrors.CodeInvalidConfig).Wrapf(err, "could not build the event filter")
+	}
+	return f.creditedIn(ctx, filter, txHash, resp.Ledger)
+}
+
+// carriesMemo reports whether a successful transaction carries the memo.
+func (f *PaymentFinder) carriesMemo(ctx context.Context, txHash, memo string) (bool, error) {
 	errb := verifyErr("find_payment").With(pkgErrors.AttrTxHash, txHash)
 	resp, err := f.client.GetTransaction(ctx, protocol.GetTransactionRequest{Hash: txHash, Format: protocol.FormatJSON})
 	if err != nil {
-		return FoundPayment{}, false, errb.Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the transaction")
+		return false, errb.Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the transaction")
 	}
 	if resp.Status != protocol.TransactionStatusSuccess || len(resp.EnvelopeJSON) == 0 {
-		return FoundPayment{}, false, nil
+		return false, nil
 	}
 	// UseNumber keeps a 64-bit id memo exact.
 	dec := json.NewDecoder(bytes.NewReader(resp.EnvelopeJSON))
 	dec.UseNumber()
 	var envelope any
 	if err := dec.Decode(&envelope); err != nil {
-		return FoundPayment{}, false, errb.Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the transaction envelope")
+		return false, errb.Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not decode the transaction envelope")
 	}
-	if memo, ok := findMemo(envelope); !ok || memo != s.Memo {
-		return FoundPayment{}, false, nil
-	}
+	got, ok := findMemo(envelope)
+	return ok && got == memo, nil
+}
 
+// creditedIn sums the transfer events of txHash in its ledger that match the
+// filter.
+func (f *PaymentFinder) creditedIn(ctx context.Context, filter protocol.EventFilter, txHash string, ledger uint32) (int64, error) {
+	errb := verifyErr("credited_in").With(pkgErrors.AttrTxHash, txHash).With("ledger", ledger)
+	req := protocol.GetEventsRequest{
+		StartLedger: ledger,
+		EndLedger:   ledger + 1,
+		Filters:     []protocol.EventFilter{filter},
+		Pagination:  &protocol.PaginationOptions{Limit: searchPageLimit},
+	}
 	var total int64
-	for _, p := range collectPayments(envelope) {
-		if p.Destination == s.Destination && p.AssetCode == s.AssetCode && p.AssetIssuer == s.AssetIssuer {
-			total += p.AmountStroops
+	for range searchMaxPages {
+		resp, err := f.client.GetEvents(ctx, req)
+		if err != nil {
+			return 0, errb.Code(pkgErrors.CodeTransportFailed).Wrapf(err, "could not read the ledger's transfer events")
+		}
+		for _, ev := range resp.Events {
+			if ev.TransactionHash != txHash {
+				continue
+			}
+			amount, ok := transferAmount(ev.ValueXDR)
+			if !ok {
+				return 0, errb.Code(pkgErrors.CodeDecodeFailed).Errorf("could not read a transfer amount")
+			}
+			total += amount
+		}
+		if len(resp.Events) < searchPageLimit || resp.Cursor == "" {
+			return total, nil
+		}
+		cursor, err := protocol.ParseCursor(resp.Cursor)
+		if err != nil {
+			return 0, errb.Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not read the events cursor")
+		}
+		if cursor.Ledger > ledger {
+			return total, nil
+		}
+		req.StartLedger, req.EndLedger = 0, 0
+		req.Pagination = &protocol.PaginationOptions{Cursor: &cursor, Limit: searchPageLimit}
+	}
+	return 0, errb.Code(pkgErrors.CodeIncompleteResponse).Errorf("too many transfer events in the ledger")
+}
+
+// transferAmount reads a transfer event's value: an i128 amount, or a map
+// holding one when the payment named a muxed id or memo.
+func transferAmount(valueXDR string) (int64, bool) {
+	var v xdr.ScVal
+	if err := xdr.SafeUnmarshalBase64(valueXDR, &v); err != nil {
+		return 0, false
+	}
+	if m, ok := v.GetMap(); ok && m != nil {
+		for _, e := range *m {
+			if sym, ok := e.Key.GetSym(); ok && sym == "amount" {
+				v = e.Val
+				break
+			}
 		}
 	}
-	if total <= 0 || total < s.MinStroops {
-		return FoundPayment{}, false, nil
+	i, ok := v.GetI128()
+	if !ok || i.Hi != 0 || i.Lo > math.MaxInt64 {
+		return 0, false
 	}
-	return FoundPayment{TxHash: txHash, AmountStroops: total}, true, nil
+	return int64(i.Lo), true
 }
 
 // findMemo reads an id or text memo from a decoded envelope, at any depth so

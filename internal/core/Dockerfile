@@ -4,7 +4,7 @@ FROM golang:1.26-alpine AS builder
 # Install build dependencies
 RUN apk add --no-cache npm git ca-certificates tzdata && \
     npm i -g @redocly/cli@latest && \
-    go install github.com/swaggo/swag/cmd/swag@latest
+    go install github.com/swaggo/swag/cmd/swag@v1.16.4
 
 # Set the working directory
 WORKDIR /build

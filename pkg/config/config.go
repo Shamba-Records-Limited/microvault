@@ -263,6 +263,9 @@ type ChipperConfig struct {
 	FloatAlertUSDC *decimal.Decimal
 	// FeeReconcileInterval paces the fee reconciliation (default 24h).
 	FeeReconcileInterval time.Duration
+	// CollectionWatchInterval paces the re-read of settled repayments'
+	// collections for reversals and disputes (default 6h).
+	CollectionWatchInterval time.Duration
 }
 
 // Enabled reports whether a Chipper API key is set.
@@ -1053,6 +1056,10 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	chipperWatch, err := envSeconds("CHIPPER_COLLECTION_WATCH_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
 	var chipperFees *chipper.FeeSchedule
 	if raw := os.Getenv("CHIPPER_FEE_SCHEDULE"); raw != "" {
 		if chipperFees, err = chipper.ParseFeeSchedule(raw); err != nil {
@@ -1392,6 +1399,8 @@ func New() (*Config, error) {
 				FeeSchedule:          chipperFees,
 				FloatAlertUSDC:       chipperFloat,
 				FeeReconcileInterval: firstNonZeroDuration(chipperReconcile, 24*time.Hour),
+
+				CollectionWatchInterval: firstNonZeroDuration(chipperWatch, 6*time.Hour),
 			},
 			MoneyGram: MoneyGramConfig{
 				HomeDomain:        mgHomeDomain,
