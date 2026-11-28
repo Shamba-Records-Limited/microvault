@@ -57,16 +57,17 @@ func (s *repayLoanSvc) InitiateRepayment(_ context.Context, loanID, _ string) er
 // promptingLoanSvc adds an M-Pesa prompt surface to the repay fake.
 type promptingLoanSvc struct {
 	repayLoanSvc
-	prompted  []string
-	promptErr error
+	prompted       []string
+	promptErr      error
+	promptedAmount PromptedRepayment
 }
 
-func (s *promptingLoanSvc) PromptRepayment(_ context.Context, loanID, _ string) error {
+func (s *promptingLoanSvc) PromptRepayment(_ context.Context, loanID, _ string) (PromptedRepayment, error) {
 	if s.promptErr != nil {
-		return s.promptErr
+		return PromptedRepayment{}, s.promptErr
 	}
 	s.prompted = append(s.prompted, loanID)
-	return nil
+	return s.promptedAmount, nil
 }
 
 func loanRow(id, ref, status string) map[string]any {
@@ -504,6 +505,56 @@ func TestRepay_MpesaPromptPushesAndEndsTheSession(t *testing.T) {
 	}
 	if !strings.Contains(resp, "PIN") {
 		t.Errorf("the borrower must be told what happens next: %q", resp)
+	}
+}
+
+// A collector that adds its fee reports the amount its prompt asks for; the
+// screen shows that figure, not the quote, so the two never disagree.
+func TestRepay_MpesaPromptShowsThePromptedAmount(t *testing.T) {
+	svc := &promptingLoanSvc{
+		repayLoanSvc: repayLoanSvc{
+			loans:  []any{loanRow("l1", "LN-1", "disbursed")},
+			quotes: map[string]*RepaymentQuote{"l1": {AmountUSDCStroops: aboveFloor, AmountLocalCents: 250000, LocalCurrency: "KES"}},
+		},
+		promptedAmount: PromptedRepayment{AmountMinor: 257810, Currency: "KES"},
+	}
+	h := newPromptHarness(t, svc, "247247")
+
+	session := repaySession()
+	if _, err := h.handleRepayLoan(context.Background(), session, ""); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if _, err := h.handleRepayRail(context.Background(), session, "2"); err != nil {
+		t.Fatalf("rail: %v", err)
+	}
+	resp, err := h.handleRepayMobile(context.Background(), session, "1")
+	if err != nil {
+		t.Fatalf("mobile: %v", err)
+	}
+	if !strings.Contains(resp, "KES 2578.10") {
+		t.Errorf("screen must show the prompted amount: %q", resp)
+	}
+	if strings.Contains(resp, "2500.00") {
+		t.Errorf("screen must not show the quote when the prompt amount is known: %q", resp)
+	}
+}
+
+func TestPromptedAmount(t *testing.T) {
+	cases := []struct {
+		name string
+		in   PromptedRepayment
+		want string
+	}{
+		{"known", PromptedRepayment{AmountMinor: 257810, Currency: "KES"}, "KES 2578.10"},
+		{"unknown amount", PromptedRepayment{Currency: "KES"}, "KES 2500.00"},
+		{"unknown currency", PromptedRepayment{AmountMinor: 257810}, "KES 2500.00"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := promptedAmount(tc.in, "KES 2500.00"); got != tc.want {
+				t.Errorf("promptedAmount = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

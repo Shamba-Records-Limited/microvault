@@ -26,8 +26,11 @@ collects. The paybill line stays on Daraja.
    the treasury with the payoff as `to.amount` (rounded up to six decimals) and
    the borrower's child-account memo as `to.tag`. Chipper prompts the borrower
    and adds its fee to what they pay, so the treasury receives the full payoff.
-   The `externalReference` is `rp-<loan reference>-<unix time>`, one per
-   attempt, and is written to the loan before the order is created, so an
+   The USSD confirmation shows that charge (the order's `instructions.amount`),
+   so the screen and the M-Pesa prompt agree.
+   The `externalReference` is `rp-<loan reference>-<unix time>-<8 random hex>`,
+   unique per attempt so a retry within the same second is never replayed as
+   the earlier order, and is written to the loan before the order is created, so an
    order can never take the borrower's money untracked. A refusal closes the
    attempt as `failed`; a timeout leaves it open, and if the reference later
    finds no order it is closed then.
@@ -66,9 +69,6 @@ path.
 
 ## Limitations
 
-- **The USSD screen shows our quote, not Chipper's charge.** The confirmation
-  shows the payoff at the platform rate; Chipper's prompt asks for its own rate
-  plus its fee, slightly more.
 - **No refund call.** Chipper has no refund: a short or disputed repayment is
   returned with a normal payout, by hand.
 - **`reversed` after `completed`** is not handled automatically; by then the

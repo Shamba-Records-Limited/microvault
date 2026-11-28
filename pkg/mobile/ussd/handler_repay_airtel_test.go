@@ -16,13 +16,13 @@ type carrierLoanSvc struct {
 	viaErr   error
 }
 
-func (s *carrierLoanSvc) PromptRepaymentVia(_ context.Context, loanID, _, providerID string) error {
+func (s *carrierLoanSvc) PromptRepaymentVia(_ context.Context, loanID, _, providerID string) (PromptedRepayment, error) {
 	if s.viaErr != nil {
-		return s.viaErr
+		return PromptedRepayment{}, s.viaErr
 	}
 	s.via = append(s.via, providerID)
 	s.viaLoans = append(s.viaLoans, loanID)
-	return nil
+	return PromptedRepayment{}, nil
 }
 
 // newCarrierHarness enables both prompt rails.

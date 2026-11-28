@@ -1848,7 +1848,8 @@ func (h *USSDHandler) startMpesaRepayment(ctx context.Context, session *Session,
 	if h.mpesaPrompter == nil {
 		return h.formatError(session.Language, "error"), nil
 	}
-	if err := h.mpesaPrompter.PromptRepayment(ctx, chosen.ID, session.PhoneNumber); err != nil {
+	prompted, err := h.mpesaPrompter.PromptRepayment(ctx, chosen.ID, session.PhoneNumber)
+	if err != nil {
 		slog.ErrorContext(ctx, "mpesa prompt refused", slog.String("loan_id", chosen.ID), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
@@ -1858,7 +1859,7 @@ func (h *USSDHandler) startMpesaRepayment(ctx context.Context, session *Session,
 		return "", sessionSaveErr(session, err)
 	}
 	return h.formatResponse(session.Language, "END",
-		Format(session.Language, "repay_mpesa_sent", chosen.DisplayAmount)), nil
+		Format(session.Language, "repay_mpesa_sent", promptedAmount(prompted, chosen.DisplayAmount))), nil
 }
 
 // startAirtelRepayment pushes an Airtel USSD payment request for the payoff.
@@ -1870,7 +1871,8 @@ func (h *USSDHandler) startAirtelRepayment(ctx context.Context, session *Session
 	if h.carrierPrompter == nil {
 		return h.formatError(session.Language, "error"), nil
 	}
-	if err := h.carrierPrompter.PromptRepaymentVia(ctx, chosen.ID, session.PhoneNumber, "airtel"); err != nil {
+	prompted, err := h.carrierPrompter.PromptRepaymentVia(ctx, chosen.ID, session.PhoneNumber, "airtel")
+	if err != nil {
 		slog.ErrorContext(ctx, "airtel prompt refused", slog.String("loan_id", chosen.ID), slog.Any("error", err))
 		return h.formatError(session.Language, "error"), nil
 	}
@@ -1882,7 +1884,7 @@ func (h *USSDHandler) startAirtelRepayment(ctx context.Context, session *Session
 		return "", sessionSaveErr(session, err)
 	}
 	return h.formatResponse(session.Language, "END",
-		Format(session.Language, "repay_airtel_sent", chosen.DisplayAmount)), nil
+		Format(session.Language, "repay_airtel_sent", promptedAmount(prompted, chosen.DisplayAmount))), nil
 }
 
 // startCashRepayment locks the payoff and opens a MoneyGram cash deposit.
@@ -1965,6 +1967,14 @@ func parseDisplayAmount(s string) (float64, string) {
 }
 
 // formatOwed renders what the borrower owes, in their own currency.
+// promptedAmount is the figure the borrower's prompt shows, else the quote.
+func promptedAmount(p PromptedRepayment, quoted string) string {
+	if p.AmountMinor <= 0 || p.Currency == "" {
+		return quoted
+	}
+	return fmt.Sprintf("%s %.2f", p.Currency, float64(p.AmountMinor)/100.0)
+}
+
 func formatOwed(quote *RepaymentQuote) string {
 	if quote == nil {
 		return "\u2014"

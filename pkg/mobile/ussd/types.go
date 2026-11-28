@@ -259,7 +259,15 @@ type RepaymentPrompter interface {
 	// PromptRepayment pushes a prompt at the borrower's handset for the full
 	// payoff. It returns once the prompt is accepted for delivery, not when
 	// it is paid; an error means the push was refused outright.
-	PromptRepayment(ctx context.Context, loanID, phoneNumber string) error
+	PromptRepayment(ctx context.Context, loanID, phoneNumber string) (PromptedRepayment, error)
+}
+
+// PromptedRepayment is what the borrower's prompt asks them to pay, which
+// can exceed the quote when the collector adds its fee. A zero AmountMinor
+// means unknown, and the quote is shown instead.
+type PromptedRepayment struct {
+	AmountMinor int64
+	Currency    string
 }
 
 // CarrierRepaymentPrompter is the capability of pushing a prompt on a named
@@ -271,7 +279,7 @@ type CarrierRepaymentPrompter interface {
 	// PromptRepaymentVia pushes a prompt for the full payoff on the named
 	// cash-in provider. The provider id is the registry's own ("mpesa",
 	// "airtel"); an unregistered one is an error, never a silent fallback.
-	PromptRepaymentVia(ctx context.Context, loanID, phoneNumber, providerID string) error
+	PromptRepaymentVia(ctx context.Context, loanID, phoneNumber, providerID string) (PromptedRepayment, error)
 }
 
 // MoneyGram's production on-ramp bounds, in stroops.

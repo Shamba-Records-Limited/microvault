@@ -140,6 +140,11 @@ type PromptResult struct {
 	LoanID    string
 	Reference string
 
+	// AmountMinor and Currency are what the payer's prompt asks for, fees
+	// included, when the provider reports it. Zero means unknown.
+	AmountMinor int64
+	Currency    string
+
 	// Provider carries provider-specific identifiers (e.g. M-Pesa CheckoutRequestID).
 	Provider ProviderPayload
 }
