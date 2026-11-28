@@ -39,12 +39,23 @@ configured; Chipper can be a deployment's only M-Pesa path.
    is the backstop. Both read the order back from Chipper; the webhook body is
    never trusted. An order still `created` or `awaiting_funds` after 15 minutes is expired
    (mobile money orders carry no expiry of their own).
-3. **Receive.** On `completed`, the USDC that arrived is established:
-   - with a Stellar hash on the order's payout, from the ledger: the treasury
-     payment in that transaction, USDC from the configured issuer. The hash is
-     stored with a unique index, so one payment can never settle two loans;
-   - without one, from the amount Chipper reports, with a
-     `Chipper repayment settled without on-chain proof` alert.
+3. **Receive.** On `completed`, the USDC that arrived is established from
+   the ledger whenever the treasury payment can be found:
+   - by the Stellar hash on the order's payout, when Chipper reports one (the
+     sandbox does not);
+   - otherwise by the loan's memo: the USDC contract's transfer events into
+     the treasury since the attempt was locked are read through Stellar RPC,
+     and the earliest transaction carrying the memo and paying at least the
+     payoff less the 2% tolerance is taken. A memo is no secret, so the floor
+     keeps dust sent under a borrower's memo from standing in for the real
+     payment. Only plain payment operations count.
+
+   The amount is then read from that transaction, and its hash is stored with
+   a unique index, so one payment can never settle two loans. If nothing turns
+   up within 5 minutes of the order completing, the amount Chipper reports is
+   used instead, with a `Chipper repayment settled without on-chain proof`
+   alert. RPC keeps events for about a week, so the search runs while the
+   order settles.
 4. **Settle.** The loan moves to `funds_received`, the borrower is told, and the
    treasury repays the vault (`repay_for`) exactly as a MoneyGram cash-in does.
 
