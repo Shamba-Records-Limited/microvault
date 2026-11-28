@@ -4,6 +4,7 @@ package mgpoller
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"sync"
 	"time"
@@ -272,6 +273,8 @@ type PollerDeps struct {
 	Alerts       AlertService
 	Config       PollerConfig
 	Logger       *slog.Logger
+	// DB gates each tick on an advisory lock; see RunnerDeps.DB. Optional.
+	DB *sql.DB
 }
 
 // NewPoller validates the dependencies and returns a Poller.
@@ -340,6 +343,7 @@ func NewPoller(deps PollerDeps) (*Poller, error) {
 		Fetcher:       FetchFunc[LoanRecord](fetcher.GetActiveMoneyGramLoans),
 		Driver:        p,
 		Logger:        p.logger,
+		DB:            deps.DB,
 		LoanID:        func(r LoanRecord) string { return r.LoanID },
 		LoanReference: func(r LoanRecord) string { return r.LoanReference },
 	})

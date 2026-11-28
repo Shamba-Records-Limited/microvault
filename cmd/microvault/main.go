@@ -40,6 +40,7 @@ import (
 	"github.com/Shamba-Records-Limited/microvault/pkg/pin"
 	"github.com/Shamba-Records-Limited/microvault/pkg/repository"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/sourcelock"
 	"github.com/Shamba-Records-Limited/microvault/pkg/user"
 	"github.com/Shamba-Records-Limited/microvault/pkg/validation"
 	"github.com/Shamba-Records-Limited/microvault/platform/cache"
@@ -154,6 +155,13 @@ func main() {
 	db, err := database.GetConnection("core", &cfg.Postgres)
 	if err != nil {
 		log.Fatalf("Failed to get database connection for repositories: %v", err)
+	}
+	// Submissions from the treasury and admin accounts are serialised with
+	// every other process sharing this database.
+	if lockDB, err := db.DB(); err != nil {
+		log.Fatalf("Failed to get the database handle: %v", err)
+	} else {
+		sourcelock.Use(sourcelock.NewPostgres(lockDB))
 	}
 
 	repos, err := repository.NewRepositories(db)
@@ -330,7 +338,7 @@ func main() {
 	healthCheck := health.NewChecker(stellarClient, "core", "core")
 
 	// Initialize middleware & pass health checker middleware
-	middleware.FiberMiddleware(app, healthCheck, logger)
+	middleware.FiberMiddleware(app, healthCheck, logger, nil)
 
 	// Define swagger routes
 	app.Get("/swagger/*", swagger.New(swagger.Config{

@@ -38,23 +38,36 @@ func isCallback(c fiber.Ctx) bool {
 	return false
 }
 
+// LimiterStorage returns the store for a named limiter, so its counts are
+// shared by every replica. Nil keeps each replica's own in-memory counts.
+type LimiterStorage func(name string) fiber.Storage
+
+func (s LimiterStorage) get(name string) fiber.Storage {
+	if s == nil {
+		return nil
+	}
+	return s(name)
+}
+
 // generalLimiter limits each client IP across all routes except provider
 // callbacks, which arrive in bursts from a few gateway addresses.
-func generalLimiter() fiber.Handler {
+func generalLimiter(store LimiterStorage) fiber.Handler {
 	return limiter.New(limiter.Config{
 		Max:          limiterMax,
 		Expiration:   limiterExpiration,
 		KeyGenerator: ClientIP,
 		Next:         isCallback,
+		Storage:      store.get("general"),
 	})
 }
 
 // callbackLimiter limits only a client's failed callbacks, so a busy gateway
 // is never throttled and guessing a slug, token or signature still is.
-func callbackLimiter() fiber.Handler {
+func callbackLimiter(store LimiterStorage) fiber.Handler {
 	return limiter.New(limiter.Config{
 		Max:                    limiterMax,
 		Expiration:             limiterExpiration,
+		Storage:                store.get("callback"),
 		KeyGenerator:           ClientIP,
 		SkipSuccessfulRequests: true,
 		Next:                   func(c fiber.Ctx) bool { return !isCallback(c) },
@@ -63,7 +76,7 @@ func callbackLimiter() fiber.Handler {
 
 // FiberMiddleware provide Fiber's built-in middlewares.
 // See: https://docs.gofiber.io/api/middleware
-func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.Logger) {
+func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.Logger, store LimiterStorage) {
 	helmetConfig := helmet.Config{
 		CrossOriginEmbedderPolicy: "false",
 		ReferrerPolicy:            "same-origin",
@@ -88,8 +101,8 @@ func FiberMiddleware(a *fiber.App, healthChecker *health.Checker, logger *slog.L
 		// Add CORS to each route with credentials enabled
 		cors.New(corsConfig),
 		// Limiter
-		generalLimiter(),
-		callbackLimiter(),
+		generalLimiter(store),
+		callbackLimiter(store),
 		// Favicon
 		favicon.New(favicon.Config{
 			File: "./static/favicon.ico",

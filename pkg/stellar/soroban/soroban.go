@@ -25,6 +25,7 @@ import (
 
 	pkgErrors "github.com/Shamba-Records-Limited/microvault/pkg/errors"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/sourcelock"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 )
 
@@ -297,8 +298,15 @@ func applySimulation(op *txnbuild.InvokeHostFunction, simResp *protocol.Simulate
 	return int64(txnbuild.MinBaseFee) + resourceFee, nil
 }
 
+// maxBadSeqAttempts bounds resubmission after txBadSeq. The source lock
+// should make it unreachable; it covers a submission from outside this
+// codebase with the same key, such as a manual admin operation.
+const maxBadSeqAttempts = 3
+
 // submitContractTransaction submits a signed contract transaction and returns
-// the full GetTransactionResponse so callers can inspect result metadata and events.
+// the full GetTransactionResponse so callers can inspect result metadata and
+// events. Submissions from one signer are serialised from loading its
+// sequence number to the result.
 func (s *service) submitContractTransaction(
 	ctx context.Context,
 	signerKP *keypair.Full,
@@ -306,18 +314,43 @@ func (s *service) submitContractTransaction(
 	simResp *protocol.SimulateTransactionResponse,
 	onSigned signedHook,
 ) (protocol.GetTransactionResponse, error) {
+	var resp protocol.GetTransactionResponse
+	err := sourcelock.Hold(ctx, signerKP.Address(), func(ctx context.Context) error {
+		for attempt := 1; ; attempt++ {
+			r, badSeq, err := s.submitOnce(ctx, signerKP, op, simResp, onSigned)
+			if badSeq && attempt < maxBadSeqAttempts {
+				s.logger.WarnContext(ctx, "contract transaction rejected for its sequence number; resubmitting",
+					slog.String(pkgErrors.AttrAddress, signerKP.Address()), slog.Int("attempt", attempt))
+				continue
+			}
+			resp = r
+			return err
+		}
+	})
+	return resp, err
+}
+
+// submitOnce loads the signer's sequence number, signs and submits once.
+// badSeq reports a txBadSeq rejection, which a fresh load can clear.
+func (s *service) submitOnce(
+	ctx context.Context,
+	signerKP *keypair.Full,
+	op *txnbuild.InvokeHostFunction,
+	simResp *protocol.SimulateTransactionResponse,
+	onSigned signedHook,
+) (_ protocol.GetTransactionResponse, badSeq bool, _ error) {
 	empty := protocol.GetTransactionResponse{}
 	errb := coreErr("submit").With(pkgErrors.AttrAddress, signerKP.Address())
 
 	sourceAccount, err := s.rpcClient.LoadAccount(ctx, signerKP.Address())
 	if err != nil {
-		return empty, errb.Code(pkgErrors.CodeTransportFailed).
+		return empty, false, errb.Code(pkgErrors.CodeTransportFailed).
 			Wrapf(err, "could not load the source account")
 	}
 
 	fee, err := applySimulation(op, simResp)
 	if err != nil {
-		return empty, errb.Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not apply the simulation")
+		return empty, false, errb.Code(pkgErrors.CodeDecodeFailed).Wrapf(err, "could not apply the simulation")
 	}
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -330,26 +363,26 @@ func (s *service) submitContractTransaction(
 		Operations: []txnbuild.Operation{op},
 	})
 	if err != nil {
-		return empty, errb.Code(pkgErrors.CodeBuildFailed).
+		return empty, false, errb.Code(pkgErrors.CodeBuildFailed).
 			Wrapf(err, "could not build the contract transaction")
 	}
 
 	// Sign transaction
 	tx, err = tx.Sign(s.networkPassphrase, signerKP)
 	if err != nil {
-		return empty, errb.Code(pkgErrors.CodeBuildFailed).
+		return empty, false, errb.Code(pkgErrors.CodeBuildFailed).
 			Wrapf(err, "could not sign the contract transaction")
 	}
 
 	if onSigned != nil {
 		txHash, err := tx.HashHex(s.networkPassphrase)
 		if err != nil {
-			return empty, errb.Code(pkgErrors.CodeBuildFailed).
+			return empty, false, errb.Code(pkgErrors.CodeBuildFailed).
 				Wrapf(err, "could not hash the signed contract transaction")
 		}
 		validUntil := time.Unix(tx.Timebounds().MaxTime, 0)
 		if err := onSigned(ctx, txHash, validUntil); err != nil {
-			return empty, errb.Code(pkgErrors.CodeStateWriteFailed).With(pkgErrors.AttrTxHash, txHash).
+			return empty, false, errb.Code(pkgErrors.CodeStateWriteFailed).With(pkgErrors.AttrTxHash, txHash).
 				Wrapf(err, "signed transaction could not be recorded; not submitted")
 		}
 	}
@@ -361,7 +394,7 @@ func (s *service) submitContractTransaction(
 	})
 	if err != nil {
 		// The node may have accepted the transaction before the call failed.
-		return empty, errb.Code(pkgErrors.CodeSubmitFailed).
+		return empty, false, errb.Code(pkgErrors.CodeSubmitFailed).
 			Wrapf(fmt.Errorf("%w: %w", types.ErrSubmissionUnconfirmed, err), "could not submit the contract transaction")
 	}
 
@@ -370,9 +403,9 @@ func (s *service) submitContractTransaction(
 	// timeout and report an outcome that is in fact known.
 	switch sendResp.Status {
 	case stellarcore.TXStatusError:
-		return empty, rpc.RejectionError(errb, sendResp)
+		return empty, rpc.IsBadSeq(sendResp.ErrorResultXDR), rpc.RejectionError(errb, sendResp)
 	case stellarcore.TXStatusTryAgainLater:
-		return empty, errb.Code(pkgErrors.CodeSubmitFailed).With(pkgErrors.AttrTxHash, sendResp.Hash).
+		return empty, false, errb.Code(pkgErrors.CodeSubmitFailed).With(pkgErrors.AttrTxHash, sendResp.Hash).
 			Wrapf(types.ErrStellarCoreOverloaded, "stellar-core did not admit the contract transaction")
 	}
 
@@ -381,11 +414,11 @@ func (s *service) submitContractTransaction(
 	pollCfg.Logger = s.logger
 	txResp, err := rpc.PollTransaction(ctx, s.rpcClient, sendResp.Hash, pollCfg)
 	if err != nil {
-		return txResp, err
+		return txResp, false, err
 	}
 
 	if txResp.Status != protocol.TransactionStatusSuccess {
-		return txResp, errb.
+		return txResp, false, errb.
 			Code(pkgErrors.CodeSubmitFailed).
 			With(pkgErrors.AttrTxHash, sendResp.Hash).
 			With("status", txResp.Status).
@@ -396,7 +429,7 @@ func (s *service) submitContractTransaction(
 	// PollTransaction cannot supply it. sendResp.Hash is the canonical hash from
 	// submission — stamp it back on so callers return a real TxHash.
 	txResp.TransactionHash = sendResp.Hash
-	return txResp, nil
+	return txResp, false, nil
 }
 
 var invocationDuration, _ = telemetry.Meter().Float64Histogram("microvault.soroban.invocation.duration",

@@ -141,3 +141,14 @@ func RejectionError(errb oops.OopsErrorBuilder, resp protocol.SendTransactionRes
 
 	return errb.Wrap(sentinel)
 }
+
+// IsBadSeq reports whether stellar-core refused the transaction for its
+// sequence number, which reloading the source account and resubmitting can
+// clear.
+func IsBadSeq(resultXDR string) bool {
+	var result xdr.TransactionResult
+	if resultXDR == "" || xdr.SafeUnmarshalBase64(resultXDR, &result) != nil {
+		return false
+	}
+	return result.Result.Code == xdr.TransactionResultCodeTxBadSeq
+}

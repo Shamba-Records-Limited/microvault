@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
+	"github.com/Shamba-Records-Limited/microvault/pkg/pglock"
 	"github.com/Shamba-Records-Limited/microvault/pkg/telemetry"
 
 	"github.com/samber/lo"
@@ -161,41 +162,22 @@ func (r *Runner[T]) Start(ctx context.Context) {
 	}
 }
 
-// poll runs a single cycle, gated on the advisory lock when r.db is set.
-//
-// No multi-replica deployment exists today — every runner in this package
-// runs as a goroutine inside a single process. This is prophylactic: pinning
-// to one replica has already been the documented rule, and a session-scoped
-// pg_try_advisory_lock through a pooled connection would be worse than no
-// lock at all (a tick can land on a different pooled connection each time,
-// so it never truly serializes, or it leaks a lock nothing releases). The
-// transaction-scoped form auto-releases at commit or rollback and needs no
-// connection pinning, so it costs nothing to have ready before it's needed.
+// poll runs a single cycle, gated on a transaction-scoped advisory lock
+// keyed by direction when r.db is set, so a second process running the same
+// runner skips the tick instead of racing it.
 func (r *Runner[T]) poll(ctx context.Context) {
 	if r.db == nil {
 		r.runOnce(ctx)
 		return
 	}
-
-	tx, err := r.db.BeginTx(ctx, nil)
+	ran, err := pglock.TryXact(ctx, r.db, r.direction, r.runOnce)
 	if err != nil {
-		r.logger.ErrorContext(ctx, "could not open advisory-lock transaction", "error", err)
-		return
-	}
-	// Nothing here is meant to be committed — this transaction exists only to
-	// scope the lock's lifetime to runOnce, so it is always rolled back.
-	defer func() { _ = tx.Rollback() }()
-
-	var acquired bool
-	if err := tx.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock(hashtext($1))", r.direction).Scan(&acquired); err != nil {
 		r.logger.ErrorContext(ctx, "advisory lock check failed", "error", err)
 		return
 	}
-	if !acquired {
-		r.logger.DebugContext(ctx, "skipping tick, another replica holds the lock")
-		return
+	if !ran {
+		r.logger.DebugContext(ctx, "skipping tick, another process holds the lock")
 	}
-	r.runOnce(ctx)
 }
 
 // runOnce fetches a batch and drives each record in it.

@@ -107,3 +107,19 @@ func TestDecodeRejection_NamesAFailedContractInvocation(t *testing.T) {
 
 	assert.Equal(t, []string{"InvokeHostFunctionTrapped"}, DecodeRejection(xdrStr).OpCodes)
 }
+
+func TestIsBadSeq(t *testing.T) {
+	encode := func(code xdr.TransactionResultCode) string {
+		b64, err := xdr.MarshalBase64(xdr.TransactionResult{Result: xdr.TransactionResultResult{Code: code}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b64
+	}
+	if !IsBadSeq(encode(xdr.TransactionResultCodeTxBadSeq)) {
+		t.Error("txBadSeq not recognised")
+	}
+	if IsBadSeq(encode(xdr.TransactionResultCodeTxInsufficientBalance)) || IsBadSeq("") || IsBadSeq("not xdr") {
+		t.Error("only txBadSeq counts")
+	}
+}

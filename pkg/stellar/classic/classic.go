@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/rpc"
+	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/sourcelock"
 	"github.com/Shamba-Records-Limited/microvault/pkg/stellar/types"
 
 	"github.com/samber/oops"
@@ -103,11 +104,21 @@ func NewServiceWithClient(
 	}
 }
 
+// sourceAddress is the account every classic submission here is sourced
+// from, and so the key its submissions are serialised on.
+func (s *service) sourceAddress() string {
+	kp, err := keypair.ParseFull(s.treasurySecretKey)
+	if err != nil {
+		return ""
+	}
+	return kp.Address()
+}
+
 // CreateSponsoredAccount implements the classic create account operation through sponsorship.
 func (s *service) CreateSponsoredAccount(ctx context.Context, req types.CreateAccountRequest) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "stellar.CreateSponsoredAccount")
 	defer span.End()
-	err := s.createSponsoredAccount(ctx, req)
+	err := sourcelock.Hold(ctx, s.sourceAddress(), func(ctx context.Context) error { return s.createSponsoredAccount(ctx, req) })
 	telemetry.RecordError(span, err)
 	return err
 }
@@ -269,7 +280,7 @@ func (s *service) createSponsoredAccount(ctx context.Context, req types.CreateAc
 func (s *service) EstablishSponsoredTrustline(ctx context.Context, req types.EstablishTrustlineRequest) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "stellar.EstablishSponsoredTrustline")
 	defer span.End()
-	err := s.establishSponsoredTrustline(ctx, req)
+	err := sourcelock.Hold(ctx, s.sourceAddress(), func(ctx context.Context) error { return s.establishSponsoredTrustline(ctx, req) })
 	telemetry.RecordError(span, err)
 	return err
 }
@@ -418,7 +429,11 @@ func (s *service) establishSponsoredTrustline(ctx context.Context, req types.Est
 func (s *service) SponsoredPaymentTransaction(ctx context.Context, req types.SponsoredPaymentTransactionRequest) (*types.SponsoredPaymentTransactionResponse, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "stellar.SponsoredPaymentTransaction")
 	defer span.End()
-	resp, err := s.sponsoredPaymentTransaction(ctx, req)
+	var resp *types.SponsoredPaymentTransactionResponse
+	err := sourcelock.Hold(ctx, s.sourceAddress(), func(ctx context.Context) (err error) {
+		resp, err = s.sponsoredPaymentTransaction(ctx, req)
+		return err
+	})
 	telemetry.RecordError(span, err)
 	return resp, err
 }
@@ -618,7 +633,11 @@ func (s *service) AccountExists(ctx context.Context, address string) (bool, erro
 func (s *service) SendUSDC(ctx context.Context, req types.SendUSDCRequest) (*types.SendUSDCResponse, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "stellar.SendUSDC")
 	defer span.End()
-	resp, err := s.sendUSDC(ctx, req)
+	var resp *types.SendUSDCResponse
+	err := sourcelock.Hold(ctx, s.sourceAddress(), func(ctx context.Context) (err error) {
+		resp, err = s.sendUSDC(ctx, req)
+		return err
+	})
 	telemetry.RecordError(span, err)
 	return resp, err
 }

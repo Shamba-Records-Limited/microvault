@@ -2,6 +2,7 @@ package mgpoller
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -182,6 +183,8 @@ type DepositDriverDeps struct {
 	Alerts   AlertService
 	Config   PollerConfig
 	Logger   *slog.Logger
+	// DB gates each tick on an advisory lock; see RunnerDeps.DB. Optional.
+	DB *sql.DB
 }
 
 // NewDepositDriver validates the dependencies and returns a DepositDriver.
@@ -225,6 +228,7 @@ func NewDepositDriver(deps DepositDriverDeps) (*DepositDriver, error) {
 		Fetcher:       FetchFunc[RepaymentRecord](fetcher.GetDueRepayments),
 		Driver:        d,
 		Logger:        d.logger,
+		DB:            deps.DB,
 		LoanID:        func(r RepaymentRecord) string { return r.LoanID },
 		LoanReference: func(r RepaymentRecord) string { return r.LoanReference },
 	})

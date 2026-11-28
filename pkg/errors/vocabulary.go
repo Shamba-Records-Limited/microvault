@@ -132,6 +132,8 @@ const (
 
 	// CodeStateWriteFailed is a database write inside a state transition.
 	CodeStateWriteFailed = "state_write_failed"
+	// CodeLockFailed is an advisory lock that could not be taken or checked.
+	CodeLockFailed = "lock_failed"
 
 	// CodeLoanLoadFailed is a loan row that could not be read.
 	CodeLoanLoadFailed = "loan_load_failed"
