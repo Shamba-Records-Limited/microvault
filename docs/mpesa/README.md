@@ -328,6 +328,13 @@ moving real money is not.
 
 ## Configuration reference
 
+Daraja is optional. With `MPESA_CONSUMER_KEY` and `MPESA_CONSUMER_SECRET`
+unset, neither server validates the rest of `MpesaConfig`, mounts the Daraja
+or Hakikisha routes, or shows the paybill line, and the credit service starts
+no Daraja client, prompt or worker. Setting only one of the pair is a boot
+error. M-Pesa repayments can then come through a ramp instead
+(`REPAYMENT_RAIL_MPESA=chipper`; see [`docs/onramp/chipper.md`](../onramp/chipper.md)).
+
 `MpesaConfig` ([`pkg/config/config.go`](../../pkg/config/config.go)) fields
 worth knowing beyond their doc comments:
 

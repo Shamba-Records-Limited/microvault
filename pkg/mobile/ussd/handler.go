@@ -138,7 +138,7 @@ type HandlerDeps struct {
 
 	// RepayPaybill is the mobile-money paybill number shown on the repay
 	// screens — the configured M-Pesa collection shortcode. Blank hides the
-	// mobile-money option entirely.
+	// paybill line; mobile money is still offered when a prompt rail is.
 	RepayPaybill string
 
 	// MpesaPrompter enables the STK prompt rail when the loan service
@@ -1647,7 +1647,7 @@ func (h *USSDHandler) repayRails(session *Session, chosen repayLoanChoice) []rep
 	if chosen.cashRailEligible() {
 		rails = append(rails, repayRail{key: "cash", label: "repay_rail_cash"})
 	}
-	if h.repayPaybill != "" {
+	if h.repayPaybill != "" || h.mpesaPrompter != nil || h.carrierPrompter != nil {
 		rails = append(rails, repayRail{key: "mobile", label: "repay_rail_mobile"})
 	}
 	return rails
@@ -1665,8 +1665,8 @@ func anyRepaymentOpen(session *Session) bool {
 }
 
 // mobileRepayRails lists the mobile-money options for this loan, in display
-// order: the prompt first (it is the one-tap path), the passive paybill
-// always. An open repayment — any provider — empties the list: the open rail
+// order: the prompt first (it is the one-tap path), then the paybill when one
+// is configured. An open repayment — any provider — empties the list: the open rail
 // must settle or lapse before another is offered.
 //
 // A prompt can only reach a wallet on the network the borrower is dialing
@@ -1696,7 +1696,9 @@ func (h *USSDHandler) mobileRepayRails(session *Session) []repayRail {
 		}
 		rails = append(rails, rail)
 	}
-	rails = append(rails, repayRail{key: "paybill", label: "repay_mobile_paybill"})
+	if h.repayPaybill != "" {
+		rails = append(rails, repayRail{key: "paybill", label: "repay_mobile_paybill"})
+	}
 	return rails
 }
 
@@ -1771,6 +1773,9 @@ func (h *USSDHandler) showRepayMobileMenu(session *Session, chosen repayLoanChoi
 	body.WriteString(Format(session.Language, "repay_mobile_header", chosen.DisplayAmount))
 
 	rails := h.mobileRepayRails(session)
+	if len(rails) == 0 {
+		return h.formatResponse(session.Language, "END", "repay_no_rail"), nil
+	}
 	for i, rail := range rails {
 		fmt.Fprintf(&body, "\n%d. %s", i+1, GetLocalizedMessage(session.Language, rail.label))
 	}

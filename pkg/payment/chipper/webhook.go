@@ -25,6 +25,9 @@ const (
 	EventOrderCompleted      = "order.completed"
 	EventOrderFailed         = "order.failed"
 	EventOrderExpired        = "order.expired"
+	EventDisputeCreated      = "dispute.created"
+	EventDisputeUpdated      = "dispute.updated"
+	EventDisputeClosed       = "dispute.closed"
 	EventWebhookTest         = "webhook.test"
 )
 

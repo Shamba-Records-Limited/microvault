@@ -192,6 +192,44 @@ func TestChipperOrderEventsIgnoredWithoutRepayments(t *testing.T) {
 	require.NoError(t, svc.ProcessChipperEvent(context.Background(), ev))
 }
 
+type fakeChipperDisputes struct {
+	events   []string
+	disputes []*chipper.Dispute
+}
+
+func (f *fakeChipperDisputes) ApplyChipperDispute(_ context.Context, event string, d *chipper.Dispute) error {
+	f.events = append(f.events, event)
+	f.disputes = append(f.disputes, d)
+	return nil
+}
+
+const disputeJSON = `{"id":"dsp_1","collectionId":"col_1","amount":"2578.10","currency":"KES","category":"chargeback","status":"open","createdAt":"2026-11-28T10:00:00Z","updatedAt":"2026-11-28T10:00:00Z"}`
+
+func TestChipperDisputeEventsReachRepayments(t *testing.T) {
+	disputes, alerts := &fakeChipperDisputes{}, &fakeAlerts{}
+	svc := chipperService(&fakeDisb{}, alerts, &fakeChipperPayouts{}, &fakeChipperStore{}).WithChipperDisputes(disputes)
+
+	for _, ev := range []string{chipper.EventDisputeCreated, chipper.EventDisputeUpdated, chipper.EventDisputeClosed} {
+		require.NoError(t, svc.ProcessChipperEvent(context.Background(), chipper.Event{Event: ev, Data: []byte(disputeJSON)}))
+	}
+	assert.Equal(t, []string{chipper.EventDisputeCreated, chipper.EventDisputeUpdated, chipper.EventDisputeClosed}, disputes.events)
+	assert.Equal(t, "col_1", disputes.disputes[0].CollectionID)
+	assert.Zero(t, alerts.count, "the rail raises its own alerts")
+}
+
+// A dispute holds money on our balance, so it reaches ops even with no
+// repayment rail to claim it.
+func TestChipperDisputeAlertsWithoutRepayments(t *testing.T) {
+	alerts := &fakeAlerts{}
+	svc := chipperService(&fakeDisb{}, alerts, &fakeChipperPayouts{}, &fakeChipperStore{})
+	require.NoError(t, svc.ProcessChipperEvent(context.Background(), chipper.Event{Event: chipper.EventDisputeCreated, Data: []byte(disputeJSON)}))
+	assert.Equal(t, 1, alerts.count)
+
+	err := svc.ProcessChipperEvent(context.Background(), chipper.Event{Event: chipper.EventDisputeCreated, Data: []byte(`[]`)})
+	require.Error(t, err)
+	assert.Equal(t, 2, alerts.count, "an unreadable dispute still pages")
+}
+
 // An order's own USDC payout to the treasury also fires payout.completed; it
 // must not be applied as a loan disbursement.
 func TestChipperCryptoPayoutLegIgnored(t *testing.T) {

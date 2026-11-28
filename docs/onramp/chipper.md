@@ -17,7 +17,8 @@ opens, drives and settles the order.
 `REPAYMENT_RAIL_MPESA=chipper`, with Chipper configured and an `MPESA` entry in
 `CHIPPER_METHOD_CODES`. The default, `daraja`, keeps M-Pesa on Daraja. The USSD
 menu does not change: the borrower still picks M-Pesa, and config decides who
-collects. The paybill line stays on Daraja.
+collects. The paybill line stays on Daraja, and disappears when Daraja is not
+configured; Chipper can be a deployment's only M-Pesa path.
 
 ## The flow
 
@@ -59,6 +60,22 @@ collects. The paybill line stays on Daraja.
 
 A failed vault leg retries with backoff and pages ops on the fifth failure; an
 unknown outcome parks the loan until ops verify it on-chain.
+
+## After settlement
+
+A settled repayment can still be challenged on its M-Pesa leg. Chipper can
+open a dispute on the collection, holding the amount on our balance, or
+reverse the collection; it has no `collection.reversed` event.
+
+- The order's `collectionId` is stored on the loan when it settles. A
+  `dispute.*` event names only the collection, so that is how it finds its
+  loan. A dispute that matches no loan is still raised, since the money is
+  held either way.
+- Every six hours the collection of each Chipper repayment from the last 30
+  days is read back. A change to `reversed` or `disputed` is raised once; the
+  last status seen is kept on the loan.
+- The loan stays repaid: the vault was repaid when the money arrived, so any
+  loss is the treasury's. Ops answer disputes in the Chipper dashboard.
 
 ## Webhooks
 

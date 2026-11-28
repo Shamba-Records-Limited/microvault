@@ -77,7 +77,7 @@ func main() {
 		log.Fatalf("Airtel configuration is invalid: %v", err)
 	}
 
-	if err := cfg.Payments.Mpesa.Validate(cfg.Server.ServerEnvironment); err != nil {
+	if err := cfg.Payments.Mpesa.ValidateIfEnabled(cfg.Server.ServerEnvironment); err != nil {
 		log.Fatalf("M-Pesa config invalid: %v", err)
 	}
 
@@ -269,7 +269,7 @@ func main() {
 	// Initialize USSD handler with real services
 	// Note: loanService and disbursementService are nil - will be implemented later
 	repayPaybill := ""
-	if cfg.Payments.Mpesa.CollectionShortcode > 0 {
+	if cfg.Payments.Mpesa.Enabled() && cfg.Payments.Mpesa.CollectionShortcode > 0 {
 		repayPaybill = strconv.FormatUint(uint64(cfg.Payments.Mpesa.CollectionShortcode), 10)
 	}
 	var pilotGate pilot.Gate
@@ -364,7 +364,7 @@ func main() {
 	// and the source-IP allowlist are the controls, and a production deploy
 	// without an allowlist fails closed inside the controller.
 	var darajaController *controllers.DarajaCallbackController
-	if cfg.Payments.Mpesa.CallbackSlug != "" {
+	if cfg.Payments.Mpesa.Enabled() && cfg.Payments.Mpesa.CallbackSlug != "" {
 		resolveLoan := func(ctx context.Context, reference string) (string, error) {
 			return repos.Mpesa.GetLoanIDByReference(ctx, reference)
 		}
@@ -382,7 +382,7 @@ func main() {
 	// — the paperwork (a signed reciprocal agreement) precedes the code path
 	// being reachable at all.
 	var hakikishaController *controllers.DarajaHakikishaController
-	if cfg.Payments.Mpesa.HakikishaUsername != "" && cfg.Payments.Mpesa.HakikishaPassword != "" && cfg.Payments.Mpesa.HakikishaSigningKey != "" {
+	if cfg.Payments.Mpesa.Enabled() && cfg.Payments.Mpesa.HakikishaUsername != "" && cfg.Payments.Mpesa.HakikishaPassword != "" && cfg.Payments.Mpesa.HakikishaSigningKey != "" {
 		hakikishaController = controllers.NewDarajaHakikishaController(
 			repos.Mpesa, cfg.Payments.Mpesa, cfg.Server.ServerEnvironment)
 	}

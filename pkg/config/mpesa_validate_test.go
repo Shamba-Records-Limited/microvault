@@ -132,3 +132,24 @@ func TestMpesaConfigValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestMpesaConfigValidateIfEnabled(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     MpesaConfig
+		wantErr bool
+	}{
+		{"unconfigured boots in production", MpesaConfig{}, false},
+		{"key without secret", MpesaConfig{ConsumerKey: "k"}, true},
+		{"secret without key", MpesaConfig{ConsumerSecret: "s"}, true},
+		{"configured is validated", MpesaConfig{ConsumerKey: "k", ConsumerSecret: "s"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.cfg.ValidateIfEnabled("production")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/govalues/decimal"
 
+	"github.com/Shamba-Records-Limited/microvault/pkg/alerts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/contracts"
 	"github.com/Shamba-Records-Limited/microvault/pkg/logging"
 	"github.com/Shamba-Records-Limited/microvault/pkg/payment/chipper"
@@ -25,6 +26,9 @@ import (
 const chipperRetrySuffix = "_fiat"
 
 const pendingReleaseLimit = 100
+
+// SubjectChipperDispute pages a dispute no repayment rail claimed.
+const SubjectChipperDispute = "Chipper dispute"
 
 // SettlementChecker reports whether a disbursement already reached a
 // terminal outcome, so a repeated webhook does not notify twice.
@@ -73,6 +77,18 @@ func (s *Service) WithChipperOrders(h ChipperOrderHandler) *Service {
 	return s
 }
 
+// ChipperDisputeHandler acts on disputes Chipper opens against our
+// collections.
+type ChipperDisputeHandler interface {
+	ApplyChipperDispute(ctx context.Context, event string, d *chipper.Dispute) error
+}
+
+// WithChipperDisputes routes dispute events to the repayment rail.
+func (s *Service) WithChipperDisputes(h ChipperDisputeHandler) *Service {
+	s.chipperDisputes = h
+	return s
+}
+
 // WithChipper enables Chipper event handling.
 func (s *Service) WithChipper(payouts ChipperPayouts, store ChipperStore) *Service {
 	s.chipperPayouts, s.chipperStore = payouts, store
@@ -97,6 +113,8 @@ func (s *Service) ProcessChipperEvent(ctx context.Context, event chipper.Event) 
 		return s.releaseForDeposit(ctx, event)
 	case chipper.EventOrderFundsReceived, chipper.EventOrderCompleted, chipper.EventOrderFailed, chipper.EventOrderExpired:
 		return s.applyChipperOrder(ctx, event)
+	case chipper.EventDisputeCreated, chipper.EventDisputeUpdated, chipper.EventDisputeClosed:
+		return s.applyChipperDispute(ctx, event)
 	case chipper.EventWebhookTest:
 		slog.InfoContext(ctx, "chipper webhook test received")
 	default:
@@ -115,6 +133,25 @@ func (s *Service) applyChipperOrder(ctx context.Context, event chipper.Event) er
 		return err
 	}
 	return s.chipperOrders.ApplyChipperOrder(ctx, ref)
+}
+
+// applyChipperDispute hands a dispute to the repayment rail. Without one, or
+// when it cannot be read, the dispute is still raised to ops: it holds money
+// on our balance, and the delivery is acknowledged before it is processed.
+func (s *Service) applyChipperDispute(ctx context.Context, event chipper.Event) error {
+	d, err := event.Dispute()
+	if err != nil {
+		alerts.Raise(ctx, s.alerts, nil, SubjectChipperDispute, fmt.Sprintf(
+			"Chipper %s could not be read; check disputes in the Chipper dashboard.", event.Event))
+		return err
+	}
+	if s.chipperDisputes != nil {
+		return s.chipperDisputes.ApplyChipperDispute(ctx, event.Event, d)
+	}
+	alerts.Raise(ctx, s.alerts, nil, SubjectChipperDispute, fmt.Sprintf(
+		"Chipper %s: dispute %s (%s, %s) on collection %s for %s %s. Chipper holds the amount on our balance; respond in the Chipper dashboard.",
+		event.Event, d.ID, d.Category, d.Status, d.CollectionID, d.Amount, d.Currency))
+	return nil
 }
 
 // applyChipperPayout settles a payout that reached completed or failed.

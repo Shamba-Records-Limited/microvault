@@ -119,3 +119,20 @@ func (c *Client) FindCryptoDeposit(ctx context.Context, addressID, txHash string
 	}
 	return nil, false, nil
 }
+
+type collectionEnvelope struct {
+	Collection Collection `json:"collection"`
+}
+
+// GetCollection reads a collection.
+func (c *Client) GetCollection(ctx context.Context, id string) (*Collection, error) {
+	errb := chipperErr("get_collection").With(pkgErrors.AttrCollectionID, id)
+	if id == "" {
+		return nil, errb.Code(pkgErrors.CodeMissingAccount).Errorf("collection id is required")
+	}
+	out, _, err := call[collectionEnvelope](ctx, c, errb, http.MethodGet, "/v1/collections/"+url.PathEscape(id), nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &out.Collection, nil
+}

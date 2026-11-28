@@ -1980,6 +1980,18 @@ func (c AirtelConfig) Enabled() bool { return c.ClientID != "" && c.ClientSecret
 // Enabled reports whether M-Pesa credentials are set.
 func (c MpesaConfig) Enabled() bool { return c.ConsumerKey != "" && c.ConsumerSecret != "" }
 
+// ValidateIfEnabled validates the config when Daraja is configured. Half a
+// credential pair is an error rather than a quietly disabled rail.
+func (c *MpesaConfig) ValidateIfEnabled(serverEnv string) error {
+	if (c.ConsumerKey == "") != (c.ConsumerSecret == "") {
+		return fmt.Errorf("MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET must be set together")
+	}
+	if !c.Enabled() {
+		return nil
+	}
+	return c.Validate(serverEnv)
+}
+
 // Enabled reports whether a MoneyGram anchor is configured.
 func (c MoneyGramConfig) Enabled() bool { return c.HomeDomain != "" }
 

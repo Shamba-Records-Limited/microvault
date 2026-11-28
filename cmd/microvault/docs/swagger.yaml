@@ -379,10 +379,11 @@ definitions:
         example: PAYMENT.COMPLETE
         type: string
       executedAt:
-        description: ExecutedAt is the Unix timestamp (seconds) at which this event
-          occurred.
-        example: 1735689600
-        type: integer
+        description: |-
+          ExecutedAt is when the event occurred. YellowCard documents an ISO 8601
+          string; Unix seconds are accepted too.
+        example: "2026-02-20T14:25:30.459Z"
+        type: string
       id:
         description: PaymentID is YellowCard's own identifier for the payment.
         example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
@@ -829,7 +830,8 @@ paths:
     post:
       consumes:
       - application/x-www-form-urlencoded
-      description: Handle incoming SMS delivery report callbacks from Africa's Talking
+      description: Handle incoming SMS delivery report callbacks (form-encoded from
+        Africa's Talking, JSON from Mobile Sasa)
       parameters:
       - description: SMS provider name (e.g. africastalking)
         in: path
@@ -888,7 +890,7 @@ paths:
       description: Handle USSD callback requests from the USSD gateway. The provider
         is specified in the URL path.
       parameters:
-      - description: USSD provider name (e.g. africastalking)
+      - description: USSD provider name (africastalking or mobilesasa)
         in: path
         name: provider
         required: true
@@ -939,6 +941,48 @@ paths:
       summary: USSD Callback Handler
       tags:
       - Mobile
+  /api/v1/webhooks/chipper:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Delivery id
+        in: header
+        name: webhook-id
+        required: true
+        type: string
+      - description: Unix timestamp
+        in: header
+        name: webhook-timestamp
+        required: true
+        type: string
+      - description: v1 HMAC-SHA256 signature
+        in: header
+        name: webhook-signature
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: ok
+          schema:
+            type: string
+        "400":
+          description: Invalid webhook payload
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "401":
+          description: Signature verification failed
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "503":
+          description: Webhook verification not configured
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Process Chipper Webhook
+      tags:
+      - Webhooks
   /api/v1/webhooks/didit:
     post:
       consumes:
@@ -975,6 +1019,34 @@ paths:
           schema:
             $ref: '#/definitions/fiber.Error'
       summary: Process Didit Webhook
+      tags:
+      - Webhooks
+  /api/v1/webhooks/fonbnk:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Webhook signature
+        in: header
+        name: x-signature
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: ok
+          schema:
+            type: string
+        "401":
+          description: Signature verification failed
+          schema:
+            $ref: '#/definitions/fiber.Error'
+        "503":
+          description: Webhook verification not configured
+          schema:
+            $ref: '#/definitions/fiber.Error'
+      summary: Process Fonbnk Webhook
       tags:
       - Webhooks
   /api/v1/webhooks/merkle:

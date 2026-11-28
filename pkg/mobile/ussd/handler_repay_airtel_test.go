@@ -228,3 +228,45 @@ func TestRepayRails_ReportedAirtelWithRailOffShowsPaybillOnly(t *testing.T) {
 		t.Fatalf("rails = %v, want only paybill", got)
 	}
 }
+
+// Without a paybill (Daraja not configured) a prompt rail still offers
+// mobile money, with no paybill line.
+func TestRepayRails_PromptOnlyWithoutPaybill(t *testing.T) {
+	svc := &promptingLoanSvc{}
+	svc.loans = []any{loanRow("l1", "LN-1", "disbursed")}
+	h := newPromptHarness(t, svc, "")
+
+	if got := railKeys(h.repayRails(&Session{Data: map[string]any{}}, repayLoanChoice{})); strings.Join(got, ",") != "mobile" {
+		t.Fatalf("rails = %v, want mobile", got)
+	}
+	if got := railKeys(h.mobileRepayRails(&Session{Data: map[string]any{}})); strings.Join(got, ",") != "mpesa" {
+		t.Fatalf("mobile rails = %v, want only mpesa", got)
+	}
+}
+
+// With no paybill and no prompt the borrower's network can take, the mobile
+// menu ends rather than rendering an empty list.
+func TestRepayMobileMenu_NothingOfferedEnds(t *testing.T) {
+	svc := &promptingLoanSvc{}
+	svc.loans = []any{loanRow("l1", "LN-1", "disbursed")}
+	h := newPromptHarness(t, svc, "")
+
+	session := &Session{Data: map[string]any{}, NetworkCode: "63903", PhoneNumber: "254733000111"}
+	resp, err := h.showRepayMobileMenu(session, repayLoanChoice{ID: "l1", DisplayAmount: "KES 100.00"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(resp, "END ") {
+		t.Fatalf("resp = %q, want END", resp)
+	}
+}
+
+// With neither a paybill nor a prompt rail, mobile money is not offered.
+func TestRepayRails_NoMobileWithoutPaybillOrPrompt(t *testing.T) {
+	h := newRepayHarness(t, &repayLoanSvc{}, "")
+	for _, r := range h.repayRails(&Session{Data: map[string]any{}}, repayLoanChoice{}) {
+		if r.key == "mobile" {
+			t.Fatal("mobile money was offered with no way to pay")
+		}
+	}
+}
